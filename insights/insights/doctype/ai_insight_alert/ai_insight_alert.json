@@ -42,7 +42,7 @@
    "fieldname": "module",
    "fieldtype": "Select",
    "label": "Module",
-   "options": "\naccounts\nselling\nbuying\nstock\nmanufacturing\ncrm\nhr",
+   "options": "\naccounts\nselling\nbuying\nstock\ncrm\nhr",
    "reqd": 1,
    "in_list_view": 1,
    "in_standard_filter": 1

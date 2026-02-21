@@ -34,7 +34,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Dashboard Type",
-   "options": "\nSales\nRisk\nInventory\nProcurement\nFinancial\nCustomer\nGeneral\nHR\nExecutive\nTax\nMarketing\nManufacturing\nESG\nBudget Variance",
+   "options": "\nSales\nRisk\nInventory\nProcurement\nFinancial\nCustomer\nGeneral\nHR\nExecutive\nTax\nMarketing\nESG\nBudget Variance",
    "reqd": 1
   },
   {

@@ -40,7 +40,7 @@ class DashboardChatSession(Document):
         valid_types = [
             "Sales", "Risk", "Inventory", "Procurement", "Financial",
             "Customer", "General", "HR", "Executive", "Tax",
-            "Marketing", "Manufacturing", "ESG", "Budget Variance"
+            "Marketing", "ESG", "Budget Variance"
         ]
         if self.dashboard_type not in valid_types:
             frappe.throw("Invalid dashboard type")

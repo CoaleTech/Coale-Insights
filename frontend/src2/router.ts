@@ -81,11 +81,6 @@ const routes = [
 		component: () => import('./intelligence/StrategicFinanceIntelligence.vue'),
 	},
 	{
-		path: '/manufacturing-intelligence',
-		name: 'ManufacturingIntelligence',
-		component: () => import('./intelligence/ManufacturingIntelligence.vue'),
-	},
-	{
 		path: '/marketing-crm-intelligence',
 		name: 'MarketingCRMIntelligence',
 		component: () => import('./intelligence/MarketingCRMIntelligence.vue'),
@@ -96,6 +91,11 @@ const routes = [
 		component: () => import('./intelligence/HRIntelligence.vue'),
 	},
 	{
+		path: '/hotel-intelligence',
+		name: 'HotelIntelligence',
+		component: () => import('./intelligence/HotelIntelligence.vue'),
+	},
+	{
 		path: '/esg-intelligence',
 		name: 'ESGIntelligence',
 		component: () => import('./intelligence/ESGIntelligence.vue'),
@@ -104,11 +104,6 @@ const routes = [
 		path: '/budget-variance-intelligence',
 		name: 'BudgetVarianceIntelligence',
 		redirect: '/strategic-finance-intelligence',
-	},
-	{
-		path: '/board-presentation',
-		name: 'BoardPresentationMode',
-		component: () => import('./intelligence/BoardPresentationMode.vue'),
 	},
 	{
 		props: true,

@@ -316,7 +316,7 @@ class HRDataCollector(BaseCollector):
                     FROM `tabAppraisal`
                     WHERE start_date >= %s AND end_date <= %s
                     AND company = %s
-                    AND status = 'Completed'
+                    AND docstatus = 1
                 """, (self.from_date, self.to_date, self.company), as_dict=True)
 
                 appraisal_data = appraisals[0] if appraisals else {}

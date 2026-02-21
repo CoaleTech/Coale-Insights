@@ -28,7 +28,7 @@ class QueryRouter:
                      "board report", "executive summary report", "automated report", "scheduled report"],
             "medium": ["strategic", "planning", "forecast", "governance", "leadership", "management",
                       "quarterly", "annual", "board meeting", "executive summary", "business review",
-                      "report generation", "report scheduling", "email report", "PDF report", "board presentation"],
+                      "report generation", "report scheduling", "email report", "PDF report"],
             "low": ["dashboard", "report", "metrics", "analytics", "intelligence", "insights", "delivery",
                    "notification", "alert", "automation", "schedule", "distribution"]
         },
@@ -70,14 +70,6 @@ class QueryRouter:
                       "skills", "competency", "appraisal", "review", "diversity", "inclusion", "benefits"],
             "low": ["employee satisfaction", "work-life balance", "productivity", "absenteeism", "policy"]
         },
-        "Manufacturing": {
-            "high": ["oee", "overall equipment effectiveness", "production efficiency", "manufacturing", 
-                     "work orders", "shop floor", "workstation", "bottleneck", "throughput", "capacity utilization",
-                     "first pass yield", "production planning", "manufacturing cost", "equipment downtime"],
-            "medium": ["production", "output", "quality", "defects", "rework", "scrap", "machines", "equipment",
-                      "maintenance", "downtime", "efficiency", "lean", "waste", "optimization", "scheduling"],
-            "low": ["capacity", "utilization", "forecast", "demand", "fulfillment", "labor cost", "material cost"]
-        },
         "ESG": {
             "high": ["esg", "environmental", "social", "governance", "sustainability", "carbon", "emissions",
                      "renewable energy", "diversity", "inclusion", "compliance", "ethics", "corporate responsibility",
@@ -91,9 +83,18 @@ class QueryRouter:
                      "budget control", "forecast accuracy", "budget planning", "variance reporting", "budget deviation",
                      "spending variance", "budget performance", "actual vs budget", "budget monitoring"],
             "medium": ["budget", "variance", "actual", "forecast", "planning", "spending", "allocation", "deviation",
-                      "budget utilization", "forecast error", "budget review", "financial planning", "cost control", 
+                      "budget utilization", "forecast error", "budget review", "financial planning", "cost control",
                       "expense management", "budget tracking", "variance threshold", "budget alerts"],
             "low": ["spend", "cost", "expense", "allocation", "monitoring", "control", "financial", "planning"]
+        },
+        "Hotel": {
+            "high": ["hotel", "occupancy", "revpar", "adr", "average daily rate", "revenue per available room",
+                     "check-in", "checkout", "night audit", "housekeeping", "room rate", "goppar",
+                     "front desk", "reservation", "revpash", "banquet", "event hall"],
+            "medium": ["room", "guest", "booking", "bed", "meal plan", "concierge", "amenity", "vip",
+                       "loyalty", "arrivals", "departures", "room type", "suite", "minibar",
+                       "room service", "folio", "no show", "overbooking", "channel manager"],
+            "low": ["stay", "accommodation", "hospitality", "check out", "property", "reception"]
         }
     }
     
@@ -246,9 +247,9 @@ class QueryRouter:
             "Financial": "profit & loss, cash flow, financial ratios, and tax compliance",
             "Customer": "customer lifetime value, churn analysis, segmentation, and retention",
             "HR": "workforce analytics, talent management, employee retention, and payroll optimization",
-			"Manufacturing": "production efficiency, OEE analysis, capacity planning, and quality optimization",
 			"ESG": "environmental impact, social responsibility, governance compliance, and sustainability reporting",
-			"Budget": "budget variance analysis, forecast accuracy, spending control, and financial planning optimization"
+			"Budget": "budget variance analysis, forecast accuracy, spending control, and financial planning optimization",
+            "Hotel": "hotel occupancy analytics, RevPAR, guest intelligence, revenue management, and F&B operations"
         }
         return descriptions.get(dashboard_type, f"{dashboard_type} intelligence and analytics")
 

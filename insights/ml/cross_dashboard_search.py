@@ -66,12 +66,6 @@ class CrossDashboardSearchService:
                 "search_fields": ["workforce_summary", "retention_analysis", "performance_metrics"],
                 "weight": 1.0
             },
-            "manufacturing": {
-                "name": "Manufacturing Intelligence",
-                "keywords": ["manufacturing", "production", "oee", "quality", "efficiency", "capacity"],
-                "search_fields": ["production_summary", "oee_analysis", "quality_metrics"],
-                "weight": 1.0
-            },
             "sales": {
                 "name": "Sales Intelligence",
                 "keywords": ["sales", "revenue", "pipeline", "customer", "deal", "quota", "territory"],
@@ -359,7 +353,7 @@ class CrossDashboardSearchService:
         }
         
         # Department patterns
-        dept_patterns = ["sales", "marketing", "hr", "finance", "operations", "manufacturing"]
+        dept_patterns = ["sales", "marketing", "hr", "finance", "operations"]
         for pattern in dept_patterns:
             if pattern in query:
                 entities["departments"].append(pattern)
@@ -818,7 +812,6 @@ class CrossDashboardSearchService:
             "budget variance by department",
             "employee retention rate",
             "sales performance this quarter",
-            "manufacturing efficiency trends",
             "customer satisfaction scores",
             "financial health overview",
             "ESG compliance status",

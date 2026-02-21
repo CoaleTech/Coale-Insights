@@ -63,11 +63,11 @@ class SalesIntelligence(BaseMLModel):
                 si.sales_partner,
                 si.total_commission,
                 si.conversion_rate,
-                CASE 
+                CASE
                     WHEN si.outstanding_amount = 0 AND si.grand_total > 0 THEN 'Cash'
                     WHEN si.outstanding_amount > 0 THEN 'Credit'
                     ELSE 'Other'
-                END as payment_mode,
+                END as payment_type,
                 YEAR(si.posting_date) as year,
                 MONTH(si.posting_date) as month,
                 WEEK(si.posting_date) as week,
@@ -181,6 +181,26 @@ class SalesIntelligence(BaseMLModel):
         """
         return self.get_training_data(query)
     
+    def _get_payment_mode_data(self) -> pd.DataFrame:
+        """Get actual payment mode data from Sales Invoice Payment child table"""
+        query = f"""
+            SELECT
+                si.name as invoice_id,
+                si.posting_date,
+                sip.mode_of_payment,
+                sip.amount,
+                YEAR(si.posting_date) as year,
+                MONTH(si.posting_date) as month,
+                DATE(si.posting_date) as sale_date
+            FROM `tabSales Invoice` si
+            JOIN `tabSales Invoice Payment` sip ON si.name = sip.parent
+            WHERE si.docstatus = 1
+                AND si.is_return = 0
+                {self.DATE_FILTER_24M}
+            ORDER BY si.posting_date DESC
+        """
+        return self.get_training_data(query)
+
     # ==================== REVENUE METRICS ====================
     
     def calculate_revenue_metrics(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
@@ -266,59 +286,141 @@ class SalesIntelligence(BaseMLModel):
     
     # ==================== PAYMENT MIX ANALYSIS ====================
     
-    def calculate_payment_mix(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze cash vs credit payment ratios"""
+    def calculate_payment_mix(self, sales_df: pd.DataFrame, payment_mode_df: pd.DataFrame = None) -> Dict[str, Any]:
+        """Analyze payment mode breakdown using actual payment modes from Sales Invoice Payment.
+
+        Uses the `tabSales Invoice Payment` child table for real mode_of_payment data
+        (Cash, M-Pesa, Bank Transfer, Card, etc.). Invoices without payment entries are
+        classified as 'Credit/Outstanding'.
+
+        Args:
+            sales_df: Sales invoice data (used to identify credit/outstanding invoices)
+            payment_mode_df: Payment mode data from _get_payment_mode_data()
+        """
         if sales_df.empty:
-            return {'cash_ratio': 0, 'credit_ratio': 0, 'daily_mix': [], 'monthly_mix': []}
-        
+            return {
+                'cash_ratio': 0, 'credit_ratio': 0,
+                'modes': [], 'daily_mix': [], 'monthly_mix': [], 'today_mix': [],
+            }
+
         revenue_df = sales_df[sales_df['is_return'] == 0].copy()
         revenue_df['sale_date'] = pd.to_datetime(revenue_df['sale_date'])
-        
-        # Overall mix
-        total = revenue_df['grand_total'].sum()
-        cash_total = revenue_df[revenue_df['payment_mode'] == 'Cash']['grand_total'].sum()
-        credit_total = revenue_df[revenue_df['payment_mode'] == 'Credit']['grand_total'].sum()
-        
-        cash_ratio = (cash_total / total * 100) if total > 0 else 0
-        credit_ratio = (credit_total / total * 100) if total > 0 else 0
-        
-        # Daily mix (last 30 days)
         today = datetime.now().date()
-        last_30 = revenue_df[revenue_df['sale_date'] >= (pd.Timestamp(today) - timedelta(days=30))]
-        daily_mix = last_30.groupby(['sale_date', 'payment_mode'])['grand_total'].sum().unstack(fill_value=0).reset_index()
-        if 'Cash' not in daily_mix.columns:
-            daily_mix['Cash'] = 0
-        if 'Credit' not in daily_mix.columns:
-            daily_mix['Credit'] = 0
-        daily_mix['total'] = daily_mix['Cash'] + daily_mix['Credit']
-        daily_mix['cash_pct'] = (daily_mix['Cash'] / daily_mix['total'] * 100).fillna(0)
-        daily_mix['sale_date'] = daily_mix['sale_date'].astype(str)
-        
-        # Monthly mix
-        monthly_mix = revenue_df.groupby(['year', 'month', 'payment_mode'])['grand_total'].sum().unstack(fill_value=0).reset_index()
-        if 'Cash' not in monthly_mix.columns:
-            monthly_mix['Cash'] = 0
-        if 'Credit' not in monthly_mix.columns:
-            monthly_mix['Credit'] = 0
-        monthly_mix['total'] = monthly_mix['Cash'] + monthly_mix['Credit']
-        monthly_mix['cash_pct'] = (monthly_mix['Cash'] / monthly_mix['total'] * 100).fillna(0)
-        monthly_mix['period'] = monthly_mix.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
-        
-        # Today's mix
-        today_df = revenue_df[revenue_df['sale_date'] == pd.Timestamp(today)]
-        today_total = today_df['grand_total'].sum()
-        today_cash = today_df[today_df['payment_mode'] == 'Cash']['grand_total'].sum()
-        today_cash_pct = (today_cash / today_total * 100) if today_total > 0 else 0
-        
+
+        # --- Build combined payment data ---
+        # Start with actual payment mode entries
+        if payment_mode_df is not None and not payment_mode_df.empty:
+            pm_df = payment_mode_df.copy()
+            pm_df['sale_date'] = pd.to_datetime(pm_df['sale_date'])
+            pm_df['mode_of_payment'] = pm_df['mode_of_payment'].fillna('Unknown')
+        else:
+            pm_df = pd.DataFrame(columns=['invoice_id', 'posting_date', 'mode_of_payment', 'amount', 'year', 'month', 'sale_date'])
+
+        # Identify invoices that have NO payment entries (credit/outstanding)
+        invoices_with_payments = set(pm_df['invoice_id'].unique()) if not pm_df.empty else set()
+        credit_invoices = revenue_df[~revenue_df['invoice_id'].isin(invoices_with_payments)].copy()
+
+        if not credit_invoices.empty:
+            credit_rows = pd.DataFrame({
+                'invoice_id': credit_invoices['invoice_id'],
+                'posting_date': credit_invoices['posting_date'],
+                'mode_of_payment': 'Credit/Outstanding',
+                'amount': credit_invoices['grand_total'],
+                'year': credit_invoices['year'],
+                'month': credit_invoices['month'],
+                'sale_date': credit_invoices['sale_date'],
+            })
+            pm_df = pd.concat([pm_df, credit_rows], ignore_index=True)
+
+        if pm_df.empty:
+            return {
+                'cash_ratio': 0, 'credit_ratio': 0,
+                'modes': [], 'daily_mix': [], 'monthly_mix': [], 'today_mix': [],
+            }
+
+        pm_df['sale_date'] = pd.to_datetime(pm_df['sale_date'])
+        pm_df['amount'] = pd.to_numeric(pm_df['amount'], errors='coerce').fillna(0)
+
+        # --- Overall mode breakdown ---
+        total = float(pm_df['amount'].sum())
+        mode_totals = pm_df.groupby('mode_of_payment')['amount'].sum().reset_index()
+        mode_totals.columns = ['mode', 'total']
+        mode_totals = mode_totals.sort_values('total', ascending=False)
+        mode_totals['percentage'] = (mode_totals['total'] / total * 100).round(1) if total > 0 else 0
+        mode_totals['total'] = mode_totals['total'].astype(float)
+        modes_list = mode_totals.to_dict('records')
+        all_modes = mode_totals['mode'].tolist()
+
+        # --- Backward-compatible cash/credit ratios ---
+        # "Cash" mode counts as cash; "Credit/Outstanding" counts as credit;
+        # everything else (M-Pesa, Bank Transfer, Card) counts as cash (paid)
+        credit_total = float(mode_totals[mode_totals['mode'] == 'Credit/Outstanding']['total'].sum())
+        cash_total = float(total - credit_total)
+        cash_ratio = round((cash_total / total * 100), 1) if total > 0 else 0
+        credit_ratio = round((credit_total / total * 100), 1) if total > 0 else 0
+
+        # --- Daily mix (last 30 days) ---
+        last_30 = pm_df[pm_df['sale_date'] >= (pd.Timestamp(today) - timedelta(days=30))]
+        daily_mix_records = []
+        if not last_30.empty:
+            daily_pivot = last_30.groupby(['sale_date', 'mode_of_payment'])['amount'].sum().unstack(fill_value=0).reset_index()
+            # Ensure all modes have columns
+            for mode in all_modes:
+                if mode not in daily_pivot.columns:
+                    daily_pivot[mode] = 0
+            daily_pivot['total'] = daily_pivot[all_modes].sum(axis=1)
+            daily_pivot['sale_date'] = daily_pivot['sale_date'].astype(str)
+            # Build records with per-mode amounts
+            for _, row in daily_pivot.iterrows():
+                record = {'sale_date': row['sale_date'], 'total': float(row['total'])}
+                for mode in all_modes:
+                    record[mode] = float(row.get(mode, 0))
+                daily_mix_records.append(record)
+
+        # --- Monthly mix ---
+        monthly_mix_records = []
+        if not pm_df.empty:
+            monthly_pivot = pm_df.groupby(['year', 'month', 'mode_of_payment'])['amount'].sum().unstack(fill_value=0).reset_index()
+            for mode in all_modes:
+                if mode not in monthly_pivot.columns:
+                    monthly_pivot[mode] = 0
+            monthly_pivot['total'] = monthly_pivot[all_modes].sum(axis=1)
+            monthly_pivot['period'] = monthly_pivot.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
+            for _, row in monthly_pivot.iterrows():
+                record = {'period': row['period'], 'total': float(row['total'])}
+                for mode in all_modes:
+                    record[mode] = float(row.get(mode, 0))
+                monthly_mix_records.append(record)
+
+        # --- Today's mix ---
+        today_mix_records = []
+        today_df = pm_df[pm_df['sale_date'] == pd.Timestamp(today)]
+        if not today_df.empty:
+            today_by_mode = today_df.groupby('mode_of_payment')['amount'].sum().reset_index()
+            today_by_mode.columns = ['mode', 'total']
+            today_total = float(today_by_mode['total'].sum())
+            today_by_mode['percentage'] = (today_by_mode['total'] / today_total * 100).round(1) if today_total > 0 else 0
+            today_by_mode['total'] = today_by_mode['total'].astype(float)
+            today_mix_records = today_by_mode.to_dict('records')
+
+        # --- Backward-compatible today_cash_pct ---
+        today_total_val = float(today_df['amount'].sum()) if not today_df.empty else 0
+        today_credit = float(today_df[today_df['mode_of_payment'] == 'Credit/Outstanding']['amount'].sum()) if not today_df.empty else 0
+        today_cash_pct = round(((today_total_val - today_credit) / today_total_val * 100), 1) if today_total_val > 0 else 0
+
         return {
-            'cash_ratio': round(cash_ratio, 1),
-            'credit_ratio': round(credit_ratio, 1),
-            'cash_total': float(cash_total),
-            'credit_total': float(credit_total),
-            'today_cash_pct': round(today_cash_pct, 1),
-            'today_total': float(today_total),
-            'daily_mix': daily_mix[['sale_date', 'Cash', 'Credit', 'total', 'cash_pct']].to_dict('records'),
-            'monthly_mix': monthly_mix[['period', 'Cash', 'Credit', 'total', 'cash_pct']].to_dict('records'),
+            # Backward-compatible fields
+            'cash_ratio': cash_ratio,
+            'credit_ratio': credit_ratio,
+            'cash_total': cash_total,
+            'credit_total': credit_total,
+            'today_cash_pct': today_cash_pct,
+            'today_total': today_total_val,
+            # New per-mode breakdown
+            'modes': modes_list,
+            'daily_mix': daily_mix_records,
+            'monthly_mix': monthly_mix_records,
+            'today_mix': today_mix_records,
         }
     
     # ==================== SALES REP PERFORMANCE ====================
@@ -806,13 +908,14 @@ class SalesIntelligence(BaseMLModel):
         sales_team_df = self._get_sales_team_data()
         quotation_df = self._get_quotation_data()
         orders_df = self._get_sales_orders()
-        
+        payment_mode_df = self._get_payment_mode_data()
+
         if sales_df.empty:
             return {"status": "error", "message": "No sales data found"}
-        
+
         # Run all analytics
         revenue_metrics = self.calculate_revenue_metrics(sales_df)
-        payment_mix = self.calculate_payment_mix(sales_df)
+        payment_mix = self.calculate_payment_mix(sales_df, payment_mode_df)
         sales_reps = self.analyze_sales_reps(sales_team_df, quotation_df)
         comparisons = self.calculate_comparisons(sales_df)
         dimensions = self.analyze_by_dimensions(sales_df, items_df)

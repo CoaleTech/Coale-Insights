@@ -263,7 +263,7 @@ class CrossDashboardSearchAgent:
             "message": "I can help you search across all intelligence dashboards. Here's what I can do:",
             "capabilities": [
                 "🔍 Search for specific metrics, alerts, or insights",
-                "📊 Find data across Executive, Financial, HR, Manufacturing, and other dashboards", 
+                "📊 Find data across Executive, Financial, HR, and other dashboards",
                 "🚀 Navigate between different intelligence modules",
                 "📈 Compare metrics across different departments or time periods",
                 "💡 Provide recommendations based on your queries",
@@ -272,7 +272,6 @@ class CrossDashboardSearchAgent:
             "sample_queries": [
                 "Show me budget variance alerts",
                 "Find HR retention metrics",
-                "Navigate to the manufacturing dashboard",
                 "Compare sales performance across regions",
                 "What are the key executive insights?",
                 "Show me ESG compliance status"

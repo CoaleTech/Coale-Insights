@@ -381,43 +381,6 @@
             </template>
           </div>
 
-          <!-- Manufacturing KPIs -->
-          <div v-if="kpis.manufacturing && !kpis.manufacturing.error" class="space-y-4">
-            <h3 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <Factory class="w-5 h-5 text-teal-600" />
-              Manufacturing
-            </h3>
-            <template
-              v-for="(kpi, key) in kpis.manufacturing"
-              :key="'manufacturing' + key"
-            >
-            <div
-              v-if="kpi && typeof kpi === 'object' && !kpi.error"
-              class="bg-white p-4 rounded-lg shadow-sm border"
-            >
-              <div class="flex items-center justify-between mb-2">
-                <div class="text-sm font-medium text-gray-500">{{ kpi.label }}</div>
-                <div :class="'w-3 h-3 rounded-full ' + getRagColor(kpi.rag_status)"></div>
-              </div>
-              <div class="text-2xl font-bold text-gray-900">
-                {{ formatKpiValue(kpi.value, kpi.format) }}
-              </div>
-              <div v-if="kpi.variance_pct !== undefined" :class="getVarianceColor(kpi.variance_pct)" class="text-sm mt-1">
-                {{ kpi.variance_pct >= 0 ? '&#8593;' : '&#8595;' }} {{ Math.abs(kpi.variance_pct).toFixed(1) }}% vs target
-              </div>
-              <div v-if="getTrendData('oee').length > 1" class="mt-2">
-                <svg class="w-full h-8" viewBox="0 0 100 20">
-                  <path
-                    :d="generateSparkline(getTrendData('oee'))"
-                    fill="none"
-                    :stroke="getVarianceColor(kpi.variance_pct).includes('green') ? '#10b981' : '#ef4444'"
-                    stroke-width="1"
-                  />
-                </svg>
-              </div>
-            </div>
-            </template>
-          </div>
         </div>
       </div>
 
@@ -495,8 +458,7 @@ import {
   Shield,
   FileText,
   Calendar,
-  UserCog,
-  Factory
+  UserCog
 } from 'lucide-vue-next'
 import { apiCall } from '../helpers/api'
 import { useRouter } from 'vue-router'

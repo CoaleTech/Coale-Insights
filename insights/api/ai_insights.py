@@ -119,8 +119,6 @@ def get_business_intelligence_insights(module: str, doctype: str = None, filters
             insights = integrator.get_procurement_insights(filter_dict)
         elif module.lower() == "stock":
             insights = integrator.get_inventory_insights(filter_dict)
-        elif module.lower() == "manufacturing":
-            insights = integrator.get_manufacturing_insights(filter_dict)
         elif module.lower() == "projects":
             insights = integrator.get_project_insights(filter_dict)
         elif module.lower() == "crm":

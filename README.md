@@ -81,7 +81,6 @@ Frappe Insights is a comprehensive business intelligence platform built on the F
 - **3-Tier Caching** — Redis (hot) → Database (warm) → API (cold) with automatic tier promotion
 - **Performance Pipeline** — Thread-pool execution with 3 optimization levels and real-time metrics
 - **ERPNext v15 Deep Integration** — Hooks into 9 ERPNext modules (Accounts, Selling, Buying, Stock, Manufacturing, Projects, CRM, HR, Assets)
-- **Board Presentation Mode** — Executive-ready slide presentations with PowerPoint export
 - **Cross-Dashboard Search** — Unified semantic search across all intelligence dashboards
 
 ---
@@ -172,7 +171,6 @@ insights/
 | **Tax Intelligence** | `/tax-intelligence` | Kenya Corporate Tax (30%), capital allowances, KRA quarterly scheduling, WHT |
 | **ESG Intelligence** | `/esg-intelligence` | Environmental/Social/Governance metrics, carbon tracking, sustainability reporting |
 | **Budget Variance** | `/strategic-finance-intelligence` | Budget vs actual, forecast accuracy, department performance, variance alerts |
-| **Board Presentation** | `/board-presentation` | Full-screen executive presentations with PowerPoint export |
 
 Each dashboard includes an **AI chat assistant** (floating chat button) for natural-language interaction with the data.
 
@@ -266,7 +264,6 @@ The OpenRouter client tries models in priority order, with fast-fail on rate lim
 | **Customer Intelligence** | Package | CLV (BG/NBD), RFM, churn prediction, health scoring, cohort analysis |
 | **Strategic Finance** | Package | 13-week cash flow, runway, CAPEX, scenario analysis (Monte Carlo) |
 | **Cross-Dashboard Search** | 910 | Semantic search, relevance scoring, intelligent routing |
-| **Presentation Service** | 676 | Board-ready slides, PowerPoint export, executive summary generation |
 
 ---
 

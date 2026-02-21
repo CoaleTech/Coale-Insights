@@ -164,20 +164,3 @@ def get_ml_insights_summary() -> Dict[str, Any]:
         return success(result)
     except Exception as e:
         return error(str(e))
-
-
-@frappe.whitelist()
-def generate_presentation_data(dashboard_type: str, dashboard_data=None, presentation_type: str = "executive") -> Dict[str, Any]:
-    """Generate board-ready presentation data for intelligence dashboards"""
-    try:
-        import json as _json
-        from insights.ml.presentation_service import PresentationModeService
-
-        if isinstance(dashboard_data, str):
-            dashboard_data = _json.loads(dashboard_data)
-
-        service = PresentationModeService()
-        result = service.generate_presentation_data(dashboard_type, dashboard_data or {}, presentation_type)
-        return result
-    except Exception as e:
-        return {"error": str(e)}

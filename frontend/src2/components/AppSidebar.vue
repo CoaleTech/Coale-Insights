@@ -48,17 +48,16 @@ import { useStorage } from '@vueuse/core'
 import {
 	Book,
 	Brain,
+	Building2,
 	Database,
 	DatabaseZap,
 	DollarSign,
-	Factory,
 	LayoutDashboard,
 	LayoutGrid,
 	Leaf,
 	Megaphone,
 	Package,
 	PanelRightOpen,
-	Presentation,
 	SettingsIcon,
 	ShieldAlert,
 	ShoppingCart,
@@ -132,11 +131,6 @@ const links = ref([
 		to: 'StrategicFinanceIntelligence',
 	},
 	{
-		label: 'Manufacturing',
-		icon: Factory,
-		to: 'ManufacturingIntelligence',
-	},
-	{
 		label: 'Marketing/CRM',
 		icon: Megaphone,
 		to: 'MarketingCRMIntelligence',
@@ -152,14 +146,14 @@ const links = ref([
 		to: 'ESGIntelligence',
 	},
 	{
+		label: 'Hotel Intelligence',
+		icon: Building2,
+		to: 'HotelIntelligence',
+	},
+	{
 		label: 'Executive Dashboard',
 		icon: LayoutDashboard,
 		to: 'ExecutiveDashboard',
-	},
-	{
-		label: 'Board Presentations',
-		icon: Presentation,
-		to: 'BoardPresentationMode',
 	},
 	{
 		label: 'Workbooks',

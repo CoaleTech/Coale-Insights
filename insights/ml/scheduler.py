@@ -242,7 +242,8 @@ def run_all_ml_models():
     results['demand_forecast'] = train_demand_forecast()
     results['product_recommendations'] = train_product_recommendations()
     results['customer_intelligence'] = train_customer_intelligence()
-    
+    results['hotel_intelligence'] = train_hotel_intelligence()
+
     frappe.logger().info("All ML models training completed")
     
     return results
@@ -352,12 +353,12 @@ def train_sales_intelligence():
     """Daily: Train comprehensive sales intelligence model"""
     try:
         from insights.ml.sales_intelligence import SalesIntelligence
-        
+
         frappe.logger().info("Starting scheduled sales intelligence training")
-        
+
         model = SalesIntelligence()
         result = model.train()
-        
+
         if result.get('status') == 'success':
             summary = result.get('summary', {})
             frappe.logger().info(
@@ -370,9 +371,39 @@ def train_sales_intelligence():
             frappe.logger().warning(
                 f"Sales intelligence failed: {result.get('message', 'Unknown error')}"
             )
-        
+
         return result
-        
+
     except Exception as e:
         frappe.log_error(f"Scheduled sales intelligence failed: {str(e)}", "ML Scheduler")
+        return {"status": "error", "message": str(e)}
+
+
+def train_hotel_intelligence():
+    """Daily: Train hotel intelligence model"""
+    try:
+        from insights.ml.hotel_intelligence import HotelIntelligence
+
+        frappe.logger().info("Starting scheduled hotel intelligence training")
+
+        model = HotelIntelligence()
+        result = model.train()
+
+        if result.get('status') == 'success':
+            occupancy = result.get('occupancy', {})
+            frappe.logger().info(
+                f"Hotel intelligence completed: "
+                f"Occupancy: {occupancy.get('occupancy_rate', 0):.1f}%, "
+                f"ADR: {occupancy.get('adr', 0):,.0f}, "
+                f"RevPAR: {occupancy.get('revpar', 0):,.0f}"
+            )
+        else:
+            frappe.logger().warning(
+                f"Hotel intelligence failed: {result.get('message', 'Unknown error')}"
+            )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Scheduled hotel intelligence failed: {str(e)}", "ML Scheduler")
         return {"status": "error", "message": str(e)}

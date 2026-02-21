@@ -263,15 +263,6 @@ class ExecutiveReports:
                 logger.warning(f"Could not load HR intelligence: {e}")
                 data["hr"] = {}
             
-            # Manufacturing intelligence
-            try:
-                from insights.ml.manufacturing_intelligence import ManufacturingIntelligence
-                mfg_intel = ManufacturingIntelligence()
-                data["manufacturing"] = mfg_intel.get_manufacturing_overview("MTD")
-            except Exception as e:
-                logger.warning(f"Could not load manufacturing intelligence: {e}")
-                data["manufacturing"] = {}
-            
             # Marketing intelligence
             try:
                 from insights.ml.marketing_intelligence import MarketingIntelligence
@@ -334,14 +325,6 @@ class ExecutiveReports:
             except:
                 data["hr"] = {}
             
-            # Manufacturing intelligence
-            try:
-                from insights.ml.manufacturing_intelligence import ManufacturingIntelligence
-                mfg_intel = ManufacturingIntelligence()
-                data["manufacturing"] = mfg_intel.get_manufacturing_overview(period)
-            except:
-                data["manufacturing"] = {}
-            
             # Marketing intelligence
             try:
                 from insights.ml.marketing_intelligence import MarketingIntelligence
@@ -382,13 +365,6 @@ class ExecutiveReports:
                 if cash_flow:
                     net_flow = cash_flow.get("net_cash_flow", 0)
                     summary_points.append(f"Net cash flow: ${net_flow:,.0f}")
-            
-            # Manufacturing efficiency
-            mfg_data = report_data.get("manufacturing", {})
-            oee_data = mfg_data.get("oee_analysis", {})
-            if oee_data:
-                oee_score = oee_data.get("oee_score_pct", 0)
-                summary_points.append(f"Manufacturing OEE: {oee_score}%")
             
             # Create summary
             if summary_points:
@@ -439,11 +415,6 @@ class ExecutiveReports:
                 cash_flow = fin_data.get("cash_flow", {})
                 key_metrics["cash_flow"] = cash_flow.get("net_cash_flow", 0)
             
-            mfg_data = report_data.get("manufacturing", {})
-            if mfg_data:
-                oee_data = mfg_data.get("oee_analysis", {})
-                key_metrics["oee_score"] = oee_data.get("oee_score_pct", 0)
-            
             mkt_data = report_data.get("marketing", {})
             if mkt_data:
                 lead_metrics = mkt_data.get("lead_metrics", {})
@@ -489,19 +460,6 @@ class ExecutiveReports:
                         "type": "Cash Flow", 
                         "message": f"Negative cash flow: ${net_flow:,.0f}",
                         "action_required": "Review receivables and payables"
-                    })
-            
-            # Check manufacturing efficiency
-            mfg_data = report_data.get("manufacturing", {})
-            oee_data = mfg_data.get("oee_analysis", {})
-            if oee_data:
-                oee_score = oee_data.get("oee_score_pct", 0)
-                if oee_score < 60:
-                    alerts.append({
-                        "priority": "medium",
-                        "type": "Manufacturing",
-                        "message": f"Low OEE score: {oee_score}%",
-                        "action_required": "Review production efficiency"
                     })
             
             # Check sales performance
@@ -567,14 +525,6 @@ class ExecutiveReports:
             if sales_data.get("sales_metrics", {}):
                 highlights.append("Sales performance tracking on target")
             
-            # Manufacturing highlights  
-            mfg_data = report_data.get("manufacturing", {})
-            oee_data = mfg_data.get("oee_analysis", {})
-            if oee_data:
-                oee_score = oee_data.get("oee_score_pct", 0)
-                if oee_score >= 85:
-                    highlights.append(f"Excellent manufacturing efficiency: {oee_score}% OEE")
-            
             # Default highlight if none found
             if not highlights:
                 highlights.append("Business operations running smoothly")
@@ -625,7 +575,6 @@ class ExecutiveReports:
         """Extract highlights from each department"""
         return {
             "sales": "Quota achievement on track",
-            "manufacturing": "Production efficiency improved",
             "hr": "Employee engagement stable",
             "finance": "Cash flow management effective",
             "marketing": "Lead generation meeting targets"

@@ -79,5 +79,5 @@ from .general import *
 from .risk import *
 from .tax import *
 from .strategic_finance import *
-from .manufacturing import *
 from .esg import *
+from .hotel import *

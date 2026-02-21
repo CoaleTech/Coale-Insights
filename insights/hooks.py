@@ -170,6 +170,7 @@ scheduler_events = {
         "insights.ml.scheduler.train_payment_prediction",
         "insights.ml.scheduler.train_customer_intelligence",
         "insights.ml.scheduler.train_sales_intelligence",
+        "insights.ml.scheduler.train_hotel_intelligence",
         # AI Proactive Insights (TODO: implement)
         # Executive Reports - Daily
         "insights.reports.executive_reports.generate_daily_executive_report",

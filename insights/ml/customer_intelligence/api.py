@@ -482,7 +482,7 @@ def _get_customer_cross_sell(customer_id: str, clv_tier: str) -> List[Dict[str, 
                             "reason": f"Explore {item.get('item_group', 'new category')}"
                         })
 
-        unique_recs.sort(key=lambda x: x['confidence'], reverse=True)
+        unique_recs.sort(key=lambda x: x.get('confidence') or 0, reverse=True)
         return unique_recs[:10]
 
     except Exception as e:

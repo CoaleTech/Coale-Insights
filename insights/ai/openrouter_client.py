@@ -341,7 +341,7 @@ Format your response with clear sections using markdown."""
     def generate_response(self, prompt: str, system_prompt: str = None, **kwargs) -> str:
         """
         Generate AI response from a prompt string.
-        Compatibility method used by Marketing and Manufacturing agents.
+        Compatibility method used by Marketing agent.
         
         Args:
             prompt: The user prompt

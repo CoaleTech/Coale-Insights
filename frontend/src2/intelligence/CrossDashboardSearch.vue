@@ -519,7 +519,6 @@ import {
   PieChart,
   Users,
   DollarSign,
-  Factory,
   Heart,
   Leaf,
   Building,
@@ -568,7 +567,6 @@ const availableDashboards = ref([
   { id: 'financial', name: 'Financial Intelligence' },
   { id: 'budget', name: 'Budget Variance Intelligence' },
   { id: 'hr', name: 'HR Intelligence' },
-  { id: 'manufacturing', name: 'Manufacturing Intelligence' },
   { id: 'sales', name: 'Sales Intelligence' },
   { id: 'customer', name: 'Customer Intelligence' },
   { id: 'esg', name: 'ESG Intelligence' }
@@ -841,7 +839,6 @@ const getDashboardIcon = (dashboardId) => {
     financial: DollarSign,
     budget: PieChart,
     hr: Users,
-    manufacturing: Factory,
     sales: TrendingUp,
     customer: Heart,
     esg: Leaf

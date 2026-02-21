@@ -30,7 +30,6 @@ from insights.agents.tax_agent import TaxIntelligenceAgent
 from insights.agents.hr_agent import HRIntelligenceAgent
 from insights.agents.executive_agent import ExecutiveIntelligenceAgent
 from insights.agents.marketing_agent import MarketingIntelligenceAgent
-from insights.agents.manufacturing_agent import ManufacturingIntelligenceAgent
 from insights.agents.esg_agent import ESGIntelligenceAgent
 
 
@@ -96,7 +95,6 @@ def get_agent_for_dashboard(dashboard_type: str):
         "HR": HRIntelligenceAgent,
         "Executive": ExecutiveIntelligenceAgent,
         "Marketing": MarketingIntelligenceAgent,
-        "Manufacturing": ManufacturingIntelligenceAgent,
         "ESG": ESGIntelligenceAgent,
     }
 
@@ -637,7 +635,7 @@ def get_ai_chat_status() -> Dict[str, Any]:
             "quota_used": settings.ai_quota_used or 0,
             "quota_remaining": max(0, (settings.daily_ai_quota or 100) - (settings.ai_quota_used or 0)),
             "available_dashboards": ["Sales", "Risk", "Inventory", "Procurement", "Financial", "Customer", "General",
-                                     "HR", "Executive", "Marketing", "Manufacturing", "ESG"]
+                                     "HR", "Executive", "Marketing", "ESG"]
         }
         
     except Exception as e:

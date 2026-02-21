@@ -225,7 +225,7 @@ import { createToast, createInfoToast } from '../helpers/toasts'
 
 // Props
 const props = defineProps<{
-  dashboardType: 'Sales' | 'Risk' | 'Inventory' | 'Procurement' | 'Financial' | 'Customer' | 'Tax' | 'HR' | 'Marketing' | 'Manufacturing' | 'ESG'
+  dashboardType: 'Sales' | 'Risk' | 'Inventory' | 'Procurement' | 'Financial' | 'Customer' | 'Tax' | 'HR' | 'Marketing' | 'ESG' | 'Hotel'
   dashboardContext: Record<string, any>
 }>()
 
@@ -262,7 +262,8 @@ const dashboardTitle = computed(() => {
     Procurement: 'Procurement',
     Financial: 'Financial',
     Customer: 'Customer',
-    Tax: 'Tax'
+    Tax: 'Tax',
+    Hotel: 'Hotel'
   }
   return titles[props.dashboardType] || props.dashboardType
 })

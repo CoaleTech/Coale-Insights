@@ -36,7 +36,7 @@ const territoryPage = ref(0)
 const activeTab = ref('overview')
 const tabs = [
   { id: 'overview', label: 'Revenue Overview', icon: TrendingUp },
-  { id: 'payment', label: 'Cash vs Credit', icon: CreditCard },
+  { id: 'payment', label: 'Payment Modes', icon: CreditCard },
   { id: 'reps', label: 'Sales Reps', icon: Users },
   { id: 'dimensions', label: 'Breakdown', icon: PieChart },
   { id: 'margins', label: 'Margins', icon: Percent },
@@ -309,44 +309,51 @@ const paginatedTransposedTerritories = computed(() => {
   return transposedTerritoryData.value.rows.slice(start, start + 15)
 })
 
-// Transposed Daily Cash Ratio - dates as columns, metrics as rows
+// Payment modes from backend
+const paymentModes = computed(() => paymentMix.value.modes || [])
+const todayModes = computed(() => paymentMix.value.today_mix || [])
+
+// Color mapping for payment modes
+const paymentModeColor = (mode: string) => {
+  const m = mode.toLowerCase()
+  if (m.includes('cash')) return { bg: 'bg-green-500', bar: 'bg-green-500', text: 'text-green-600' }
+  if (m.includes('m-pesa') || m.includes('mpesa') || m.includes('mobile')) return { bg: 'bg-emerald-500', bar: 'bg-emerald-500', text: 'text-emerald-600' }
+  if (m.includes('bank')) return { bg: 'bg-blue-500', bar: 'bg-blue-500', text: 'text-blue-600' }
+  if (m.includes('card')) return { bg: 'bg-purple-500', bar: 'bg-purple-500', text: 'text-purple-600' }
+  if (m.includes('credit') || m.includes('outstanding')) return { bg: 'bg-gray-400', bar: 'bg-gray-400', text: 'text-gray-600' }
+  return { bg: 'bg-orange-500', bar: 'bg-orange-500', text: 'text-orange-600' }
+}
+
+// Transposed Daily Payment Mode - dates as columns, modes as rows
 const transposedDailyCashRatio = computed(() => {
   const dailyMix = paymentMix.value.daily_mix || []
   if (!dailyMix.length) return { dates: [], rows: [] }
-  
+
   // Get last 15 days, most recent first
   const recentDays = dailyMix.slice(0, 15).reverse()
   const dates = recentDays.map(d => d.sale_date)
-  
-  // Build rows for each metric
-  const rows = [
-    {
-      metric: 'Cash',
-      values: recentDays.reduce((acc, d) => { acc[d.sale_date] = d.Cash || 0; return acc }, {} as Record<string, number>),
-      total: recentDays.reduce((sum, d) => sum + (d.Cash || 0), 0),
-      colorClass: 'text-green-600'
-    },
-    {
-      metric: 'Credit',
-      values: recentDays.reduce((acc, d) => { acc[d.sale_date] = d.Credit || 0; return acc }, {} as Record<string, number>),
-      total: recentDays.reduce((sum, d) => sum + (d.Credit || 0), 0),
-      colorClass: 'text-blue-600'
-    },
-    {
-      metric: 'Total',
-      values: recentDays.reduce((acc, d) => { acc[d.sale_date] = d.total || 0; return acc }, {} as Record<string, number>),
-      total: recentDays.reduce((sum, d) => sum + (d.total || 0), 0),
-      colorClass: 'text-gray-900 font-bold'
-    },
-    {
-      metric: 'Cash %',
-      values: recentDays.reduce((acc, d) => { acc[d.sale_date] = d.cash_pct || 0; return acc }, {} as Record<string, number>),
-      total: recentDays.length > 0 ? recentDays.reduce((sum, d) => sum + (d.cash_pct || 0), 0) / recentDays.length : 0,
-      colorClass: 'text-green-700',
-      isPercent: true
-    }
-  ]
-  
+
+  // Discover all mode keys from daily_mix (exclude sale_date, total)
+  const modeKeys = [...new Set(
+    recentDays.flatMap(d => Object.keys(d).filter(k => k !== 'sale_date' && k !== 'total'))
+  )]
+
+  // Build rows for each payment mode
+  const rows: any[] = modeKeys.map(mode => ({
+    metric: mode,
+    values: recentDays.reduce((acc, d) => { acc[d.sale_date] = d[mode] || 0; return acc }, {} as Record<string, number>),
+    total: recentDays.reduce((sum, d) => sum + (d[mode] || 0), 0),
+    colorClass: paymentModeColor(mode).text
+  }))
+
+  // Add total row
+  rows.push({
+    metric: 'Total',
+    values: recentDays.reduce((acc, d) => { acc[d.sale_date] = d.total || 0; return acc }, {} as Record<string, number>),
+    total: recentDays.reduce((sum, d) => sum + (d.total || 0), 0),
+    colorClass: 'text-gray-900 font-bold'
+  })
+
   return { dates, rows }
 })
 
@@ -591,14 +598,14 @@ function handleDashboardRedirect(target: string) {
           <p class="text-sm text-gray-500">Total Revenue</p>
         </div>
 
-        <!-- Cash Ratio -->
+        <!-- Paid Ratio -->
         <div class="bg-white rounded-xl shadow-sm p-4 border">
           <div class="flex items-center justify-between">
             <Banknote class="w-8 h-8 text-blue-500" />
             <span class="text-sm text-gray-500">Today: {{ formatPercent(paymentMix.today_cash_pct) }}</span>
           </div>
           <p class="text-2xl font-bold mt-2">{{ formatPercent(summary.cash_ratio) }}</p>
-          <p class="text-sm text-gray-500">Cash Sales</p>
+          <p class="text-sm text-gray-500">Paid ({{ paymentModes.length }} modes)</p>
         </div>
 
         <!-- AOV -->
@@ -945,55 +952,34 @@ function handleDashboardRedirect(target: string) {
           <!-- Payment Mix Tab -->
           <div v-if="activeTab === 'payment'">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <!-- Overall Mix -->
+              <!-- Overall Mix - Per Mode Breakdown -->
               <div>
                 <h3 class="font-semibold text-gray-900 mb-4">Overall Payment Mix</h3>
-                <div class="flex items-center gap-8">
-                  <!-- Donut representation -->
-                  <div class="relative w-40 h-40">
-                    <svg viewBox="0 0 100 100" class="w-full h-full">
-                      <circle
-                        cx="50" cy="50" r="40"
-                        fill="none"
-                        stroke="#e5e7eb"
-                        stroke-width="20"
-                      />
-                      <circle
-                        cx="50" cy="50" r="40"
-                        fill="none"
-                        stroke="#10b981"
-                        stroke-width="20"
-                        :stroke-dasharray="`${(paymentMix.cash_ratio || 0) * 2.51} 251`"
-                        stroke-dashoffset="0"
-                        transform="rotate(-90 50 50)"
-                      />
-                    </svg>
-                    <div class="absolute inset-0 flex items-center justify-center flex-col">
-                      <p class="text-2xl font-bold text-green-600">{{ formatPercent(paymentMix.cash_ratio) }}</p>
-                      <p class="text-xs text-gray-500">Cash</p>
-                    </div>
-                  </div>
-                  
-                  <div class="space-y-4">
-                    <div class="flex items-center gap-3">
-                      <div class="w-4 h-4 bg-green-500 rounded"></div>
-                      <div>
-                        <p class="font-medium">Cash Sales</p>
-                        <p class="text-sm text-gray-500">{{ formatCurrency(paymentMix.cash_total) }}</p>
+                <div v-if="paymentModes.length" class="space-y-3">
+                  <div v-for="mode in paymentModes" :key="mode.mode" class="flex items-center gap-3">
+                    <div class="w-4 h-4 rounded" :class="paymentModeColor(mode.mode).bg"></div>
+                    <div class="flex-1">
+                      <div class="flex items-center justify-between mb-1">
+                        <span class="font-medium text-sm">{{ mode.mode }}</span>
+                        <span class="text-sm text-gray-500">{{ formatPercent(mode.percentage) }}</span>
                       </div>
-                    </div>
-                    <div class="flex items-center gap-3">
-                      <div class="w-4 h-4 bg-gray-300 rounded"></div>
-                      <div>
-                        <p class="font-medium">Credit Sales</p>
-                        <p class="text-sm text-gray-500">{{ formatCurrency(paymentMix.credit_total) }}</p>
+                      <div class="w-full bg-gray-100 rounded-full h-2">
+                        <div
+                          class="h-2 rounded-full transition-all"
+                          :class="paymentModeColor(mode.mode).bar"
+                          :style="{ width: `${mode.percentage}%` }"
+                        ></div>
                       </div>
+                      <p class="text-xs text-gray-400 mt-0.5">{{ formatCurrency(mode.total) }}</p>
                     </div>
                   </div>
                 </div>
+                <div v-else class="text-center py-8 text-gray-500 bg-gray-50 rounded-lg">
+                  No payment data available
+                </div>
               </div>
 
-              <!-- Today's Stats -->
+              <!-- Today's Stats - Per Mode -->
               <div>
                 <h3 class="font-semibold text-gray-900 mb-4">Today's Performance</h3>
                 <div class="bg-gradient-to-r from-green-50 to-blue-50 rounded-lg p-6">
@@ -1001,16 +987,27 @@ function handleDashboardRedirect(target: string) {
                     <p class="text-lg font-medium">Today's Total</p>
                     <p class="text-2xl font-bold">{{ formatCurrency(paymentMix.today_total) }}</p>
                   </div>
-                  <div class="flex gap-4">
+                  <div v-if="todayModes.length" class="grid grid-cols-2 gap-3">
+                    <div
+                      v-for="tm in todayModes"
+                      :key="tm.mode"
+                      class="bg-white rounded-lg p-3 text-center"
+                    >
+                      <p class="text-lg font-bold" :class="paymentModeColor(tm.mode).text">{{ formatPercent(tm.percentage) }}</p>
+                      <p class="text-xs text-gray-500">{{ tm.mode }}</p>
+                      <p class="text-xs text-gray-400">{{ formatCurrency(tm.total) }}</p>
+                    </div>
+                  </div>
+                  <div v-else class="flex gap-4">
                     <div class="flex-1 bg-white rounded-lg p-3 text-center">
                       <Banknote class="w-6 h-6 mx-auto text-green-500 mb-1" />
                       <p class="text-lg font-bold text-green-600">{{ formatPercent(paymentMix.today_cash_pct) }}</p>
-                      <p class="text-xs text-gray-500">Cash</p>
+                      <p class="text-xs text-gray-500">Paid</p>
                     </div>
                     <div class="flex-1 bg-white rounded-lg p-3 text-center">
                       <CreditCard class="w-6 h-6 mx-auto text-blue-500 mb-1" />
                       <p class="text-lg font-bold text-blue-600">{{ formatPercent(100 - (paymentMix.today_cash_pct || 0)) }}</p>
-                      <p class="text-xs text-gray-500">Credit</p>
+                      <p class="text-xs text-gray-500">Outstanding</p>
                     </div>
                   </div>
                 </div>
@@ -1019,7 +1016,7 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Daily Mix Trend - Transposed -->
             <div class="mt-6">
-              <h3 class="font-semibold text-gray-900 mb-4">Daily Cash Ratio Trend</h3>
+              <h3 class="font-semibold text-gray-900 mb-4">Daily Payment Mode Trend</h3>
               <div v-if="transposedDailyCashRatio.dates.length" class="overflow-x-auto">
                 <table class="w-full text-sm">
                   <thead class="bg-gray-50">

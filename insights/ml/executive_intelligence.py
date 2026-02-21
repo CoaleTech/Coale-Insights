@@ -24,8 +24,6 @@ from .risk_intelligence import RiskIntelligence
 from .financial_intelligence import FinancialIntelligence
 from .tax_intelligence import TaxIntelligence
 from .hr_intelligence import HRIntelligence
-from .manufacturing_intelligence import ManufacturingIntelligence
-
 logger = logging.getLogger(__name__)
 
 
@@ -62,7 +60,6 @@ class ExecutiveIntelligence:
             self.financial_intel = FinancialIntelligence()
             self.tax_intel = TaxIntelligence()
             self.hr_intel = HRIntelligence()
-            self.manufacturing_intel = ManufacturingIntelligence()
         except Exception as e:
             logger.error(f"Error initializing intelligence modules: {e}")
             frappe.log_error(f"Executive Intelligence init error: {e}")
@@ -92,7 +89,6 @@ class ExecutiveIntelligence:
                     "operations": self._get_operations_kpis(period),
                     "risk": self._get_risk_kpis(period),
                     "hr": self._get_hr_kpis(period),
-                    "manufacturing": self._get_manufacturing_kpis(period)
                 },
                 "alerts": self._get_executive_alerts(),
                 "trends": self._get_trend_sparklines(period),
@@ -747,56 +743,6 @@ class ExecutiveIntelligence:
             logger.error(f"Error getting HR KPIs: {e}")
             return self._get_error_kpis("HR")
 
-    def _get_manufacturing_kpis(self, period: str) -> Dict[str, Any]:
-        """Extract top 3 Manufacturing KPIs with RAG status"""
-        try:
-            mfg_data = self.manufacturing_intel.get_manufacturing_overview(period)
-
-            oee_data = mfg_data.get("oee_analysis", {})
-            production_data = mfg_data.get("production_metrics", {})
-            capacity_data = mfg_data.get("capacity_utilization", {})
-
-            oee_score = flt(oee_data.get("oee_score_pct", 0))
-            completion_rate = flt(production_data.get("completion_rate_pct", 0))
-            capacity_util = flt(capacity_data.get("overall_utilization_pct", 0))
-
-            return {
-                "oee": {
-                    "value": oee_score,
-                    "target": 85.0,
-                    "variance_pct": oee_score - 85.0,
-                    "rag_status": self._get_rag_status(
-                        oee_score, thresholds={"green": 85, "amber": 60}
-                    ),
-                    "label": "OEE %",
-                    "format": "percentage"
-                },
-                "on_time_completion": {
-                    "value": completion_rate,
-                    "target": 90.0,
-                    "variance_pct": completion_rate - 90.0,
-                    "rag_status": self._get_rag_status(
-                        completion_rate, thresholds={"green": 90, "amber": 80}
-                    ),
-                    "label": "On-time Completion %",
-                    "format": "percentage"
-                },
-                "capacity_utilization": {
-                    "value": capacity_util,
-                    "target": 80.0,
-                    "variance_pct": capacity_util - 80.0,
-                    "rag_status": self._get_rag_status(
-                        capacity_util, thresholds={"green": 80, "amber": 60}
-                    ),
-                    "label": "Capacity Utilization %",
-                    "format": "percentage"
-                }
-            }
-
-        except Exception as e:
-            logger.error(f"Error getting Manufacturing KPIs: {e}")
-            return self._get_error_kpis("Manufacturing")
-
     def _calculate_business_health_score(self, kpis: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate overall business health score from departmental KPIs"""
         try:
@@ -806,13 +752,12 @@ class ExecutiveIntelligence:
             
             # Weight each department's contribution to overall score
             weights = {
-                "financial": 0.25,
-                "sales": 0.20,
-                "customer": 0.15,
-                "operations": 0.12,
-                "risk": 0.08,
-                "hr": 0.10,
-                "manufacturing": 0.10
+                "financial": 0.27,
+                "sales": 0.22,
+                "customer": 0.17,
+                "operations": 0.14,
+                "risk": 0.09,
+                "hr": 0.11
             }
             
             for department, weight in weights.items():
