@@ -31,6 +31,29 @@ from typing import Dict, Any
 from insights.ml.base import BaseMLModel
 
 
+def _parse_date_filter(date_filter: str):
+    """Convert date_filter string (e.g. '12m', '30d', '1y') to (from_date, to_date) strings."""
+    from frappe.utils import add_days, add_months, today, getdate
+
+    today_date = today()
+    to_date = today_date
+
+    if date_filter.endswith('d'):
+        days = int(date_filter[:-1])
+        from_date = add_days(today_date, -days)
+    elif date_filter.endswith('m'):
+        months = int(date_filter[:-1])
+        from_date = add_months(today_date, -months)
+    elif date_filter.endswith('y'):
+        years = int(date_filter[:-1])
+        from_date = getdate(today_date).replace(year=getdate(today_date).year - years).isoformat()
+    else:
+        # Fallback: treat as days
+        from_date = add_days(today_date, -30)
+
+    return str(from_date), str(to_date)
+
+
 class HotelIntelligence(BaseMLModel):
     """
     Hotel Intelligence Analytics Engine
@@ -126,6 +149,9 @@ class HotelIntelligence(BaseMLModel):
             frappe.log_error(f"Kitchen/F&B analytics failed: {e}", "Hotel Intelligence")
             kitchen_fb_data = {"error": str(e)}
 
+        # Hoteli extended data (from public_api functions)
+        hoteli_extended = self._get_hoteli_extended_data()
+
         result = {
             "status": "success",
             "analysis_date": datetime.now().isoformat(),
@@ -153,6 +179,17 @@ class HotelIntelligence(BaseMLModel):
             "kitchen_analytics": kitchen_fb_data.get("kitchen", {}),
             "restaurant_extended": kitchen_fb_data.get("restaurant_extended", {}),
             "event_extended": kitchen_fb_data.get("event_extended", {}),
+            # Hoteli report extended data
+            "payment_status": hoteli_extended.get("payment_status", []),
+            "monthly_revenue": hoteli_extended.get("monthly_revenue", []),
+            "payment_methods": hoteli_extended.get("payment_methods", []),
+            "top_customers": hoteli_extended.get("top_customers", []),
+            "guest_retention": hoteli_extended.get("guest_retention", []),
+            "checkin_punctuality": hoteli_extended.get("checkin_punctuality", []),
+            "guest_acquisition_trend": hoteli_extended.get("guest_acquisition_trend", []),
+            "corporate_vs_individual": hoteli_extended.get("corporate_vs_individual", []),
+            "kpi_trends": hoteli_extended.get("kpi_trends", []),
+            "room_status_overview": hoteli_extended.get("room_status_overview", {}),
         }
 
         # Cache results
@@ -171,6 +208,109 @@ class HotelIntelligence(BaseMLModel):
     def predict(self, data=None) -> Dict[str, Any]:
         """Return cached hotel intelligence results"""
         return self.get_cached_results("hotel_intelligence") or {}
+
+    def _get_hoteli_extended_data(self) -> Dict[str, Any]:
+        """
+        Fetch extended data from hoteli's public_api functions (Python-to-Python, same site).
+        Returns a dict with 10 new data keys. Each call is individually guarded so a failure
+        in one source does not prevent the others from being returned.
+        """
+        from_date, to_date = _parse_date_filter(self.date_filter)
+        extended = {}
+
+        # --- Revenue report data (payment_status, monthly_revenue, payment_methods, top_customers) ---
+        try:
+            from hoteli.hoteli.api.public_api import get_revenue_report_data
+            revenue_data = get_revenue_report_data(from_date=from_date, to_date=to_date)
+            extended["payment_status"] = revenue_data.get("payment_summary", [])
+            extended["monthly_revenue"] = revenue_data.get("monthly_revenue", [])
+            extended["payment_methods"] = revenue_data.get("payment_method_breakdown", [])
+            extended["top_customers"] = revenue_data.get("top_customers", [])
+        except ImportError:
+            frappe.log_error(
+                "hoteli app not installed - skipping revenue extended data",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("payment_status", [])
+            extended.setdefault("monthly_revenue", [])
+            extended.setdefault("payment_methods", [])
+            extended.setdefault("top_customers", [])
+        except Exception as e:
+            frappe.log_error(
+                f"Revenue extended data failed: {e}",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("payment_status", [])
+            extended.setdefault("monthly_revenue", [])
+            extended.setdefault("payment_methods", [])
+            extended.setdefault("top_customers", [])
+
+        # --- Guest analytics data (guest_retention, checkin_punctuality, guest_acquisition_trend, corporate_vs_individual) ---
+        try:
+            from hoteli.hoteli.api.public_api import get_guest_analytics_data
+            guest_data = get_guest_analytics_data(from_date=from_date, to_date=to_date)
+            extended["guest_retention"] = guest_data.get("guest_retention", [])
+            extended["checkin_punctuality"] = (
+                guest_data.get("checkin_time_analytics", {}).get("punctuality_breakdown", [])
+            )
+            extended["guest_acquisition_trend"] = guest_data.get("guest_trend_chart", [])
+            extended["corporate_vs_individual"] = guest_data.get("checkin_type_breakdown", [])
+        except ImportError:
+            frappe.log_error(
+                "hoteli app not installed - skipping guest extended data",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("guest_retention", [])
+            extended.setdefault("checkin_punctuality", [])
+            extended.setdefault("guest_acquisition_trend", [])
+            extended.setdefault("corporate_vs_individual", [])
+        except Exception as e:
+            frappe.log_error(
+                f"Guest extended data failed: {e}",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("guest_retention", [])
+            extended.setdefault("checkin_punctuality", [])
+            extended.setdefault("guest_acquisition_trend", [])
+            extended.setdefault("corporate_vs_individual", [])
+
+        # --- KPI data (kpi_trends) ---
+        try:
+            from hoteli.hoteli.api.public_api import get_kpi_data
+            kpi_data = get_kpi_data(from_date=from_date, to_date=to_date)
+            extended["kpi_trends"] = kpi_data.get("daily_trends", [])
+        except ImportError:
+            frappe.log_error(
+                "hoteli app not installed - skipping KPI extended data",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("kpi_trends", [])
+        except Exception as e:
+            frappe.log_error(
+                f"KPI extended data failed: {e}",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("kpi_trends", [])
+
+        # --- Occupancy report data (room_status_overview) ---
+        try:
+            from hoteli.hoteli.api.public_api import get_occupancy_report_data
+            occupancy_report = get_occupancy_report_data()
+            extended["room_status_overview"] = occupancy_report.get("room_status", {})
+        except ImportError:
+            frappe.log_error(
+                "hoteli app not installed - skipping occupancy extended data",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("room_status_overview", {})
+        except Exception as e:
+            frappe.log_error(
+                f"Occupancy extended data failed: {e}",
+                "Hotel Intelligence Extended"
+            )
+            extended.setdefault("room_status_overview", {})
+
+        return extended
 
     def _compute_revenue_breakdown(
         self,

@@ -9,6 +9,10 @@ import {
 import { apiCall } from '../helpers/api'
 import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import HotelOverviewTab from './hotel/HotelOverviewTab.vue'
+import HotelCostsTab from './hotel/HotelCostsTab.vue'
+import HotelOperationsTab from './hotel/HotelOperationsTab.vue'
+import HotelGuestsTab from './hotel/HotelGuestsTab.vue'
 
 // State
 const data = ref(null)
@@ -38,7 +42,9 @@ const dateRanges = [
   { value: '12m', label: '12 Months' },
 ]
 
-// Computed data sections -- mapped to actual backend keys
+// =================== COMPUTED DATA SECTIONS ===================
+
+// Existing data sections
 const occupancy = computed(() => data.value?.occupancy || {})
 const snapshot = computed(() => occupancy.value?.today_snapshot || {})
 const revenueBreakdown = computed(() => data.value?.revenue_breakdown || {})
@@ -46,7 +52,6 @@ const guestData = computed(() => data.value?.guest_analytics || {})
 const restaurant = computed(() => data.value?.restaurant || {})
 const events = computed(() => data.value?.events || {})
 const demandForecast = computed(() => data.value?.demand_forecast || {})
-// Extended analytics
 const costAnalytics = computed(() => data.value?.cost_analytics || {})
 const kpiData = computed(() => data.value?.kpi_data || {})
 const operationalMetrics = computed(() => data.value?.operational_metrics || {})
@@ -57,6 +62,18 @@ const kitchenAnalytics = computed(() => data.value?.kitchen_analytics || {})
 const restaurantExtended = computed(() => data.value?.restaurant_extended || {})
 const eventExtended = computed(() => data.value?.event_extended || {})
 
+// New keys from backend extension
+const topCustomers = computed(() => data.value?.top_customers || [])
+const paymentStatus = computed(() => data.value?.payment_status || [])
+const monthlyRevenue = computed(() => data.value?.monthly_revenue || [])
+const paymentMethods = computed(() => data.value?.payment_methods || [])
+const guestRetention = computed(() => data.value?.guest_retention || [])
+const checkinPunctuality = computed(() => data.value?.checkin_punctuality || [])
+const guestAcquisitionTrend = computed(() => data.value?.guest_acquisition_trend || [])
+const corporateVsIndividual = computed(() => data.value?.corporate_vs_individual || [])
+const kpiTrends = computed(() => data.value?.kpi_trends || [])
+const roomStatusOverview = computed(() => data.value?.room_status_overview || {})
+
 // Revenue breakdown -- handle both old cached keys and new keys
 const roomsRevenue = computed(() => revenueBreakdown.value?.rooms_revenue ?? revenueBreakdown.value?.room_revenue ?? 0)
 const fnbRevenue = computed(() => revenueBreakdown.value?.fnb_revenue ?? revenueBreakdown.value?.restaurant_revenue ?? 0)
@@ -64,18 +81,15 @@ const eventsRevenue = computed(() => revenueBreakdown.value?.events_revenue ?? r
 const otherRevenue = computed(() => revenueBreakdown.value?.other_revenue ?? 0)
 const totalRevenue = computed(() => revenueBreakdown.value?.total_revenue ?? 0)
 
-// Occupancy trend
-const maxOccupancy = computed(() => {
-  const trend = occupancy.value?.daily_trend || []
-  return Math.max(...trend.map(p => p.occupancy_rate || 0), 1)
-})
+// Housekeeping
+const housekeeping = computed(() => occupancy.value?.housekeeping || {})
 
 // Restaurant helpers
 const peakHours = computed(() => restaurant.value?.peak_hours || [])
 const maxPeakHourCount = computed(() => Math.max(...peakHours.value.map(h => h.order_count || h.count || 0), 1))
 const tableTurnover = computed(() => restaurant.value?.table_turnover || {})
 
-// Menu engineering -- backend returns separate arrays per category
+// Menu engineering
 const menuEngineering = computed(() => restaurant.value?.menu_engineering || {})
 const menuSummary = computed(() => menuEngineering.value.summary || {})
 const topStars = computed(() => (menuEngineering.value.stars || []).slice(0, 8))
@@ -97,34 +111,8 @@ const peakForecastDay = computed(() => {
   return days.reduce((max, d) => (d.forecast_occupancy > (max?.forecast_occupancy || 0)) ? d : max, days[0])
 })
 
-// Housekeeping
-const housekeeping = computed(() => occupancy.value?.housekeeping || {})
-
 // Upcoming events
 const upcomingEvents = computed(() => events.value?.upcoming_events || [])
-
-// Cost helpers
-const costSummary = computed(() => costAnalytics.value?.summary || {})
-const costBreakdown = computed(() => costAnalytics.value?.cost_breakdown || [])
-const costDailyTrends = computed(() => costAnalytics.value?.daily_trends || [])
-const maxDailyCost = computed(() => Math.max(...costDailyTrends.value.map(d => d.total || 0), 1))
-const breakfastCosts = computed(() => costAnalytics.value?.breakfast_costs || {})
-const revenueVsCost = computed(() => costAnalytics.value?.revenue_vs_cost || {})
-
-// KPI targets
-const kpiTargets = computed(() => kpiData.value?.kpi_targets || [])
-const financialKpis = computed(() => kpiData.value?.financial_kpis || {})
-
-// Operations helpers
-const opMetrics = computed(() => operationalMetrics.value?.metrics || {})
-const checkins = computed(() => checkinCheckout.value?.checkins || {})
-const checkouts = computed(() => checkinCheckout.value?.checkouts || {})
-const overstays = computed(() => checkinCheckout.value?.overstays || {})
-const floorBreakdown = computed(() => roomUtilization.value?.floor_breakdown || [])
-const wingBreakdown = computed(() => roomUtilization.value?.wing_breakdown || [])
-const bedOccupancy = computed(() => roomUtilization.value?.bed_occupancy || {})
-const dayOfWeekPatterns = computed(() => bookingPatterns.value?.day_of_week_patterns || [])
-const maxDayBookings = computed(() => Math.max(...dayOfWeekPatterns.value.map(d => d.booking_count || 0), 1))
 
 // Kitchen helpers
 const kitchenSummary = computed(() => kitchenAnalytics.value?.summary || {})
@@ -159,12 +147,13 @@ const chatContext = computed(() => ({
   total_guests: guestData.value?.total_guests,
   revpash: restaurant.value?.avg_revpash,
   total_events: events.value?.total_events,
-  gopar: opMetrics.value?.gopar,
-  cpor: financialKpis.value?.cpor,
-  profit_margin: costSummary.value?.profit_margin,
+  gopar: operationalMetrics.value?.metrics?.gopar,
+  cpor: kpiData.value?.financial_kpis?.cpor,
+  profit_margin: costAnalytics.value?.summary?.profit_margin,
 }))
 
-// Load data
+// =================== DATA LOADING ===================
+
 onMounted(() => loadData())
 
 async function loadData(refresh = false) {
@@ -193,7 +182,7 @@ async function loadData(refresh = false) {
 
 function refreshData() { loadData(true) }
 
-// Format helpers
+// Format helpers (used by inline tabs: restaurant, kitchen, events, forecast)
 function fmt(value) {
   if (!value && value !== 0) return 'N/A'
   return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)
@@ -207,19 +196,6 @@ function fmtPct(value) {
 function fmtNum(value) {
   if (!value && value !== 0) return '0'
   return Number(value).toLocaleString()
-}
-
-function revShare(value) {
-  if (!totalRevenue.value || !value) return 0
-  return ((value / totalRevenue.value) * 100).toFixed(1)
-}
-
-function growthClass(v) { return v > 0 ? 'text-green-600' : v < 0 ? 'text-red-600' : 'text-gray-500' }
-function trendArrow(v) { return v > 0 ? '+' + v.toFixed(1) + '%' : v < 0 ? v.toFixed(1) + '%' : '0%' }
-function perfColor(pct) {
-  if (pct >= 90) return 'bg-green-500'
-  if (pct >= 70) return 'bg-yellow-500'
-  return 'bg-red-500'
 }
 </script>
 
@@ -291,544 +267,47 @@ function perfColor(pct) {
     <div v-else-if="data" class="flex-1 overflow-auto p-6 space-y-6">
 
       <!-- ==================== OVERVIEW TAB ==================== -->
-      <template v-if="activeTab === 'overview'">
-
-        <!-- KPI Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Occupancy</span>
-            <div class="text-2xl font-bold mt-1">{{ fmtPct(occupancy.occupancy_rate) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">ADR</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(occupancy.adr) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">RevPAR</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(occupancy.revpar) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Total Revenue</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(totalRevenue) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Arrivals Today</span>
-            <div class="text-2xl font-bold mt-1">{{ snapshot.arrivals_today ?? 0 }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Departures Today</span>
-            <div class="text-2xl font-bold mt-1">{{ snapshot.departures_today ?? 0 }}</div>
-          </div>
-        </div>
-
-        <!-- Occupancy Trend + Revenue Breakdown -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-4">Occupancy Trend (30 Days)</h3>
-            <div v-if="occupancy.daily_trend?.length" class="h-48 flex items-end gap-0.5">
-              <div
-                v-for="(point, idx) in occupancy.daily_trend" :key="idx"
-                class="flex-1 bg-blue-400 rounded-t hover:bg-blue-600 transition-colors cursor-default"
-                :style="{ height: `${Math.max((point.occupancy_rate / maxOccupancy) * 100, 2)}%` }"
-                :title="`${point.date}: ${point.occupancy_rate?.toFixed(1)}% (${point.rooms_occupied} rooms)`"
-              ></div>
-            </div>
-            <div v-else class="h-48 flex items-center justify-center text-sm text-gray-400">No trend data</div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-4">Revenue Breakdown</h3>
-            <div class="space-y-3">
-              <div>
-                <div class="flex justify-between text-sm mb-1">
-                  <span class="text-gray-600">Rooms</span>
-                  <span class="font-medium">{{ fmt(roomsRevenue) }} <span class="text-gray-400">({{ revShare(roomsRevenue) }}%)</span></span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2.5">
-                  <div class="bg-blue-500 h-2.5 rounded-full" :style="{ width: revShare(roomsRevenue) + '%' }"></div>
-                </div>
-              </div>
-              <div>
-                <div class="flex justify-between text-sm mb-1">
-                  <span class="text-gray-600">Restaurant / F&B</span>
-                  <span class="font-medium">{{ fmt(fnbRevenue) }} <span class="text-gray-400">({{ revShare(fnbRevenue) }}%)</span></span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2.5">
-                  <div class="bg-green-500 h-2.5 rounded-full" :style="{ width: revShare(fnbRevenue) + '%' }"></div>
-                </div>
-              </div>
-              <div>
-                <div class="flex justify-between text-sm mb-1">
-                  <span class="text-gray-600">Events / Banquets</span>
-                  <span class="font-medium">{{ fmt(eventsRevenue) }} <span class="text-gray-400">({{ revShare(eventsRevenue) }}%)</span></span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2.5">
-                  <div class="bg-purple-500 h-2.5 rounded-full" :style="{ width: revShare(eventsRevenue) + '%' }"></div>
-                </div>
-              </div>
-              <div v-if="otherRevenue > 0">
-                <div class="flex justify-between text-sm mb-1">
-                  <span class="text-gray-600">Other</span>
-                  <span class="font-medium">{{ fmt(otherRevenue) }} <span class="text-gray-400">({{ revShare(otherRevenue) }}%)</span></span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2.5">
-                  <div class="bg-orange-500 h-2.5 rounded-full" :style="{ width: revShare(otherRevenue) + '%' }"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Operations -->
-        <div class="bg-white rounded-lg border p-5">
-          <h3 class="text-sm font-semibold text-gray-900 mb-4">Today's Operations</h3>
-          <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-            <div class="text-center p-3 bg-gray-50 rounded-lg">
-              <div class="text-xl font-bold">{{ snapshot.occupied_rooms ?? 0 }}</div>
-              <div class="text-xs text-gray-500 mt-1">Occupied Rooms</div>
-            </div>
-            <div class="text-center p-3 bg-gray-50 rounded-lg">
-              <div class="text-xl font-bold">{{ snapshot.available_rooms ?? 0 }}</div>
-              <div class="text-xs text-gray-500 mt-1">Available</div>
-            </div>
-            <div class="text-center p-3 bg-gray-50 rounded-lg">
-              <div class="text-xl font-bold">{{ snapshot.out_of_order ?? 0 }}</div>
-              <div class="text-xs text-gray-500 mt-1">Out of Order</div>
-            </div>
-            <div class="text-center p-3 bg-gray-50 rounded-lg">
-              <div class="text-xl font-bold">{{ snapshot.in_house_guests ?? 0 }}</div>
-              <div class="text-xs text-gray-500 mt-1">In-House Guests</div>
-            </div>
-            <div class="text-center p-3 bg-gray-50 rounded-lg">
-              <div class="text-xl font-bold">{{ occupancy.total_rooms ?? 0 }}</div>
-              <div class="text-xs text-gray-500 mt-1">Total Rooms</div>
-            </div>
-            <div class="text-center p-3 bg-gray-50 rounded-lg">
-              <div class="text-xl font-bold">{{ housekeeping.completed ?? 0 }}/{{ housekeeping.total_tasks ?? 0 }}</div>
-              <div class="text-xs text-gray-500 mt-1">Housekeeping</div>
-            </div>
-            <div class="text-center p-3 bg-gray-50 rounded-lg">
-              <div class="text-xl font-bold">{{ occupancy.avg_length_of_stay?.toFixed(1) ?? 0 }}</div>
-              <div class="text-xs text-gray-500 mt-1">Avg Stay (nights)</div>
-            </div>
-          </div>
-
-          <!-- Room Types -->
-          <div v-if="occupancy.by_room_type?.length" class="mt-4">
-            <h4 class="text-xs font-medium text-gray-500 uppercase mb-2">By Room Type</h4>
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm">
-                <thead>
-                  <tr class="border-b text-left text-gray-500">
-                    <th class="py-2 font-medium">Type</th>
-                    <th class="py-2 font-medium text-right">Total</th>
-                    <th class="py-2 font-medium text-right">Occupied</th>
-                    <th class="py-2 font-medium text-right">Available</th>
-                    <th class="py-2 font-medium text-right">Occupancy</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="rt in occupancy.by_room_type" :key="rt.room_type" class="border-b last:border-0">
-                    <td class="py-2 font-medium text-gray-900">{{ rt.room_type }}</td>
-                    <td class="py-2 text-right">{{ rt.total_rooms }}</td>
-                    <td class="py-2 text-right">{{ rt.occupied }}</td>
-                    <td class="py-2 text-right">{{ rt.available }}</td>
-                    <td class="py-2 text-right font-medium" :class="rt.occupancy_rate > 70 ? 'text-green-600' : rt.occupancy_rate > 30 ? 'text-yellow-600' : 'text-red-600'">
-                      {{ rt.occupancy_rate?.toFixed(1) }}%
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <!-- KPI Targets -->
-        <div v-if="kpiTargets.length" class="bg-white rounded-lg border p-5">
-          <h3 class="text-sm font-semibold text-gray-900 mb-4">KPI Performance</h3>
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-            <div v-for="kpi in kpiTargets" :key="kpi.name" class="p-3 bg-gray-50 rounded-lg">
-              <div class="text-xs text-gray-500 font-medium">{{ kpi.name }}</div>
-              <div class="text-lg font-bold mt-1">{{ kpi.unit === '%' ? fmtPct(kpi.current) : fmt(kpi.current) }}</div>
-              <div class="flex items-center gap-2 mt-2">
-                <div class="flex-1 bg-gray-200 rounded-full h-1.5">
-                  <div :class="perfColor(kpi.performance)" class="h-1.5 rounded-full transition-all" :style="{ width: Math.min(kpi.performance, 100) + '%' }"></div>
-                </div>
-                <span class="text-xs text-gray-500">{{ kpi.performance }}%</span>
-              </div>
-              <div class="text-xs text-gray-400 mt-1">Target: {{ kpi.unit === '%' ? kpi.target + '%' : fmt(kpi.target) }}</div>
-            </div>
-          </div>
-        </div>
-      </template>
+      <HotelOverviewTab
+        v-if="activeTab === 'overview'"
+        :occupancy="occupancy"
+        :revenue-breakdown="revenueBreakdown"
+        :kpi-data="kpiData"
+        :snapshot="snapshot"
+        :housekeeping="housekeeping"
+        :top-customers="topCustomers"
+        :room-status-overview="roomStatusOverview"
+        :kpi-trends="kpiTrends"
+      />
 
       <!-- ==================== COST & PROFITABILITY TAB ==================== -->
-      <template v-if="activeTab === 'costs'">
-        <!-- Cost KPI Cards -->
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Total Costs</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(costSummary.total_operational_costs) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Gross Profit</span>
-            <div class="text-2xl font-bold mt-1" :class="costSummary.gross_profit > 0 ? 'text-green-600' : 'text-red-600'">{{ fmt(costSummary.gross_profit) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Profit Margin</span>
-            <div class="text-2xl font-bold mt-1">{{ fmtPct(costSummary.profit_margin) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">CPOR</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(financialKpis.cpor) }}</div>
-            <div v-if="financialKpis.cpor_trend" class="text-xs mt-0.5" :class="growthClass(-financialKpis.cpor_trend)">{{ trendArrow(financialKpis.cpor_trend) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Cost/Room Night</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(costSummary.cost_per_room_night) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Room Nights</span>
-            <div class="text-2xl font-bold mt-1">{{ fmtNum(costSummary.room_nights) }}</div>
-          </div>
-        </div>
-
-        <!-- Cost Breakdown + Revenue vs Cost -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-4">Cost Breakdown by Category</h3>
-            <div v-if="costBreakdown.length" class="space-y-3">
-              <div v-for="cat in costBreakdown" :key="cat.category">
-                <div class="flex justify-between text-sm mb-1">
-                  <span class="text-gray-600">{{ cat.category }}</span>
-                  <span class="font-medium">{{ fmt(cat.amount) }} <span class="text-gray-400">({{ cat.percentage?.toFixed(1) }}%)</span></span>
-                </div>
-                <div class="w-full bg-gray-100 rounded-full h-2">
-                  <div class="h-2 rounded-full" :class="cat.color === 'blue' ? 'bg-blue-500' : cat.color === 'orange' ? 'bg-orange-500' : cat.color === 'green' ? 'bg-green-500' : 'bg-purple-500'" :style="{ width: cat.percentage + '%' }"></div>
-                </div>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No cost data</div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-4">Revenue vs Cost</h3>
-            <div class="space-y-4">
-              <div class="flex items-center justify-between p-3 bg-green-50 rounded-lg">
-                <span class="text-sm text-green-700 font-medium">Revenue</span>
-                <span class="text-lg font-bold text-green-700">{{ fmt(revenueVsCost.revenue) }}</span>
-              </div>
-              <div class="flex items-center justify-between p-3 bg-red-50 rounded-lg">
-                <span class="text-sm text-red-700 font-medium">Costs</span>
-                <span class="text-lg font-bold text-red-700">{{ fmt(revenueVsCost.costs) }}</span>
-              </div>
-              <div class="flex items-center justify-between p-3 rounded-lg" :class="revenueVsCost.profit > 0 ? 'bg-blue-50' : 'bg-yellow-50'">
-                <span class="text-sm font-medium" :class="revenueVsCost.profit > 0 ? 'text-blue-700' : 'text-yellow-700'">Net Profit</span>
-                <span class="text-lg font-bold" :class="revenueVsCost.profit > 0 ? 'text-blue-700' : 'text-yellow-700'">{{ fmt(revenueVsCost.profit) }}</span>
-              </div>
-              <div class="text-center text-sm text-gray-500">
-                Margin: <span class="font-semibold" :class="revenueVsCost.margin_percentage > 30 ? 'text-green-600' : 'text-yellow-600'">{{ fmtPct(revenueVsCost.margin_percentage) }}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Cost Trends + Breakfast Costs -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-4">Daily Cost Trend</h3>
-            <div v-if="costDailyTrends.length" class="h-40 flex items-end gap-0.5">
-              <div
-                v-for="(day, idx) in costDailyTrends.slice(-30)" :key="idx"
-                class="flex-1 bg-red-300 rounded-t hover:bg-red-500 transition-colors cursor-default"
-                :style="{ height: `${Math.max((day.total / maxDailyCost) * 100, 2)}%` }"
-                :title="`${day.date}: ${fmt(day.total)} (Room: ${fmt(day.room_expenses)}, Breakfast: ${fmt(day.breakfast_costs)})`"
-              ></div>
-            </div>
-            <div v-else class="h-40 flex items-center justify-center text-sm text-gray-400">No cost trend data</div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-4">Breakfast Cost Analysis</h3>
-            <div class="grid grid-cols-2 gap-4">
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmt(breakfastCosts.total) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Total Breakfast Cost</div>
-              </div>
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmt(breakfastCosts.avg_daily) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Avg Daily</div>
-              </div>
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmt(breakfastCosts.cost_per_guest) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Cost Per Guest</div>
-              </div>
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmtNum(breakfastCosts.total_guests) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Guests Served</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Room Expenses Detail -->
-        <div v-if="costAnalytics.room_expenses?.by_account?.length" class="bg-white rounded-lg border p-5">
-          <h3 class="text-sm font-semibold text-gray-900 mb-3">Room Expenses by Account</h3>
-          <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-              <thead>
-                <tr class="border-b text-left text-gray-500">
-                  <th class="py-2 font-medium">Account</th>
-                  <th class="py-2 font-medium text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="acc in costAnalytics.room_expenses.by_account" :key="acc.account" class="border-b last:border-0">
-                  <td class="py-2 text-gray-900">{{ acc.account }}</td>
-                  <td class="py-2 text-right font-medium">{{ fmt(acc.amount) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </template>
+      <HotelCostsTab
+        v-if="activeTab === 'costs'"
+        :cost-analytics="costAnalytics"
+        :kpi-data="kpiData"
+        :revenue-breakdown="revenueBreakdown"
+        :payment-status="paymentStatus"
+        :monthly-revenue="monthlyRevenue"
+        :payment-methods="paymentMethods"
+      />
 
       <!-- ==================== OPERATIONS TAB ==================== -->
-      <template v-if="activeTab === 'operations'">
-        <!-- Operational KPIs -->
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">GoPAR</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(opMetrics.gopar) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">RPG</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(opMetrics.rpg) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">ALOS</span>
-            <div class="text-2xl font-bold mt-1">{{ opMetrics.alos ?? 0 }} nights</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Today Revenue</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(opMetrics.today_revenue) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">OOO Rooms</span>
-            <div class="text-2xl font-bold mt-1">{{ opMetrics.out_of_order_rooms ?? 0 }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Lost Revenue</span>
-            <div class="text-2xl font-bold mt-1 text-red-600">{{ fmt(opMetrics.potential_lost_revenue) }}</div>
-          </div>
-        </div>
-
-        <!-- Check-in/Check-out + Overstays -->
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Check-ins Today</h3>
-            <div class="grid grid-cols-3 gap-3 mb-3">
-              <div class="text-center p-2 bg-blue-50 rounded">
-                <div class="text-lg font-bold text-blue-700">{{ checkins.expected ?? 0 }}</div>
-                <div class="text-xs text-blue-600">Expected</div>
-              </div>
-              <div class="text-center p-2 bg-green-50 rounded">
-                <div class="text-lg font-bold text-green-700">{{ checkins.completed ?? 0 }}</div>
-                <div class="text-xs text-green-600">Done</div>
-              </div>
-              <div class="text-center p-2 bg-yellow-50 rounded">
-                <div class="text-lg font-bold text-yellow-700">{{ checkins.pending ?? 0 }}</div>
-                <div class="text-xs text-yellow-600">Pending</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Check-outs Today</h3>
-            <div class="grid grid-cols-3 gap-3 mb-3">
-              <div class="text-center p-2 bg-blue-50 rounded">
-                <div class="text-lg font-bold text-blue-700">{{ checkouts.expected ?? 0 }}</div>
-                <div class="text-xs text-blue-600">Expected</div>
-              </div>
-              <div class="text-center p-2 bg-green-50 rounded">
-                <div class="text-lg font-bold text-green-700">{{ checkouts.completed ?? 0 }}</div>
-                <div class="text-xs text-green-600">Done</div>
-              </div>
-              <div class="text-center p-2 bg-yellow-50 rounded">
-                <div class="text-lg font-bold text-yellow-700">{{ checkouts.pending ?? 0 }}</div>
-                <div class="text-xs text-yellow-600">Pending</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Overstays</h3>
-            <div class="text-center p-3 mb-3" :class="overstays.count > 0 ? 'bg-red-50 rounded' : 'bg-green-50 rounded'">
-              <div class="text-2xl font-bold" :class="overstays.count > 0 ? 'text-red-700' : 'text-green-700'">{{ overstays.count ?? 0 }}</div>
-              <div class="text-xs" :class="overstays.count > 0 ? 'text-red-600' : 'text-green-600'">{{ overstays.count > 0 ? 'Guests overstaying' : 'No overstays' }}</div>
-            </div>
-            <div v-if="overstays.details?.length" class="space-y-1">
-              <div v-for="o in overstays.details.slice(0, 5)" :key="o.name" class="flex justify-between text-xs p-1.5 bg-red-50 rounded">
-                <span class="text-gray-700 truncate mr-2">{{ o.guest_name }}</span>
-                <span class="text-red-600 font-medium whitespace-nowrap">{{ o.overdue_days }}d overdue</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Room Utilization by Floor & Wing -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Utilization by Floor</h3>
-            <div v-if="floorBreakdown.length" class="space-y-2">
-              <div v-for="f in floorBreakdown" :key="f.floor" class="flex items-center gap-3">
-                <span class="text-sm text-gray-600 w-20">Floor {{ f.floor }}</span>
-                <div class="flex-1 bg-gray-100 rounded-full h-3">
-                  <div class="bg-blue-500 h-3 rounded-full" :style="{ width: f.occupancy_rate + '%' }"></div>
-                </div>
-                <span class="text-sm font-medium w-16 text-right">{{ f.occupancy_rate }}%</span>
-                <span class="text-xs text-gray-400 w-20 text-right">{{ f.occupied }}/{{ f.total_rooms }}</span>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No floor data</div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Utilization by Wing</h3>
-            <div v-if="wingBreakdown.length" class="space-y-2">
-              <div v-for="w in wingBreakdown" :key="w.wing" class="flex items-center gap-3">
-                <span class="text-sm text-gray-600 w-20">{{ w.wing }}</span>
-                <div class="flex-1 bg-gray-100 rounded-full h-3">
-                  <div class="bg-indigo-500 h-3 rounded-full" :style="{ width: w.occupancy_rate + '%' }"></div>
-                </div>
-                <span class="text-sm font-medium w-16 text-right">{{ w.occupancy_rate }}%</span>
-                <span class="text-xs text-gray-400 w-20 text-right">{{ w.occupied }}/{{ w.total_rooms }}</span>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No wing data</div>
-          </div>
-        </div>
-
-        <!-- Bed Occupancy + Booking Patterns -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Bed Occupancy</h3>
-            <div class="grid grid-cols-2 gap-4">
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmtPct(bedOccupancy.occupancy_rate) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Guest Occupancy Rate</div>
-              </div>
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmtPct(bedOccupancy.beds_occupancy_rate) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Bed Occupancy Rate</div>
-              </div>
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmtNum(bedOccupancy.actual_guests) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Current Guests</div>
-              </div>
-              <div class="text-center p-3 bg-gray-50 rounded-lg">
-                <div class="text-xl font-bold">{{ fmtNum(bedOccupancy.total_capacity) }}</div>
-                <div class="text-xs text-gray-500 mt-1">Total Capacity</div>
-              </div>
-            </div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Booking Patterns by Day</h3>
-            <div v-if="dayOfWeekPatterns.length" class="space-y-2">
-              <div v-for="d in dayOfWeekPatterns" :key="d.day_name" class="flex items-center gap-3">
-                <span class="text-sm text-gray-600 w-12" :class="d.is_peak ? 'font-bold text-gray-900' : ''">{{ d.day_name?.slice(0, 3) }}</span>
-                <div class="flex-1 bg-gray-100 rounded-full h-2.5">
-                  <div class="h-2.5 rounded-full" :class="d.is_peak ? 'bg-green-500' : 'bg-blue-400'" :style="{ width: `${(d.booking_count / maxDayBookings) * 100}%` }"></div>
-                </div>
-                <span class="text-sm font-medium w-10 text-right">{{ d.booking_count }}</span>
-                <span class="text-xs text-gray-400 w-12 text-right">{{ d.percentage?.toFixed(0) }}%</span>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No booking pattern data</div>
-          </div>
-        </div>
-      </template>
+      <HotelOperationsTab
+        v-if="activeTab === 'operations'"
+        :operational-metrics="operationalMetrics"
+        :checkin-checkout="checkinCheckout"
+        :room-utilization="roomUtilization"
+        :booking-patterns="bookingPatterns"
+      />
 
       <!-- ==================== GUESTS TAB ==================== -->
-      <template v-if="activeTab === 'guests'">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Total Guests</span>
-            <div class="text-2xl font-bold mt-1">{{ fmtNum(guestData.total_guests) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Repeat Rate</span>
-            <div class="text-2xl font-bold mt-1">{{ fmtPct(guestData.repeat_guest_rate) }}</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">VIP Guests</span>
-            <div class="text-2xl font-bold mt-1">{{ guestData.vip_count ?? 0 }}</div>
-            <div class="text-xs text-gray-400">{{ fmtPct(guestData.vip_percentage) }} of total</div>
-          </div>
-          <div class="bg-white rounded-lg border p-4">
-            <span class="text-xs font-medium text-gray-500 uppercase">Avg Spend</span>
-            <div class="text-2xl font-bold mt-1">{{ fmt(guestData.avg_guest_spend) }}</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Guest Segments</h3>
-            <div v-if="guestData.guest_segments?.length" class="space-y-2">
-              <div v-for="seg in guestData.guest_segments" :key="seg.segment" class="flex items-center justify-between">
-                <div class="flex items-center gap-2">
-                  <div class="w-3 h-3 rounded-full" :class="seg.segment === 'Loyal' ? 'bg-green-500' : seg.segment === 'Returning' ? 'bg-blue-500' : 'bg-gray-400'"></div>
-                  <span class="text-sm text-gray-700">{{ seg.segment }}</span>
-                </div>
-                <div class="text-sm">
-                  <span class="font-medium">{{ seg.count }}</span>
-                  <span class="text-gray-400 ml-1">({{ seg.percentage?.toFixed(1) }}%)</span>
-                </div>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No segment data</div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Top Nationalities</h3>
-            <div v-if="guestData.nationality_distribution?.length" class="space-y-2">
-              <div v-for="nat in guestData.nationality_distribution.slice(0, 8)" :key="nat.nationality" class="flex justify-between text-sm">
-                <span class="text-gray-600">{{ nat.nationality || 'Unknown' }}</span>
-                <div>
-                  <span class="font-medium">{{ nat.count }}</span>
-                  <span class="text-gray-400 ml-1">({{ nat.percentage?.toFixed(1) }}%)</span>
-                </div>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No nationality data</div>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Booking Sources</h3>
-            <div v-if="guestData.booking_source_distribution?.length" class="space-y-2">
-              <div v-for="src in guestData.booking_source_distribution.slice(0, 8)" :key="src.source" class="flex justify-between text-sm">
-                <span class="text-gray-600">{{ src.source || 'Direct' }}</span>
-                <span class="font-medium">{{ src.count }} bookings</span>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No booking source data</div>
-          </div>
-
-          <div class="bg-white rounded-lg border p-5">
-            <h3 class="text-sm font-semibold text-gray-900 mb-3">Top Guests by Spend</h3>
-            <div v-if="guestData.top_guests?.length" class="space-y-2">
-              <div v-for="g in guestData.top_guests.slice(0, 8)" :key="g.name" class="flex justify-between text-sm">
-                <span class="text-gray-600 truncate mr-2">{{ g.guest_name || g.name }}</span>
-                <span class="font-medium whitespace-nowrap">{{ fmt(g.total_spent) }}</span>
-              </div>
-            </div>
-            <div v-else class="text-sm text-gray-400 text-center py-6">No guest data</div>
-          </div>
-        </div>
-      </template>
+      <HotelGuestsTab
+        v-if="activeTab === 'guests'"
+        :guest-data="guestData"
+        :guest-retention="guestRetention"
+        :checkin-punctuality="checkinPunctuality"
+        :guest-acquisition-trend="guestAcquisitionTrend"
+        :corporate-vs-individual="corporateVsIndividual"
+      />
 
       <!-- ==================== RESTAURANT TAB ==================== -->
       <template v-if="activeTab === 'restaurant'">
