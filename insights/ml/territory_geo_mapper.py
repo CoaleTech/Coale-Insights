@@ -1,7 +1,7 @@
 """Map ERPNext Territory names to GeoJSON region codes."""
 
 import frappe
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # ISO 3166-1 alpha-3 country codes for common territories
 COUNTRY_CODE_MAP = {
@@ -44,7 +44,10 @@ INDIA_STATE_MAP = {
 
 def get_custom_mapping() -> Dict[str, str]:
     """Load user-defined territory-to-code overrides from Insights Settings."""
-    settings = frappe.get_single("Insights Settings")
+    try:
+        settings = frappe.get_single("Insights Settings")
+    except Exception:
+        return {}
     mapping = {}
     if hasattr(settings, "territory_geo_mapping") and settings.territory_geo_mapping:
         for row in settings.territory_geo_mapping:
@@ -86,10 +89,10 @@ def map_territory_to_geo(
 
 
 def map_territories_bulk(
-    data: List[Dict],
+    data: List[Dict[str, Any]],
     territory_field: str = "territory",
     value_field: str = "value",
-) -> Dict:
+) -> Dict[str, List[Dict[str, Any]]]:
     """
     Map a list of {territory, value} dicts to world and India geo data.
 
@@ -108,6 +111,8 @@ def map_territories_bulk(
     for row in data:
         territory = row.get(territory_field, "")
         value = row.get(value_field, 0)
+        if not isinstance(value, (int, float)):
+            value = 0
         if not territory:
             continue
 
