@@ -498,6 +498,7 @@ const loading = ref(false)
 const error = ref(null)
 const showAllAlerts = ref(false)
 const activeTab = ref('departments')
+const baseCurrency = ref('KES')
 
 // Tab configuration
 const tabs = [
@@ -537,6 +538,9 @@ const fetchData = async () => {
     
     if (result.message) {
       data.value = result.message
+      if (result.message.base_currency) {
+        baseCurrency.value = result.message.base_currency
+      }
     } else {
       throw new Error('Invalid response format')
     }
@@ -577,10 +581,10 @@ const exportReport = () => {
 
 // Utility functions
 const formatCurrency = (value) => {
-  if (value === null || value === undefined) return '$0.00'
+  if (value === null || value === undefined) return `${baseCurrency.value} 0`
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
-    currency: 'USD',
+    currency: baseCurrency.value,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

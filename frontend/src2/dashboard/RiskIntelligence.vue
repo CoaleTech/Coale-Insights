@@ -783,6 +783,8 @@ function handleDashboardRedirect(target) {
 }
 
 // Methods
+const baseCurrency = ref('KES')
+
 const refreshData = async () => {
   loading.value = true
   try {
@@ -797,6 +799,9 @@ const refreshData = async () => {
     predictiveData.value = result.predictive_analytics || {}
 
     lastUpdated.value = result.generated_at || new Date().toISOString()
+    if (result.base_currency) {
+      baseCurrency.value = result.base_currency
+    }
 
     // Render charts after data update
     await nextTick()
@@ -809,10 +814,10 @@ const refreshData = async () => {
 }
 
 const formatCurrency = (value) => {
-  if (!value) return 'KES 0'
+  if (!value) return `${baseCurrency.value} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: baseCurrency.value,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

@@ -69,7 +69,10 @@ def demand_forecast(periods: int = 4, top_items: int = 100, refresh: bool = Fals
         from insights.ml.demand_forecasting import DemandForecasting
 
         model = DemandForecasting()
-        result = model.forecast(periods, top_items)
+        if refresh:
+            result = model.train(periods, top_items)
+        else:
+            result = model.predict()
         return success(result)
     except Exception as e:
         return error(str(e))

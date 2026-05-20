@@ -9,9 +9,11 @@ import {
   Clock, Filter, Zap, Mail, MousePointerClick, DollarSign,
   Percent, Eye, UserPlus, ArrowRightLeft
 } from 'lucide-vue-next'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import BaseChart from '../charts/components/BaseChart.vue'
+import TerritoryMap from '../components/TerritoryMap.vue'
 
 const router = useRouter()
 
@@ -20,6 +22,12 @@ const isLoading = ref(true)
 const isRefreshing = ref(false)
 const error = ref<string | null>(null)
 const data = ref<any>(null)
+
+// Source metrics state
+const sourceMetrics = ref<any>(null)
+const costPerLead = ref<any>(null)
+const territoryLeadsData = ref<any>(null)
+const isLoadingSources = ref(false)
 
 // Period filter
 const period = ref('YTD')
@@ -38,6 +46,7 @@ const tabs = [
   { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
   { id: 'conversions', label: 'Conversions', icon: ArrowRightLeft },
   { id: 'roi', label: 'Marketing ROI', icon: DollarSign },
+  { id: 'sources', label: 'Source Performance', icon: BarChart3 },
 ]
 
 // Load marketing data
@@ -59,6 +68,25 @@ async function loadData(refresh = false) {
   } finally {
     isLoading.value = false
     isRefreshing.value = false
+  }
+}
+
+// Load source metrics
+async function loadSourceMetrics() {
+  isLoadingSources.value = true
+  try {
+    const [metrics, costs, territories] = await Promise.all([
+      apiCall('insights.api.ml.marketing.source_metrics', { period: period.value }),
+      apiCall('insights.api.ml.marketing.cost_per_lead', { period: period.value }),
+      apiCall('insights.api.ml.marketing.territory_leads', { period: period.value }),
+    ])
+    sourceMetrics.value = metrics
+    costPerLead.value = costs
+    territoryLeadsData.value = territories
+  } catch (e: any) {
+    console.error('Error loading source metrics:', e)
+  } finally {
+    isLoadingSources.value = false
   }
 }
 
@@ -160,6 +188,29 @@ const recommendations = computed(() => {
   return data.value?.recommendations || []
 })
 
+// Source chart options
+const sourceChartOptions = computed(() => {
+  if (!sourceMetrics.value?.leads_by_source?.length) return {}
+  const data = [...sourceMetrics.value.leads_by_source].reverse()
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'value', boundaryGap: [0, 0.01] },
+    yAxis: { type: 'category', data: data.map((d: any) => d.source) },
+    series: [{
+      name: 'Leads',
+      type: 'bar',
+      data: data.map((d: any) => d.count),
+      itemStyle: { color: '#3b82f6' }
+    }]
+  }
+})
+
+const territoryWorldData = computed(() => {
+  if (!territoryLeadsData.value) return []
+  return territoryLeadsData.value.map((t: any) => ({ name: t.territory, value: t.count }))
+})
+
 // Helpers
 function formatCurrency(value: number) {
   if (!value) return 'KES 0'
@@ -193,7 +244,10 @@ function handleChatNavigation(path: string) {
   router.push(path)
 }
 
-onMounted(() => loadData())
+onMounted(() => {
+  loadData()
+  loadSourceMetrics()
+})
 </script>
 
 <template>
@@ -206,7 +260,7 @@ onMounted(() => loadData())
           <p class="text-sm text-gray-500 mt-1">Pipeline analytics, lead optimization & campaign performance</p>
         </div>
         <div class="flex items-center gap-3">
-          <select v-model="period" @change="loadData()" class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white">
+          <select v-model="period" @change="loadData(); loadSourceMetrics()" class="text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white">
             <option v-for="p in periods" :key="p.value" :value="p.value">{{ p.label }}</option>
           </select>
           <button @click="loadData(true)" :disabled="isRefreshing"
@@ -523,6 +577,64 @@ onMounted(() => loadData())
                   <p v-if="rec.description" class="text-xs text-blue-700 mt-1">{{ rec.description }}</p>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Source Performance Tab -->
+        <div v-show="activeTab === 'sources'" class="space-y-6">
+          <div class="bg-white rounded-lg shadow-sm border p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Source Performance</h3>
+            <div v-if="sourceMetrics?.leads_by_source?.length" class="h-80">
+              <BaseChart :options="sourceChartOptions" />
+            </div>
+            <div v-else class="text-center py-8 text-gray-500">
+              <BarChart3 class="w-8 h-8 mx-auto mb-2" />
+              <p>No source performance data available</p>
+            </div>
+          </div>
+
+          <!-- Cost Efficiency -->
+          <div class="bg-white rounded-lg shadow-sm border p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Cost Efficiency</h3>
+            <div v-if="costPerLead?.length" class="overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost Per Source</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cost Per Lead</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-for="row in costPerLead" :key="row.source">
+                    <td class="px-4 py-3 text-sm font-medium text-gray-900">{{ row.source }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-gray-700">{{ formatCurrency(row.total_cost) }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-gray-700">{{ formatCurrency(row.cost_per_lead) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="text-center py-8 text-gray-500">
+              <DollarSign class="w-8 h-8 mx-auto mb-2" />
+              <p>No cost data available</p>
+            </div>
+          </div>
+
+          <!-- Territory Leads -->
+          <div class="bg-white rounded-lg shadow-sm border p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Territory Leads</h3>
+            <div v-if="territoryLeadsData?.length" class="h-96">
+              <TerritoryMap
+                :worldData="territoryWorldData"
+                :indiaData="[]"
+                metric="Leads"
+                colorScale="purple"
+              />
+            </div>
+            <div v-else class="text-center py-8 text-gray-500">
+              <Target class="w-8 h-8 mx-auto mb-2" />
+              <p>No territory data available</p>
             </div>
           </div>
         </div>

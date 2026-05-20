@@ -13,6 +13,7 @@ import { useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
+import TerritoryMap from '../components/TerritoryMap.vue'
 import {
   formatCurrency, formatNumber, formatPercent,
   getTierColor, getTierIcon, getRiskColor, getHealthColor, getHealthBgColor,
@@ -41,6 +42,12 @@ const error = ref<string | null>(null)
 const data = ref<any>(null)
 const crossSellData = ref<any>(null)
 const purchasePatternsData = ref<any>(null)
+const counts = ref<any>(null)
+const revenueSplit = ref<any>(null)
+const rankings = ref<any>(null)
+const variance = ref<any>(null)
+const activeCutoff = ref('6')
+const territoryMapData = ref({ world: [], india: [], unmapped: [] })
 const isLoadingCrossSell = ref(false)
 const isLoadingPatterns = ref(false)
 
@@ -54,6 +61,8 @@ const tabs = [
   { id: 'cohorts', label: 'Cohorts', icon: BarChart3 },
   { id: 'cross-sell', label: 'Cross-sell', icon: Target },
   { id: 'patterns', label: 'Patterns', icon: Activity },
+  { id: 'rankings', label: 'Rankings', icon: TrendingUp },
+  { id: 'territory', label: 'Territory', icon: MapPin },
 ]
 
 // Date filter
@@ -143,7 +152,7 @@ async function loadCrossSellData() {
 // Load purchase patterns
 async function loadPurchasePatterns() {
   if (purchasePatternsData.value) return // Already loaded
-  
+
   isLoadingPatterns.value = true
   try {
     purchasePatternsData.value = await apiCall('insights.api.ml.purchase_patterns', {
@@ -155,6 +164,49 @@ async function loadPurchasePatterns() {
     isLoadingPatterns.value = false
   }
 }
+
+async function loadCustomerCounts() {
+  try {
+    counts.value = await apiCall('insights.api.ml.customer.customer_counts', {
+      date_filter: dateFilter.value,
+      active_cutoff_months: activeCutoff.value,
+    })
+  } catch (e: any) {
+    console.error('Failed to load customer counts:', e)
+  }
+}
+
+async function loadRankings() {
+  try {
+    rankings.value = await apiCall('insights.api.ml.customer.customer_rankings', {
+      date_filter: dateFilter.value,
+    })
+  } catch (e: any) {
+    console.error('Failed to load rankings:', e)
+  }
+}
+
+async function loadRevenueSplit() {
+  try {
+    revenueSplit.value = await apiCall('insights.api.ml.customer.customer_revenue_split', {
+      date_filter: dateFilter.value,
+    })
+  } catch (e: any) {
+    console.error('Failed to load revenue split:', e)
+  }
+}
+
+async function loadVariance() {
+  try {
+    variance.value = await apiCall('insights.api.ml.customer.customer_variance', {
+      date_filter: dateFilter.value,
+    })
+  } catch (e: any) {
+    console.error('Failed to load variance:', e)
+  }
+}
+
+watch(activeCutoff, () => loadCustomerCounts())
 
 // Navigate to customer detail & track recent
 function viewCustomerDetail(customerId: string) {
@@ -251,12 +303,22 @@ function handleDashboardRedirect(target: string) {
 }
 
 // Reload when date filter changes
-watch(dateFilter, () => loadData())
+watch(dateFilter, () => {
+  loadData()
+  loadCustomerCounts()
+  loadRankings()
+  loadRevenueSplit()
+  loadVariance()
+})
 
 // Load data on mount
 onMounted(() => {
   recentCustomerIds.value = getRecentCustomers()
   loadData()
+  loadCustomerCounts()
+  loadRankings()
+  loadRevenueSplit()
+  loadVariance()
 })
 </script>
 
@@ -366,6 +428,51 @@ onMounted(() => {
         </div>
       </div>
       
+      <!-- Customer Counts Summary -->
+      <div v-if="counts" class="grid grid-cols-2 gap-3 p-6 lg:grid-cols-4 xl:grid-cols-8">
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">Total</p>
+          <p class="text-lg font-bold">{{ counts.total?.toLocaleString() }}</p>
+        </div>
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">New</p>
+          <p class="text-lg font-bold text-green-600">{{ counts.new_by_creation?.toLocaleString() }}</p>
+        </div>
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">Existing</p>
+          <p class="text-lg font-bold">{{ counts.existing?.toLocaleString() }}</p>
+        </div>
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">Active</p>
+          <p class="text-lg font-bold text-blue-600">{{ counts.active?.toLocaleString() }}</p>
+        </div>
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">Inactive</p>
+          <p class="text-lg font-bold text-red-500">{{ counts.inactive?.toLocaleString() }}</p>
+        </div>
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">Advance Pay</p>
+          <p class="text-lg font-bold text-purple-600">{{ counts.advance_payment?.toLocaleString() }}</p>
+        </div>
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">Manufacturers</p>
+          <p class="text-lg font-bold">{{ counts.manufacturers?.toLocaleString() }}</p>
+        </div>
+        <div class="p-3 bg-white rounded-xl shadow-sm text-center">
+          <p class="text-xs text-gray-500">Traders</p>
+          <p class="text-lg font-bold">{{ counts.traders?.toLocaleString() }}</p>
+        </div>
+      </div>
+
+      <!-- Active Cutoff Selector -->
+      <div class="px-6 mb-4">
+        <select v-model="activeCutoff" class="px-3 py-1 text-sm border rounded-lg">
+          <option value="3">Active: 3 months</option>
+          <option value="6">Active: 6 months</option>
+          <option value="12">Active: 12 months</option>
+        </select>
+      </div>
+
       <!-- Tabs -->
       <div class="px-6">
         <div class="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
@@ -986,6 +1093,85 @@ onMounted(() => {
           <div v-else class="text-center py-12">
             <Activity class="w-12 h-12 mx-auto text-gray-300" />
             <p class="mt-4 text-gray-500">No purchase pattern data available</p>
+          </div>
+        </div>
+
+        <!-- Rankings Tab -->
+        <div v-if="activeTab === 'rankings' && rankings" class="p-6 space-y-6">
+          <!-- Top by Revenue -->
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">Top Customers by Revenue</h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left text-gray-500 border-b">
+                <th class="pb-2">Customer</th><th class="pb-2 text-right">Revenue</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="c in rankings.top_revenue" :key="c.customer" class="border-b last:border-0">
+                  <td class="py-2">{{ c.customer_name }}</td>
+                  <td class="py-2 text-right font-medium">{{ Number(c.revenue).toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- Top by Profit -->
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">Top Customers by Gross Profit</h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left text-gray-500 border-b">
+                <th class="pb-2">Customer</th><th class="pb-2 text-right">Gross Profit</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="c in rankings.top_profit" :key="c.customer" class="border-b last:border-0">
+                  <td class="py-2">{{ c.customer_name }}</td>
+                  <td class="py-2 text-right font-medium">{{ Number(c.gross_profit).toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- Top by Margin -->
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">Top Customers by Margin %</h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left text-gray-500 border-b">
+                <th class="pb-2">Customer</th><th class="pb-2 text-right">Margin %</th><th class="pb-2 text-right">Revenue</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="c in rankings.top_margin" :key="c.customer" class="border-b last:border-0">
+                  <td class="py-2">{{ c.customer_name }}</td>
+                  <td class="py-2 text-right font-medium">{{ c.margin_pct }}%</td>
+                  <td class="py-2 text-right">{{ Number(c.revenue).toLocaleString() }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <!-- Top Consistent -->
+          <div class="bg-white rounded-xl shadow-sm p-4">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3">Most Consistent Customers</h3>
+            <table class="w-full text-sm">
+              <thead><tr class="text-left text-gray-500 border-b">
+                <th class="pb-2">Customer</th><th class="pb-2 text-right">Score</th><th class="pb-2 text-right">Months Active</th>
+              </tr></thead>
+              <tbody>
+                <tr v-for="c in rankings.top_consistent" :key="c.customer" class="border-b last:border-0">
+                  <td class="py-2">{{ c.customer_name }}</td>
+                  <td class="py-2 text-right font-medium">{{ c.consistency_score }}</td>
+                  <td class="py-2 text-right">{{ c.months_active }}/{{ c.total_months }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Territory Map Tab -->
+        <div v-if="activeTab === 'territory'" class="p-6">
+          <div class="bg-white rounded-xl shadow-sm" style="height: 500px">
+            <TerritoryMap
+              :worldData="territoryMapData.world"
+              :indiaData="territoryMapData.india"
+              :unmapped="territoryMapData.unmapped"
+              metric="Customers"
+              colorScale="blue"
+            />
           </div>
         </div>
       </div>

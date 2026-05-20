@@ -57,6 +57,7 @@ class TaxIntelligence(BaseMLModel):
         super().__init__()
         self.model_name = "TaxIntelligence"
         self.company = frappe.defaults.get_user_default("company") or frappe.db.get_single_value("Global Defaults", "default_company")
+        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
         self.fiscal_year = self._get_current_fiscal_year()
         
     def _get_current_fiscal_year(self) -> Dict[str, Any]:
@@ -115,6 +116,7 @@ class TaxIntelligence(BaseMLModel):
                 "status": "success",
                 "generated_at": datetime.now().isoformat(),
                 "company": self.company,
+                "base_currency": self.base_currency,
                 "fiscal_year": {
                     "name": self.fiscal_year["name"],
                     "year_start_date": str(self.fiscal_year["year_start_date"]),

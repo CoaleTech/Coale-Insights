@@ -34,6 +34,8 @@ const selectedProvider = computed(() => settings.doc.ai_provider || 'openrouter'
 const providerOptions = [
 	{ value: 'openrouter', label: 'OpenRouter', icon: 'cloud', desc: 'Cloud AI with free & paid models' },
 	{ value: 'ollama', label: 'Ollama', icon: 'server', desc: 'Local AI, no API key needed' },
+	{ value: 'ollama_cloud', label: 'Ollama Cloud', icon: 'cloud-lightning', desc: 'Remote Ollama instance' },
+	{ value: 'moonshot', label: 'Moonshot (Kimi)', icon: 'sparkles', desc: 'Moonshot AI Kimi models' },
 ]
 
 const modelOptions = [
@@ -92,17 +94,23 @@ async function testConnection() {
 		return
 	}
 
+	if (provider === 'moonshot' && !settings.doc.moonshot_api_key) {
+		createToast({ title: 'API Key Required', message: 'Enter your Moonshot API key first', variant: 'warning' })
+		return
+	}
+
 	isTesting.value = true
 	try {
 		const response = await call('insights.ai.openrouter_client.test_connection', { provider })
 
 		if (response?.success) {
-			const msg = provider === 'ollama'
+			const isOllama = provider === 'ollama' || provider === 'ollama_cloud'
+			const msg = isOllama
 				? `Connected. ${response.data?.model_count || 0} models available.`
 				: 'Connection successful'
 
 			// If Ollama, populate discovered models
-			if (provider === 'ollama' && response.data?.models) {
+			if (isOllama && response.data?.models) {
 				ollamaModels.value = response.data.models
 			}
 
@@ -119,7 +127,8 @@ async function testConnection() {
 
 async function fetchOllamaModels() {
 	try {
-		const response = await call('insights.ai.openrouter_client.test_connection', { provider: 'ollama' })
+		const provider = selectedProvider.value === 'ollama_cloud' ? 'ollama_cloud' : 'ollama'
+		const response = await call('insights.ai.openrouter_client.test_connection', { provider })
 		if (response?.success && response.data?.models) {
 			ollamaModels.value = response.data.models
 		}
@@ -127,14 +136,14 @@ async function fetchOllamaModels() {
 }
 
 watch(selectedProvider, (val) => {
-	if (val === 'ollama' && ollamaModels.value.length === 0) {
+	if ((val === 'ollama' || val === 'ollama_cloud') && ollamaModels.value.length === 0) {
 		fetchOllamaModels()
 	}
 })
 
 onMounted(() => {
 	fetchAIStatus()
-	if (selectedProvider.value === 'ollama') {
+	if (selectedProvider.value === 'ollama' || selectedProvider.value === 'ollama_cloud') {
 		fetchOllamaModels()
 	}
 })
@@ -249,10 +258,24 @@ onMounted(() => {
 			</div>
 
 			<!-- Ollama Config -->
-			<div v-if="selectedProvider === 'ollama'" class="border-t pt-6 space-y-5">
+			<div v-if="selectedProvider === 'ollama' || selectedProvider === 'ollama_cloud'" class="border-t pt-6 space-y-5">
 				<div>
-					<h2 class="text-base font-medium text-gray-800">Ollama Settings</h2>
-					<p class="text-xs text-gray-500 mt-1">Runs locally on your machine. Make sure Ollama is running before testing.</p>
+					<h2 class="text-base font-medium text-gray-800">
+						{{ selectedProvider === 'ollama_cloud' ? 'Ollama Cloud Settings' : 'Ollama Settings' }}
+					</h2>
+					<p class="text-xs text-gray-500 mt-1">
+						{{ selectedProvider === 'ollama_cloud' ? 'Remote Ollama instance. Enter the URL of your hosted Ollama server.' : 'Runs locally on your machine. Make sure Ollama is running before testing.' }}
+					</p>
+				</div>
+
+				<div v-if="selectedProvider === 'ollama_cloud'">
+					<label class="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
+					<FormControl
+						type="password"
+						v-model="settings.doc.ollama_api_key"
+						placeholder="ollama-..."
+					/>
+					<p class="text-xs text-gray-400 mt-1">Required for ollama.com. Get your key from your Ollama account.</p>
 				</div>
 
 				<div class="grid grid-cols-2 gap-4">
@@ -290,6 +313,50 @@ onMounted(() => {
 						<p class="text-xs text-gray-400 mt-1">
 							{{ ollamaModels.length > 0 ? `${ollamaModels.length} models detected` : 'Test connection to discover models' }}
 						</p>
+					</div>
+				</div>
+			</div>
+
+			<!-- Moonshot Config -->
+			<div v-if="selectedProvider === 'moonshot'" class="border-t pt-6 space-y-5">
+				<h2 class="text-base font-medium text-gray-800">Moonshot Settings</h2>
+
+				<div class="grid grid-cols-2 gap-4">
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
+						<div class="flex gap-2">
+							<FormControl
+								type="password"
+								v-model="settings.doc.moonshot_api_key"
+								placeholder="sk-..."
+								class="flex-1"
+							/>
+							<Button
+								variant="outline"
+								:loading="isTesting"
+								@click="testConnection"
+							>Test</Button>
+						</div>
+						<p class="text-xs text-gray-400 mt-1">Get your key at platform.moonshot.cn</p>
+					</div>
+					<div>
+						<label class="block text-sm font-medium text-gray-700 mb-1.5">Model</label>
+						<select
+							v-model="settings.doc.moonshot_model"
+							class="w-full rounded-md border border-gray-300 px-3 py-[7px] text-sm bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+						>
+							<optgroup label="Kimi K2 (recommended)">
+								<option value="kimi-k2-0905-preview">kimi-k2-0905-preview</option>
+								<option value="kimi-k2-0711-preview">kimi-k2-0711-preview</option>
+								<option value="kimi-k2-turbo-preview">kimi-k2-turbo-preview</option>
+							</optgroup>
+							<optgroup label="Moonshot v1 (legacy)">
+								<option value="moonshot-v1-8k">moonshot-v1-8k</option>
+								<option value="moonshot-v1-32k">moonshot-v1-32k</option>
+								<option value="moonshot-v1-128k">moonshot-v1-128k</option>
+								<option value="moonshot-v1-auto">moonshot-v1-auto</option>
+							</optgroup>
+						</select>
 					</div>
 				</div>
 			</div>
@@ -350,7 +417,7 @@ onMounted(() => {
 					<div class="rounded-lg border border-gray-100 bg-gray-50/70 p-3.5">
 						<p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Provider</p>
 						<p class="text-sm font-medium text-gray-900 mt-1 capitalize">
-							{{ selectedProvider === 'openrouter' ? 'OpenRouter' : 'Ollama' }}
+							{{ selectedProvider === 'openrouter' ? 'OpenRouter' : selectedProvider === 'ollama_cloud' ? 'Ollama Cloud' : selectedProvider === 'moonshot' ? 'Moonshot' : 'Ollama' }}
 						</p>
 					</div>
 				</div>

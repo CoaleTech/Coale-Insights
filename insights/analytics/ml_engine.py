@@ -89,6 +89,10 @@ class MLAnalyticsEngine:
         # Get ML predictions based on dashboard type
         ml_predictions = self._get_ml_predictions(dashboard_type)
         
+        # Get company default currency
+        company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
+        base_currency = frappe.db.get_value("Company", company, "default_currency") or "KES"
+        
         return {
             "type": dashboard_type,
             "meta": self.DASHBOARD_TYPES.get(dashboard_type, {}),
@@ -98,7 +102,8 @@ class MLAnalyticsEngine:
             "ai_insights": ai_insights,
             "ml_predictions": ml_predictions,
             "last_updated": now_datetime(),
-            "filters": self.filters
+            "filters": self.filters,
+            "base_currency": base_currency
         }
     
     def _calculate_kpis(self, dashboard_type: str, data: Dict) -> List[Dict]:

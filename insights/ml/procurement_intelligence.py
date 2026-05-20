@@ -36,6 +36,8 @@ class ProcurementIntelligence(BaseMLModel):
     def __init__(self):
         super().__init__()
         self.model_name = "ProcurementIntelligence"
+        self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
+        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
     
     def train(self) -> Dict[str, Any]:
         """Generate comprehensive procurement intelligence"""
@@ -50,6 +52,8 @@ class ProcurementIntelligence(BaseMLModel):
             result = {
                 "status": "success",
                 "generated_at": datetime.now().isoformat(),
+                "company": self.company,
+                "base_currency": self.base_currency,
                 "spend_overview": spend_overview,
                 "supplier_performance": supplier_performance,
                 "purchase_analytics": purchase_analytics,
@@ -616,8 +620,8 @@ class ProcurementIntelligence(BaseMLModel):
         df['spend'] = pd.to_numeric(df['spend'])
         
         # Calculate 3-month moving average
-        avg_spend = df['spend'].tail(6).mean()
-        trend = (df['spend'].tail(3).mean() - df['spend'].head(3).mean()) / 3
+        avg_spend = float(df['spend'].tail(6).mean())
+        trend = float((df['spend'].tail(3).mean() - df['spend'].head(3).mean()) / 3)
         
         # Generate 3-month forecast
         forecasts = []
@@ -628,7 +632,7 @@ class ProcurementIntelligence(BaseMLModel):
             predicted = avg_spend + (trend * i)
             forecasts.append({
                 'period': period,
-                'predicted_spend': round(max(0, predicted), 2),
+                'predicted_spend': float(round(max(0, predicted), 2)),
                 'confidence': 'Medium' if i <= 2 else 'Low'
             })
         

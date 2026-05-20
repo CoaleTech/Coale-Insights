@@ -6,7 +6,7 @@ import {
   RefreshCcw, Loader2, Package, Warehouse, ArrowRightLeft, Clock,
   AlertTriangle, TrendingUp, TrendingDown, Activity, BarChart3,
   PieChart, ShoppingCart, Truck, DollarSign, Archive, Boxes,
-  ArrowUpRight, ArrowDownRight, Heart, Layers, ArrowRight
+  ArrowUpRight, ArrowDownRight, Heart, Layers, ArrowRight, Zap
 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -29,10 +29,16 @@ const trainingStatus = ref('')
 
 // Active tab
 const activeTab = ref('overview')
+
+// Itemwise BE state
+const itemwiseBeData = ref<any>(null)
+const itemwiseBeLoading = ref(false)
+const itemwiseBeError = ref<string | null>(null)
 const tabs = [
   { id: 'overview', label: 'Stock Overview', icon: Package },
   { id: 'turnover', label: 'Turnover', icon: Activity },
   { id: 'abc-xyz', label: 'ABC/XYZ', icon: Layers },
+  { id: 'itemwise-be', label: 'Itemwise BE', icon: Zap },
   { id: 'aging', label: 'Aging (FIFO)', icon: Clock },
   { id: 'warehouses', label: 'Warehouses & Transfers', icon: Warehouse },
   { id: 'procurement', label: 'Procurement', icon: Truck },
@@ -182,6 +188,31 @@ function getAgeBucketColor(bucket: string): string {
   return 'bg-red-600'
 }
 
+// Load itemwise break-even data
+async function loadItemwiseBe() {
+  if (itemwiseBeData.value) return
+
+  itemwiseBeLoading.value = true
+  itemwiseBeError.value = null
+
+  try {
+    const result = await apiCall('insights.api.ml.inventory.item_breakeven', {
+      period: 'Quarterly'
+    })
+    itemwiseBeData.value = result
+  } catch (e: any) {
+    itemwiseBeError.value = e.message || 'Failed to load itemwise break-even data'
+  } finally {
+    itemwiseBeLoading.value = false
+  }
+}
+
+function getRagDotClass(rag: string): string {
+  if (rag === 'green') return 'bg-green-500'
+  if (rag === 'amber') return 'bg-amber-500'
+  return 'bg-red-500'
+}
+
 // Load on mount
 onMounted(() => {
   loadData()
@@ -190,6 +221,13 @@ onMounted(() => {
 // Watch for date filter changes
 watch(dateFilter, () => {
   loadData()
+})
+
+// Watch tab changes to lazy-load itemwise BE
+watch(activeTab, (tab) => {
+  if (tab === 'itemwise-be') {
+    loadItemwiseBe()
+  }
 })
 
 // Breadcrumbs
@@ -766,6 +804,45 @@ function handleDashboardRedirect(target: string) {
                 <span v-else>Run ABC/XYZ Classification</span>
               </button>
             </div>
+          </div>
+
+          <!-- Itemwise BE Tab -->
+          <div v-if="activeTab === 'itemwise-be'">
+            <div v-if="itemwiseBeLoading" class="flex items-center justify-center py-12">
+              <Loader2 class="w-8 h-8 text-blue-600 animate-spin" />
+            </div>
+            <div v-else-if="itemwiseBeError" class="text-center py-12 text-red-500">{{ itemwiseBeError }}</div>
+            <div v-else-if="itemwiseBeData?.items?.length" class="bg-white rounded-xl shadow-sm border overflow-x-auto">
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Selling Price</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Variable Cost</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">CM</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">BE Qty</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actual Qty</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Coverage %</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">RAG</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  <tr v-for="item in itemwiseBeData.items" :key="item.item_code" class="hover:bg-gray-50">
+                    <td class="px-4 py-3 text-sm font-medium text-gray-900">{{ item.item_code }}<br><span class="text-xs text-gray-500">{{ item.item_name }}</span></td>
+                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ formatCurrency(item.selling_price) }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ formatCurrency(item.variable_cost) }}</td>
+                    <td class="px-4 py-3 text-sm text-right font-medium text-gray-900">{{ formatCurrency(item.contribution_margin) }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ item.be_qty?.toLocaleString() }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ item.actual_qty?.toLocaleString() }}</td>
+                    <td class="px-4 py-3 text-sm text-right font-medium" :class="item.coverage >= 1 ? 'text-green-600' : 'text-red-600'">{{ (item.coverage * 100)?.toFixed(1) }}%</td>
+                    <td class="px-4 py-3 text-center">
+                      <span class="inline-block w-3 h-3 rounded-full" :class="getRagDotClass(item.rag)"></span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div v-else class="text-center py-12 text-gray-500">No item break-even data available</div>
           </div>
 
           <!-- Aging (FIFO) Tab -->

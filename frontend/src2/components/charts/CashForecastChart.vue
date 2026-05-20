@@ -120,9 +120,12 @@ interface Props {
   base: ForecastPoint[]
   optimistic: ForecastPoint[]
   pessimistic: ForecastPoint[]
+  currency?: string
 }
 
-const props = defineProps<Props>()
+const props = withDefaults(defineProps<Props>(), {
+  currency: 'KES'
+})
 
 const chartWidth = 500
 const chartHeight = 224
@@ -234,7 +237,7 @@ const pessimisticAreaPoints = computed(() => {
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: props.currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

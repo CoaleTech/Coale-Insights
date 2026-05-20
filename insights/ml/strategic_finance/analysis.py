@@ -313,7 +313,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
             a.name,
             a.asset_name,
             a.asset_category,
-            a.gross_purchase_amount,
+            a.purchase_amount,
             a.purchase_date,
             a.available_for_use_date,
             a.status,
@@ -331,7 +331,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
         WHERE a.company = %s
             AND a.docstatus = 1
             AND a.status NOT IN ('Sold', 'Scrapped')
-        ORDER BY a.gross_purchase_amount DESC
+        ORDER BY a.purchase_amount DESC
     """, (intelligence.company,), as_dict=True)
 
     # Summarize by category
@@ -351,7 +351,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
                 "accumulated_depreciation": 0
             }
 
-        gross = float(asset.gross_purchase_amount or 0)
+        gross = float(asset.purchase_amount or 0)
         net = float(asset.value_after_depreciation or gross)
         dep = float(asset.accumulated_depreciation or 0)
 
@@ -367,7 +367,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     # CAPEX this year
     fy_start = intelligence.fiscal_year["start_date"]
     ytd_capex = frappe.db.sql("""
-        SELECT COALESCE(SUM(gross_purchase_amount), 0) as amount
+        SELECT COALESCE(SUM(purchase_amount), 0) as amount
         FROM `tabAsset`
         WHERE company = %s
             AND docstatus = 1
@@ -377,7 +377,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     # Prior year CAPEX for comparison
     prior_fy_start = (datetime.strptime(fy_start, '%Y-%m-%d') - timedelta(days=365)).strftime('%Y-%m-%d')
     prior_capex = frappe.db.sql("""
-        SELECT COALESCE(SUM(gross_purchase_amount), 0) as amount
+        SELECT COALESCE(SUM(purchase_amount), 0) as amount
         FROM `tabAsset`
         WHERE company = %s
             AND docstatus = 1
@@ -415,8 +415,8 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
                 "name": a.name,
                 "asset_name": a.asset_name,
                 "category": a.asset_category,
-                "gross_value": float(a.gross_purchase_amount or 0),
-                "net_value": float(a.value_after_depreciation or a.gross_purchase_amount or 0),
+                "gross_value": float(a.purchase_amount or 0),
+                "net_value": float(a.value_after_depreciation or a.purchase_amount or 0),
                 "status": a.status
             }
             for a in assets[:10]

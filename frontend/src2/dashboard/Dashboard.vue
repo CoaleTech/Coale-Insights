@@ -42,6 +42,7 @@ const aiInsights = ref<string | null>(null)
 const mlPredictions = ref<any>(null)
 const aiError = ref<string | null>(null)
 const showMLPanel = ref(false)
+const dashboardCurrency = ref('KES')
 
 // Determine dashboard type from title
 function getDashboardType() {
@@ -88,6 +89,11 @@ async function refreshWithAI() {
 			mlPredictions.value = response.ml_predictions
 			showMLPanel.value = true
 		}
+		
+		// Set currency from response
+		if (response?.base_currency) {
+			dashboardCurrency.value = response.base_currency
+		}
 	} catch (error: any) {
 		aiError.value = error.message || 'Failed to generate AI insights'
 		createToast({
@@ -132,7 +138,7 @@ async function trainMLModels() {
 // Format numbers for display
 function formatNumber(value: number, type: string = 'number'): string {
 	if (type === 'currency') {
-		return new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(value)
+		return new Intl.NumberFormat('en-KE', { style: 'currency', currency: dashboardCurrency.value, maximumFractionDigits: 0 }).format(value)
 	}
 	return new Intl.NumberFormat('en-KE').format(value)
 }

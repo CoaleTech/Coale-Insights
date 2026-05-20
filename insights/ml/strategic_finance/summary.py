@@ -98,7 +98,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
 
     # Total Assets (from Asset doctype)
     total_assets = frappe.db.sql("""
-        SELECT COALESCE(SUM(gross_purchase_amount), 0) as total
+        SELECT COALESCE(SUM(purchase_amount), 0) as total
         FROM `tabAsset`
         WHERE company = %s
             AND docstatus = 1

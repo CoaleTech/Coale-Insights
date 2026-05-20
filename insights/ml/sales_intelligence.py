@@ -15,6 +15,11 @@ from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from insights.api.ml import get_date_filter_sql
 from insights.ml.base import BaseMLModel
+from insights.ml.sales_source_analytics import (
+    get_source_attributed_sales,
+    get_quotation_analytics,
+    get_territory_performance,
+)
 
 
 class SalesIntelligence(BaseMLModel):
@@ -726,9 +731,23 @@ class SalesIntelligence(BaseMLModel):
             result['avg_daily_sales'] = round(avg_daily_sales, 2)
         
         return result
-    
+
+    # ==================== SOURCE ATTRIBUTION ====================
+
+    def get_source_attributed_sales(self, period_start: str, period_end: str) -> List[Dict[str, Any]]:
+        """Get revenue, orders, and profit attributed to each lead source."""
+        return get_source_attributed_sales(period_start, period_end)
+
+    def get_quotation_analytics(self, period_start: str, period_end: str) -> Dict[str, Any]:
+        """Get quotation funnel analytics."""
+        return get_quotation_analytics(period_start, period_end)
+
+    def get_territory_performance(self, period_start: str, period_end: str) -> List[Dict[str, Any]]:
+        """Get sales performance by territory."""
+        return get_territory_performance(period_start, period_end)
+
     # ==================== AGGREGATE FORECASTS ====================
-    
+
     def aggregate_forecasts(self, refresh: bool = False) -> Dict[str, Any]:
         """Pull forecasts from existing ML models: Sales Forecasting and Demand Forecasting
         

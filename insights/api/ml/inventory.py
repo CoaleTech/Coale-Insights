@@ -150,3 +150,16 @@ def get_dead_stock() -> Dict[str, Any]:
         return success(result)
     except Exception as e:
         return error(str(e))
+
+
+@frappe.whitelist()
+def item_breakeven(period: str = "Quarterly", fiscal_year: str = None, item_group: str = None) -> Dict[str, Any]:
+    """Get item-level break-even analysis."""
+    try:
+        from insights.ml.breakeven_engine import BreakevenEngine
+
+        engine = BreakevenEngine(period=period, fiscal_year=fiscal_year)
+        result = engine.calculate_item_breakeven(item_group=item_group)
+        return success(result)
+    except Exception as e:
+        return error(str(e), exc=e)

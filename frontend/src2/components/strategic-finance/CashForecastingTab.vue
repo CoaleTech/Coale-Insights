@@ -70,6 +70,7 @@
           :base="data.base_forecast" 
           :optimistic="data.optimistic_forecast" 
           :pessimistic="data.pessimistic_forecast" 
+          :currency="currency"
         />
       </div>
       <div v-else class="h-80 flex items-center justify-center text-gray-500">
@@ -218,6 +219,7 @@ import {
   AlertTriangle,
   Calendar
 } from 'lucide-vue-next'
+import { inject } from 'vue'
 import CashForecastChart from '../charts/CashForecastChart.vue'
 
 interface Props {
@@ -226,11 +228,13 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const currency = inject('currency', 'KES')
+
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

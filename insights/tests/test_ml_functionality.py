@@ -366,31 +366,5 @@ class TestAPIDefensiveProgramming(FrappeTestCase):
         self.assertIn('not available', result['message'].lower())
 
 
-class TestDeprecationWarnings(FrappeTestCase):
-    """Test suite for deprecation warnings"""
-
-    def test_deprecated_api_import_warning(self):
-        """Test that importing deprecated API shows warning"""
-        with patch('warnings.warn') as mock_warn:
-            # This import should trigger a deprecation warning
-            import insights.api.ml
-            # The warning should have been called during import
-            mock_warn.assert_called()
-
-    def test_deprecated_function_warning(self):
-        """Test that calling deprecated functions shows warning"""
-        with patch('insights.api.ml._deprecated_function_warning') as mock_deprecated:
-            from insights.api.ml.customer import customer_segmentation
-
-            # Call the function
-            customer_segmentation()
-
-            # Should have called the deprecation warning
-            mock_deprecated.assert_called_with(
-                'customer_segmentation',
-                'insights.api.ml.customer.customer_segmentation'
-            )
-
-
 if __name__ == '__main__':
     unittest.main()

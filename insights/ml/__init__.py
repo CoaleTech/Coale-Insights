@@ -15,15 +15,20 @@ from insights.ml.product_recommendations import ProductRecommendations
 from insights.ml.customer_intelligence.model import CustomerIntelligence
 from insights.ml.sales_intelligence import SalesIntelligence
 from insights.ml.risk_intelligence import RiskIntelligence
+from insights.ml.breakeven_engine import BreakevenEngine
+
+from insights.ml.india_tax_intelligence import IndiaTaxIntelligence
 
 __all__ = [
     "CustomerSegmentation",
-    "ABCXYZClassification", 
+    "ABCXYZClassification",
     "SalesForecasting",
     "PaymentPrediction",
     "DemandForecasting",
     "ProductRecommendations",
     "CustomerIntelligence",
     "SalesIntelligence",
-    "RiskIntelligence"
+    "RiskIntelligence",
+    "BreakevenEngine",
+    "IndiaTaxIntelligence",
 ]

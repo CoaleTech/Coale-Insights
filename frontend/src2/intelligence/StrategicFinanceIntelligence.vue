@@ -180,6 +180,102 @@
         <div v-show="activeTab === 'budget'">
           <BudgetVarianceTab />
         </div>
+
+        <!-- Break-Even Overview Tab -->
+        <div v-show="activeTab === 'beOverview'">
+          <div v-if="beLoading" class="flex items-center justify-center py-12">
+            <Loader2 class="w-8 h-8 text-blue-600 animate-spin" />
+          </div>
+          <div v-else-if="beError" class="text-center py-12 text-red-500">{{ beError }}</div>
+          <div v-else-if="beData" class="space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+                <p class="text-sm text-gray-500 dark:text-gray-400">Fixed Costs</p>
+                <p class="text-xl font-bold text-gray-900 dark:text-white mt-1">{{ formatCurrency(beData.fixed_costs) }}</p>
+              </div>
+              <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+                <p class="text-sm text-gray-500 dark:text-gray-400">BE Revenue</p>
+                <p class="text-xl font-bold text-gray-900 dark:text-white mt-1">{{ formatCurrency(beData.be_revenue) }}</p>
+              </div>
+              <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+                <p class="text-sm text-gray-500 dark:text-gray-400">BE Qty</p>
+                <p class="text-xl font-bold text-gray-900 dark:text-white mt-1">{{ beData.be_qty?.toLocaleString() || 0 }}</p>
+              </div>
+              <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+                <p class="text-sm text-gray-500 dark:text-gray-400">Coverage</p>
+                <p class="text-xl font-bold mt-1" :class="beData.coverage >= 1 ? 'text-green-600' : 'text-red-600'">{{ (beData.coverage * 100)?.toFixed(1) || 0 }}%</p>
+                <span :class="getRagClass(beData.rag)" class="text-xs px-2 py-0.5 rounded mt-1 inline-block">{{ beData.rag }}</span>
+              </div>
+              <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+                <p class="text-sm text-gray-500 dark:text-gray-400">Safety Margin</p>
+                <p class="text-xl font-bold text-gray-900 dark:text-white mt-1">{{ beData.safety_margin?.toFixed(1) || 0 }}%</p>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-center py-12 text-gray-500">No break-even data available</div>
+        </div>
+
+        <!-- Employeewise BE Tab -->
+        <div v-show="activeTab === 'beEmployee'">
+          <div v-if="beLoading" class="flex items-center justify-center py-12">
+            <Loader2 class="w-8 h-8 text-blue-600 animate-spin" />
+          </div>
+          <div v-else-if="beError" class="text-center py-12 text-red-500">{{ beError }}</div>
+          <div v-else-if="beData?.employee_breakeven?.departments?.length" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div v-for="dept in beData.employee_breakeven.departments" :key="dept.department" class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-gray-900 dark:text-white">{{ dept.department }}</h3>
+                <span class="w-3 h-3 rounded-full" :class="getRagDotClass(dept.rag)"></span>
+              </div>
+              <div class="space-y-2">
+                <div class="flex justify-between text-sm">
+                  <span class="text-gray-500 dark:text-gray-400">Payroll Cost</span>
+                  <span class="font-medium text-gray-900 dark:text-white">{{ formatCurrency(dept.payroll_cost) }}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                  <span class="text-gray-500 dark:text-gray-400">Orders Needed</span>
+                  <span class="font-medium text-gray-900 dark:text-white">{{ dept.orders_needed?.toLocaleString() }}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                  <span class="text-gray-500 dark:text-gray-400">Actual Orders</span>
+                  <span class="font-medium text-gray-900 dark:text-white">{{ dept.actual_orders?.toLocaleString() }}</span>
+                </div>
+                <div class="flex justify-between text-sm">
+                  <span class="text-gray-500 dark:text-gray-400">Coverage</span>
+                  <span class="font-medium" :class="dept.coverage >= 1 ? 'text-green-600' : 'text-red-600'">{{ (dept.coverage * 100)?.toFixed(1) }}%</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-else class="text-center py-12 text-gray-500">No employee break-even data available</div>
+        </div>
+
+        <!-- Capital Efficiency Tab -->
+        <div v-show="activeTab === 'beCapital'">
+          <div v-if="beLoading" class="flex items-center justify-center py-12">
+            <Loader2 class="w-8 h-8 text-blue-600 animate-spin" />
+          </div>
+          <div v-else-if="beError" class="text-center py-12 text-red-500">{{ beError }}</div>
+          <div v-else-if="beData" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+              <p class="text-sm text-gray-500 dark:text-gray-400">ROCE</p>
+              <p class="text-2xl font-bold mt-1" :class="getRagClass(beData.roce?.rag).split(' ')[1]">{{ beData.roce?.roce?.toFixed(2) || 0 }}%</p>
+              <p class="text-xs text-gray-500 mt-1">Target: {{ beData.roce?.target?.toFixed(2) || 0 }}%</p>
+              <span :class="getRagClass(beData.roce?.rag)" class="text-xs px-2 py-0.5 rounded mt-2 inline-block">{{ beData.roce?.rag }}</span>
+            </div>
+            <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+              <p class="text-sm text-gray-500 dark:text-gray-400">IRR</p>
+              <p class="text-2xl font-bold text-gray-900 dark:text-white mt-1">{{ beData.irr?.irr?.toFixed(2) || 'N/A' }}%</p>
+              <p class="text-xs text-gray-500 mt-1">Monthly cash flows</p>
+            </div>
+            <div class="bg-white dark:bg-gray-800 rounded-xl p-5 shadow-sm border">
+              <p class="text-sm text-gray-500 dark:text-gray-400">Capital Employed</p>
+              <p class="text-2xl font-bold text-gray-900 dark:text-white mt-1">{{ formatCurrency(beData.roce?.capital_employed) }}</p>
+              <p class="text-xs text-gray-500 mt-1">EBIT: {{ formatCurrency(beData.roce?.ebit) }}</p>
+            </div>
+          </div>
+          <div v-else class="text-center py-12 text-gray-500">No capital efficiency data available</div>
+        </div>
       </div>
     </div>
 
@@ -194,12 +290,12 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'StrategicFinanceIntelligence' })
-import { ref, onMounted, computed, markRaw } from 'vue'
+import { ref, onMounted, computed, markRaw, watch, provide } from 'vue'
 import { useRouter } from 'vue-router'
 import { createResource } from 'frappe-ui'
-import { 
-  RefreshCw, 
-  Download, 
+import {
+  RefreshCw,
+  Download,
   AlertTriangle,
   LayoutDashboard,
   Banknote,
@@ -210,7 +306,10 @@ import {
   GitBranch,
   Calendar,
   PiggyBank,
-  Loader2
+  Loader2,
+  Scale,
+  Users,
+  Gauge
 } from 'lucide-vue-next'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 
@@ -234,6 +333,11 @@ const error = ref<string | null>(null)
 const data = ref<any>(null)
 const lastUpdated = ref<string | null>(null)
 
+// Break-even state
+const beData = ref<any>(null)
+const beLoading = ref(false)
+const beError = ref<string | null>(null)
+
 // Tab Configuration
 const tabs = [
   { id: 'executive', label: 'Executive Summary', icon: markRaw(LayoutDashboard) },
@@ -244,7 +348,10 @@ const tabs = [
   { id: 'ratios', label: 'Financial Ratios', icon: markRaw(TrendingUp) },
   { id: 'scenarios', label: 'Scenario Analysis', icon: markRaw(GitBranch) },
   { id: 'comparison', label: 'Period Comparison', icon: markRaw(Calendar) },
-  { id: 'budget', label: 'Budget', icon: markRaw(PiggyBank) }
+  { id: 'budget', label: 'Budget', icon: markRaw(PiggyBank) },
+  { id: 'beOverview', label: 'Break-Even Overview', icon: markRaw(Scale) },
+  { id: 'beEmployee', label: 'Employeewise BE', icon: markRaw(Users) },
+  { id: 'beCapital', label: 'Capital Efficiency', icon: markRaw(Gauge) }
 ]
 
 // Computed summary data from API response
@@ -324,11 +431,14 @@ const formatDateTime = (dateStr: string) => {
   })
 }
 
+const currency = computed(() => data.value?.base_currency || 'KES')
+provide('currency', currency)
+
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
-  if (value >= 1000000) return `KES ${(value / 1000000).toFixed(1)}M`
-  if (value >= 1000) return `KES ${(value / 1000).toFixed(0)}K`
-  return `KES ${value.toFixed(0)}`
+  if (value === null || value === undefined) return `${currency.value} 0`
+  if (value >= 1000000) return `${currency.value} ${(value / 1000000).toFixed(1)}M`
+  if (value >= 1000) return `${currency.value} ${(value / 1000).toFixed(0)}K`
+  return `${currency.value} ${value.toFixed(0)}`
 }
 
 // Chat context for AI assistant
@@ -359,6 +469,79 @@ const exportData = () => {
 const handleChatNavigation = (path: string) => {
   router.push(path)
 }
+
+// Break-even helpers
+const getRagClass = (rag: string) => {
+  if (rag === 'green') return 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+  if (rag === 'amber') return 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+  return 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+}
+
+const getRagDotClass = (rag: string) => {
+  if (rag === 'green') return 'bg-green-500'
+  if (rag === 'amber') return 'bg-amber-500'
+  return 'bg-red-500'
+}
+
+// Break-even API Resources
+const beSummaryResource = createResource({
+  url: 'insights.api.ml.breakeven.breakeven_summary',
+  auto: false,
+  onSuccess(response: any) {
+    if (response && response.status === 'success') {
+      beData.value = response.data
+      beError.value = null
+    } else {
+      beError.value = response?.message || 'Failed to load break-even data'
+    }
+    beLoading.value = false
+  },
+  onError(err: any) {
+    console.error('Break-even summary error:', err)
+    beError.value = 'An error occurred while loading break-even data'
+    beLoading.value = false
+  }
+})
+
+const beEmployeeResource = createResource({
+  url: 'insights.api.ml.breakeven.employee_breakeven',
+  auto: false,
+  onSuccess(response: any) {
+    if (response && response.status === 'success' && beData.value) {
+      beData.value.employee_breakeven = response.data
+    }
+  },
+  onError(err: any) {
+    console.error('Employee BE error:', err)
+  }
+})
+
+const beCapitalResource = createResource({
+  url: 'insights.api.ml.breakeven.capital_efficiency',
+  auto: false,
+  onSuccess(response: any) {
+    if (response && response.status === 'success' && beData.value) {
+      beData.value.roce = response.data.roce
+      beData.value.irr = response.data.irr
+    }
+  },
+  onError(err: any) {
+    console.error('Capital efficiency error:', err)
+  }
+})
+
+const fetchBreakEvenData = () => {
+  beLoading.value = true
+  beError.value = null
+  beSummaryResource.submit({})
+}
+
+// Watch tab changes to lazy-load break-even data
+watch(activeTab, (tab) => {
+  if (tab.startsWith('be') && !beData.value) {
+    fetchBreakEvenData()
+  }
+})
 
 // Lifecycle
 onMounted(() => {

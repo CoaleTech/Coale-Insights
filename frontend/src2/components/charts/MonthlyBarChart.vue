@@ -46,10 +46,12 @@ interface Props {
   keyField: string
   valueField: string
   color?: string
+  currency?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  color: 'blue'
+  color: 'blue',
+  currency: 'KES'
 })
 
 const chartData = computed(() => props.data || [])
@@ -92,7 +94,7 @@ const getBarHeight = (value: number) => {
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: props.currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

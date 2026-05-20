@@ -32,11 +32,12 @@ def sanitize_for_json(obj):
 
 def format_currency(intelligence, value: float) -> str:
     """Helper to format currency for insights"""
+    currency = getattr(intelligence, 'base_currency', 'USD')
     if abs(value) >= 1000000:
-        return f"KES {value/1000000:.1f}M"
+        return f"{currency} {value/1000000:.1f}M"
     elif abs(value) >= 1000:
-        return f"KES {value/1000:.0f}K"
-    return f"KES {value:.0f}"
+        return f"{currency} {value/1000:.0f}K"
+    return f"{currency} {value:.0f}"
 
 
 def get_current_fiscal_year(intelligence) -> Dict[str, Any]:

@@ -233,6 +233,7 @@ import {
   AlertTriangle,
   Lightbulb
 } from 'lucide-vue-next'
+import { inject } from 'vue'
 
 interface Props {
   data: any
@@ -240,11 +241,13 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const currency = inject('currency', 'KES')
+
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

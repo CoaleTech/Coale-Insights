@@ -82,13 +82,13 @@ class TestAPIIntegration(FrappeTestCase):
         frappe.db.delete("Company", {"company_name": "Test Insights Co"})
         frappe.db.commit()
 
-    @patch('insights.ml.customer_intelligence.CustomerIntelligence.analyze_customer_data')
-    def test_customer_intelligence_api_integration(self, mock_analyze):
+    @patch('insights.ml.customer_intelligence.CustomerIntelligence.predict')
+    def test_customer_intelligence_api_integration(self, mock_predict):
         """Test customer intelligence API integration"""
         from insights.api.ml.customer import customer_intelligence
 
         # Mock the analysis result
-        mock_analyze.return_value = {
+        mock_predict.return_value = {
             "metrics": {"total_customers": 5, "avg_order_value": 500},
             "insights": ["Customer A is high value"],
             "recommendations": ["Focus on Customer A"]
@@ -104,14 +104,14 @@ class TestAPIIntegration(FrappeTestCase):
         self.assertIn('insights', result['data'])
 
         # Verify the mock was called
-        mock_analyze.assert_called_once()
+        mock_predict.assert_called_once()
 
-    @patch('insights.ml.sales_intelligence.SalesIntelligence.analyze_sales_data')
-    def test_sales_intelligence_api_integration(self, mock_analyze):
+    @patch('insights.ml.sales_intelligence.SalesIntelligence.train')
+    def test_sales_intelligence_api_integration(self, mock_train):
         """Test sales intelligence API integration"""
         from insights.api.ml.sales import sales_intelligence
 
-        mock_analyze.return_value = {
+        mock_train.return_value = {
             "metrics": {"total_revenue": 5000, "total_orders": 10},
             "trends": ["Revenue increasing"],
             "forecast": [5200, 5400, 5600]
@@ -121,14 +121,14 @@ class TestAPIIntegration(FrappeTestCase):
 
         self.assertEqual(result['status'], 'success')
         self.assertIn('data', result)
-        mock_analyze.assert_called_once()
+        mock_train.assert_called_once()
 
-    @patch('insights.ml.inventory_intelligence.InventoryIntelligence.analyze_inventory')
-    def test_inventory_intelligence_api_integration(self, mock_analyze):
+    @patch('insights.ml.inventory_intelligence.InventoryIntelligence.train')
+    def test_inventory_intelligence_api_integration(self, mock_train):
         """Test inventory intelligence API integration"""
         from insights.api.ml.inventory import inventory_intelligence
 
-        mock_analyze.return_value = {
+        mock_train.return_value = {
             "metrics": {"total_items": 3, "total_value": 15000},
             "recommendations": ["Reorder ITEM001"],
             "alerts": ["Low stock on ITEM002"]
@@ -138,7 +138,7 @@ class TestAPIIntegration(FrappeTestCase):
 
         self.assertEqual(result['status'], 'success')
         self.assertIn('data', result)
-        mock_analyze.assert_called_once()
+        mock_train.assert_called_once()
 
     def test_api_response_consistency(self):
         """Test that all API endpoints return consistent response format"""

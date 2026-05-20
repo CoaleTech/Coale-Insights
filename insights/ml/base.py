@@ -15,6 +15,31 @@ from typing import Dict, Any, List, Optional, Tuple
 from abc import ABC, abstractmethod
 
 
+def sanitize_for_json(obj):
+    """
+    Recursively convert numpy/pandas scalars to JSON-serializable Python types.
+
+    Frappe uses orjson for response serialization, which does not handle
+    numpy scalar types (numpy.float64, numpy.int64, etc.) without the
+    OPT_NUMPY flag.  Applying this function to any dict/list before
+    returning it from an API endpoint prevents the resulting
+    ``TypeError: Type is not JSON serializable: numpy.float64`` 500 error.
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [sanitize_for_json(v) for v in obj]
+    if isinstance(obj, np.generic):
+        # numpy scalars: float64, int64, bool_, etc.
+        val = obj.item()
+        if isinstance(val, float) and (val != val):  # NaN
+            return 0
+        return val
+    if isinstance(obj, float) and (obj != obj or pd.isna(obj)):  # Python NaN
+        return 0
+    return obj
+
+
 class BaseMLModel(ABC):
     """Base class for all ML models"""
     
@@ -89,11 +114,11 @@ class BaseMLModel(ABC):
         return None
     
     def cache_results(self, cache_key: str, data: Dict, expires_in_hours: int = 24):
-        """Cache results"""
+        """Cache results (sanitizes numpy/pandas scalars before storing)"""
         frappe.cache.set_value(
             cache_key,
             {
-                "data": data,
+                "data": sanitize_for_json(data),
                 "cached_at": datetime.now().isoformat()
             },
             expires_in_sec=expires_in_hours * 3600

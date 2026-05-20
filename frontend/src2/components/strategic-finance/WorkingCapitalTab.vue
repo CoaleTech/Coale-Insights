@@ -282,7 +282,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 import { 
   Repeat, 
   Package, 
@@ -299,6 +299,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
+const currency = inject('currency', 'KES')
+
 // Computed property for transposed table - last 6 months
 const trendMonths = computed(() => {
   return props.data?.trends?.slice(-6) || []
@@ -314,15 +316,15 @@ const formatPeriod = (period: string) => {
 
 // Format currency in compact form
 const formatCompactCurrency = (value: number | undefined) => {
-  if (value === undefined || value === null) return 'KES 0'
+  if (value === undefined || value === null) return `${currency} 0`
   const absValue = Math.abs(value)
   const sign = value < 0 ? '-' : ''
   if (absValue >= 1000000) {
-    return `${sign}KES ${(absValue / 1000000).toFixed(1)}M`
+    return `${sign}${currency} ${(absValue / 1000000).toFixed(1)}M`
   } else if (absValue >= 1000) {
-    return `${sign}KES ${(absValue / 1000).toFixed(0)}K`
+    return `${sign}${currency} ${(absValue / 1000).toFixed(0)}K`
   }
-  return `${sign}KES ${absValue.toFixed(0)}`
+  return `${sign}${currency} ${absValue.toFixed(0)}`
 }
 
 // Current ratio class
@@ -334,10 +336,10 @@ const getRatioClass = (ratio: number | null | undefined) => {
 }
 
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

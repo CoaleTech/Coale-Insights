@@ -279,8 +279,8 @@ class PaymentPrediction(BaseMLModel):
             "feature_importance": importance,
             "customer_metrics_summary": {
                 "total_customers": len(customer_metrics),
-                "avg_on_time_rate": round(customer_metrics['on_time_rate'].mean() * 100, 2),
-                "avg_days_to_pay": round(customer_metrics['avg_days_to_pay'].mean(), 1)
+                "avg_on_time_rate": float(round(customer_metrics['on_time_rate'].mean() * 100, 2)),
+                "avg_days_to_pay": float(round(customer_metrics['avg_days_to_pay'].mean(), 1))
             }
         }
         
@@ -296,9 +296,9 @@ class PaymentPrediction(BaseMLModel):
         """Train a simple rule-based model when sklearn is not available"""
         # Calculate thresholds
         self.rules = {
-            "low_on_time_threshold": df.groupby('customer')['is_late'].mean().quantile(0.75),
-            "high_days_threshold": df['days_to_pay'].quantile(0.75),
-            "high_amount_threshold": df['grand_total'].quantile(0.75)
+            "low_on_time_threshold": float(df.groupby('customer')['is_late'].mean().quantile(0.75)),
+            "high_days_threshold": float(df['days_to_pay'].quantile(0.75)),
+            "high_amount_threshold": float(df['grand_total'].quantile(0.75))
         }
         self.model = "rule_based"
         

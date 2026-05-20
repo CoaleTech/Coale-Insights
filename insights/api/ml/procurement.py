@@ -8,6 +8,7 @@ Procurement Intelligence API Endpoints
 import frappe
 from typing import Dict, Any
 from insights.api.response import success, error
+from insights.ml.base import sanitize_for_json
 
 
 @frappe.whitelist()
@@ -28,9 +29,8 @@ def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
     try:
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
-        if refresh:
-            return model.train()
-        return model.predict()
+        result = model.train() if refresh else model.predict()
+        return sanitize_for_json(result)
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

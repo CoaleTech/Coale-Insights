@@ -577,7 +577,7 @@ def test_connection(provider: str = None) -> Dict[str, Any]:
     without needing to save settings first."""
     try:
         from insights.ai.provider_factory import AIProviderFactory
-        if provider and provider in ("openrouter", "ollama"):
+        if provider and provider in ("openrouter", "ollama", "ollama_cloud", "moonshot"):
             client = AIProviderFactory.get_provider(provider)
         else:
             client = AIProviderFactory.get_client()

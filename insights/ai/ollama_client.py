@@ -40,34 +40,63 @@ class OllamaClient(BaseAIProvider):
 
     def __init__(self):
         self.settings = frappe.get_single("Insights Settings")
+        provider = getattr(self.settings, "ai_provider", None)
+        self.is_cloud = provider == "ollama_cloud"
+        # Cloud default differs from local default
+        default_url = "https://ollama.com" if self.is_cloud else "http://localhost:11434"
         self.base_url = (
             getattr(self.settings, "ollama_base_url", None)
             or os.environ.get("OLLAMA_BASE_URL")
-            or "http://localhost:11434"
+            or default_url
         ).rstrip("/")
+        # API key is only required for Ollama Cloud (bearer auth on ollama.com)
+        self.api_key = None
+        if self.is_cloud:
+            self.api_key = (
+                self.settings.get_password("ollama_api_key", raise_exception=False)
+                if getattr(self.settings, "ollama_api_key", None)
+                else None
+            ) or os.environ.get("OLLAMA_API_KEY")
         self.default_model = getattr(self.settings, "ollama_model", None) or "llama3.1"
         # Compatibility attrs expected by agents/__init__.py and dashboard_chat.py
         self.primary_model = self.default_model
         self.fallback_model = None
         # Compatibility for dashboard_chat.py streaming (uses OpenAI-compatible endpoint)
         self.BASE_URL = f"{self.base_url}/v1"
-        self.api_key = None
         # Discover installed models so FREE_MODELS only contains pullable models
         self._installed_models = self._discover_models()
         self.FREE_MODELS = self._installed_models or [self.default_model]
 
     def _get_headers(self) -> Dict[str, str]:
-        """Compatibility method for dashboard_chat.py streaming"""
-        return {"Content-Type": "application/json"}
+        """Returns request headers including bearer auth for Ollama Cloud."""
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def _discover_models(self) -> List[str]:
+        """Probe /api/tags to list installed Ollama models. Returns [] on any error."""
+        try:
+            response = requests.get(
+                f"{self.base_url}/api/tags",
+                headers=self._get_headers(),
+                timeout=5,
+            )
+            if response.status_code != 200:
+                return []
+            return [m.get("name", "") for m in response.json().get("models", []) if m.get("name")]
+        except Exception:
+            return []
 
     def _make_request(self, messages: List[Dict], model: str, temperature: float = 0.7) -> Optional[Dict]:
         """Compatibility alias - agents/__init__.py calls _make_request directly"""
         return self.make_request(messages, model, temperature)
 
     def is_enabled(self) -> bool:
+        provider = getattr(self.settings, "ai_provider", None)
         return bool(
             self.settings.enable_ai_analytics
-            and getattr(self.settings, "ai_provider", None) == "ollama"
+            and provider in ("ollama", "ollama_cloud")
         )
 
     def check_quota(self) -> bool:
@@ -88,7 +117,7 @@ class OllamaClient(BaseAIProvider):
         models = [self.default_model]
 
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=5)
+            response = requests.get(f"{self.base_url}/api/tags", headers=self._get_headers(), timeout=5)
             if response.status_code == 200:
                 data = response.json()
                 for m in data.get("models", []):
@@ -113,6 +142,7 @@ class OllamaClient(BaseAIProvider):
             # Try OpenAI-compatible endpoint first
             response = requests.post(
                 f"{self.base_url}/v1/chat/completions",
+                headers=self._get_headers(),
                 json={
                     "model": model,
                     "messages": messages,
@@ -161,6 +191,7 @@ class OllamaClient(BaseAIProvider):
         try:
             response = requests.post(
                 f"{self.base_url}/api/chat",
+                headers=self._get_headers(),
                 json={
                     "model": model,
                     "messages": messages,
@@ -195,7 +226,7 @@ class OllamaClient(BaseAIProvider):
 
     def test_connection(self) -> Dict[str, Any]:
         try:
-            response = requests.get(f"{self.base_url}/api/tags", timeout=10)
+            response = requests.get(f"{self.base_url}/api/tags", headers=self._get_headers(), timeout=10)
 
             if response.status_code == 200:
                 data = response.json()

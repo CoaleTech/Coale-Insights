@@ -157,7 +157,7 @@
         Cash Flow Visualization
       </h4>
       <div v-if="chartData" class="h-80">
-        <ThirteenWeekChart :data="chartData" :threshold="threshold" />
+        <ThirteenWeekChart :data="chartData" :threshold="threshold" :currency="currency" />
       </div>
       <div v-else class="h-80 flex items-center justify-center text-gray-500">
         No data available for chart
@@ -423,7 +423,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, watch, inject } from 'vue'
 import { 
   CalendarDays,
   Wallet,
@@ -446,6 +446,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const currency = inject('currency', 'KES')
 
 // Reactive state
 const threshold = ref(0)
@@ -534,10 +536,10 @@ const getWeekCellClass = (week: any, isClosing = false) => {
 }
 
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

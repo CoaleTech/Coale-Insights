@@ -44,14 +44,27 @@ class AIProviderFactory:
 
     @classmethod
     def _ensure_providers_registered(cls):
-        """Lazy-register all known providers"""
+        """Lazy-register all known providers. Each provider key checked independently
+        so partial registration (e.g. ollama but not ollama_cloud) self-heals."""
         if "openrouter" not in cls._providers:
-            from insights.ai.openrouter_client import OpenRouterClient
-            cls.register("openrouter", OpenRouterClient)
-        if "ollama" not in cls._providers:
+            try:
+                from insights.ai.openrouter_client import OpenRouterClient
+                cls.register("openrouter", OpenRouterClient)
+            except ImportError:
+                pass
+        if "ollama" not in cls._providers or "ollama_cloud" not in cls._providers:
             try:
                 from insights.ai.ollama_client import OllamaClient
-                cls.register("ollama", OllamaClient)
+                if "ollama" not in cls._providers:
+                    cls.register("ollama", OllamaClient)
+                if "ollama_cloud" not in cls._providers:
+                    cls.register("ollama_cloud", OllamaClient)
+            except ImportError:
+                pass
+        if "moonshot" not in cls._providers:
+            try:
+                from insights.ai.moonshot_client import MoonshotClient
+                cls.register("moonshot", MoonshotClient)
             except ImportError:
                 pass
 

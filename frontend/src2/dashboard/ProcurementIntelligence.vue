@@ -726,6 +726,7 @@ const router = useRouter()
 const activeTab = ref('spend')
 const loading = ref(false)
 const lastUpdated = ref<string | null>(null)
+const baseCurrency = ref('KES')
 
 const tabs = [
   { label: 'Spend Overview', value: 'spend' },
@@ -769,6 +770,9 @@ const procurementResource = createResource({
       riskData.value = data.risk_analysis || {}
       forecastData.value = data.forecasts || {}
       lastUpdated.value = data.generated_at
+      if (data.base_currency) {
+        baseCurrency.value = data.base_currency
+      }
     }
     loading.value = false
   },
@@ -790,10 +794,10 @@ onMounted(() => {
 
 // Formatting helpers
 const formatCurrency = (value: number | undefined) => {
-  if (value === undefined || value === null) return 'KES 0'
+  if (value === undefined || value === null) return `${baseCurrency.value} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: baseCurrency.value,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

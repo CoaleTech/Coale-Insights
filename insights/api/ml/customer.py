@@ -61,10 +61,12 @@ def customer_intelligence(refresh: bool = False, async_mode: bool = False, date_
     try:
         from insights.ml.customer_intelligence import CustomerIntelligence
 
-        model = CustomerIntelligence()
-        result = model.predict()
-        return success(result)
+        model = CustomerIntelligence(date_filter=date_filter)
+        if refresh:
+            return success(model.train())
+        return success(model.predict())
     except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "customer_intelligence error")
         return error(str(e))
 
 
@@ -170,5 +172,50 @@ def refresh_scores() -> Dict[str, Any]:
 
         result = _refresh()
         return success(result)
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def customer_counts(date_filter: str = '12m', active_cutoff_months: int = 6) -> Dict[str, Any]:
+    """Get customer count metrics."""
+    try:
+        from insights.ml.customer_intelligence import CustomerIntelligence
+        model = CustomerIntelligence(date_filter=date_filter)
+        return success(model.get_customer_counts(int(active_cutoff_months)))
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def customer_revenue_split(date_filter: str = '12m') -> Dict[str, Any]:
+    """Get revenue split between new and existing customers."""
+    try:
+        from insights.ml.customer_intelligence import CustomerIntelligence
+        model = CustomerIntelligence(date_filter=date_filter)
+        return success(model.get_customer_revenue_split())
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def customer_rankings(date_filter: str = '12m', limit: int = 20) -> Dict[str, Any]:
+    """Get customer rankings by revenue, profit, margin, consistency."""
+    try:
+        from insights.ml.customer_intelligence import CustomerIntelligence
+        model = CustomerIntelligence(date_filter=date_filter)
+        return success(model.get_customer_rankings(int(limit)))
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "customer_rankings error")
+        return error(str(e))
+
+
+@frappe.whitelist()
+def customer_variance(date_filter: str = '12m') -> Dict[str, Any]:
+    """Get customer target vs actual variance."""
+    try:
+        from insights.ml.customer_intelligence import CustomerIntelligence
+        model = CustomerIntelligence(date_filter=date_filter)
+        return success(model.get_customer_variance())
     except Exception as e:
         return error(str(e))

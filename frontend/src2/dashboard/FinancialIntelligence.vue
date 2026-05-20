@@ -820,12 +820,12 @@
           <div class="bg-white rounded-lg shadow-sm p-4 border">
             <div class="text-sm text-gray-500">Foreign Receivables</div>
             <div class="text-xl font-bold text-green-600">{{ formatCurrency(forexData.total_receivable_base || 0) }}</div>
-            <div class="text-sm text-gray-500">In base currency (KES)</div>
+            <div class="text-sm text-gray-500">In base currency ({{ baseCurrency }})</div>
           </div>
           <div class="bg-white rounded-lg shadow-sm p-4 border">
             <div class="text-sm text-gray-500">Foreign Payables</div>
             <div class="text-xl font-bold text-red-600">{{ formatCurrency(forexData.total_payable_base || 0) }}</div>
-            <div class="text-sm text-gray-500">In base currency (KES)</div>
+            <div class="text-sm text-gray-500">In base currency ({{ baseCurrency }})</div>
           </div>
           <div class="bg-white rounded-lg shadow-sm p-4 border">
             <div class="text-sm text-gray-500">Unrealized P&L</div>
@@ -848,7 +848,7 @@
                   <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Payable</th>
                   <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Net Exposure</th>
                   <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Rate</th>
-                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Value (KES)</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Value ({{ baseCurrency }})</th>
                   <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Position</th>
                 </tr>
               </thead>
@@ -959,6 +959,7 @@ const activeTab = ref('overview')
 const loading = ref(false)
 const lastUpdated = ref<string | null>(null)
 const dateFilter = ref('12m')
+const baseCurrency = ref('KES')
 
 const tabs = [
   { label: 'Overview', value: 'overview' },
@@ -1019,6 +1020,9 @@ const financialResource = createResource({
       kraData.value = data.kra_tax || {}
       forexData.value = data.forex || {}
       lastUpdated.value = data.generated_at
+      if (data.base_currency) {
+        baseCurrency.value = data.base_currency
+      }
     }
     loading.value = false
   },
@@ -1088,10 +1092,10 @@ watch(dateFilter, () => {
 
 // Formatting helpers
 const formatCurrency = (value: number | undefined) => {
-  if (value === undefined || value === null) return 'KES 0'
+  if (value === undefined || value === null) return `${baseCurrency.value} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: baseCurrency.value,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)
@@ -1347,15 +1351,15 @@ const getMonthMargin = (month: any) => {
 
 // Format currency in compact form (e.g., 1.2M, 500K)
 const formatCompactCurrency = (value: number | undefined) => {
-  if (value === undefined || value === null) return 'KES 0'
+  if (value === undefined || value === null) return `${baseCurrency.value} 0`
   const absValue = Math.abs(value)
   const sign = value < 0 ? '-' : ''
   if (absValue >= 1000000) {
-    return `${sign}KES ${(absValue / 1000000).toFixed(1)}M`
+    return `${sign}${baseCurrency.value} ${(absValue / 1000000).toFixed(1)}M`
   } else if (absValue >= 1000) {
-    return `${sign}KES ${(absValue / 1000).toFixed(0)}K`
+    return `${sign}${baseCurrency.value} ${(absValue / 1000).toFixed(0)}K`
   }
-  return `${sign}KES ${absValue.toFixed(0)}`
+  return `${sign}${baseCurrency.value} ${absValue.toFixed(0)}`
 }
 
 // Handle navigation to other dashboards from chat suggestions

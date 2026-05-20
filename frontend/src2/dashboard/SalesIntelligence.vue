@@ -12,6 +12,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import BaseChart from '../charts/components/BaseChart.vue'
+import TerritoryMap from '../components/TerritoryMap.vue'
 
 // Router for AI chat navigation
 const router = useRouter()
@@ -26,6 +28,12 @@ const showDailySales = ref(false)
 // Training state
 const isTraining = ref<string | false>(false)
 const trainingStatus = ref('')
+
+// Source attribution state
+const sourceAttribution = ref<any>(null)
+const quotationAnalytics = ref<any>(null)
+const territoryPerformanceData = ref<any>(null)
+const isLoadingSources = ref(false)
 
 // Dimensional forecast state
 const dimensionalForecast = ref<any>({})
@@ -42,6 +50,7 @@ const tabs = [
   { id: 'dimensions', label: 'Breakdown', icon: PieChart },
   { id: 'margins', label: 'Margins', icon: Percent },
   { id: 'forecasts', label: 'Forecasts', icon: Activity },
+  { id: 'sources', label: 'Source Attribution', icon: Target },
 ]
 
 // Date range filter
@@ -170,6 +179,25 @@ async function loadDimensionalForecast() {
     })
   } finally {
     isLoadingDimensional.value = false
+  }
+}
+
+// Load source attribution data
+async function loadSourceAttribution() {
+  isLoadingSources.value = true
+  try {
+    const [attribution, quotation, territory] = await Promise.all([
+      apiCall('insights.api.ml.sales.source_attributed_sales', { date_filter: dateRange.value }),
+      apiCall('insights.api.ml.sales.quotation_analytics', { date_filter: dateRange.value }),
+      apiCall('insights.api.ml.sales.territory_performance', { date_filter: dateRange.value }),
+    ])
+    sourceAttribution.value = attribution
+    quotationAnalytics.value = quotation
+    territoryPerformanceData.value = territory
+  } catch (e: any) {
+    console.error('Error loading source attribution:', e)
+  } finally {
+    isLoadingSources.value = false
   }
 }
 
@@ -490,12 +518,14 @@ function isPeriodForecast(period: string): boolean {
 onMounted(() => {
   loadData()
   loadDimensionalForecast()
+  loadSourceAttribution()
 })
 
 // Watch for date filter changes
 watch(dateRange, () => {
   loadData()
   loadDimensionalForecast()
+  loadSourceAttribution()
 })
 
 // Breadcrumbs
@@ -521,6 +551,48 @@ const chatContext = computed(() => ({
 function handleDashboardRedirect(target: string) {
   router.push(`/${target}-intelligence`)
 }
+
+// Source attribution chart options
+const attributionChartOptions = computed(() => {
+  if (!sourceAttribution.value?.length) return {}
+  const data = sourceAttribution.value.slice(0, 10)
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+    legend: { data: ['Revenue', 'Profit', 'Orders'] },
+    grid: { left: '3%', right: '4%', bottom: '3%', containLabel: true },
+    xAxis: { type: 'category', data: data.map((d: any) => d.source) },
+    yAxis: [
+      { type: 'value', name: 'Amount' },
+      { type: 'value', name: 'Orders' }
+    ],
+    series: [
+      { name: 'Revenue', type: 'bar', data: data.map((d: any) => d.revenue), itemStyle: { color: '#3b82f6' } },
+      { name: 'Profit', type: 'bar', data: data.map((d: any) => d.gross_profit), itemStyle: { color: '#10b981' } },
+      { name: 'Orders', type: 'bar', yAxisIndex: 1, data: data.map((d: any) => d.order_count), itemStyle: { color: '#f59e0b' } },
+    ]
+  }
+})
+
+const lostReasonsChartOptions = computed(() => {
+  if (!quotationAnalytics.value?.lost_reasons?.length) return {}
+  return {
+    tooltip: { trigger: 'item' },
+    legend: { orient: 'vertical', left: 'left' },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      data: quotationAnalytics.value.lost_reasons.map((r: any) => ({
+        name: r.order_lost_reason,
+        value: r.count
+      }))
+    }]
+  }
+})
+
+const territoryPerformanceWorldData = computed(() => {
+  if (!territoryPerformanceData.value) return []
+  return territoryPerformanceData.value.map((t: any) => ({ name: t.territory, value: t.revenue }))
+})
 </script>
 
 <template>
@@ -1566,6 +1638,72 @@ function handleDashboardRedirect(target: string) {
                 <Target class="w-12 h-12 mx-auto text-gray-400 mb-2" />
                 <p>No territory data available</p>
                 <p class="text-xs">Click Refresh above to load dimensional forecast</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Source Attribution Tab -->
+          <div v-if="activeTab === 'sources'" class="space-y-6">
+            <!-- Stacked Bar Chart -->
+            <div class="bg-white rounded-xl shadow-sm border p-6">
+              <h3 class="font-semibold text-gray-900 mb-4">Source Attribution</h3>
+              <div v-if="sourceAttribution?.length" class="h-80">
+                <BaseChart :options="attributionChartOptions" />
+              </div>
+              <div v-else class="text-center py-8 text-gray-500">
+                <Target class="w-8 h-8 mx-auto mb-2" />
+                <p>No source attribution data available</p>
+              </div>
+            </div>
+
+            <!-- Cost Per Order Cards -->
+            <div v-if="sourceAttribution?.length" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div v-for="src in sourceAttribution.slice(0, 8)" :key="src.source" class="bg-white rounded-lg shadow-sm border p-4">
+                <p class="text-sm text-gray-500 truncate">{{ src.source }}</p>
+                <p class="text-xl font-bold text-gray-900">{{ formatCurrency(src.revenue / src.order_count) }}</p>
+                <p class="text-xs text-gray-500">per order</p>
+              </div>
+            </div>
+
+            <!-- Quotation Funnel -->
+            <div class="bg-white rounded-xl shadow-sm border p-6">
+              <h3 class="font-semibold text-gray-900 mb-4">Quotation Funnel</h3>
+              <div v-if="quotationAnalytics" class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="bg-blue-50 rounded-lg p-4 text-center">
+                  <p class="text-sm text-blue-700 font-medium">Total Quotes</p>
+                  <p class="text-2xl font-bold text-blue-900">{{ formatNumber(quotationAnalytics.total) }}</p>
+                </div>
+                <div class="bg-green-50 rounded-lg p-4 text-center">
+                  <p class="text-sm text-green-700 font-medium">Won</p>
+                  <p class="text-2xl font-bold text-green-900">{{ formatNumber(quotationAnalytics.won) }}</p>
+                </div>
+                <div class="bg-red-50 rounded-lg p-4 text-center">
+                  <p class="text-sm text-red-700 font-medium">Lost</p>
+                  <p class="text-2xl font-bold text-red-900">{{ formatNumber(quotationAnalytics.lost) }}</p>
+                </div>
+              </div>
+              <div v-if="quotationAnalytics?.lost_reasons?.length" class="h-64">
+                <BaseChart :options="lostReasonsChartOptions" />
+              </div>
+              <div v-else-if="quotationAnalytics" class="text-center py-8 text-gray-500">
+                <p>No lost reason data available</p>
+              </div>
+            </div>
+
+            <!-- Territory Performance -->
+            <div class="bg-white rounded-xl shadow-sm border p-6">
+              <h3 class="font-semibold text-gray-900 mb-4">Territory Performance</h3>
+              <div v-if="territoryPerformanceData?.length" class="h-96">
+                <TerritoryMap
+                  :worldData="territoryPerformanceWorldData"
+                  :indiaData="[]"
+                  metric="Revenue"
+                  colorScale="green"
+                />
+              </div>
+              <div v-else class="text-center py-8 text-gray-500">
+                <Target class="w-8 h-8 mx-auto mb-2" />
+                <p>No territory performance data available</p>
               </div>
             </div>
           </div>

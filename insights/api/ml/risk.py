@@ -8,6 +8,7 @@ Risk Intelligence API Endpoints
 import frappe
 from typing import Dict, Any
 from insights.api.response import success, error
+from insights.ml.base import sanitize_for_json
 
 
 @frappe.whitelist()
@@ -15,6 +16,6 @@ def risk_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[s
     """Get risk intelligence analysis"""
     try:
         from insights.ml.risk_intelligence import run_risk_intelligence
-        return run_risk_intelligence(refresh=refresh)
+        return sanitize_for_json(run_risk_intelligence(refresh=refresh))
     except Exception as e:
         return {"status": "error", "message": str(e)}

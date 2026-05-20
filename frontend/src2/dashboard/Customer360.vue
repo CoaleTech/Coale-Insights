@@ -21,6 +21,7 @@ const customers = ref<any[]>([])
 const filteredCustomers = ref<any[]>([])
 const recentCustomers = ref<string[]>([])
 const dateFilter = ref('12m')
+const baseCurrency = ref('KES')
 
 // Tier options
 const tierOptions = [
@@ -56,6 +57,9 @@ async function loadCustomers() {
       date_filter: dateFilter.value
     })
     customers.value = result?.customers || []
+    if (result?.base_currency) {
+      baseCurrency.value = result.base_currency
+    }
     filterCustomers()
   } catch (e: any) {
     console.error('Failed to load customers:', e)
@@ -118,10 +122,10 @@ function loadRecentCustomers() {
 
 // Format currency
 function formatCurrency(value: number | undefined): string {
-  if (value === undefined || value === null) return 'KES 0'
+  if (value === undefined || value === null) return `${baseCurrency.value} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: baseCurrency.value,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

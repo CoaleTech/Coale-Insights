@@ -1196,10 +1196,10 @@ class FinancialIntelligence(BaseMLModel):
         df['profit'] = df['revenue'] - df['expenses']
         
         # Calculate trends
-        revenue_avg = df['revenue'].tail(6).mean()
-        expense_avg = df['expenses'].tail(6).mean()
-        revenue_trend = (df['revenue'].tail(3).mean() - df['revenue'].head(3).mean()) / 3
-        expense_trend = (df['expenses'].tail(3).mean() - df['expenses'].head(3).mean()) / 3
+        revenue_avg = float(df['revenue'].tail(6).mean())
+        expense_avg = float(df['expenses'].tail(6).mean())
+        revenue_trend = float((df['revenue'].tail(3).mean() - df['revenue'].head(3).mean()) / 3)
+        expense_trend = float((df['expenses'].tail(3).mean() - df['expenses'].head(3).mean()) / 3)
         
         # Generate forecast
         forecasts = []
@@ -1214,9 +1214,9 @@ class FinancialIntelligence(BaseMLModel):
             
             forecasts.append({
                 'period': period,
-                'predicted_revenue': round(max(0, predicted_revenue), 2),
-                'predicted_expenses': round(max(0, predicted_expenses), 2),
-                'predicted_profit': round(predicted_revenue - predicted_expenses, 2),
+                'predicted_revenue': float(round(max(0, predicted_revenue), 2)),
+                'predicted_expenses': float(round(max(0, predicted_expenses), 2)),
+                'predicted_profit': float(round(predicted_revenue - predicted_expenses, 2)),
                 'confidence': 'Medium' if i <= 2 else 'Low'
             })
         

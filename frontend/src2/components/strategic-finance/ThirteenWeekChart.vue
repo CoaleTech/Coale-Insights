@@ -184,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject } from 'vue'
 
 interface WeekData {
   week_number: number
@@ -220,6 +220,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const currency = inject('currency', 'KES')
 
 // Chart dimensions
 const chartWidth = 800
@@ -335,10 +337,10 @@ const formatCompact = (value: number) => {
 }
 
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

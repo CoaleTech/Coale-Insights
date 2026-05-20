@@ -205,7 +205,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, markRaw } from 'vue'
+import { ref, computed, markRaw, inject } from 'vue'
 import { 
   BarChart3, 
   TrendingUp, 
@@ -221,6 +221,8 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const currency = inject('currency', 'KES')
 const selectedPeriod = ref('mom')
 
 const periods = [
@@ -290,10 +292,10 @@ const comparisonItems = computed(() => {
 })
 
 const formatCurrency = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

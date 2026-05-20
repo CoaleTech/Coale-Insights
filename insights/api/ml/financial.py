@@ -20,7 +20,7 @@ def financial_intelligence(refresh: bool = False, date_filter: str = '12m') -> D
             return model.train()
         return model.predict()
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return error(str(e))
 
 
 @frappe.whitelist()
@@ -108,8 +108,8 @@ def get_financial_ratios() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def get_kra_tax_analysis() -> Dict[str, Any]:
-    """Get KRA tax analysis"""
+def get_tax_analysis() -> Dict[str, Any]:
+    """Get tax analysis"""
     try:
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence()

@@ -136,3 +136,45 @@ def get_historical_and_forecast_by_dimension(dimension: str = 'product_group') -
         return success(result)
     except Exception as e:
         return error(str(e))
+
+
+@frappe.whitelist()
+def source_attributed_sales(date_filter: str = '12m') -> Dict[str, Any]:
+    """Get revenue attributed to lead sources."""
+    try:
+        from insights.ml.sales_source_analytics import get_source_attributed_sales
+        from insights.api.ml.utils import parse_date_filter
+        start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
+        return success(get_source_attributed_sales(start, end))
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def quotation_analytics(date_filter: str = '12m') -> Dict[str, Any]:
+    """Get quotation funnel analytics."""
+    try:
+        from insights.ml.sales_source_analytics import get_quotation_analytics
+        from insights.api.ml.utils import parse_date_filter
+        start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
+        return success(get_quotation_analytics(start, end))
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def territory_sales_performance(date_filter: str = '12m') -> Dict[str, Any]:
+    """Get sales performance by territory."""
+    try:
+        from insights.ml.sales_source_analytics import get_territory_performance
+        from insights.api.ml.utils import parse_date_filter
+        start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
+        return success(get_territory_performance(start, end))
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def territory_performance(date_filter: str = '12m') -> Dict[str, Any]:
+    """Alias for territory_sales_performance."""
+    return territory_sales_performance(date_filter=date_filter)

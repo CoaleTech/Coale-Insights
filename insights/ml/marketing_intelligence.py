@@ -888,6 +888,23 @@ class MarketingIntelligence:
             logger.error(f"Error generating marketing recommendations: {e}")
             return [{"error": str(e)}]
 
+    # ==================== SOURCE METRICS ====================
+
+    def get_source_metrics(self, period_start: str, period_end: str) -> Dict[str, Any]:
+        """Get lead source metrics including cost per lead."""
+        from insights.ml.marketing_source_metrics import (
+            get_leads_by_source,
+            get_hot_leads_by_source,
+            get_cost_per_lead,
+            get_territory_leads,
+        )
+        return {
+            "leads_by_source": get_leads_by_source(period_start, period_end),
+            "hot_leads_by_source": get_hot_leads_by_source(period_start, period_end),
+            "cost_per_lead": get_cost_per_lead(period_start, period_end),
+            "territory_leads": get_territory_leads(period_start, period_end),
+        }
+
 
 # API functions for Frappe
 @frappe.whitelist()
@@ -987,3 +1004,39 @@ def update_marketing_intelligence():
     except Exception as e:
         logger.error(f"Error updating marketing intelligence: {e}")
         frappe.log_error(f"Marketing intelligence update error: {e}")
+
+
+@frappe.whitelist()
+def get_source_metrics(period: str = "YTD"):
+    """API endpoint for lead source metrics"""
+    try:
+        from insights.ml.marketing_source_metrics import (
+            get_leads_by_source,
+            get_hot_leads_by_source,
+            get_cost_per_lead,
+            get_territory_leads,
+        )
+        from frappe.utils import nowdate, add_months
+        from datetime import datetime
+
+        end_date = nowdate()
+        if period == "MTD":
+            start_date = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+        elif period == "QTD":
+            current_month = datetime.now().month
+            quarter_start_month = ((current_month - 1) // 3) * 3 + 1
+            start_date = datetime.now().replace(month=quarter_start_month, day=1).strftime("%Y-%m-%d")
+        elif period == "YTD":
+            start_date = datetime.now().replace(month=1, day=1).strftime("%Y-%m-%d")
+        else:  # TTM
+            start_date = add_months(end_date, -12)
+
+        return {
+            "leads_by_source": get_leads_by_source(start_date, end_date),
+            "hot_leads_by_source": get_hot_leads_by_source(start_date, end_date),
+            "cost_per_lead": get_cost_per_lead(start_date, end_date),
+            "territory_leads": get_territory_leads(start_date, end_date),
+        }
+    except Exception as e:
+        frappe.log_error(f"Source metrics API error: {e}")
+        return {"error": str(e)}

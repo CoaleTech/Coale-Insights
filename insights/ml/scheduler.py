@@ -384,6 +384,36 @@ def _send_churn_risk_alert(intelligence_result: dict):
         frappe.log_error(f"Failed to send churn risk alert: {str(e)}", "ML Scheduler")
 
 
+def train_breakeven_engine():
+    """Weekly: Train break-even engine and warm caches."""
+    try:
+        from insights.ml.breakeven_engine import BreakevenEngine
+
+        frappe.logger().info("Starting scheduled break-even engine training")
+
+        engine = BreakevenEngine()
+        result = engine.train()
+
+        if result.get('status') == 'success':
+            data = result.get('data', {})
+            frappe.logger().info(
+                f"Break-even engine completed: "
+                f"coverage={data.get('coverage', 0):.2f}, "
+                f"items={len(data.get('item_breakeven', {}).get('items', []))}, "
+                f"ROCE={data.get('roce', {}).get('roce', 0):.2f}%"
+            )
+        else:
+            frappe.logger().warning(
+                f"Break-even engine failed: {result.get('message', 'Unknown error')}"
+            )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Scheduled break-even engine failed: {str(e)}", "ML Scheduler")
+        return {"status": "error", "message": str(e)}
+
+
 def train_sales_intelligence():
     """Daily: Train comprehensive sales intelligence model"""
     try:
@@ -411,4 +441,32 @@ def train_sales_intelligence():
         
     except Exception as e:
         frappe.log_error(f"Scheduled sales intelligence failed: {str(e)}", "ML Scheduler")
+        return {"status": "error", "message": str(e)}
+
+
+def train_india_tax_intelligence():
+    """Daily: Train India tax intelligence and warm caches."""
+    try:
+        from insights.ml.india_tax_intelligence import IndiaTaxIntelligence
+
+        frappe.logger().info("Starting scheduled India tax intelligence training")
+
+        model = IndiaTaxIntelligence()
+        result = model.train()
+
+        if result.get("status") == "success":
+            frappe.logger().info(
+                f"India tax intelligence completed: "
+                f"gst_summary={len(result.get('gst_summary', []))} months, "
+                f"compliance_score={result.get('compliance_score', 0):.1f}"
+            )
+        else:
+            frappe.logger().warning(
+                f"India tax intelligence failed: {result.get('message', 'Unknown error')}"
+            )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Scheduled India tax intelligence failed: {str(e)}", "ML Scheduler")
         return {"status": "error", "message": str(e)}

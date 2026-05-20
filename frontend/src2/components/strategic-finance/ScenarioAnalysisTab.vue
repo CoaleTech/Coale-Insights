@@ -348,7 +348,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, inject } from 'vue'
 import { 
   Sliders, 
   Dices, 
@@ -369,16 +369,18 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+const currency = inject('currency', 'KES')
 const selectedView = ref('sensitivity')
 
 const revenueChanges = [-30, -20, -10, 0, 10, 20, 30]
 const expenseChanges = [-20, -10, 0, 10, 20]
 
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

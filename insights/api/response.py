@@ -1,11 +1,12 @@
 import frappe
 from datetime import datetime
+from insights.ml.base import sanitize_for_json
 
 
 def success(data=None, message=None):
     result = {"status": "success"}
     if data is not None:
-        result["data"] = data
+        result["data"] = sanitize_for_json(data)
     if message:
         result["message"] = message
     return result

@@ -168,6 +168,8 @@ scheduler_events = {
         "insights.ml.scheduler.run_daily_intelligence",
         # Executive Reports - Daily
         "insights.reports.executive_reports.generate_daily_executive_report",
+        # India Tax Intelligence - Daily refresh
+        "insights.ml.scheduler.train_india_tax_intelligence",
     ],
     "hourly": [
         "insights.api.data_store.update_failed_sync_status",
@@ -181,6 +183,14 @@ scheduler_events = {
         # Executive Reports - Weekly
         "insights.reports.executive_reports.generate_weekly_executive_report",
     ],
+    "cron": {
+        "0 2 * * 1": [
+            "insights.ml.scheduler.train_breakeven_engine"
+        ],
+        "0 3 * * *": [
+            "insights.ml.scheduler.train_india_tax_intelligence"
+        ]
+    },
     "monthly": [
         # Executive Reports - Monthly
         "insights.reports.executive_reports.generate_monthly_executive_report",

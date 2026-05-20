@@ -278,7 +278,7 @@
           Expense Breakdown
         </h3>
         <div v-if="expenseBreakdown?.length" class="h-64">
-          <ExpensePieChart :data="expenseBreakdown" />
+          <ExpensePieChart :data="expenseBreakdown" :currency="currency" />
         </div>
         <div v-else class="h-64 flex items-center justify-center text-gray-500">
           No expense data available
@@ -401,6 +401,7 @@ import {
 } from 'lucide-vue-next'
 import MonthlyBarChart from '../charts/MonthlyBarChart.vue'
 import ExpensePieChart from '../charts/ExpensePieChart.vue'
+import { inject } from 'vue'
 
 interface Props {
   data: any
@@ -408,12 +409,13 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const currency = inject('currency', 'KES')
 
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return 'KES 0'
+  if (value === null || value === undefined) return `${currency} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)
@@ -534,7 +536,7 @@ const formatCompactValue = (value: number) => {
 const formatCurrencyValue = (value: number) => {
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: 'KES',
+    currency: currency,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

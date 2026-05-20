@@ -6,19 +6,23 @@ Customer Intelligence Model
 Houses the CustomerIntelligence class (formerly in __init__.py).
 """
 
+import frappe
 import numpy as np
 import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, List
 
 from insights.ml.base import BaseMLModel
-from insights.api.ml.utils import get_date_filter_sql
+from insights.api.ml.utils import get_date_filter_sql, parse_date_filter
 
 # Import submodules via package-relative references
 from insights.ml.customer_intelligence import data as _data
 from insights.ml.customer_intelligence import analytics as _analytics
 from insights.ml.customer_intelligence import predict as _predict
 from insights.ml.customer_intelligence import actions as _actions
+from insights.ml.customer_intelligence import counts as _counts
+from insights.ml.customer_intelligence import rankings as _rankings
+from insights.ml.customer_intelligence import variance as _variance
 
 
 class CustomerIntelligence(BaseMLModel):
@@ -44,7 +48,16 @@ class CustomerIntelligence(BaseMLModel):
         super().__init__()
         self.model_name = "CustomerIntelligence"
         self.date_filter = date_filter
+        self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
+        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
         self.DATE_FILTER = get_date_filter_sql(date_filter, "posting_date", "si")
+        parsed = parse_date_filter(date_filter)
+        if parsed[0] is not None:
+            self.period_start = parsed[0].strftime("%Y-%m-%d")
+            self.period_end = parsed[1].strftime("%Y-%m-%d")
+        else:
+            self.period_start = "2000-01-01"
+            self.period_end = datetime.now().strftime("%Y-%m-%d")
 
     # ==================== DATA COLLECTION ====================
 
@@ -104,6 +117,44 @@ class CustomerIntelligence(BaseMLModel):
 
     def predict(self, customer: str = None) -> Dict[str, Any]:
         return _predict.predict(self, customer)
+
+    # ==================== COUNTS & RANKINGS ====================
+
+    def get_customer_counts(self, active_cutoff_months: int = 6) -> Dict[str, Any]:
+        cache_key = f"customer_counts_{self.date_filter}_{active_cutoff_months}"
+        cached = self.get_cached_results(cache_key, max_age_hours=6)
+        if cached:
+            return cached
+        result = _counts.get_customer_counts(self, active_cutoff_months)
+        self.cache_results(cache_key, result, expires_in_hours=6)
+        return result
+
+    def get_customer_revenue_split(self) -> Dict[str, Any]:
+        cache_key = f"customer_revenue_split_{self.date_filter}"
+        cached = self.get_cached_results(cache_key, max_age_hours=6)
+        if cached:
+            return cached
+        result = _counts.get_customer_revenue_split(self)
+        self.cache_results(cache_key, result, expires_in_hours=6)
+        return result
+
+    def get_customer_rankings(self, limit: int = 20) -> Dict[str, Any]:
+        cache_key = f"customer_rankings_{self.date_filter}_{limit}"
+        cached = self.get_cached_results(cache_key, max_age_hours=6)
+        if cached:
+            return cached
+        result = _rankings.get_customer_rankings(self, limit)
+        self.cache_results(cache_key, result, expires_in_hours=6)
+        return result
+
+    def get_customer_variance(self) -> List[Dict[str, Any]]:
+        cache_key = f"customer_variance_{self.date_filter}"
+        cached = self.get_cached_results(cache_key, max_age_hours=6)
+        if cached:
+            return cached
+        result = _variance.get_customer_variance(self)
+        self.cache_results(cache_key, result, expires_in_hours=6)
+        return result
 
     # ==================== MAIN TRAINING METHOD ====================
 
@@ -209,6 +260,10 @@ class CustomerIntelligence(BaseMLModel):
                 return {k: clean_dict_for_json(v) for k, v in d.items()}
             elif isinstance(d, list):
                 return [clean_dict_for_json(item) for item in d]
+            elif isinstance(d, np.generic):
+                # Convert numpy scalars (float64, int64, etc.) to native Python types
+                val = d.item()
+                return 0 if (isinstance(val, float) and (pd.isna(val) or val != val)) else val
             elif isinstance(d, float) and (pd.isna(d) or np.isnan(d)):
                 return 0
             elif d is None or (isinstance(d, str) and d.lower() == "nan"):
@@ -220,6 +275,8 @@ class CustomerIntelligence(BaseMLModel):
         results = {
             "status": "success",
             "analysis_date": datetime.now().isoformat(),
+            "company": self.company,
+            "base_currency": self.base_currency,
             "summary": clean_dict_for_json(summary),
             "customers": customers_list,
             "geographic_analysis": clean_dict_for_json(geo_analysis),
