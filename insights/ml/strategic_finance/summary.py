@@ -168,6 +168,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "ytd_net_income": ytd_net_income,
         "net_margin": round(net_margin, 2),
         "revenue_growth_yoy": round(revenue_growth, 2),
+        "revenue_growth": round(revenue_growth, 2),  # alias for frontend compatibility
         "cash_balance": cash_balance,
         "cash_runway_months": round(cash_runway_months, 1),
         "monthly_burn_rate": monthly_expenses,

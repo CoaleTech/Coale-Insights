@@ -222,7 +222,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const currency = inject('currency', 'KES')
+const _currency = inject('currency', 'KES')
+const getCurrency = () => (typeof _currency === 'string' ? _currency : (_currency as any)?.value) || 'KES'
 const selectedPeriod = ref('mom')
 
 const periods = [
@@ -292,10 +293,10 @@ const comparisonItems = computed(() => {
 })
 
 const formatCurrency = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return `${currency} 0`
+  if (value === null || value === undefined) return `${getCurrency()} 0`
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: currency,
+    currency: getCurrency(),
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

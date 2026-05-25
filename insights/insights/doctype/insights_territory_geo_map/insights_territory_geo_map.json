@@ -1,0 +1,23 @@
+{
+ "name": "Insights Territory Geo Map",
+ "doctype": "DocType",
+ "istable": 1,
+ "module": "Insights",
+ "fields": [
+  {
+   "fieldname": "territory_name",
+   "fieldtype": "Data",
+   "label": "Territory Name",
+   "in_list_view": 1,
+   "reqd": 1
+  },
+  {
+   "fieldname": "geo_code",
+   "fieldtype": "Data",
+   "label": "Geo Code",
+   "in_list_view": 1,
+   "reqd": 1,
+   "description": "ISO country code (e.g., IND) or India state name"
+  }
+ ]
+}

@@ -5,7 +5,7 @@
       <div>
         <h1 class="text-2xl font-bold text-gray-900">Financial Intelligence</h1>
         <p class="text-sm text-gray-500 mt-1">
-          Comprehensive financial analytics, cash flow management, and KRA tax compliance
+          Comprehensive financial analytics, cash flow management, and business insights
         </p>
       </div>
       <div class="flex items-center gap-3">
@@ -25,7 +25,7 @@
     </header>
 
     <!-- Summary Cards -->
-    <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
       <div class="bg-white rounded-lg shadow-sm p-4 border">
         <div class="text-sm font-medium text-gray-500">Net Profit (12M)</div>
         <div class="text-2xl font-bold text-gray-900 mt-1">
@@ -58,14 +58,6 @@
           {{ formatCurrency(summary.outstandingAP) }}
         </div>
         <div class="text-sm text-gray-500 mt-1">{{ summary.avgDPO }} days DPO</div>
-      </div>
-      
-      <div class="bg-white rounded-lg shadow-sm p-4 border">
-        <div class="text-sm font-medium text-gray-500">Net VAT Payable</div>
-        <div class="text-2xl font-bold text-gray-900 mt-1">
-          {{ formatCurrency(summary.netVATPayable) }}
-        </div>
-        <div class="text-sm text-gray-500 mt-1">16% VAT rate</div>
       </div>
       
       <div class="bg-white rounded-lg shadow-sm p-4 border">
@@ -699,112 +691,8 @@
         </div>
       </div>
 
-      <!-- Tab 7: KRA Tax -->
-      <div v-if="activeTab === 'kra'" class="space-y-6">
-        <!-- Tax Summary -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="bg-white rounded-lg shadow-sm p-4 border">
-            <div class="text-sm text-gray-500">VAT Output (16%)</div>
-            <div class="text-xl font-bold text-gray-900">{{ formatCurrency(kraData.output_vat_mtd) }}</div>
-            <div class="text-sm text-gray-500">This month</div>
-          </div>
-          <div class="bg-white rounded-lg shadow-sm p-4 border">
-            <div class="text-sm text-gray-500">VAT Input (16%)</div>
-            <div class="text-xl font-bold text-gray-900">{{ formatCurrency(kraData.input_vat_mtd) }}</div>
-            <div class="text-sm text-gray-500">This month</div>
-          </div>
-          <div class="bg-white rounded-lg shadow-sm p-4 border">
-            <div class="text-sm text-gray-500">VAT Withholding (2%)</div>
-            <div class="text-xl font-bold text-gray-900">{{ formatCurrency(kraData.vat_wht_mtd) }}</div>
-            <div class="text-sm text-gray-500">This month</div>
-          </div>
-          <div class="bg-white rounded-lg shadow-sm p-4 border">
-            <div class="text-sm text-gray-500">Net VAT Payable</div>
-            <div class="text-xl font-bold" :class="kraData.net_vat_payable >= 0 ? 'text-red-600' : 'text-green-600'">
-              {{ formatCurrency(kraData.net_vat_payable) }}
-            </div>
-            <div class="text-sm text-gray-500">This month</div>
-          </div>
-        </div>
 
-        <!-- VAT Filing Alert -->
-        <div v-if="kraData.days_to_deadline <= 5" 
-             :class="kraData.days_to_deadline <= 0 ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'"
-             class="border rounded-lg p-4">
-          <div class="flex items-center gap-2">
-            <span class="text-2xl">⚠️</span>
-            <div>
-              <div class="font-semibold" :class="kraData.days_to_deadline <= 0 ? 'text-red-800' : 'text-amber-800'">
-                {{ kraData.days_to_deadline <= 0 ? 'VAT Filing Overdue!' : 'VAT Filing Deadline Approaching' }}
-              </div>
-              <div :class="kraData.days_to_deadline <= 0 ? 'text-red-600' : 'text-amber-600'">
-                Due: {{ formatDate(kraData.vat_due_date) }} 
-                ({{ kraData.days_to_deadline <= 0 ? `${Math.abs(kraData.days_to_deadline)} days overdue` : `${kraData.days_to_deadline} days remaining` }})
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- Monthly VAT Trend (Transposed: Months as Columns) -->
-        <div class="bg-white rounded-lg shadow-sm p-6 border">
-          <h3 class="text-lg font-semibold text-gray-900 mb-4">Monthly VAT Summary</h3>
-          <div class="overflow-x-auto">
-            <table class="min-w-full">
-              <thead>
-                <tr class="bg-gray-50">
-                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">Metric</th>
-                  <th v-for="month in vatMonths" :key="month.period"
-                      class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
-                    {{ formatPeriod(month.period) }}
-                  </th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-gray-200">
-                <!-- Output VAT Row -->
-                <tr>
-                  <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Output VAT</td>
-                  <td v-for="month in vatMonths" :key="'out-'+month.period" 
-                      class="px-4 py-3 text-right text-sm text-gray-900 whitespace-nowrap">
-                    {{ formatCompactCurrency(month.output_vat) }}
-                  </td>
-                </tr>
-                <!-- Input VAT Row -->
-                <tr>
-                  <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Input VAT</td>
-                  <td v-for="month in vatMonths" :key="'in-'+month.period" 
-                      class="px-4 py-3 text-right text-sm text-gray-600 whitespace-nowrap">
-                    {{ formatCompactCurrency(month.input_vat) }}
-                  </td>
-                </tr>
-                <!-- Net VAT Row -->
-                <tr>
-                  <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Net VAT</td>
-                  <td v-for="month in vatMonths" :key="'net-'+month.period" 
-                      class="px-4 py-3 text-right text-sm font-medium whitespace-nowrap"
-                      :class="month.net_vat >= 0 ? 'text-red-600' : 'text-green-600'">
-                    {{ formatCompactCurrency(month.net_vat) }}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <!-- VAT Forecast -->
-        <div class="bg-white rounded-lg shadow-sm p-6 border">
-          <h3 class="text-lg font-semibold text-gray-900 mb-4">3-Month VAT Forecast</h3>
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div v-for="forecast in kraData.forecast" :key="forecast.period"
-                 class="p-4 rounded-lg bg-blue-50">
-              <div class="font-medium text-gray-900">{{ formatPeriod(forecast.period) }}</div>
-              <div class="text-lg font-bold text-blue-600 mt-2">{{ formatCurrency(forecast.predicted_net_vat) }}</div>
-              <div class="text-sm text-gray-500">Predicted Net VAT</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tab 8: Forex Exposure -->
+      <!-- Tab 7: Forex Exposure -->
       <div v-if="activeTab === 'forex'" class="space-y-6">
         <!-- Forex Summary -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -968,7 +856,6 @@ const tabs = [
   { label: 'Payables', value: 'payables' },
   { label: 'Ratios & Trends', value: 'ratios' },
   { label: 'Budget Analysis', value: 'budget' },
-  { label: 'KRA Tax', value: 'kra' },
   { label: 'Forex Exposure', value: 'forex' }
 ]
 
@@ -979,7 +866,6 @@ const receivablesData = ref<any>({})
 const payablesData = ref<any>({})
 const ratiosData = ref<any>({})
 const budgetData = ref<any>({})
-const kraData = ref<any>({})
 const forexData = ref<any>({})
 
 // Summary computed - matches API field names
@@ -992,7 +878,6 @@ const summary = computed(() => ({
   avgDSO: Math.round(receivablesData.value.current_dso || 0),
   outstandingAP: payablesData.value.total_outstanding || 0,
   avgDPO: Math.round(payablesData.value.current_dpo || 0),
-  netVATPayable: kraData.value.net_vat_payable || 0,
   forexExposure: Math.abs(forexData.value.net_exposure_base || 0),
   forexCurrencies: forexData.value.exposure_summary?.length || 0
 }))
@@ -1017,7 +902,6 @@ const financialResource = createResource({
         trends: backendRatios.trends || data.overview?.monthly_trend || []
       }
       budgetData.value = data.budget || {}
-      kraData.value = data.kra_tax || {}
       forexData.value = data.forex || {}
       lastUpdated.value = data.generated_at
       if (data.base_currency) {
@@ -1133,18 +1017,8 @@ const getRevenueBarWidth = (revenue: number) => {
   return Math.max(10, (revenue / maxRevenue) * 100)
 }
 
-const getCashFlowBarWidth = (amount: number) => {
-  const maxAmount = Math.max(...(cashFlowData.value.monthly_cash_flow?.map((m: any) => Math.abs(m.net_cash_flow)) || [1]))
-  return Math.max(10, (Math.abs(amount) / maxAmount) * 100)
-}
-
 const getInflowBarWidth = (amount: number) => {
   const maxAmount = Math.max(...(cashFlowData.value.monthly_inflows?.map((m: any) => m.amount) || [1]))
-  return Math.max(10, (amount / maxAmount) * 100)
-}
-
-const getVATBarWidth = (amount: number) => {
-  const maxAmount = Math.max(...(kraData.value.monthly_vat?.map((m: any) => m.vat_collected) || [1]))
   return Math.max(10, (amount / maxAmount) * 100)
 }
 
@@ -1161,13 +1035,6 @@ const getDaysBadge = (days: number) => {
   if (days > 60) return 'bg-orange-100 text-orange-700'
   if (days > 30) return 'bg-amber-100 text-amber-700'
   return 'bg-gray-100 text-gray-700'
-}
-
-// Color helpers
-const getVarianceBadge = (pct: number) => {
-  if (pct <= -10) return 'bg-red-100 text-red-700'
-  if (pct >= 10) return 'bg-green-100 text-green-700'
-  return 'bg-amber-100 text-amber-700'
 }
 
 const openDocument = (doctype: string, name: string) => {
@@ -1328,7 +1195,6 @@ const chatContext = computed(() => ({
   ratios: ratiosData.value,
   financialHealthScore: financialHealthScore.value,
   budget: budgetData.value,
-  kraTax: kraData.value,
   forex: forexData.value,
   activeTab: activeTab.value,
   lastUpdated: lastUpdated.value
@@ -1337,11 +1203,6 @@ const chatContext = computed(() => ({
 // Computed property for transposed Monthly Performance Trends table
 const trendMonths = computed(() => {
   return ratiosData.value.trends?.slice(-12) || []
-})
-
-// Computed property for transposed Monthly VAT Summary table
-const vatMonths = computed(() => {
-  return kraData.value.monthly_trend?.slice(-6) || []
 })
 
 // Helper to get margin value

@@ -468,6 +468,42 @@ class IbisQueryBuilder:
     def apply_custom_operation(self, operation):
         return self.evaluate_expression(operation.expression.expression)
 
+    def _rewrite_gl_entry_root_type(self, raw_sql: str) -> str:
+        """
+        ERPNext compatibility shim: some versions of ERPNext do not store
+        root_type on tabGL Entry. If a native SQL query references both
+        tabGL Entry and root_type, transparently rewrite it by injecting
+        a CTE that joins with tabAccount so root_type is available.
+        """
+        sql_upper = raw_sql.upper()
+        if "ROOT_TYPE" not in sql_upper or "TABGL ENTRY" not in sql_upper:
+            return raw_sql
+
+        # Avoid double-rewriting if a CTE already defines tabGL Entry
+        if "`tabGL Entry` AS (" in raw_sql or "`tabGL Entry` AS(" in raw_sql:
+            return raw_sql
+
+        cte_sql = (
+            "WITH `tabGL Entry` AS ("
+            "SELECT t.*, a.root_type "
+            "FROM `tabGL Entry` t "
+            "JOIN `tabAccount` a ON t.account = a.name"
+            ") "
+        )
+
+        # If the query already starts with WITH, merge the CTEs
+        stripped = raw_sql.strip()
+        if stripped.upper().startswith("WITH "):
+            # Insert our CTE after the opening WITH and before the first SELECT/,
+            # by converting the existing WITH to WITH ... ,
+            first_space_after_with = stripped.find(" ", 6)
+            existing_cte = stripped[first_space_after_with:].strip()
+            # Find the position of the main SELECT (the one not inside parentheses)
+            # Simple heuristic: replace first "WITH " with our merged CTE
+            return f"WITH `tabGL Entry` AS (SELECT t.*, a.root_type FROM `tabGL Entry` t JOIN `tabAccount` a ON t.account = a.name), {existing_cte}"
+
+        return cte_sql + raw_sql
+
     def apply_sql(self, sql_args):
         data_source = sql_args.data_source
         raw_sql = sql_args.raw_sql
@@ -476,6 +512,10 @@ class IbisQueryBuilder:
         db = ds._get_ibis_backend()
 
         raw_sql = sqlparse.format(sql=raw_sql, strip_comments=True)
+
+        # ERPNext compat: tabGL Entry does not have root_type in some versions.
+        # Rewrite queries that reference it so they work transparently.
+        raw_sql = self._rewrite_gl_entry_root_type(raw_sql)
 
         check_permissions = frappe.db.get_single_value(
             "Insights Settings", "enable_permissions"
