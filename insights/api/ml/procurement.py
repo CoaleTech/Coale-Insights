@@ -117,3 +117,122 @@ def get_procurement_forecast() -> Dict[str, Any]:
         return success(result)
     except Exception as e:
         return error(str(e))
+
+
+# ─── Drill-Down ───────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_procurement_detail(metric: str, filters: str) -> dict:
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+    company = f.get("company") or frappe.defaults.get_user_default("company")
+
+    if metric == "total_pos":
+        frappe.has_permission("Purchase Order", throw=True)
+        db_filters = {"docstatus": 1}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Purchase Order",
+            filters=db_filters,
+            fields=["name", "supplier", "transaction_date", "schedule_date", "grand_total", "status"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "PO", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Order"},
+                {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Expected", "fieldname": "schedule_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Purchase Order", filters=db_filters),
+        }
+
+    if metric == "pending_pos":
+        frappe.has_permission("Purchase Order", throw=True)
+        db_filters = {"docstatus": 1, "status": ("not in", ["Completed", "Cancelled", "Closed"])}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Purchase Order",
+            filters=db_filters,
+            fields=["name", "supplier", "transaction_date", "schedule_date", "grand_total", "status", "per_received"],
+            start=start, page_length=page_size, order_by="schedule_date asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "PO", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Order"},
+                {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"},
+                {"label": "Expected", "fieldname": "schedule_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+                {"label": "% Received", "fieldname": "per_received", "fieldtype": "Percent"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Purchase Order", filters=db_filters),
+        }
+
+    if metric == "overdue_pos":
+        frappe.has_permission("Purchase Order", throw=True)
+        db_filters = {
+            "docstatus": 1,
+            "schedule_date": ("<", frappe.utils.today()),
+            "status": ("not in", ["Completed", "Cancelled", "Closed"]),
+        }
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Purchase Order",
+            filters=db_filters,
+            fields=["name", "supplier", "transaction_date", "schedule_date", "grand_total", "per_received"],
+            start=start, page_length=page_size, order_by="schedule_date asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "PO", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Order"},
+                {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"},
+                {"label": "Expected", "fieldname": "schedule_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "% Received", "fieldname": "per_received", "fieldtype": "Percent"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Purchase Order", filters=db_filters),
+        }
+
+    if metric == "supplier_performance":
+        frappe.has_permission("Purchase Order", throw=True)
+        supplier = f.get("supplier")
+        db_filters = {"docstatus": 1}
+        if company:
+            db_filters["company"] = company
+        if supplier:
+            db_filters["supplier"] = supplier
+        rows = frappe.get_list(
+            "Purchase Order",
+            filters=db_filters,
+            fields=["name", "supplier", "transaction_date", "schedule_date", "grand_total", "status"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "PO", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Order"},
+                {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Expected", "fieldname": "schedule_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Purchase Order", filters=db_filters),
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

@@ -21,8 +21,13 @@ import {
   tierFilterOptions, rfmSegmentFilterOptions, riskFilterOptions,
   getRecentCustomers, addRecentCustomer,
 } from '../utils/customerUtils'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const CUST_ENDPOINT = 'insights.api.ml.customer.get_customer_detail'
+const drillDown = useDrillDown()
 
 // Recommendation tier helpers
 const recTierConfig: Record<number, { label: string; style: string }> = {
@@ -389,7 +394,8 @@ onMounted(() => {
         </div>
         
         <!-- Total Customers -->
-        <div class="p-4 bg-white rounded-xl shadow-sm">
+        <div class="p-4 bg-white rounded-xl shadow-sm cursor-pointer hover:bg-blue-50 transition-colors"
+             @click="drillDown.open(CUST_ENDPOINT, 'Total Customers', { metric: 'total_customers' })">
           <div class="flex items-center gap-3">
             <div class="p-2 bg-blue-100 rounded-lg">
               <Users class="w-5 h-5 text-blue-600" />
@@ -1106,7 +1112,9 @@ onMounted(() => {
                 <th class="pb-2">Customer</th><th class="pb-2 text-right">Revenue</th>
               </tr></thead>
               <tbody>
-                <tr v-for="c in rankings.top_revenue" :key="c.customer" class="border-b last:border-0">
+                <tr v-for="c in rankings.top_revenue" :key="c.customer"
+                    class="border-b last:border-0 cursor-pointer hover:bg-blue-50 rounded transition-colors"
+                    @click="drillDown.open(CUST_ENDPOINT, c.customer_name + ' Orders', { metric: 'top_customers', customer: c.customer })">
                   <td class="py-2">{{ c.customer_name }}</td>
                   <td class="py-2 text-right font-medium">{{ Number(c.revenue).toLocaleString() }}</td>
                 </tr>
@@ -1182,6 +1190,22 @@ onMounted(() => {
       dashboard-type="Customer"
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
+    />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
     />
   </div>
 </template>

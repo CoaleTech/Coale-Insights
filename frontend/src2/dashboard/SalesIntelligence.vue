@@ -14,6 +14,8 @@ import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import BaseChart from '../charts/components/BaseChart.vue'
 import TerritoryMap from '../components/TerritoryMap.vue'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 
 // Router for AI chat navigation
 const router = useRouter()
@@ -62,6 +64,9 @@ const dateRanges = [
   { value: '12m', label: 'Last 12 Months' },
   { value: '24m', label: 'Last 24 Months' },
 ]
+
+const SALES_ENDPOINT = 'insights.api.ml.sales.get_sales_detail'
+const drillDown = useDrillDown()
 
 // Load sales intelligence data
 async function loadData(refresh = false) {
@@ -653,7 +658,8 @@ const territoryPerformanceWorldData = computed(() => {
       <!-- Summary Cards -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <!-- Total Revenue -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border">
+        <div class="bg-white rounded-xl shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+             @click="drillDown.open(SALES_ENDPOINT, 'Total Revenue', { metric: 'total_orders' })">
           <div class="flex items-center justify-between">
             <DollarSign class="w-8 h-8 text-green-500" />
             <span :class="['text-sm font-medium', getGrowthClass(summary.mom_growth)]">
@@ -684,7 +690,8 @@ const territoryPerformanceWorldData = computed(() => {
         </div>
 
         <!-- Transactions -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border">
+        <div class="bg-white rounded-xl shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+             @click="drillDown.open(SALES_ENDPOINT, 'Total Orders', { metric: 'total_orders' })">
           <div class="flex items-center justify-between">
             <BarChart3 class="w-8 h-8 text-orange-500" />
           </div>
@@ -1275,10 +1282,11 @@ const territoryPerformanceWorldData = computed(() => {
               <div>
                 <h3 class="font-semibold text-gray-900 mb-4">By Territory</h3>
                 <div class="space-y-2 max-h-80 overflow-y-auto">
-                  <div 
-                    v-for="terr in dimensions.by_territory" 
+                  <div
+                    v-for="terr in dimensions.by_territory"
                     :key="terr.territory"
-                    class="flex items-center gap-2"
+                    class="flex items-center gap-2 cursor-pointer hover:bg-blue-50 rounded transition-colors"
+                    @click="drillDown.open(SALES_ENDPOINT, (terr.territory || 'Unknown') + ' Sales', { metric: 'sales_by_territory', territory: terr.territory })"
                   >
                     <div class="flex-1">
                       <div class="flex justify-between text-sm">
@@ -1716,6 +1724,22 @@ const territoryPerformanceWorldData = computed(() => {
       dashboard-type="Sales"
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
+    />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
     />
   </div>
 </template>

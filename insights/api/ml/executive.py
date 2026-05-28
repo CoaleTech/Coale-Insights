@@ -194,3 +194,108 @@ def preview_executive_report_data(report_type: str = "daily") -> Dict[str, Any]:
         return success({"report_type": report_type, "preview": result})
     except Exception as e:
         return error(str(e))
+
+
+# ─── Drill-Down ───────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_executive_detail(metric: str, filters: str) -> dict:
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+    company = f.get("company") or frappe.defaults.get_user_default("company")
+
+    if metric == "revenue_invoices":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters = {"docstatus": 1}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "posting_date", "grand_total"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
+    if metric == "active_employees":
+        frappe.has_permission("Employee", throw=True)
+        db_filters = {"status": "Active"}
+        rows = frappe.get_list(
+            "Employee",
+            filters=db_filters,
+            fields=["name", "employee_name", "department", "designation"],
+            start=start, page_length=page_size, order_by="employee_name asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Employee", "fieldname": "name", "fieldtype": "Link", "options": "Employee"},
+                {"label": "Name", "fieldname": "employee_name", "fieldtype": "Data"},
+                {"label": "Department", "fieldname": "department", "fieldtype": "Data"},
+                {"label": "Designation", "fieldname": "designation", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Employee", filters=db_filters),
+        }
+
+    if metric == "open_orders":
+        frappe.has_permission("Sales Order", throw=True)
+        db_filters = {"docstatus": 1, "status": ("not in", ["Completed", "Cancelled", "Closed"])}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Order",
+            filters=db_filters,
+            fields=["name", "customer", "transaction_date", "grand_total", "status"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Order", "fieldname": "name", "fieldtype": "Link", "options": "Sales Order"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Order", filters=db_filters),
+        }
+
+    if metric == "open_pos":
+        frappe.has_permission("Purchase Order", throw=True)
+        db_filters = {"docstatus": 1, "status": ("not in", ["Completed", "Cancelled", "Closed"])}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Purchase Order",
+            filters=db_filters,
+            fields=["name", "supplier", "transaction_date", "grand_total", "status"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "PO", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Order"},
+                {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Purchase Order", filters=db_filters),
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

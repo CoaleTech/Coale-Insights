@@ -36,7 +36,8 @@
         </div>
       </div>
       
-      <div class="bg-white rounded-lg shadow-sm p-4 border">
+      <div class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+           @click="drillDown.open(FIN_ENDPOINT, 'Cash Position', { metric: 'cash_accounts' })">
         <div class="text-sm font-medium text-gray-500">Cash Position</div>
         <div class="text-2xl font-bold text-gray-900 mt-1">
           {{ formatCurrency(summary.cashPosition) }}
@@ -44,7 +45,8 @@
         <div class="text-sm text-gray-500 mt-1">{{ summary.cashRunway }} days runway</div>
       </div>
       
-      <div class="bg-white rounded-lg shadow-sm p-4 border">
+      <div class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+           @click="drillDown.open(FIN_ENDPOINT, 'Outstanding AR', { metric: 'outstanding_ar' })">
         <div class="text-sm font-medium text-gray-500">Outstanding AR</div>
         <div class="text-2xl font-bold text-gray-900 mt-1">
           {{ formatCurrency(summary.outstandingAR) }}
@@ -52,7 +54,8 @@
         <div class="text-sm text-gray-500 mt-1">{{ summary.avgDSO }} days DSO</div>
       </div>
       
-      <div class="bg-white rounded-lg shadow-sm p-4 border">
+      <div class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+           @click="drillDown.open(FIN_ENDPOINT, 'Outstanding AP', { metric: 'outstanding_ap' })">
         <div class="text-sm font-medium text-gray-500">Outstanding AP</div>
         <div class="text-2xl font-bold text-gray-900 mt-1">
           {{ formatCurrency(summary.outstandingAP) }}
@@ -255,7 +258,8 @@
             <div class="text-sm text-gray-500">Invoice Count</div>
             <div class="text-xl font-bold text-gray-900">{{ receivablesData.invoice_count }}</div>
           </div>
-          <div class="bg-white rounded-lg shadow-sm p-4 border">
+          <div class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+               @click="drillDown.open(FIN_ENDPOINT, 'Overdue 90+ Days AR', { metric: 'overdue_ar_90' })">
             <div class="text-sm text-gray-500">90+ Days Overdue</div>
             <div class="text-xl font-bold text-red-600">{{ formatCurrency(get90PlusOverdue(receivablesData.aging_buckets)) }}</div>
           </div>
@@ -288,7 +292,9 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-200">
-                <tr v-for="customer in receivablesData.overdue_customers?.slice(0, 10)" :key="customer.customer">
+                <tr v-for="customer in receivablesData.overdue_customers?.slice(0, 10)" :key="customer.customer"
+                    class="cursor-pointer hover:bg-blue-50 transition-colors"
+                    @click="drillDown.open(FIN_ENDPOINT, (customer.customer_name || customer.customer) + ' AR', { metric: 'top_customers_ar', customer: customer.customer })">
                   <td class="px-4 py-3 font-medium text-gray-900">{{ customer.customer_name || customer.customer }}</td>
                   <td class="px-4 py-3 text-right text-sm font-medium text-gray-900">
                     {{ formatCurrency(customer.total_outstanding) }}
@@ -354,7 +360,9 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-200">
-                <tr v-for="supplier in payablesData.top_suppliers?.slice(0, 10)" :key="supplier.supplier">
+                <tr v-for="supplier in payablesData.top_suppliers?.slice(0, 10)" :key="supplier.supplier"
+                    class="cursor-pointer hover:bg-blue-50 transition-colors"
+                    @click="drillDown.open(FIN_ENDPOINT, (supplier.supplier_name || supplier.supplier) + ' AP', { metric: 'top_suppliers_ap', supplier: supplier.supplier })">
                   <td class="px-4 py-3 font-medium text-gray-900">{{ supplier.supplier_name || supplier.supplier }}</td>
                   <td class="px-4 py-3 text-right text-sm font-medium text-gray-900">
                     {{ formatCurrency(supplier.total_outstanding) }}
@@ -830,6 +838,22 @@
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
     />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>
 
@@ -840,6 +864,8 @@ import { Button, createResource } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
 
@@ -867,6 +893,9 @@ const payablesData = ref<any>({})
 const ratiosData = ref<any>({})
 const budgetData = ref<any>({})
 const forexData = ref<any>({})
+
+const FIN_ENDPOINT = 'insights.api.ml.financial.get_finance_detail'
+const drillDown = useDrillDown()
 
 // Summary computed - matches API field names
 const summary = computed(() => ({

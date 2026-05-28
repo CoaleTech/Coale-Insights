@@ -14,8 +14,13 @@ import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import BaseChart from '../charts/components/BaseChart.vue'
 import TerritoryMap from '../components/TerritoryMap.vue'
+import { useDrillDown } from './composables/useDrillDown'
+import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const CRM_ENDPOINT = 'insights.api.ml.marketing.get_crm_detail'
+const drillDown = useDrillDown()
 
 // State
 const isLoading = ref(true)
@@ -104,28 +109,33 @@ const kpis = computed(() => {
       value: formatCurrency(pipeline.total_pipeline_value || pipeline.total_value || 0),
       change: pipeline.growth_rate || 0,
       icon: Target,
-      color: 'blue'
+      color: 'blue',
+      drillable: false
     },
     {
       label: 'Active Leads',
       value: formatNumber(leads.total_leads || leads.active_leads || 0),
       change: leads.growth_rate || 0,
       icon: UserPlus,
-      color: 'green'
+      color: 'green',
+      drillable: true,
+      metric: 'leads'
     },
     {
       label: 'Conversion Rate',
       value: formatPercent(conversion.overall_rate || conversion.lead_to_opportunity || 0),
       change: conversion.change || 0,
       icon: ArrowRightLeft,
-      color: 'purple'
+      color: 'purple',
+      drillable: false
     },
     {
       label: 'Marketing ROI',
       value: roi.overall_roi ? `${roi.overall_roi.toFixed(1)}x` : 'N/A',
       change: roi.roi_change || 0,
       icon: DollarSign,
-      color: 'amber'
+      color: 'amber',
+      drillable: false
     },
   ]
 })
@@ -297,7 +307,12 @@ onMounted(() => {
     <div v-else-if="data" class="flex-1 overflow-auto">
       <!-- KPI Cards -->
       <div class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div v-for="kpi in kpis" :key="kpi.label" class="bg-white rounded-lg shadow-sm border p-4">
+        <div
+          v-for="kpi in kpis"
+          :key="kpi.label"
+          :class="['bg-white rounded-lg shadow-sm border p-4', kpi.drillable ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow' : '']"
+          @click="kpi.drillable && drillDown.open(CRM_ENDPOINT, kpi.label, { metric: kpi.metric })"
+        >
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-gray-500">{{ kpi.label }}</p>
@@ -641,10 +656,26 @@ onMounted(() => {
       </div>
     </div>
 
-    <DashboardChatButton 
+    <DashboardChatButton
       dashboard-type="Marketing"
       :dashboard-context="{ dashboard: 'Marketing & CRM Intelligence', data: data }"
       @navigate-dashboard="handleChatNavigation"
+    />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
     />
   </div>
 </template>

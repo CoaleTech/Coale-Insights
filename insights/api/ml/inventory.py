@@ -163,3 +163,84 @@ def item_breakeven(period: str = "Quarterly", fiscal_year: str = None, item_grou
         return success(result)
     except Exception as e:
         return error(str(e), exc=e)
+
+# ─── Drill-Down ───────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_inventory_detail(metric: str, filters: str) -> dict:
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+    company = f.get("company") or frappe.defaults.get_user_default("company")
+
+    if metric == "total_skus":
+        frappe.has_permission("Item", throw=True)
+        db_filters = {"disabled": 0, "is_stock_item": 1}
+        rows = frappe.get_list(
+            "Item",
+            filters=db_filters,
+            fields=["name", "item_name", "item_group", "stock_uom", "valuation_method"],
+            start=start, page_length=page_size, order_by="item_name asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Item Code", "fieldname": "name", "fieldtype": "Link", "options": "Item"},
+                {"label": "Item Name", "fieldname": "item_name", "fieldtype": "Data"},
+                {"label": "Item Group", "fieldname": "item_group", "fieldtype": "Data"},
+                {"label": "UOM", "fieldname": "stock_uom", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Item", filters=db_filters),
+        }
+
+    if metric == "low_stock_items":
+        frappe.has_permission("Bin", throw=True)
+        rows = frappe.db.get_all(
+            "Bin",
+            filters=[["actual_qty", "<=", frappe.qb.Field("reorder_level")], ["reorder_level", ">", 0]],
+            fields=["item_code", "warehouse", "actual_qty", "reorder_level", "projected_qty"],
+            start=start, limit=page_size, order_by="actual_qty asc",
+        )
+        total = len(frappe.db.get_all(
+            "Bin",
+            filters=[["actual_qty", "<=", frappe.qb.Field("reorder_level")], ["reorder_level", ">", 0]],
+            fields=["name"],
+        ))
+        return {
+            "columns": [
+                {"label": "Item", "fieldname": "item_code", "fieldtype": "Link", "options": "Item"},
+                {"label": "Warehouse", "fieldname": "warehouse", "fieldtype": "Link", "options": "Warehouse"},
+                {"label": "Actual Qty", "fieldname": "actual_qty", "fieldtype": "Float"},
+                {"label": "Reorder Level", "fieldname": "reorder_level", "fieldtype": "Float"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    if metric == "warehouse_stock":
+        frappe.has_permission("Bin", throw=True)
+        warehouse = f.get("warehouse")
+        db_filters = {"actual_qty": (">", 0)}
+        if warehouse:
+            db_filters["warehouse"] = warehouse
+        rows = frappe.get_list(
+            "Bin",
+            filters=db_filters,
+            fields=["item_code", "warehouse", "actual_qty", "reserved_qty", "ordered_qty"],
+            start=start, page_length=page_size, order_by="actual_qty desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Item", "fieldname": "item_code", "fieldtype": "Link", "options": "Item"},
+                {"label": "Warehouse", "fieldname": "warehouse", "fieldtype": "Link", "options": "Warehouse"},
+                {"label": "Actual Qty", "fieldname": "actual_qty", "fieldtype": "Float"},
+                {"label": "Reserved", "fieldname": "reserved_qty", "fieldtype": "Float"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Bin", filters=db_filters),
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

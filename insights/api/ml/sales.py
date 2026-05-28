@@ -178,3 +178,96 @@ def territory_sales_performance(date_filter: str = '12m') -> Dict[str, Any]:
 def territory_performance(date_filter: str = '12m') -> Dict[str, Any]:
     """Alias for territory_sales_performance."""
     return territory_sales_performance(date_filter=date_filter)
+
+# ─── Drill-Down ───────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_sales_detail(metric: str, filters: str) -> dict:
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+    company = f.get("company") or frappe.defaults.get_user_default("company")
+    period = f.get("period", "30d")
+
+    def _date_filter():
+        days = {"7d": 7, "30d": 30, "90d": 90, "12m": 365, "24m": 730}.get(period, 30)
+        return frappe.utils.add_days(frappe.utils.today(), -days)
+
+    if metric == "total_orders":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters = {"docstatus": 1, "posting_date": (">=", _date_filter())}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "posting_date", "grand_total", "currency", "territory"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
+    if metric == "pending_orders":
+        frappe.has_permission("Sales Order", throw=True)
+        db_filters = {"docstatus": 1, "status": ("not in", ["Completed", "Cancelled", "Closed"])}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Order",
+            filters=db_filters,
+            fields=["name", "customer", "transaction_date", "delivery_date", "grand_total", "status"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Order", "fieldname": "name", "fieldtype": "Link", "options": "Sales Order"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Delivery", "fieldname": "delivery_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Order", filters=db_filters),
+        }
+
+    if metric == "sales_by_territory":
+        frappe.has_permission("Sales Invoice", throw=True)
+        territory = f.get("territory")
+        db_filters = {"docstatus": 1, "posting_date": (">=", _date_filter())}
+        if company:
+            db_filters["company"] = company
+        if territory:
+            db_filters["territory"] = territory
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "territory", "posting_date", "grand_total"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

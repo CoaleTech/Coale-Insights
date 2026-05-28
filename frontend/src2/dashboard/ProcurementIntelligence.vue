@@ -61,7 +61,8 @@
         </div>
       </div>
       
-      <div class="bg-white rounded-lg shadow-sm p-4 border">
+      <div class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:bg-blue-50 transition-colors"
+           @click="drillDown.open(PROC_ENDPOINT, 'Pending Purchase Orders', { metric: 'pending_pos' })">
         <div class="text-sm font-medium text-gray-500">Pending POs</div>
         <div class="text-2xl font-bold text-gray-900 mt-1">
           {{ summary.pendingCount }}
@@ -223,7 +224,8 @@
             </h3>
             <div class="space-y-3">
               <div v-for="(sup, idx) in supplierData.top_performers?.slice(0, 5)" :key="sup.supplier"
-                   class="flex items-center gap-3 p-3 bg-green-50 rounded-lg">
+                   class="flex items-center gap-3 p-3 bg-green-50 rounded-lg cursor-pointer hover:bg-blue-50 transition-colors"
+                   @click="drillDown.open(PROC_ENDPOINT, (sup.supplier_name || sup.supplier) + ' Purchase Orders', { metric: 'supplier_performance', supplier: sup.supplier })">
                 <div class="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-bold">
                   {{ idx + 1 }}
                 </div>
@@ -245,7 +247,8 @@
             </h3>
             <div class="space-y-3">
               <div v-for="sup in supplierData.bottom_performers?.slice(0, 5)" :key="sup.supplier"
-                   class="flex items-center gap-3 p-3 bg-amber-50 rounded-lg">
+                   class="flex items-center gap-3 p-3 bg-amber-50 rounded-lg cursor-pointer hover:bg-blue-50 transition-colors"
+                   @click="drillDown.open(PROC_ENDPOINT, (sup.supplier_name || sup.supplier) + ' Purchase Orders', { metric: 'supplier_performance', supplier: sup.supplier })">
                 <div class="flex-1">
                   <div class="font-medium text-gray-900">{{ sup.supplier_name || sup.supplier }}</div>
                   <div class="text-sm text-gray-500">
@@ -275,7 +278,9 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-200">
-                <tr v-for="sup in supplierData.all_suppliers?.slice(0, 20)" :key="sup.supplier">
+                <tr v-for="sup in supplierData.all_suppliers?.slice(0, 20)" :key="sup.supplier"
+                    class="cursor-pointer hover:bg-blue-50 transition-colors"
+                    @click="drillDown.open(PROC_ENDPOINT, (sup.supplier_name || sup.supplier) + ' Purchase Orders', { metric: 'supplier_performance', supplier: sup.supplier })">
                   <td class="px-4 py-3 font-medium text-gray-900">{{ sup.supplier_name || sup.supplier }}</td>
                   <td class="px-4 py-3 text-right text-sm text-gray-600">{{ sup.po_count }}</td>
                   <td class="px-4 py-3 text-right text-sm text-gray-900">{{ formatCurrency(sup.total_value) }}</td>
@@ -711,6 +716,22 @@
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
     />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>
 
@@ -720,8 +741,13 @@ import { ref, computed, onMounted } from 'vue'
 import { Button, createResource } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const PROC_ENDPOINT = 'insights.api.ml.procurement.get_procurement_detail'
+const drillDown = useDrillDown()
 
 const activeTab = ref('spend')
 const loading = ref(false)

@@ -173,7 +173,8 @@
             >
               <div
                 v-if="kpi && typeof kpi === 'object' && !kpi.error"
-                class="bg-white p-4 rounded-lg shadow-sm border"
+                :class="['bg-white p-4 rounded-lg shadow-sm border', getExecMetric(kpi.label) ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow' : '']"
+                @click="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) })"
               >
                 <div class="flex items-center justify-between mb-2">
                   <div class="text-sm font-medium text-gray-500">{{ kpi.label }}</div>
@@ -257,6 +258,22 @@
         </div>
       </div>
     </div>
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>
 
@@ -281,8 +298,27 @@ import {
 } from 'lucide-vue-next'
 import { apiCall } from '../helpers/api'
 import { useRouter } from 'vue-router'
+import { useDrillDown } from './composables/useDrillDown'
+import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const EXEC_ENDPOINT = 'insights.api.ml.executive.get_executive_detail'
+const drillDown = useDrillDown()
+
+const EXEC_DRILLABLE_METRICS = {
+  'revenue_invoices': (label) => /Revenue|Sales/i.test(label),
+  'open_orders': (label) => /Open Orders|Sales Orders/i.test(label),
+  'active_employees': (label) => /Employees|Headcount/i.test(label),
+  'open_pos': (label) => /Purchase Orders|Open PO/i.test(label),
+}
+
+function getExecMetric(label) {
+  for (const [metric, test] of Object.entries(EXEC_DRILLABLE_METRICS)) {
+    if (test(label)) return metric
+  }
+  return null
+}
 
 const data = ref(null)
 const isLoading = ref(false)

@@ -67,7 +67,10 @@
         <div class="text-sm text-gray-500 mt-1">{{ efficiencyMetrics.consistency_rating || '-' }}</div>
       </div>
 
-      <div class="bg-white rounded-lg shadow-sm p-4 border">
+      <div
+        class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+        @click="drillDown.open(MFG_ENDPOINT, 'Work Orders', { metric: 'completed_work_orders' })"
+      >
         <div class="text-sm font-medium text-gray-500">Work Orders</div>
         <div class="text-2xl font-bold text-gray-900 mt-1">
           {{ productionMetrics.completed_orders || 0 }}
@@ -453,6 +456,22 @@
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
     />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>
 
@@ -462,8 +481,13 @@ import { ref, computed, onMounted } from 'vue'
 import { Button } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import { useDrillDown } from './composables/useDrillDown'
+import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const drillDown = useDrillDown()
+const MFG_ENDPOINT = 'insights.api.ml.manufacturing.get_manufacturing_detail'
 
 const loading = ref(false)
 const lastUpdated = ref('')

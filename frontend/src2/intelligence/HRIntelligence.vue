@@ -12,6 +12,8 @@ import {
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import { useDrillDown } from './composables/useDrillDown'
+import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
 
@@ -20,6 +22,9 @@ const isLoading = ref(true)
 const isRefreshing = ref(false)
 const error = ref<string | null>(null)
 const data = ref<any>(null)
+
+const drillDown = useDrillDown()
+const HR_ENDPOINT = 'insights.api.ml.hr.get_hr_detail'
 
 // Period filter
 const period = ref('TTM')
@@ -77,7 +82,9 @@ const kpis = computed(() => {
       subtitle: `${hc.new_hires || 0} new hires · ${hc.exits || 0} exits`,
       change: hc.growth_rate_pct || 0,
       icon: Users,
-      color: 'blue'
+      color: 'blue',
+      drillable: true,
+      metric: 'total_employees',
     },
     {
       label: 'Attrition Rate',
@@ -85,7 +92,9 @@ const kpis = computed(() => {
       subtitle: `${att.total_exits || 0} exits (${att.voluntary_exits || 0} voluntary)`,
       change: att.attrition_rate_pct > 15 ? -1 : 1, // red if above 15%
       icon: UserMinus,
-      color: 'red'
+      color: 'red',
+      drillable: false,
+      metric: null,
     },
     {
       label: 'Avg. Salary',
@@ -93,7 +102,9 @@ const kpis = computed(() => {
       subtitle: `Total: ${formatCurrency(pay.total_payroll_cost || 0)}`,
       change: 0,
       icon: DollarSign,
-      color: 'green'
+      color: 'green',
+      drillable: false,
+      metric: null,
     },
     {
       label: 'Engagement Score',
@@ -101,7 +112,9 @@ const kpis = computed(() => {
       subtitle: eng.engagement_level || 'N/A',
       change: eng.engagement_score >= 75 ? 1 : eng.engagement_score >= 50 ? 0 : -1,
       icon: Heart,
-      color: 'purple'
+      color: 'purple',
+      drillable: false,
+      metric: null,
     },
   ]
 })
@@ -233,7 +246,15 @@ onMounted(() => loadData())
     <div v-else-if="data" class="flex-1 overflow-auto">
       <!-- KPI Cards -->
       <div class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div v-for="kpi in kpis" :key="kpi.label" class="bg-white rounded-lg shadow-sm border p-4">
+        <div
+          v-for="kpi in kpis"
+          :key="kpi.label"
+          :class="[
+            'bg-white rounded-lg shadow-sm border p-4',
+            kpi.drillable ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow' : ''
+          ]"
+          @click="kpi.drillable && drillDown.open(HR_ENDPOINT, kpi.label, { metric: kpi.metric })"
+        >
           <div class="flex items-center justify-between">
             <div>
               <p class="text-sm font-medium text-gray-500">{{ kpi.label }}</p>
@@ -286,8 +307,12 @@ onMounted(() => loadData())
               <div v-if="composition.employment_type" class="bg-gray-50 rounded-lg p-4">
                 <h4 class="text-sm font-medium text-gray-700 mb-3">By Type</h4>
                 <div class="space-y-2">
-                  <div v-for="(count, type) in composition.employment_type" :key="type as string"
-                    class="flex justify-between items-center">
+                  <div
+                    v-for="(count, type) in composition.employment_type"
+                    :key="type as string"
+                    class="flex justify-between items-center cursor-pointer hover:bg-blue-50 rounded px-1 -mx-1 transition-colors"
+                    @click="drillDown.open(HR_ENDPOINT, type + ' Employees', { metric: 'employment_type', employment_type: type })"
+                  >
                     <span class="text-sm text-gray-600 capitalize">{{ type }}</span>
                     <span class="text-sm font-medium text-gray-900">{{ count }}</span>
                   </div>
@@ -495,8 +520,12 @@ onMounted(() => loadData())
           <div class="bg-white rounded-lg shadow-sm border p-6">
             <h3 class="text-lg font-semibold text-gray-900 mb-4">Department Overview</h3>
             <div v-if="departments.length > 0" class="space-y-3">
-              <div v-for="dept in departments" :key="dept.department"
-                class="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div
+                v-for="dept in departments"
+                :key="dept.department"
+                class="flex items-center justify-between p-4 bg-gray-50 rounded-lg cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+                @click="drillDown.open(HR_ENDPOINT, dept.department + ' Employees', { metric: 'dept_employees', department: dept.department })"
+              >
                 <div class="flex-1">
                   <div class="flex items-center gap-3">
                     <Building2 class="w-5 h-5 text-gray-400" />
@@ -579,10 +608,26 @@ onMounted(() => loadData())
       </div>
     </div>
 
-    <DashboardChatButton 
+    <DashboardChatButton
       dashboard-type="HR"
       :dashboard-context="{ dashboard: 'HR Intelligence', data: data }"
       @navigate-dashboard="handleChatNavigation"
+    />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
     />
   </div>
 </template>

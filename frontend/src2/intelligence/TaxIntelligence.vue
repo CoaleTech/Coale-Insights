@@ -12,8 +12,13 @@ import { useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import BaseChart from '../charts/components/BaseChart.vue'
+import { useDrillDown } from './composables/useDrillDown'
+import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const drillDown = useDrillDown()
+const TAX_ENDPOINT = 'insights.api.ml.tax.get_tax_detail'
 
 const isLoading = ref(true)
 const isRefreshing = ref(false)
@@ -409,7 +414,12 @@ function handleDashboardRedirect(target: string) {
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="hsn in hsnSummary.slice(0, 10)" :key="hsn.hsn_code" class="border-b hover:bg-gray-50">
+                    <tr
+                      v-for="hsn in hsnSummary.slice(0, 10)"
+                      :key="hsn.hsn_code"
+                      class="border-b hover:bg-gray-50 cursor-pointer"
+                      @click="drillDown.open(TAX_ENDPOINT, 'Tax Invoices – HSN ' + (hsn.hsn_code || ''), { metric: 'tax_invoices' })"
+                    >
                       <td class="px-4 py-2 font-medium">{{ hsn.hsn_code || '—' }}</td>
                       <td class="px-4 py-2 text-right">{{ formatCurrency(hsn.revenue) }}</td>
                       <td class="px-4 py-2 text-right">{{ formatCurrency(hsn.actual_gst) }}</td>
@@ -732,5 +742,21 @@ function handleDashboardRedirect(target: string) {
     </div>
 
     <DashboardChatButton dashboard-type="Tax" :dashboard-context="chatContext" @navigate-dashboard="handleDashboardRedirect" />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>

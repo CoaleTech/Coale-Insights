@@ -219,3 +219,86 @@ def customer_variance(date_filter: str = '12m') -> Dict[str, Any]:
         return success(model.get_customer_variance())
     except Exception as e:
         return error(str(e))
+
+
+# ─── Drill-Down ───────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_customer_detail(metric: str, filters: str) -> dict:
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+    company = f.get("company") or frappe.defaults.get_user_default("company")
+
+    if metric == "total_customers":
+        frappe.has_permission("Customer", throw=True)
+        db_filters = {"disabled": 0}
+        rows = frappe.get_list(
+            "Customer",
+            filters=db_filters,
+            fields=["name", "customer_name", "customer_group", "territory", "customer_type"],
+            start=start, page_length=page_size, order_by="customer_name asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Customer", "fieldname": "name", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
+                {"label": "Group", "fieldname": "customer_group", "fieldtype": "Data"},
+                {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
+                {"label": "Type", "fieldname": "customer_type", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Customer", filters=db_filters),
+        }
+
+    if metric == "top_customers":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters = {"docstatus": 1}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "posting_date", "grand_total", "outstanding_amount"],
+            start=start, page_length=page_size, order_by="grand_total desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
+    if metric == "new_customers":
+        frappe.has_permission("Customer", throw=True)
+        period = f.get("period", "30d")
+        days = {"7d": 7, "30d": 30, "90d": 90, "12m": 365}.get(period, 30)
+        cutoff = frappe.utils.add_days(frappe.utils.today(), -days)
+        db_filters = {"disabled": 0, "creation": (">=", cutoff)}
+        rows = frappe.get_list(
+            "Customer",
+            filters=db_filters,
+            fields=["name", "customer_name", "customer_group", "territory", "creation"],
+            start=start, page_length=page_size, order_by="creation desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Customer", "fieldname": "name", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
+                {"label": "Group", "fieldname": "customer_group", "fieldtype": "Data"},
+                {"label": "Created", "fieldname": "creation", "fieldtype": "Date"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Customer", filters=db_filters),
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

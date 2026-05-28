@@ -276,7 +276,10 @@
       <div v-if="activeTab === 'social'">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Employee Wellbeing -->
-          <div class="bg-white rounded-lg shadow-sm border p-6">
+          <div
+            class="bg-white rounded-lg shadow-sm border p-6 cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+            @click="drillDown.open(ESG_ENDPOINT, 'Employee & Diversity', { metric: 'employees_diversity' })"
+          >
             <h3 class="text-lg font-semibold text-gray-900 mb-4">Employee Wellbeing</h3>
             <div class="space-y-3">
               <div class="flex justify-between items-center py-2 border-b">
@@ -311,7 +314,10 @@
           </div>
 
           <!-- Community & Safety -->
-          <div class="bg-white rounded-lg shadow-sm border p-6">
+          <div
+            class="bg-white rounded-lg shadow-sm border p-6 cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+            @click="drillDown.open(ESG_ENDPOINT, 'Supplier Count', { metric: 'supplier_count' })"
+          >
             <h3 class="text-lg font-semibold text-gray-900 mb-4">Community Impact</h3>
             <div class="space-y-3">
               <div class="flex justify-between items-center py-2 border-b">
@@ -451,6 +457,22 @@
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
     />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>
 
@@ -460,8 +482,13 @@ import { ref, computed, onMounted } from 'vue'
 import { Button } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import { useDrillDown } from './composables/useDrillDown'
+import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const ESG_ENDPOINT = 'insights.api.ml.esg.get_esg_detail'
+const drillDown = useDrillDown()
 
 const loading = ref(false)
 const exporting = ref(false)

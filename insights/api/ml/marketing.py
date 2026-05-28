@@ -93,3 +93,82 @@ def territory_leads(period: str = "YTD") -> Dict[str, Any]:
         return success(get_territory_leads(start_date, end_date))
     except Exception as e:
         return error(str(e))
+
+
+# ─── Drill-Down ───────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_crm_detail(metric: str, filters: str) -> dict:
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+    company = f.get("company") or frappe.defaults.get_user_default("company")
+
+    if metric == "leads":
+        frappe.has_permission("Lead", throw=True)
+        rows = frappe.get_list(
+            "Lead",
+            filters={"docstatus": 0},
+            fields=["name", "lead_name", "company_name", "status", "source", "lead_owner", "creation"],
+            start=start, page_length=page_size, order_by="creation desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Lead", "fieldname": "name", "fieldtype": "Link", "options": "Lead"},
+                {"label": "Name", "fieldname": "lead_name", "fieldtype": "Data"},
+                {"label": "Company", "fieldname": "company_name", "fieldtype": "Data"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+                {"label": "Source", "fieldname": "source", "fieldtype": "Data"},
+                {"label": "Owner", "fieldname": "lead_owner", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Lead", filters={"docstatus": 0}),
+        }
+
+    if metric == "opportunities":
+        frappe.has_permission("Opportunity", throw=True)
+        db_filters = {"docstatus": 0, "status": ("not in", ["Closed", "Lost"])}
+        rows = frappe.get_list(
+            "Opportunity",
+            filters=db_filters,
+            fields=["name", "opportunity_from", "party_name", "opportunity_amount", "expected_closing", "status", "sales_stage"],
+            start=start, page_length=page_size, order_by="expected_closing asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Opportunity", "fieldname": "name", "fieldtype": "Link", "options": "Opportunity"},
+                {"label": "From", "fieldname": "party_name", "fieldtype": "Data"},
+                {"label": "Amount", "fieldname": "opportunity_amount", "fieldtype": "Currency"},
+                {"label": "Closing", "fieldname": "expected_closing", "fieldtype": "Date"},
+                {"label": "Stage", "fieldname": "sales_stage", "fieldtype": "Data"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Opportunity", filters=db_filters),
+        }
+
+    if metric == "lost_opportunities":
+        frappe.has_permission("Opportunity", throw=True)
+        db_filters = {"docstatus": 0, "status": "Lost"}
+        rows = frappe.get_list(
+            "Opportunity",
+            filters=db_filters,
+            fields=["name", "party_name", "opportunity_amount", "lost_reasons", "modified"],
+            start=start, page_length=page_size, order_by="modified desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Opportunity", "fieldname": "name", "fieldtype": "Link", "options": "Opportunity"},
+                {"label": "From", "fieldname": "party_name", "fieldtype": "Data"},
+                {"label": "Amount", "fieldname": "opportunity_amount", "fieldtype": "Currency"},
+                {"label": "Date", "fieldname": "modified", "fieldtype": "Date"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Opportunity", filters=db_filters),
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

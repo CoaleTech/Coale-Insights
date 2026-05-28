@@ -273,7 +273,10 @@
       <div v-if="activeTab === 'credit'" class="space-y-6">
         <!-- Credit Summary Cards -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="bg-white rounded-lg shadow-sm p-4 border">
+          <div
+            class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+            @click="drillDown.open(RISK_ENDPOINT, 'Overdue Invoices', { metric: 'overdue_invoices' })"
+          >
             <div class="text-sm font-medium text-gray-500">Total Outstanding</div>
             <div class="text-2xl font-bold text-gray-900 mt-1">{{ formatCurrency(creditData.total_outstanding) }}</div>
           </div>
@@ -294,8 +297,12 @@
           </div>
           <div class="p-6">
             <div class="grid grid-cols-5 gap-4">
-              <div v-for="bucket in creditData.aging_analysis" :key="bucket.aging_bucket" 
-                   class="text-center p-4 border rounded-lg">
+              <div
+                v-for="bucket in creditData.aging_analysis"
+                :key="bucket.aging_bucket"
+                class="text-center p-4 border rounded-lg cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+                @click="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket + ' Overdue', { metric: 'overdue_invoices' })"
+              >
                 <div class="text-sm font-medium text-gray-500">{{ bucket.aging_bucket }}</div>
                 <div class="text-xl font-bold text-gray-900 mt-1">{{ formatCurrency(bucket.outstanding_amount) }}</div>
                 <div class="text-xs text-gray-500 mt-1">{{ bucket.invoice_count }} invoices</div>
@@ -700,6 +707,22 @@
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
     />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>
 
@@ -710,8 +733,13 @@ import { Button } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
 import { useRouter } from 'vue-router'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const drillDown = useDrillDown()
+const RISK_ENDPOINT = 'insights.api.ml.risk.get_risk_detail'
 
 const activeTab = ref('overview')
 const loading = ref(false)

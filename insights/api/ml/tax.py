@@ -72,3 +72,52 @@ def tds_summary() -> Dict[str, Any]:
         return success(data=_get_section("tds_summary"))
     except Exception as e:
         return error("Failed to load TDS summary", exc=e)
+
+
+# ─── Drill-Down ───────────────────────────────────────────────────────────────
+
+@frappe.whitelist()
+def get_tax_detail(metric: str, filters: str) -> dict:
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+    company = f.get("company") or frappe.defaults.get_user_default("company")
+
+    if metric == "tax_invoices":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters = {"docstatus": 1}
+        if company:
+            db_filters["company"] = company
+        # Only invoices that have tax rows
+        rows = frappe.db.sql("""
+            SELECT si.name, si.customer, si.posting_date, si.grand_total, si.total_taxes_and_charges
+            FROM `tabSales Invoice` si
+            WHERE si.docstatus = 1
+              AND si.total_taxes_and_charges > 0
+              {company_clause}
+            ORDER BY si.posting_date DESC
+            LIMIT %s OFFSET %s
+        """.format(
+            company_clause=f"AND si.company = {frappe.db.escape(company)}" if company else ""
+        ), (page_size, start), as_dict=True)
+        total = frappe.db.sql("""
+            SELECT COUNT(*) FROM `tabSales Invoice` si
+            WHERE si.docstatus = 1 AND si.total_taxes_and_charges > 0
+            {company_clause}
+        """.format(
+            company_clause=f"AND si.company = {frappe.db.escape(company)}" if company else ""
+        ))[0][0]
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Grand Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Tax Amount", "fieldname": "total_taxes_and_charges", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

@@ -13,8 +13,13 @@ import { useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 
 const router = useRouter()
+
+const INV_ENDPOINT = 'insights.api.ml.inventory.get_inventory_detail'
+const drillDown = useDrillDown()
 
 // State
 const isLoading = ref(true)
@@ -346,7 +351,8 @@ function handleDashboardRedirect(target: string) {
         </div>
 
         <!-- Total SKUs -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border">
+        <div class="bg-white rounded-xl shadow-sm p-4 border cursor-pointer hover:bg-blue-50 transition-colors"
+             @click="drillDown.open(INV_ENDPOINT, 'Active SKUs', { metric: 'total_skus' })">
           <div class="flex items-center justify-between">
             <Package class="w-8 h-8 text-blue-500" />
           </div>
@@ -374,7 +380,8 @@ function handleDashboardRedirect(target: string) {
         </div>
 
         <!-- Low Stock -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border">
+        <div class="bg-white rounded-xl shadow-sm p-4 border cursor-pointer hover:bg-blue-50 transition-colors"
+             @click="drillDown.open(INV_ENDPOINT, 'Low Stock Items', { metric: 'low_stock_items' })">
           <div class="flex items-center justify-between">
             <TrendingDown class="w-8 h-8 text-orange-500" />
           </div>
@@ -981,10 +988,11 @@ function handleDashboardRedirect(target: string) {
                       </tr>
                     </thead>
                     <tbody>
-                      <tr 
-                        v-for="(wh, idx) in warehouseAnalysis.by_warehouse" 
+                      <tr
+                        v-for="(wh, idx) in warehouseAnalysis.by_warehouse"
                         :key="idx"
-                        class="border-b hover:bg-blue-50"
+                        class="border-b hover:bg-blue-50 cursor-pointer rounded transition-colors"
+                        @click="drillDown.open(INV_ENDPOINT, wh.warehouse + ' Stock', { metric: 'warehouse_stock', warehouse: wh.warehouse })"
                       >
                         <td class="px-4 py-2 font-medium truncate max-w-[200px]">{{ wh.warehouse }}</td>
                         <td class="px-4 py-2 text-right">{{ formatNumber(wh.item_count) }}</td>
@@ -1265,6 +1273,22 @@ function handleDashboardRedirect(target: string) {
       dashboard-type="Inventory"
       :dashboard-context="chatContext"
       @navigate-dashboard="handleDashboardRedirect"
+    />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
     />
   </div>
 </template>

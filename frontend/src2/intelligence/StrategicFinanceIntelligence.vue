@@ -59,7 +59,10 @@
     <div v-else-if="data" class="flex-1 overflow-auto">
       <!-- Summary Cards -->
       <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <div class="bg-white rounded-lg shadow-sm p-4 border">
+        <div
+          class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+          @click="drillDown.open(SF_ENDPOINT, 'Total Revenue', { metric: 'revenue_invoices' })"
+        >
           <div class="text-sm font-medium text-gray-500">Total Revenue</div>
           <div class="text-2xl font-bold text-gray-900 mt-1">
             {{ formatCurrency(summaryData.totalRevenue) }}
@@ -68,8 +71,11 @@
             {{ summaryData.revenueGrowth >= 0 ? '↑' : '↓' }} {{ Math.abs(summaryData.revenueGrowth || 0).toFixed(1) }}% vs last period
           </div>
         </div>
-        
-        <div class="bg-white rounded-lg shadow-sm p-4 border">
+
+        <div
+          class="bg-white rounded-lg shadow-sm p-4 border cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow"
+          @click="drillDown.open(SF_ENDPOINT, 'Net Profit', { metric: 'expense_entries' })"
+        >
           <div class="text-sm font-medium text-gray-500">Net Profit</div>
           <div class="text-2xl font-bold text-gray-900 mt-1">
             {{ formatCurrency(summaryData.netProfit) }}
@@ -195,10 +201,26 @@
     </div>
 
     <!-- Floating Chat Button -->
-    <DashboardChatButton 
+    <DashboardChatButton
       dashboard-type="Financial"
       :dashboard-context="chatContext"
       @navigate-dashboard="handleChatNavigation"
+    />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
     />
   </div>
 </template>
@@ -225,6 +247,8 @@ import {
   Scale
 } from 'lucide-vue-next'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import { useDrillDown } from './composables/useDrillDown'
+import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 
 // Tab Components
 import ExecutiveSummaryTab from '../components/strategic-finance/ExecutiveSummaryTab.vue'
@@ -239,6 +263,9 @@ import BudgetVarianceTab from '../components/strategic-finance/BudgetVarianceTab
 import BreakEvenOverviewTab from '../components/strategic-finance/BreakEvenOverviewTab.vue'
 
 const router = useRouter()
+
+const SF_ENDPOINT = 'insights.api.ml.strategic_finance.get_strategic_detail'
+const drillDown = useDrillDown()
 
 // State
 const activeTab = ref('executive')
