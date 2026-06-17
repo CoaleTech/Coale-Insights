@@ -197,17 +197,38 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
 
     if metric == "low_stock_items":
         frappe.has_permission("Bin", throw=True)
-        rows = frappe.db.get_all(
-            "Bin",
-            filters=[["actual_qty", "<=", frappe.qb.Field("reorder_level")], ["reorder_level", ">", 0]],
-            fields=["item_code", "warehouse", "actual_qty", "reorder_level", "projected_qty"],
-            start=start, limit=page_size, order_by="actual_qty asc",
+        # reorder_level does not exist on Bin; it lives in the
+        # "Item Reorder" child table as warehouse_reorder_level.
+        # Join Bin ↔ Item Reorder on (item_code, warehouse).
+        Bin = frappe.qb.DocType("Bin")
+        ItemReorder = frappe.qb.DocType("Item Reorder")
+        join_cond = (Bin.item_code == ItemReorder.parent) & (Bin.warehouse == ItemReorder.warehouse)
+        base_q = (
+            frappe.qb.from_(Bin)
+            .join(ItemReorder).on(join_cond)
+            .where(ItemReorder.warehouse_reorder_level > 0)
+            .where(Bin.actual_qty <= ItemReorder.warehouse_reorder_level)
         )
-        total = len(frappe.db.get_all(
-            "Bin",
-            filters=[["actual_qty", "<=", frappe.qb.Field("reorder_level")], ["reorder_level", ">", 0]],
-            fields=["name"],
-        ))
+        rows = (
+            base_q
+            .select(
+                Bin.item_code,
+                Bin.warehouse,
+                Bin.actual_qty,
+                Bin.projected_qty,
+                ItemReorder.warehouse_reorder_level.as_("reorder_level"),
+            )
+            .orderby(Bin.actual_qty)
+            .offset(start)
+            .limit(page_size)
+            .run(as_dict=True)
+        )
+        total_result = (
+            base_q
+            .select(frappe.qb.functions.Count("*").as_("total"))
+            .run()
+        )
+        total = total_result[0][0] if total_result else 0
         return {
             "columns": [
                 {"label": "Item", "fieldname": "item_code", "fieldtype": "Link", "options": "Item"},

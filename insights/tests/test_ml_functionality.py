@@ -366,5 +366,122 @@ class TestAPIDefensiveProgramming(FrappeTestCase):
         self.assertIn('not available', result['message'].lower())
 
 
+class TestInventoryAPIDrillDown(FrappeTestCase):
+    """Test suite for inventory drill-down API endpoints"""
+
+    @patch('insights.api.ml.inventory.frappe.has_permission')
+    @patch('insights.api.ml.inventory.frappe.get_list')
+    @patch('insights.api.ml.inventory.frappe.db.count')
+    def test_get_inventory_detail_total_skus(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test total_skus drill-down returns active stock items"""
+        from insights.api.ml.inventory import get_inventory_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'ITEM-001',
+                'item_name': 'Test Item 1',
+                'item_group': 'Raw Material',
+                'stock_uom': 'Nos',
+                'valuation_method': 'FIFO'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_inventory_detail('total_skus', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(len(result['data']['rows']), 1)
+        self.assertEqual(result['data']['total'], 1)
+        self.assertEqual(result['data']['columns'][0]['fieldname'], 'name')
+        mock_has_permission.assert_called_with('Item', throw=True)
+        mock_get_list.assert_called_once()
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters'], {'disabled': 0, 'is_stock_item': 1})
+
+    @patch('insights.api.ml.inventory.frappe.has_permission')
+    @patch('insights.api.ml.inventory.frappe.get_list')
+    @patch('insights.api.ml.inventory.frappe.db.count')
+    def test_get_inventory_detail_warehouse_stock(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test warehouse_stock drill-down with warehouse filter"""
+        from insights.api.ml.inventory import get_inventory_detail
+
+        mock_get_list.return_value = [
+            {
+                'item_code': 'ITEM-001',
+                'warehouse': 'Stores - TC',
+                'actual_qty': 100.0,
+                'reserved_qty': 10.0,
+                'ordered_qty': 5.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_inventory_detail('warehouse_stock', '{"warehouse": "Stores - TC", "page": 1}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(len(result['data']['rows']), 1)
+        self.assertEqual(result['data']['rows'][0]['warehouse'], 'Stores - TC')
+        mock_has_permission.assert_called_with('Bin', throw=True)
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters'], {'actual_qty': ('>', 0), 'warehouse': 'Stores - TC'})
+
+    @patch('insights.api.ml.inventory.frappe.has_permission')
+    @patch('insights.api.ml.inventory.frappe.qb')
+    def test_get_inventory_detail_low_stock_items(self, mock_qb, mock_has_permission):
+        """Test low_stock_items drill-down joins Bin with Item Reorder"""
+        from insights.api.ml.inventory import get_inventory_detail
+
+        # Build a chainable Query Builder mock
+        mock_query = MagicMock()
+        mock_query.join.return_value = mock_query
+        mock_query.on.return_value = mock_query
+        mock_query.where.return_value = mock_query
+        mock_query.select.return_value = mock_query
+        mock_query.orderby.return_value = mock_query
+        mock_query.offset.return_value = mock_query
+        mock_query.limit.return_value = mock_query
+        mock_query.run.side_effect = [
+            [
+                {
+                    'item_code': 'ITEM-001',
+                    'warehouse': 'Stores - TC',
+                    'actual_qty': 5.0,
+                    'projected_qty': 5.0,
+                    'reorder_level': 10.0
+                }
+            ],
+            [(1,)]
+        ]
+        mock_qb.from_.return_value = mock_query
+        mock_qb.DocType.return_value = MagicMock()
+        mock_qb.functions.Count.return_value.as_.return_value = 'total_count'
+
+        result = get_inventory_detail('low_stock_items', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(len(result['data']['rows']), 1)
+        self.assertEqual(result['data']['total'], 1)
+        self.assertEqual(result['data']['rows'][0]['item_code'], 'ITEM-001')
+        self.assertEqual(result['data']['rows'][0]['reorder_level'], 10.0)
+        mock_has_permission.assert_called_with('Bin', throw=True)
+
+    def test_get_inventory_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.inventory import get_inventory_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_inventory_detail('unknown_metric', '{}')
+
+    @patch('insights.api.ml.inventory.frappe.has_permission')
+    def test_get_inventory_detail_permission_error(self, mock_has_permission):
+        """Test permission error is propagated"""
+        from insights.api.ml.inventory import get_inventory_detail
+
+        mock_has_permission.side_effect = frappe.PermissionError('No permission')
+
+        with self.assertRaises(frappe.PermissionError):
+            get_inventory_detail('total_skus', '{}')
+
+
 if __name__ == '__main__':
     unittest.main()
