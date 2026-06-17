@@ -483,5 +483,216 @@ class TestInventoryAPIDrillDown(FrappeTestCase):
             get_inventory_detail('total_skus', '{}')
 
 
+class TestSalesAPIDrillDown(FrappeTestCase):
+    """Test suite for sales drill-down API endpoints"""
+
+    @patch('insights.api.ml.sales.frappe.has_permission')
+    @patch('insights.api.ml.sales.frappe.get_list')
+    @patch('insights.api.ml.sales.frappe.db.count')
+    def test_get_sales_detail_total_orders(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test total_orders drill-down returns sales invoices"""
+        from insights.api.ml.sales import get_sales_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SINV-001',
+                'customer': 'Customer A',
+                'posting_date': '2024-01-15',
+                'grand_total': 1000.0,
+                'currency': 'KES',
+                'territory': 'Nairobi'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_sales_detail('total_orders', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(len(result['data']['rows']), 1)
+        self.assertEqual(result['data']['total'], 1)
+        self.assertEqual(result['data']['columns'][0]['fieldname'], 'name')
+        mock_has_permission.assert_called_with('Sales Invoice', throw=True)
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['docstatus'], 1)
+        self.assertIn('posting_date', kwargs['filters'])
+
+    @patch('insights.api.ml.sales.frappe.has_permission')
+    @patch('insights.api.ml.sales.frappe.get_list')
+    @patch('insights.api.ml.sales.frappe.db.count')
+    def test_get_sales_detail_pending_orders(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test pending_orders drill-down returns open sales orders"""
+        from insights.api.ml.sales import get_sales_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SO-001',
+                'customer': 'Customer A',
+                'transaction_date': '2024-01-10',
+                'delivery_date': '2024-01-20',
+                'grand_total': 500.0,
+                'status': 'To Deliver and Bill'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_sales_detail('pending_orders', '{"company": "Test Company"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['name'], 'SO-001')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Sales Order')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['company'], 'Test Company')
+        self.assertEqual(kwargs['filters']['status']['not_in'], ['Completed', 'Cancelled', 'Closed'])
+
+    @patch('insights.api.ml.sales.frappe.has_permission')
+    @patch('insights.api.ml.sales.frappe.get_list')
+    @patch('insights.api.ml.sales.frappe.db.count')
+    def test_get_sales_detail_sales_by_territory(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test sales_by_territory drill-down filters by territory"""
+        from insights.api.ml.sales import get_sales_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SINV-002',
+                'customer': 'Customer B',
+                'territory': 'Mombasa',
+                'posting_date': '2024-02-01',
+                'grand_total': 2000.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_sales_detail('sales_by_territory', '{"territory": "Mombasa"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['territory'], 'Mombasa')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['territory'], 'Mombasa')
+
+    def test_get_sales_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.sales import get_sales_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_sales_detail('unknown_metric', '{}')
+
+
+class TestFinancialAPIDrillDown(FrappeTestCase):
+    """Test suite for financial drill-down API endpoints"""
+
+    @patch('insights.api.ml.financial.frappe.has_permission')
+    @patch('insights.api.ml.financial.frappe.get_list')
+    @patch('insights.api.ml.financial.frappe.db.count')
+    def test_get_finance_detail_outstanding_ar(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test outstanding_ar drill-down returns open sales invoices"""
+        from insights.api.ml.financial import get_finance_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SINV-003',
+                'customer': 'Customer C',
+                'posting_date': '2024-01-01',
+                'due_date': '2024-02-01',
+                'grand_total': 3000.0,
+                'outstanding_amount': 1500.0,
+                'currency': 'KES'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_finance_detail('outstanding_ar', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['outstanding_amount'], 1500.0)
+        self.assertEqual(result['data']['columns'][0]['options'], 'Sales Invoice')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['outstanding_amount'], ('>', 0))
+
+    @patch('insights.api.ml.financial.frappe.has_permission')
+    @patch('insights.api.ml.financial.frappe.get_list')
+    @patch('insights.api.ml.financial.frappe.db.count')
+    def test_get_finance_detail_overdue_ar_90(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test overdue_ar_90 drill-down applies 90-day cutoff"""
+        from insights.api.ml.financial import get_finance_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SINV-004',
+                'customer': 'Customer D',
+                'posting_date': '2023-01-01',
+                'due_date': '2023-02-01',
+                'grand_total': 5000.0,
+                'outstanding_amount': 5000.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_finance_detail('overdue_ar_90', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['name'], 'SINV-004')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['outstanding_amount'], ('>', 0))
+        self.assertIn('due_date', kwargs['filters'])
+
+    @patch('insights.api.ml.financial.frappe.has_permission')
+    @patch('insights.api.ml.financial.frappe.get_list')
+    @patch('insights.api.ml.financial.frappe.db.count')
+    def test_get_finance_detail_outstanding_ap(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test outstanding_ap drill-down returns open purchase invoices"""
+        from insights.api.ml.financial import get_finance_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'PINV-001',
+                'supplier': 'Supplier A',
+                'posting_date': '2024-01-05',
+                'due_date': '2024-02-05',
+                'grand_total': 2500.0,
+                'outstanding_amount': 1000.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_finance_detail('outstanding_ap', '{"company": "Test Company"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Purchase Invoice')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['company'], 'Test Company')
+
+    @patch('insights.api.ml.financial.frappe.has_permission')
+    @patch('insights.api.ml.financial.frappe.get_list')
+    @patch('insights.api.ml.financial.frappe.db.count')
+    def test_get_finance_detail_cash_accounts(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test cash_accounts drill-down returns bank/cash accounts"""
+        from insights.api.ml.financial import get_finance_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'Cash - TC',
+                'account_name': 'Cash',
+                'account_type': 'Cash',
+                'account_currency': 'KES'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_finance_detail('cash_accounts', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['account_type'], 'Cash')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['account_type']['in'], ['Cash', 'Bank'])
+        self.assertEqual(kwargs['filters']['is_group'], 0)
+
+    def test_get_finance_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.financial import get_finance_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_finance_detail('unknown_metric', '{}')
+
+
 if __name__ == '__main__':
     unittest.main()
