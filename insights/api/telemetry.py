@@ -5,7 +5,9 @@ from contextlib import suppress
 
 import frappe
 from frappe.utils.data import date_diff
-from frappe.utils.telemetry import POSTHOG_HOST_FIELD, POSTHOG_PROJECT_FIELD
+# Defined locally to avoid version-mismatch import issues with frappe.utils.telemetry
+POSTHOG_HOST_FIELD = "posthog_host"
+POSTHOG_PROJECT_FIELD = "posthog_project_id"
 from posthog import Posthog
 
 from insights.decorators import insights_whitelist
