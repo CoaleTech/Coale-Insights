@@ -878,5 +878,487 @@ class TestProcurementAPIDrillDown(FrappeTestCase):
             get_procurement_detail('unknown_metric', '{}')
 
 
+class TestHRAPIDrillDown(FrappeTestCase):
+    """Test suite for HR drill-down API endpoints"""
+
+    @patch('insights.api.ml.hr.frappe.has_permission')
+    @patch('insights.api.ml.hr.frappe.get_list')
+    @patch('insights.api.ml.hr.frappe.db.count')
+    def test_get_hr_detail_total_employees(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test total_employees drill-down returns active employees"""
+        from insights.api.ml.hr import get_hr_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'EMP-001',
+                'employee_name': 'John Doe',
+                'department': 'Sales',
+                'designation': 'Manager',
+                'status': 'Active'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_hr_detail('total_employees', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['name'], 'EMP-001')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Employee')
+
+    @patch('insights.api.ml.hr.frappe.has_permission')
+    @patch('insights.api.ml.hr.frappe.get_list')
+    @patch('insights.api.ml.hr.frappe.db.count')
+    def test_get_hr_detail_dept_employees(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test dept_employees drill-down filters by department"""
+        from insights.api.ml.hr import get_hr_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'EMP-002',
+                'employee_name': 'Jane Smith',
+                'department': 'Engineering',
+                'designation': 'Developer'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_hr_detail('dept_employees', '{"department": "Engineering"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['department'], 'Engineering')
+
+    @patch('insights.api.ml.hr.frappe.has_permission')
+    @patch('insights.api.ml.hr.frappe.get_list')
+    @patch('insights.api.ml.hr.frappe.db.count')
+    def test_get_hr_detail_employment_type(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test employment_type drill-down filters by employment type"""
+        from insights.api.ml.hr import get_hr_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'EMP-003',
+                'employee_name': 'Contractor A',
+                'department': 'Operations',
+                'employment_type': 'Contract'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_hr_detail('employment_type', '{"employment_type": "Contract"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertIn('Contract', result['data']['rows'][0].values())
+
+    def test_get_hr_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.hr import get_hr_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_hr_detail('unknown_metric', '{}')
+
+
+class TestRiskAPIDrillDown(FrappeTestCase):
+    """Test suite for risk drill-down API endpoints"""
+
+    @patch('insights.api.ml.risk.frappe.has_permission')
+    @patch('insights.api.ml.risk.frappe.get_list')
+    @patch('insights.api.ml.risk.frappe.db.count')
+    def test_get_risk_detail_overdue_invoices(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test overdue_invoices drill-down returns past-due sales invoices"""
+        from insights.api.ml.risk import get_risk_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SINV-005',
+                'customer': 'Customer E',
+                'posting_date': '2024-01-01',
+                'due_date': '2024-01-15',
+                'outstanding_amount': 2500.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_risk_detail('overdue_invoices', '{"company": "Test Company"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['name'], 'SINV-005')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['outstanding_amount'], ('>', 0))
+        self.assertEqual(kwargs['filters']['company'], 'Test Company')
+
+    @patch('insights.api.ml.risk.frappe.has_permission')
+    @patch('insights.api.ml.risk.frappe.get_list')
+    @patch('insights.api.ml.risk.frappe.db.count')
+    def test_get_risk_detail_overdue_payables(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test overdue_payables drill-down returns past-due purchase invoices"""
+        from insights.api.ml.risk import get_risk_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'PINV-002',
+                'supplier': 'Supplier D',
+                'posting_date': '2024-01-01',
+                'due_date': '2024-01-15',
+                'outstanding_amount': 1200.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_risk_detail('overdue_payables', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Purchase Invoice')
+
+    def test_get_risk_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.risk import get_risk_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_risk_detail('unknown_metric', '{}')
+
+
+class TestExecutiveAPIDrillDown(FrappeTestCase):
+    """Test suite for executive drill-down API endpoints"""
+
+    @patch('insights.api.ml.executive.frappe.has_permission')
+    @patch('insights.api.ml.executive.frappe.get_list')
+    @patch('insights.api.ml.executive.frappe.db.count')
+    def test_get_executive_detail_revenue_invoices(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test revenue_invoices drill-down returns submitted invoices"""
+        from insights.api.ml.executive import get_executive_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SINV-006',
+                'customer': 'Customer F',
+                'posting_date': '2024-01-20',
+                'grand_total': 8000.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_executive_detail('revenue_invoices', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['grand_total'], 8000.0)
+
+    @patch('insights.api.ml.executive.frappe.has_permission')
+    @patch('insights.api.ml.executive.frappe.get_list')
+    @patch('insights.api.ml.executive.frappe.db.count')
+    def test_get_executive_detail_active_employees(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test active_employees drill-down returns active employees"""
+        from insights.api.ml.executive import get_executive_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'EMP-004',
+                'employee_name': 'Executive A',
+                'department': 'Leadership',
+                'designation': 'CEO'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_executive_detail('active_employees', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Employee')
+
+    def test_get_executive_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.executive import get_executive_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_executive_detail('unknown_metric', '{}')
+
+
+class TestManufacturingAPIDrillDown(FrappeTestCase):
+    """Test suite for manufacturing drill-down API endpoints"""
+
+    @patch('insights.api.ml.manufacturing.frappe.has_permission')
+    @patch('insights.api.ml.manufacturing.frappe.get_list')
+    @patch('insights.api.ml.manufacturing.frappe.db.count')
+    def test_get_manufacturing_detail_open_work_orders(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test open_work_orders drill-down excludes completed/cancelled/stopped"""
+        from insights.api.ml.manufacturing import get_manufacturing_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'WO-001',
+                'production_item': 'ITEM-A',
+                'qty': 100.0,
+                'produced_qty': 20.0,
+                'planned_start_date': '2024-01-01',
+                'planned_end_date': '2024-01-10',
+                'status': 'In Process'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_manufacturing_detail('open_work_orders', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Work Order')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['status']['not_in'], ['Completed', 'Cancelled', 'Stopped'])
+
+    @patch('insights.api.ml.manufacturing.frappe.has_permission')
+    @patch('insights.api.ml.manufacturing.frappe.get_list')
+    @patch('insights.api.ml.manufacturing.frappe.db.count')
+    @patch('insights.api.ml.manufacturing.frappe.utils')
+    def test_get_manufacturing_detail_completed_work_orders(self, mock_utils, mock_db_count, mock_get_list, mock_has_permission):
+        """Test completed_work_orders drill-down applies period cutoff"""
+        from insights.api.ml.manufacturing import get_manufacturing_detail
+
+        mock_utils.today.return_value = '2024-06-17'
+        mock_utils.add_days.return_value = '2024-05-18'
+        mock_get_list.return_value = [
+            {
+                'name': 'WO-002',
+                'production_item': 'ITEM-B',
+                'qty': 50.0,
+                'produced_qty': 50.0,
+                'planned_end_date': '2024-05-20'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_manufacturing_detail('completed_work_orders', '{"period": "30d"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['qty'], 50.0)
+        _, kwargs = mock_get_list.call_args
+        self.assertIn('modified', kwargs['filters'])
+
+    def test_get_manufacturing_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.manufacturing import get_manufacturing_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_manufacturing_detail('unknown_metric', '{}')
+
+
+class TestMarketingAPIDrillDown(FrappeTestCase):
+    """Test suite for marketing/CRM drill-down API endpoints"""
+
+    @patch('insights.api.ml.marketing.frappe.has_permission')
+    @patch('insights.api.ml.marketing.frappe.get_list')
+    @patch('insights.api.ml.marketing.frappe.db.count')
+    def test_get_crm_detail_leads(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test leads drill-down returns open leads"""
+        from insights.api.ml.marketing import get_crm_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'LEAD-001',
+                'lead_name': 'Lead A',
+                'company_name': 'Company A',
+                'status': 'Open',
+                'source': 'Website',
+                'lead_owner': 'user@example.com',
+                'creation': '2024-06-01'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_crm_detail('leads', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Lead')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters'], {'docstatus': 0})
+
+    @patch('insights.api.ml.marketing.frappe.has_permission')
+    @patch('insights.api.ml.marketing.frappe.get_list')
+    @patch('insights.api.ml.marketing.frappe.db.count')
+    def test_get_crm_detail_opportunities(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test opportunities drill-down returns open opportunities"""
+        from insights.api.ml.marketing import get_crm_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'OPP-001',
+                'opportunity_from': 'Lead',
+                'party_name': 'Lead A',
+                'opportunity_amount': 10000.0,
+                'expected_closing': '2024-07-01',
+                'status': 'Open',
+                'sales_stage': 'Proposal'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_crm_detail('opportunities', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Opportunity')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters']['status']['not_in'], ['Closed', 'Lost'])
+
+    def test_get_crm_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.marketing import get_crm_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_crm_detail('unknown_metric', '{}')
+
+
+class TestTaxAPIDrillDown(FrappeTestCase):
+    """Test suite for tax drill-down API endpoints"""
+
+    @patch('insights.api.ml.tax.frappe.has_permission')
+    @patch('insights.api.ml.tax.frappe.db.sql')
+    def test_get_tax_detail_tax_invoices(self, mock_sql, mock_has_permission):
+        """Test tax_invoices drill-down returns invoices with tax rows"""
+        from insights.api.ml.tax import get_tax_detail
+
+        mock_sql.side_effect = [
+            [
+                {
+                    'name': 'SINV-007',
+                    'customer': 'Customer G',
+                    'posting_date': '2024-01-15',
+                    'grand_total': 1180.0,
+                    'total_taxes_and_charges': 180.0
+                }
+            ],
+            [(1,)]
+        ]
+
+        result = get_tax_detail('tax_invoices', '{"company": "Test Company"}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['total_taxes_and_charges'], 180.0)
+        self.assertEqual(result['data']['total'], 1)
+        calls = [c[0] for c in mock_sql.call_args_list]
+        self.assertTrue(any('Test Company' in str(c) for c in calls))
+
+    def test_get_tax_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.tax import get_tax_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_tax_detail('unknown_metric', '{}')
+
+
+class TestStrategicFinanceAPIDrillDown(FrappeTestCase):
+    """Test suite for strategic finance drill-down API endpoints"""
+
+    @patch('insights.api.ml.strategic_finance.frappe.has_permission')
+    @patch('insights.api.ml.strategic_finance.frappe.get_list')
+    @patch('insights.api.ml.strategic_finance.frappe.db.count')
+    def test_get_strategic_detail_revenue_invoices(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test revenue_invoices drill-down returns submitted sales invoices"""
+        from insights.api.ml.strategic_finance import get_strategic_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SINV-008',
+                'customer': 'Customer H',
+                'posting_date': '2024-01-15',
+                'grand_total': 5000.0,
+                'outstanding_amount': 0.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_strategic_detail('revenue_invoices', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['rows'][0]['name'], 'SINV-008')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Sales Invoice')
+
+    @patch('insights.api.ml.strategic_finance.frappe.has_permission')
+    @patch('insights.api.ml.strategic_finance.frappe.get_list')
+    @patch('insights.api.ml.strategic_finance.frappe.db.count')
+    def test_get_strategic_detail_expense_entries(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test expense_entries drill-down returns submitted purchase invoices"""
+        from insights.api.ml.strategic_finance import get_strategic_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'PINV-003',
+                'supplier': 'Supplier E',
+                'posting_date': '2024-01-10',
+                'grand_total': 2000.0,
+                'outstanding_amount': 500.0
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_strategic_detail('expense_entries', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Purchase Invoice')
+
+    def test_get_strategic_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.strategic_finance import get_strategic_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_strategic_detail('unknown_metric', '{}')
+
+
+class TestESGAPIDrillDown(FrappeTestCase):
+    """Test suite for ESG drill-down API endpoints"""
+
+    @patch('insights.api.ml.esg.frappe.has_permission')
+    @patch('insights.api.ml.esg.frappe.get_list')
+    @patch('insights.api.ml.esg.frappe.db.count')
+    def test_get_esg_detail_employees_diversity(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test employees_diversity drill-down returns active employees"""
+        from insights.api.ml.esg import get_esg_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'EMP-005',
+                'employee_name': 'Diverse Employee',
+                'department': 'HR',
+                'gender': 'Female',
+                'date_of_joining': '2023-01-01'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_esg_detail('employees_diversity', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][3]['fieldname'], 'gender')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters'], {'status': 'Active'})
+
+    @patch('insights.api.ml.esg.frappe.has_permission')
+    @patch('insights.api.ml.esg.frappe.get_list')
+    @patch('insights.api.ml.esg.frappe.db.count')
+    def test_get_esg_detail_supplier_count(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Test supplier_count drill-down returns active suppliers"""
+        from insights.api.ml.esg import get_esg_detail
+
+        mock_get_list.return_value = [
+            {
+                'name': 'SUP-001',
+                'supplier_name': 'Supplier A',
+                'supplier_group': 'Raw Material',
+                'supplier_type': 'Company',
+                'country': 'Kenya'
+            }
+        ]
+        mock_db_count.return_value = 1
+
+        result = get_esg_detail('supplier_count', '{}')
+
+        self.assertEqual(result['status'], 'success')
+        self.assertEqual(result['data']['columns'][0]['options'], 'Supplier')
+        _, kwargs = mock_get_list.call_args
+        self.assertEqual(kwargs['filters'], {'disabled': 0})
+
+    def test_get_esg_detail_unknown_metric(self):
+        """Test unknown metric raises ValidationError"""
+        from insights.api.ml.esg import get_esg_detail
+
+        with self.assertRaises(frappe.ValidationError):
+            get_esg_detail('unknown_metric', '{}')
+
+
 if __name__ == '__main__':
     unittest.main()
