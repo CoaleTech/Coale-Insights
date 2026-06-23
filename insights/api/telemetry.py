@@ -8,7 +8,13 @@ from frappe.utils.data import date_diff
 # Defined locally to avoid version-mismatch import issues with frappe.utils.telemetry
 POSTHOG_HOST_FIELD = "posthog_host"
 POSTHOG_PROJECT_FIELD = "posthog_project_id"
-from posthog import Posthog
+# posthog is an optional, undeclared dependency used only for telemetry
+# (disabled unless posthog_host/posthog_project_id are configured). Degrade
+# gracefully when it is not installed in the running interpreter.
+try:
+    from posthog import Posthog
+except ImportError:
+    Posthog = None
 
 from insights.decorators import insights_whitelist
 from insights.api.response import success, error
@@ -77,6 +83,8 @@ def track_active_site(is_v3=False):
 
 
 def capture_event(event_name, properties=None):
+    if Posthog is None:
+        return
     project_id = frappe.conf.get(POSTHOG_PROJECT_FIELD)
     host = frappe.conf.get(POSTHOG_HOST_FIELD)
     if not project_id or not host:
