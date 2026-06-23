@@ -354,8 +354,10 @@ class ExecutiveIntelligence:
                         SELECT s.name,
                             (SELECT AVG(CASE WHEN pr.posting_date <= po.schedule_date THEN 100 ELSE 0 END)
                              FROM `tabPurchase Receipt` pr
-                             JOIN `tabPurchase Order` po ON pr.purchase_order = po.name
+                             JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name
+                             JOIN `tabPurchase Order` po ON pri.purchase_order = po.name
                              WHERE pr.supplier = s.name AND pr.docstatus = 1
+                               AND pri.purchase_order IS NOT NULL AND pri.purchase_order != ''
                                AND pr.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
                             ) as on_time_delivery_pct,
                             NULL as quality_score

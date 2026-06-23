@@ -23,6 +23,18 @@ def is_enabled():
     )
 
 
+def _telemetry_site_age():
+    # frappe.utils.telemetry is not auto-loaded into the frappe.utils
+    # namespace on all versions; import the submodule explicitly and
+    # degrade to None if unavailable.
+    try:
+        from frappe.utils import telemetry
+
+        return telemetry.site_age()
+    except Exception:
+        return None
+
+
 @insights_whitelist()
 def get_posthog_settings():
     can_record_session = False
@@ -37,7 +49,7 @@ def get_posthog_settings():
         "posthog_project_id": frappe.conf.get(POSTHOG_PROJECT_FIELD),
         "posthog_host": frappe.conf.get(POSTHOG_HOST_FIELD),
         "enable_telemetry": frappe.get_system_settings("enable_telemetry"),
-        "telemetry_site_age": frappe.utils.telemetry.site_age(),
+        "telemetry_site_age": _telemetry_site_age(),
         "record_session": can_record_session,
         "posthog_identifier": frappe.local.site,
     })

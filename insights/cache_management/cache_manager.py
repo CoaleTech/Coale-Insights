@@ -17,6 +17,22 @@ class CacheLevel(Enum):
     COLD = "api"       # Complex computations, ML results
 
 
+def _coerce_level(level):
+    """Return a CacheLevel from a CacheLevel, a member name ("hot"/"warm"/"cold"),
+    or an enum value ("redis"/"database"/"api").
+
+    The public string API uses member names ("hot"), but the enum values are
+    "redis"/"database"/"api"; calling ``CacheLevel("hot")`` therefore raised
+    ``'hot' is not a valid CacheLevel``. Resolve by name first, then by value.
+    """
+    if isinstance(level, CacheLevel):
+        return level
+    try:
+        return CacheLevel[str(level).upper()]
+    except KeyError:
+        return CacheLevel(level)
+
+
 class CacheManager:
     """Synchronous 3-tier caching system for AI insights performance optimization.
     
@@ -350,20 +366,20 @@ cache_manager = CacheManager()
 # Convenience functions for external use (synchronous)
 def get_cached_data(key: str, cache_levels: List[str] = None) -> Optional[Any]:
     """Get cached data with automatic tier fallback"""
-    levels = [CacheLevel(level) for level in cache_levels] if cache_levels else None
+    levels = [_coerce_level(level) for level in cache_levels] if cache_levels else None
     return cache_manager.get(key, levels)
 
 
 def cache_data(key: str, value: Any, level: str = "hot", ttl: Optional[int] = None, 
                metadata: Dict[str, Any] = None) -> bool:
     """Cache data in specified tier"""
-    cache_level = CacheLevel(level)
+    cache_level = _coerce_level(level)
     return cache_manager.set(key, value, cache_level, ttl, metadata)
 
 
 def invalidate_cache(key: str, levels: List[str] = None):
     """Remove data from cache tiers"""
-    cache_levels = [CacheLevel(level) for level in levels] if levels else None
+    cache_levels = [_coerce_level(level) for level in levels] if levels else None
     cache_manager.delete(key, cache_levels)
 
 

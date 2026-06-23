@@ -60,7 +60,9 @@ class PaymentPrediction(BaseMLModel):
                 si.outstanding_amount,
                 c.customer_group,
                 c.territory,
-                c.credit_limit,
+                COALESCE((SELECT ccl.credit_limit FROM `tabCustomer Credit Limit` ccl
+                          WHERE ccl.parent = c.name AND ccl.parenttype = 'Customer'
+                          ORDER BY ccl.credit_limit DESC LIMIT 1), 0) as credit_limit,
                 c.creation as customer_since,
                 DATEDIFF(COALESCE(
                     (SELECT MIN(pe.posting_date) 
@@ -95,7 +97,9 @@ class PaymentPrediction(BaseMLModel):
                 DATEDIFF(CURDATE(), si.due_date) as days_overdue,
                 c.customer_group,
                 c.territory,
-                c.credit_limit,
+                COALESCE((SELECT ccl.credit_limit FROM `tabCustomer Credit Limit` ccl
+                          WHERE ccl.parent = c.name AND ccl.parenttype = 'Customer'
+                          ORDER BY ccl.credit_limit DESC LIMIT 1), 0) as credit_limit,
                 c.creation as customer_since
             FROM `tabSales Invoice` si
             LEFT JOIN `tabCustomer` c ON si.customer = c.name

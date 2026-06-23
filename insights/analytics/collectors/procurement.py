@@ -90,19 +90,33 @@ class ProcurementDataCollector(BaseCollector):
 
     def _get_supplier_performance(self) -> List[Dict]:
         """Get supplier delivery performance"""
+        # Purchase Receipt has no parent-level purchase_order column; the PO link
+        # lives on Purchase Receipt Item. Resolve each receipt to the earliest
+        # required-by date among its linked POs, then aggregate at receipt grain.
         return frappe.db.sql("""
             SELECT
-                supplier,
-                supplier_name,
+                r.supplier,
+                r.supplier_name,
                 COUNT(*) as total_receipts,
-                SUM(CASE WHEN pr.posting_date <= po.schedule_date THEN 1 ELSE 0 END) as on_time,
-                ROUND(SUM(CASE WHEN pr.posting_date <= po.schedule_date THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as on_time_percent
-            FROM `tabPurchase Receipt` pr
-            JOIN `tabPurchase Order` po ON pr.purchase_order = po.name
-            WHERE pr.posting_date BETWEEN %s AND %s
-            AND pr.company = %s
-            AND pr.docstatus = 1
-            GROUP BY supplier, supplier_name
+                SUM(CASE WHEN r.posting_date <= r.schedule_date THEN 1 ELSE 0 END) as on_time,
+                ROUND(SUM(CASE WHEN r.posting_date <= r.schedule_date THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as on_time_percent
+            FROM (
+                SELECT
+                    pr.name,
+                    pr.supplier,
+                    pr.supplier_name,
+                    pr.posting_date,
+                    MIN(po.schedule_date) as schedule_date
+                FROM `tabPurchase Receipt` pr
+                JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name
+                JOIN `tabPurchase Order` po ON pri.purchase_order = po.name
+                WHERE pr.posting_date BETWEEN %s AND %s
+                AND pr.company = %s
+                AND pr.docstatus = 1
+                AND pri.purchase_order IS NOT NULL AND pri.purchase_order != ''
+                GROUP BY pr.name, pr.supplier, pr.supplier_name, pr.posting_date
+            ) r
+            GROUP BY r.supplier, r.supplier_name
             HAVING total_receipts >= 3
             ORDER BY on_time_percent DESC
             LIMIT 10
