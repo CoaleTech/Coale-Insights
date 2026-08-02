@@ -59,11 +59,11 @@ const verticalCompact = useStorage('dashboard_vertical_compact', true)
 </script>
 
 <template>
-	<div class="relative flex h-full w-full overflow-hidden bg-gray-50">
+	<div class="relative flex h-full w-full overflow-hidden bg-surface-gray-1">
 		<div class="relative flex h-full w-full flex-col overflow-hidden">
 			<div class="flex items-center justify-between p-4 pb-3">
 				<ContentEditable
-					class="cursor-text rounded-sm text-lg font-semibold !text-gray-800 focus:ring-2 focus:ring-gray-700 focus:ring-offset-4"
+				class="cursor-text rounded-sm text-lg font-semibold !text-ink-gray-8 focus:ring-2 focus:ring-outline-gray-4 focus:ring-offset-4"
 					v-model="dashboard.doc.title"
 					placeholder="Untitled Dashboard"
 				></ContentEditable>
@@ -75,7 +75,7 @@ const verticalCompact = useStorage('dashboard_vertical_compact', true)
 						label="Refresh"
 					>
 						<template #prefix>
-							<RefreshCcw class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+							<RefreshCcw class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 					</Button>
 					<Button
@@ -85,7 +85,7 @@ const verticalCompact = useStorage('dashboard_vertical_compact', true)
 						label="Share"
 					>
 						<template #prefix>
-							<Share2 class="h-4 text-gray-700" stroke-width="1.5" />
+							<Share2 class="h-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 					</Button>
 					<Button
@@ -95,7 +95,7 @@ const verticalCompact = useStorage('dashboard_vertical_compact', true)
 						label="Edit"
 					>
 						<template #prefix>
-							<Edit3 class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+							<Edit3 class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 					</Button>
 					<Button

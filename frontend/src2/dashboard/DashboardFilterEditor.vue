@@ -130,7 +130,7 @@ function saveEdit() {
 					/>
 				</div>
 				<div class="flex flex-col">
-					<div class="mb-1 text-p-sm text-gray-700">Linked Charts</div>
+					<div class="mb-1 text-p-sm text-ink-gray-6">Linked Charts</div>
 					<div
 						v-for="link in linkOptions"
 						:key="link.name"

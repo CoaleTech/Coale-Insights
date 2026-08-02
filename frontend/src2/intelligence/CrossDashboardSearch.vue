@@ -59,12 +59,17 @@
           <div
             v-for="(suggestion, index) in suggestions"
             :key="index"
+            role="option"
+            :aria-selected="activeSuggestionIndex === index"
+            tabindex="0"
             :class="[
-              'suggestion-item', 
+              'suggestion-item',
               { 'active': activeSuggestionIndex === index }
             ]"
             @click="selectSuggestion(suggestion)"
             @mouseenter="activeSuggestionIndex = index"
+            @keydown.enter="selectSuggestion(suggestion)"
+            @keydown.space.prevent="selectSuggestion(suggestion)"
           >
             <div class="suggestion-content">
               <div class="suggestion-text">{{ suggestion.text }}</div>
@@ -81,67 +86,26 @@
       <!-- Search Filters -->
       <div v-show="showAdvancedFilters" class="search-filters">
         <div class="filters-grid">
-          <!-- Dashboard Filter -->
           <div class="filter-group">
-            <label class="filter-label">Dashboard</label>
-            <select v-model="searchFilters.dashboard" class="filter-select">
-              <option value="">All Dashboards</option>
-              <option
-                v-for="dashboard in availableDashboards"
-                :key="dashboard.id"
-                :value="dashboard.id"
-              >
-                {{ dashboard.name }}
-              </option>
-            </select>
+            <label class="filter-label" for="filter-dashboard">Dashboard</label>
+            <Select id="filter-dashboard" v-model="searchFilters.dashboard" :options="dashboardOptions" class="text-sm" />
           </div>
-
-          <!-- Time Period Filter -->
           <div class="filter-group">
-            <label class="filter-label">Time Period</label>
-            <select v-model="searchFilters.time_period" class="filter-select">
-              <option value="">All Time</option>
-              <option value="today">Today</option>
-              <option value="this_week">This Week</option>
-              <option value="this_month">This Month</option>
-              <option value="this_quarter">This Quarter</option>
-              <option value="this_year">This Year</option>
-            </select>
+            <label class="filter-label" for="filter-time">Time Period</label>
+            <Select id="filter-time" v-model="searchFilters.time_period" :options="timePeriodOptions" class="text-sm" />
           </div>
-
-          <!-- Category Filter -->
           <div class="filter-group">
-            <label class="filter-label">Category</label>
-            <select v-model="searchFilters.category" class="filter-select">
-              <option value="">All Categories</option>
-              <option value="metrics">Key Metrics</option>
-              <option value="alerts">Alerts & Issues</option>
-              <option value="recommendations">Recommendations</option>
-              <option value="trends">Trends & Analysis</option>
-              <option value="summary">Summaries</option>
-              <option value="departmental">Departmental Data</option>
-            </select>
+            <label class="filter-label" for="filter-category">Category</label>
+            <Select id="filter-category" v-model="searchFilters.category" :options="categoryOptions" class="text-sm" />
           </div>
-
-          <!-- Priority Filter -->
           <div class="filter-group">
-            <label class="filter-label">Priority</label>
-            <select v-model="searchFilters.priority" class="filter-select">
-              <option value="">All Priorities</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
+            <label class="filter-label" for="filter-priority">Priority</label>
+            <Select id="filter-priority" v-model="searchFilters.priority" :options="priorityOptions" class="text-sm" />
           </div>
         </div>
-
         <div class="filter-actions">
-          <Button variant="ghost" size="sm" @click="clearFilters">
-            Clear Filters
-          </Button>
-          <Button variant="solid" size="sm" @click="applyFilters">
-            Apply Filters
-          </Button>
+          <Button variant="ghost" size="sm" @click="clearFilters">Clear Filters</Button>
+          <Button variant="solid" theme="gray" size="sm" @click="applyFilters">Apply Filters</Button>
         </div>
       </div>
 
@@ -178,6 +142,23 @@
 
     <!-- Search Results -->
     <div v-if="hasSearched" class="search-results">
+
+      <!-- 1. Loading -->
+      <div v-if="isSearching" class="space-y-3">
+        <SkeletonBlock class="h-6 w-48 rounded" />
+        <SkeletonBlock class="h-24 w-full rounded-lg" />
+        <SkeletonBlock class="h-24 w-full rounded-lg" />
+        <SkeletonBlock class="h-24 w-full rounded-lg" />
+      </div>
+
+      <!-- 2. Error -->
+      <div v-else-if="searchError" class="rounded-lg border border-outline-gray-1 bg-surface-white p-4 space-y-3">
+        <p class="text-sm text-ink-gray-7">{{ searchError }}</p>
+        <Button variant="subtle" size="sm" @click="performSearch">Try Again</Button>
+      </div>
+
+      <!-- 3. Results (only when not loading/error) -->
+      <template v-else>
       <!-- Results Header -->
       <div class="results-header">
         <div class="results-info">
@@ -298,27 +279,7 @@
       <div v-else class="results-content">
         <!-- Category Tabs -->
         <div class="category-tabs">
-          <Button
-            :variant="activeResultView === 'all' ? 'solid' : 'ghost'"
-            size="sm"
-            @click="activeResultView = 'all'"
-          >
-            All Results
-          </Button>
-          
-          <Button
-            v-for="(category, categoryId) in resultCategories"
-            :key="categoryId"
-            :variant="activeResultView === categoryId ? 'solid' : 'ghost'"
-            size="sm"
-            @click="activeResultView = categoryId"
-          >
-            <component :is="getCategoryIcon(category.icon)" class="w-4 h-4 mr-1" />
-            {{ category.label }}
-            <Badge variant="secondary" size="sm" class="ml-1">
-              {{ getCategoryCount(categoryId) }}
-            </Badge>
-          </Button>
+          <Tabs v-model="activeResultViewIndex" :tabs="resultTabItems" />
         </div>
 
         <!-- Results List -->
@@ -326,8 +287,11 @@
           <div
             v-for="result in filteredResults"
             :key="result.id"
+            role="button"
+            tabindex="0"
             class="result-item"
             @click="navigateToResult(result)"
+            @keydown.enter="navigateToResult(result)"
           >
             <Card class="result-card">
               <div class="result-content">
@@ -349,11 +313,11 @@
                   </div>
                   
                   <div class="result-actions">
-                    <Button variant="ghost" size="sm" @click.stop="saveToFavorites(result)">
-                      <Star class="w-4 h-4" />
+                    <Button variant="ghost" size="sm" aria-label="Save to favorites" @click.stop="saveToFavorites(result)">
+                      <Star class="w-4 h-4" aria-hidden="true" />
                     </Button>
-                    <Button variant="ghost" size="sm" @click="navigateToResult(result)">
-                      <ArrowRight class="w-4 h-4" />
+                    <Button variant="ghost" size="sm" aria-label="Go to result" @click="navigateToResult(result)">
+                      <ArrowRight class="w-4 h-4" aria-hidden="true" />
                     </Button>
                   </div>
                 </div>
@@ -373,7 +337,7 @@
                   <div v-if="result.metadata?.last_updated" class="result-timestamp">
                     <Clock class="w-3 h-3" />
                     <span class="timestamp-text">
-                      Updated {{ formatDate(result.metadata.last_updated) }}
+                      Updated {{ formatDateTime(result.metadata.last_updated) }}
                     </span>
                   </div>
                 </div>
@@ -382,13 +346,20 @@
           </div>
         </div>
 
-        <!-- Load More Button -->
-        <div v-if="hasMoreResults" class="load-more-section">
+        <!--
+          Pagination is not implemented: `loadMoreResults` is an empty function,
+          so this button did nothing when clicked. Hidden rather than deleted so
+          the affordance returns with the implementation, but a dead control must
+          not ship. Restore by flipping this to `v-if="hasMoreResults"` once
+          `loadMoreResults` actually pages.
+        -->
+        <div v-if="false" class="load-more-section">
           <Button variant="outline" @click="loadMoreResults">
             Load More Results
           </Button>
         </div>
       </div>
+      </template>
     </div>
 
     <!-- Cross-Dashboard Navigation Panel -->
@@ -398,18 +369,25 @@
         <Card
           v-for="dashboard in navigationSuggestions.related_dashboards"
           :key="dashboard.id"
+          role="button"
+          tabindex="0"
           class="dashboard-card"
           @click="navigateToDashboard(dashboard.url, dashboard.id)"
+          @keydown.enter="navigateToDashboard(dashboard.url, dashboard.id)"
         >
           <div class="dashboard-content">
             <div class="dashboard-header">
-              <component :is="getDashboardIcon(dashboard.id)" class="dashboard-icon" />
+              <component :is="getDashboardIcon(dashboard.id)" class="dashboard-icon" aria-hidden="true" />
               <span class="dashboard-name">{{ dashboard.name }}</span>
             </div>
             <div class="dashboard-relevance">
-              <div class="relevance-bar">
-                <div 
-                  class="relevance-fill" 
+              <div
+                class="relevance-bar"
+                role="img"
+                :aria-label="dashboard.name + ': ' + Math.round(dashboard.relevance * 100) + '% relevant'"
+              >
+                <div
+                  class="relevance-fill"
                   :style="{ width: `${dashboard.relevance * 100}%` }"
                 ></div>
               </div>
@@ -430,8 +408,8 @@
             <Clock class="w-4 h-4" />
             Search History
           </h3>
-          <Button variant="ghost" size="sm" @click="showSearchHistory = false">
-            <X class="w-4 h-4" />
+          <Button variant="ghost" size="sm" aria-label="Close search history" @click="showSearchHistory = false">
+            <X class="w-4 h-4" aria-hidden="true" />
           </Button>
         </div>
         
@@ -439,13 +417,16 @@
           <div
             v-for="item in searchHistory"
             :key="item.timestamp"
+            role="button"
+            tabindex="0"
             class="history-item"
             @click="searchQuery = item.query; performSearch()"
+            @keydown.enter="searchQuery = item.query; performSearch()"
           >
             <div class="history-query">{{ item.query }}</div>
             <div class="history-meta">
               <span class="history-results">{{ item.results_count }} results</span>
-              <span class="history-time">{{ formatDate(item.timestamp) }}</span>
+              <span class="history-time">{{ formatDateTime(item.timestamp) }}</span>
             </div>
           </div>
         </div>
@@ -527,8 +508,11 @@ import {
   Lightbulb,
   FileText
 } from 'lucide-vue-next'
-import { Button, Card, Badge, Dialog } from 'frappe-ui'
+import { Button, Card, Badge, Dialog, Select, Tabs } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
+import { DASHBOARD_ICONS, SEARCH_DASHBOARD_OPTIONS } from '../helpers/dashboards'
+import { formatDateTime } from '../utils/format'
+import SkeletonBlock from './components/SkeletonBlock.vue'
 
 const router = useRouter()
 
@@ -538,12 +522,12 @@ const lastSearchQuery = ref('')
 const searchFocused = ref(false)
 const isSearching = ref(false)
 const hasSearched = ref(false)
+const searchError = ref('')
 const showSuggestions = ref(false)
 const showAdvancedFilters = ref(false)
 const showSearchHistory = ref(false)
 const showSearchHelp = ref(false)
 const activeSuggestionIndex = ref(-1)
-const activeResultView = ref('all')
 
 // Search data
 const searchResults = ref(null)
@@ -563,17 +547,22 @@ const searchFilters = ref({
 })
 
 // Configuration
-const availableDashboards = ref([
-  { id: 'executive', name: 'Executive Intelligence' },
-  { id: 'financial', name: 'Financial Intelligence' },
-  { id: 'budget', name: 'Budget Variance Intelligence' },
-  { id: 'hr', name: 'HR Intelligence' },
-  { id: 'manufacturing', name: 'Manufacturing Intelligence' },
-  { id: 'sales', name: 'Sales Intelligence' },
-  { id: 'customer', name: 'Customer Intelligence' },
-  { id: 'esg', name: 'ESG Intelligence' }
-])
+//
+// From `helpers/dashboards`. The previous hand-written list had eight entries
+// for ten dashboards: Tax, Procurement, Inventory, Marketing and Risk were
+// absent (unfilterable), while `budget`, `sales` and `customer` were ghosts left
+// behind by two dashboard merges.
+const availableDashboards = ref(SEARCH_DASHBOARD_OPTIONS)
 
+/**
+ * Search-result categories: display label and icon name per tab.
+ *
+ * Expressed as JSDoc, not a TS interface, because this component's
+ * `<script setup>` has no `lang="ts"`. Converting the file surfaces 631
+ * pre-existing type errors across its 1350 lines, which is its own task.
+ *
+ * @type {import('vue').Ref<Record<string, { label: string, icon: string }>>}
+ */
 const resultCategories = ref({
   metrics: { label: 'Key Metrics', icon: 'trending-up' },
   alerts: { label: 'Alerts & Issues', icon: 'alert-circle' },
@@ -582,6 +571,44 @@ const resultCategories = ref({
   summary: { label: 'Summaries', icon: 'file-text' },
   departmental: { label: 'Departmental Data', icon: 'building' }
 })
+
+// Result category tabs: 'all' + one per category key, in order.
+const RESULT_VIEW_IDS = ['all', 'metrics', 'alerts', 'recommendations', 'trends', 'summary', 'departmental']
+const activeResultViewIndex = ref(0)
+const activeResultView = computed(() => RESULT_VIEW_IDS[activeResultViewIndex.value] ?? 'all')
+const resultTabItems = computed(() => [
+  { label: 'All Results' },
+  ...Object.values(resultCategories.value).map((c) => ({ label: c.label })),
+])
+
+// Filter select options
+const dashboardOptions = computed(() => [
+  { value: '', label: 'All Dashboards' },
+  ...availableDashboards.value.map(d => ({ value: d.id, label: d.name })),
+])
+const timePeriodOptions = [
+  { value: '', label: 'All Time' },
+  { value: 'today', label: 'Today' },
+  { value: 'this_week', label: 'This Week' },
+  { value: 'this_month', label: 'This Month' },
+  { value: 'this_quarter', label: 'This Quarter' },
+  { value: 'this_year', label: 'This Year' },
+]
+const categoryOptions = [
+  { value: '', label: 'All Categories' },
+  { value: 'metrics', label: 'Key Metrics' },
+  { value: 'alerts', label: 'Alerts & Issues' },
+  { value: 'recommendations', label: 'Recommendations' },
+  { value: 'trends', label: 'Trends & Analysis' },
+  { value: 'summary', label: 'Summaries' },
+  { value: 'departmental', label: 'Departmental Data' },
+]
+const priorityOptions = [
+  { value: '', label: 'All Priorities' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+]
 
 // Debounce timer for suggestions
 let suggestionTimer = null
@@ -671,14 +698,15 @@ const fetchSuggestions = async () => {
 
 const performSearch = async () => {
   if (!searchQuery.value.trim()) return
-  
+
   isSearching.value = true
   hasSearched.value = true
+  searchError.value = ''
+  searchResults.value = null
   lastSearchQuery.value = searchQuery.value
   clearSuggestions()
-  
+
   try {
-    // Call search API
     const response = await apiCall('insights.api.ml.perform_cross_dashboard_search', {
       query: searchQuery.value,
       filters: searchFilters.value,
@@ -692,9 +720,8 @@ const performSearch = async () => {
     agentResponse.value = response.agent_response || ''
     navigationSuggestions.value = response.search_results?.navigation
     navigationRecommendations.value = response.navigation_recommendations
-  } catch (error) {
-    console.error('Error performing search:', error)
-    // Handle error
+  } catch (err) {
+    searchError.value = (err instanceof Error ? err.message : null) || 'Search failed. Please try again.'
   } finally {
     isSearching.value = false
   }
@@ -835,25 +862,8 @@ const getDomainLabel = (domainId) => {
   return domain?.name || domainId
 }
 
-const getDashboardIcon = (dashboardId) => {
-  const icons = {
-    executive: BarChart3,
-    financial: DollarSign,
-    budget: PieChart,
-    hr: Users,
-    manufacturing: Factory,
-    sales: TrendingUp,
-    customer: Heart,
-    esg: Leaf
-  }
-  return icons[dashboardId] || BarChart3
-}
+const getDashboardIcon = (dashboardId) => DASHBOARD_ICONS[dashboardId] || BarChart3
 
-const formatDate = (dateString) => {
-  if (!dateString) return ''
-  const date = new Date(dateString)
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-}
 
 const searchInput = ref(null)
 
@@ -869,6 +879,8 @@ onMounted(() => {
     }
   })
 })
+
+onUnmounted(() => { clearTimeout(suggestionTimer) })
 
 // Watch for route changes to auto-search
 watch(() => router.currentRoute.value.query.search, (newSearch) => {
@@ -893,15 +905,15 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .title-icon {
-  @apply w-6 h-6 text-blue-600;
+  @apply w-6 h-6 text-ink-gray-6;
 }
 
 .search-title h2 {
-  @apply text-2xl font-semibold text-gray-900;
+  @apply text-2xl font-semibold text-ink-gray-9;
 }
 
 .search-subtitle {
-  @apply text-gray-600 text-sm;
+  @apply text-ink-gray-6 text-sm;
 }
 
 .search-interface {
@@ -913,19 +925,19 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .search-input-wrapper {
-  @apply relative flex items-center bg-white border border-gray-300 rounded-lg shadow-sm transition-all duration-200;
+  @apply relative flex items-center bg-surface-white border border-outline-gray-2 rounded-lg shadow-sm transition-all duration-200 motion-reduce:transition-none;
 }
 
 .search-input-wrapper.focused {
-  @apply border-blue-500 ring-1 ring-blue-500 shadow-md;
+  @apply border-outline-gray-3 ring-1 ring-outline-gray-3;
 }
 
 .search-icon {
-  @apply absolute left-3 w-5 h-5 text-gray-400;
+  @apply absolute left-3 w-5 h-5 text-ink-gray-5;
 }
 
 .search-input {
-  @apply flex-1 pl-10 pr-32 py-3 border-0 rounded-lg focus:outline-none text-gray-900 placeholder-gray-500;
+  @apply flex-1 pl-10 pr-32 py-3 border-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 text-ink-gray-8 placeholder-ink-gray-5;
 }
 
 .search-actions {
@@ -933,15 +945,15 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .suggestions-dropdown {
-  @apply absolute top-full mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto;
+  @apply absolute top-full mt-1 w-full bg-surface-white border border-outline-gray-1 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto;
 }
 
 .suggestion-item {
-  @apply px-4 py-3 hover:bg-gray-50 cursor-pointer transition-colors duration-150;
+  @apply px-4 py-3 hover:bg-surface-gray-1 cursor-pointer transition-colors duration-150 motion-reduce:transition-none;
 }
 
 .suggestion-item.active {
-  @apply bg-blue-50;
+  @apply bg-surface-gray-2;
 }
 
 .suggestion-content {
@@ -949,7 +961,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .suggestion-text {
-  @apply text-gray-900 text-sm;
+  @apply text-ink-gray-8 text-sm;
 }
 
 .suggestion-meta {
@@ -957,7 +969,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .search-filters {
-  @apply bg-gray-50 rounded-lg p-4 space-y-4;
+  @apply bg-surface-gray-1 rounded-lg p-4 space-y-4;
 }
 
 .filters-grid {
@@ -969,11 +981,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .filter-label {
-  @apply text-sm font-medium text-gray-700;
-}
-
-.filter-select {
-  @apply w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500;
+  @apply text-sm font-medium text-ink-gray-7;
 }
 
 .filter-actions {
@@ -993,15 +1001,15 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .results-title {
-  @apply text-xl font-semibold text-gray-900;
+  @apply text-xl font-semibold text-ink-gray-9;
 }
 
 .results-count {
-  @apply text-gray-500 text-base font-normal;
+  @apply text-ink-gray-6 text-base font-normal;
 }
 
 .results-query {
-  @apply text-gray-600 text-sm;
+  @apply text-ink-gray-6 text-sm;
 }
 
 .search-summary {
@@ -1025,7 +1033,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .stat-icon {
-  @apply w-5 h-5 text-blue-600;
+  @apply w-5 h-5 text-ink-gray-6;
 }
 
 .stat-details {
@@ -1033,11 +1041,11 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .stat-value {
-  @apply text-lg font-semibold text-gray-900;
+  @apply text-lg font-semibold text-ink-gray-9;
 }
 
 .stat-label {
-  @apply text-xs text-gray-500 uppercase tracking-wide;
+  @apply text-xs text-ink-gray-6 uppercase tracking-wide;
 }
 
 .agent-response {
@@ -1049,11 +1057,11 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .agent-label {
-  @apply text-sm font-medium text-blue-600;
+  @apply text-sm font-medium text-ink-gray-7;
 }
 
 .agent-message {
-  @apply text-gray-700 text-sm leading-relaxed;
+  @apply text-ink-gray-7 text-sm leading-relaxed;
 }
 
 .no-results {
@@ -1065,15 +1073,15 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .no-results-icon {
-  @apply w-12 h-12 text-gray-400 mx-auto;
+  @apply w-12 h-12 text-ink-gray-5 mx-auto;
 }
 
 .no-results-title {
-  @apply text-lg font-semibold text-gray-900;
+  @apply text-lg font-semibold text-ink-gray-9;
 }
 
 .no-results-message {
-  @apply text-gray-600;
+  @apply text-ink-gray-6;
 }
 
 .search-suggestions {
@@ -1081,7 +1089,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .suggestions-title {
-  @apply text-sm font-medium text-gray-700;
+  @apply text-sm font-medium text-ink-gray-7;
 }
 
 .suggestions-list {
@@ -1093,7 +1101,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .recommendations-title {
-  @apply text-sm font-medium text-gray-700;
+  @apply text-sm font-medium text-ink-gray-7;
 }
 
 .recommendations-list {
@@ -1101,7 +1109,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .recommendation-card {
-  @apply p-3 hover:bg-gray-50 cursor-pointer transition-colors duration-150;
+  @apply p-3 hover:bg-surface-gray-1 cursor-pointer transition-colors duration-150 motion-reduce:transition-none;
 }
 
 .recommendation-content {
@@ -1109,7 +1117,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .recommendation-icon {
-  @apply w-4 h-4 text-blue-600;
+  @apply w-4 h-4 text-ink-gray-6;
 }
 
 .recommendation-details {
@@ -1117,11 +1125,11 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .recommendation-name {
-  @apply text-sm font-medium text-gray-900;
+  @apply text-sm font-medium text-ink-gray-9;
 }
 
 .recommendation-reason {
-  @apply text-xs text-gray-500;
+  @apply text-xs text-ink-gray-6;
 }
 
 .results-content {
@@ -1141,7 +1149,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .result-card {
-  @apply p-4 hover:bg-gray-50 transition-all duration-150;
+  @apply p-4 hover:bg-surface-gray-1 transition-all duration-150 motion-reduce:transition-none;
 }
 
 .result-content {
@@ -1157,7 +1165,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .result-title {
-  @apply text-lg font-medium text-gray-900 leading-tight;
+  @apply text-lg font-medium text-ink-gray-9 leading-tight;
 }
 
 .result-meta {
@@ -1165,7 +1173,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .result-score {
-  @apply text-xs text-gray-500;
+  @apply text-xs text-ink-gray-6;
 }
 
 .result-actions {
@@ -1177,11 +1185,11 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .preview-text {
-  @apply text-gray-600 text-sm leading-relaxed;
+  @apply text-ink-gray-6 text-sm leading-relaxed;
 }
 
 .result-footer {
-  @apply flex items-center justify-between text-xs text-gray-500;
+  @apply flex items-center justify-between text-xs text-ink-gray-6;
 }
 
 .result-path {
@@ -1205,7 +1213,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .navigation-title {
-  @apply text-lg font-semibold text-gray-900;
+  @apply text-lg font-semibold text-ink-gray-9;
 }
 
 .navigation-grid {
@@ -1213,7 +1221,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .dashboard-card {
-  @apply p-4 hover:bg-gray-50 cursor-pointer transition-all duration-150;
+  @apply p-4 hover:bg-surface-gray-1 cursor-pointer transition-all duration-150 motion-reduce:transition-none;
 }
 
 .dashboard-content {
@@ -1225,11 +1233,11 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .dashboard-icon {
-  @apply w-5 h-5 text-blue-600;
+  @apply w-5 h-5 text-ink-gray-6;
 }
 
 .dashboard-name {
-  @apply text-sm font-medium text-gray-900;
+  @apply text-sm font-medium text-ink-gray-9;
 }
 
 .dashboard-relevance {
@@ -1237,19 +1245,19 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .relevance-bar {
-  @apply w-full h-1.5 bg-gray-200 rounded-full overflow-hidden;
+  @apply w-full h-1.5 bg-surface-gray-2 rounded-full overflow-hidden;
 }
 
 .relevance-fill {
-  @apply h-full bg-blue-600 transition-all duration-300;
+  @apply h-full bg-surface-gray-4 transition-all duration-300 motion-reduce:transition-none;
 }
 
 .relevance-text {
-  @apply text-xs text-gray-500;
+  @apply text-xs text-ink-gray-6;
 }
 
 .search-history-sidebar {
-  @apply fixed right-0 top-0 h-full w-80 bg-white shadow-lg z-50 p-4 overflow-y-auto;
+  @apply fixed right-0 top-0 h-full w-80 bg-surface-white shadow-lg z-50 p-4 overflow-y-auto;
 }
 
 .history-card {
@@ -1261,7 +1269,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .history-title {
-  @apply flex items-center space-x-2 text-lg font-semibold text-gray-900;
+  @apply flex items-center space-x-2 text-lg font-semibold text-ink-gray-9;
 }
 
 .history-content {
@@ -1269,15 +1277,15 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .history-item {
-  @apply p-3 bg-gray-50 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors duration-150;
+  @apply p-3 bg-surface-gray-1 rounded-lg cursor-pointer hover:bg-surface-gray-2 transition-colors duration-150 motion-reduce:transition-none;
 }
 
 .history-query {
-  @apply text-sm font-medium text-gray-900;
+  @apply text-sm font-medium text-ink-gray-9;
 }
 
 .history-meta {
-  @apply flex items-center justify-between text-xs text-gray-500 mt-1;
+  @apply flex items-center justify-between text-xs text-ink-gray-6 mt-1;
 }
 
 .help-content {
@@ -1293,11 +1301,11 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 }
 
 .help-section-title {
-  @apply text-sm font-semibold text-gray-900;
+  @apply text-sm font-semibold text-ink-gray-9;
 }
 
 .help-list {
-  @apply space-y-2 text-sm text-gray-600;
+  @apply space-y-2 text-sm text-ink-gray-6;
 }
 
 .help-list li {
@@ -1306,7 +1314,7 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
 
 .help-list li::before {
   content: "•";
-  @apply text-blue-600 font-bold flex-shrink-0;
+  @apply text-ink-gray-6 font-bold flex-shrink-0;
 }
 
 .sample-queries {
@@ -1318,31 +1326,37 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
   .cross-dashboard-search {
     @apply p-4 space-y-4;
   }
-  
+
   .search-input {
     @apply pr-20 text-sm;
   }
-  
+
   .summary-stats {
     @apply flex-col space-x-0 space-y-4;
   }
-  
+
+  /* space-x-3 sets margin-left on every child but the first, which misaligns
+     the moment the row wraps, so cancel it in favour of gap. */
+  .search-controls {
+    @apply flex-wrap gap-2 space-x-0;
+  }
+
   .category-tabs {
     @apply space-x-1;
   }
-  
+
   .result-header {
     @apply flex-col space-y-2;
   }
-  
+
   .result-actions {
     @apply self-end;
   }
-  
+
   .navigation-grid {
     @apply grid-cols-1;
   }
-  
+
   .search-history-sidebar {
     @apply w-full;
   }

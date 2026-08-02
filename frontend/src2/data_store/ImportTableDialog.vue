@@ -81,7 +81,7 @@ function importTable() {
 							label="No. of rows to import"
 							v-model="table.row_limit"
 						/>
-						<p class="mt-1 text-xs text-gray-500">
+						<p class="mt-1 text-xs text-ink-gray-6">
 							Selected table has {{ formatNumber(table.table_row_count) }} rows.
 						</p>
 					</div>

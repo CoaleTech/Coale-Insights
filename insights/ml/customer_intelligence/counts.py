@@ -35,14 +35,25 @@ def get_customer_counts(intelligence, active_cutoff_months: int = 6) -> Dict[str
     new_by_txn_result = frappe.db.sql(first_txn_query, (period_start, period_end), as_dict=True)
     new_by_first_txn = new_by_txn_result[0]["cnt"] if new_by_txn_result else 0
 
-    # Active customers (ordered within cutoff)
+    # Active customers: transacted within the cutoff.
+    #
+    # Counted on Sales Order OR Sales Invoice, not Sales Order alone. This
+    # business invoices directly: 873 submitted invoices against 68 submitted
+    # sales orders, and in the last six months 1 order versus 70 invoices from
+    # 58 customers. Keying `active` off orders alone reported active=1 and
+    # inactive=585, so the dashboard showed a dead customer base while 58
+    # customers were actively buying.
     cutoff_date = frappe.utils.add_months(frappe.utils.nowdate(), -active_cutoff_months)
     active_query = """
-        SELECT COUNT(DISTINCT customer) as cnt
-        FROM `tabSales Order`
-        WHERE docstatus = 1 AND transaction_date >= %s
+        SELECT COUNT(DISTINCT customer) AS cnt FROM (
+            SELECT customer FROM `tabSales Order`
+            WHERE docstatus = 1 AND transaction_date >= %(cutoff)s
+            UNION
+            SELECT customer FROM `tabSales Invoice`
+            WHERE docstatus = 1 AND posting_date >= %(cutoff)s
+        ) t
     """
-    active_result = frappe.db.sql(active_query, (cutoff_date,), as_dict=True)
+    active_result = frappe.db.sql(active_query, {"cutoff": cutoff_date}, as_dict=True)
     active = active_result[0]["cnt"] if active_result else 0
 
     # Advance payment customers

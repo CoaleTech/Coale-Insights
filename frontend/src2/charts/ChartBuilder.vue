@@ -79,7 +79,7 @@ const showShareDialog = ref(false)
 			<ChartBuilderTable v-if="chart.dataQuery.result.executedSQL" />
 		</div>
 		<div
-			class="relative z-[1] mt-1 flex w-[19rem] flex-shrink-0 flex-col divide-y overflow-y-auto bg-white px-3.5"
+		class="relative z-[1] mt-1 flex w-[19rem] flex-shrink-0 flex-col divide-y overflow-y-auto bg-surface-white px-3.5"
 		>
 			<CollapsibleSection title="Chart">
 				<div class="flex flex-col gap-3">
@@ -122,21 +122,21 @@ const showShareDialog = ref(false)
 				<div class="flex flex-col gap-2">
 					<Button v-if="!chart.doc.read_only" @click="chart.resetConfig" class="w-full">
 						<template #prefix>
-							<XIcon class="h-4 text-gray-700" stroke-width="1.5" />
+						<XIcon class="h-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 						Reset Options
 					</Button>
 
 					<Button @click="chart.refresh(true)" class="w-full">
 						<template #prefix>
-							<RefreshCcw class="h-4 text-gray-700" stroke-width="1.5" />
+						<RefreshCcw class="h-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 						Refresh Chart
 					</Button>
 
 					<Button class="w-full" :disabled="!chartEl" @click="downloadChart">
 						<template #prefix>
-							<ImageDown class="h-4 text-gray-700" stroke-width="1.5" />
+						<ImageDown class="h-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 						Export as PNG
 					</Button>
@@ -147,13 +147,13 @@ const showShareDialog = ref(false)
 						@click="showShareDialog = true"
 					>
 						<template #prefix>
-							<Share2 class="h-4 text-gray-700" stroke-width="1.5" />
+						<Share2 class="h-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 						Share Chart
 					</Button>
 					<Button class="w-full" @click="chart.copy">
 						<template #prefix>
-							<Copy class="h-4 text-gray-700" stroke-width="1.5" />
+						<Copy class="h-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 						Copy JSON
 					</Button>
@@ -163,7 +163,7 @@ const showShareDialog = ref(false)
 						@click="chart.openInDesk"
 					>
 						<template #prefix>
-							<Copy class="h-4 text-gray-700" stroke-width="1.5" />
+						<Copy class="h-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 						Open in Desk
 					</Button>

@@ -8,7 +8,7 @@ e-Waybill, HSN and compliance scoring.
 """
 
 import frappe
-from datetime import datetime
+from datetime import date, datetime
 from typing import Dict, Any, List
 
 from insights.ml.base import BaseMLModel
@@ -33,9 +33,14 @@ class IndiaTaxIntelligence(BaseMLModel):
     - Advance tax schedule
     """
 
-    def __init__(self):
+    # Windows the dashboard's period selector can request. 'fy' uses the
+    # company's fiscal year; the rest are rolling windows ending today.
+    PERIODS = ("3m", "6m", "12m", "fy")
+
+    def __init__(self, period: str = "fy"):
         super().__init__()
         self.model_name = "IndiaTaxIntelligence"
+        self.period = period if period in self.PERIODS else "fy"
         self.company = (
             frappe.defaults.get_user_default("company")
             or frappe.db.get_single_value("Global Defaults", "default_company")
@@ -85,11 +90,38 @@ class IndiaTaxIntelligence(BaseMLModel):
         }
 
     def _get_fiscal_dates(self) -> Dict[str, Any]:
-        """Return fiscal year start / end dates."""
+        """Resolve the reporting window for the requested period.
+
+        The dashboard offers Last 3 / 6 / 12 Months and Current FY. Before this,
+        every one of them returned the fiscal year: the selector re-fetched and
+        redrew identical numbers, so it looked functional while silently ignoring
+        the choice. Verified by driving all four options and getting the same
+        Net GST, effective rate and compliance score each time.
+
+        Rolling windows end today rather than at the fiscal year end, which is
+        the point of choosing them.
+        """
+        if self.period == "fy":
+            return {
+                "year_start_date": self.fiscal_year.get("year_start_date"),
+                "year_end_date": self.fiscal_year.get("year_end_date"),
+                "name": self.fiscal_year.get("name"),
+            }
+
+        months = {"3m": 3, "6m": 6, "12m": 12}[self.period]
+        end = datetime.now().date()
+        # Approximate month arithmetic without pulling in a date library:
+        # step back whole months, clamping the day to avoid invalid dates.
+        year, month = end.year, end.month - months
+        while month <= 0:
+            month += 12
+            year -= 1
+        day = min(end.day, 28)
+        start = date(year, month, day)
         return {
-            "year_start_date": self.fiscal_year.get("year_start_date"),
-            "year_end_date": self.fiscal_year.get("year_end_date"),
-            "name": self.fiscal_year.get("name"),
+            "year_start_date": start,
+            "year_end_date": end,
+            "name": f"Last {months} Months",
         }
 
     def _safe(self, fn, *args, default=None):
@@ -102,8 +134,9 @@ class IndiaTaxIntelligence(BaseMLModel):
 
     def train(self) -> Dict[str, Any]:
         """Run complete India tax intelligence analysis."""
-        fy_start = self.fiscal_year.get("year_start_date")
-        fy_end = self.fiscal_year.get("year_end_date")
+        window = self._get_fiscal_dates()
+        fy_start = window.get("year_start_date")
+        fy_end = window.get("year_end_date")
 
         gst_summary       = self._safe(_data.get_gst_output_tax, self, fy_start, fy_end, default=[])
         input_tax         = self._safe(_data.get_gst_input_tax,  self, fy_start, fy_end, default=[])
@@ -114,6 +147,9 @@ class IndiaTaxIntelligence(BaseMLModel):
         filing_compliance = self._safe(_data.get_filing_compliance,self, fy_start, fy_end, default={})
         reconciliation_score = self._safe(_data.get_reconciliation_score, self, fy_start, fy_end, default={})
         hsn_summary       = self._safe(_data.get_hsn_summary,     self, fy_start, fy_end, default=[])
+        counterparty_risk = self._safe(
+            _data.get_counterparty_risk, self, fy_start, fy_end, default={}
+        )
         tax_forecast      = self._safe(_analytics.get_tax_forecast, self, fy_start, fy_end,
                                        default={"forecast": [], "note": "Forecast unavailable"})
         advance_tax_schedule = self._safe(
@@ -147,7 +183,7 @@ class IndiaTaxIntelligence(BaseMLModel):
             "generated_at": datetime.now().isoformat(),
             "company": self.company,
             "fiscal_year": {
-                "name": self.fiscal_year.get("name"),
+                "name": window.get("name"),
                 "year_start_date": str(fy_start),
                 "year_end_date": str(fy_end),
             },
@@ -178,6 +214,7 @@ class IndiaTaxIntelligence(BaseMLModel):
             "einvoice_status": einvoice_status,
             "ewaybill_status": ewaybill_status,
             "filing_compliance": filing_compliance,
+            "counterparty_risk": counterparty_risk,
             "reconciliation_score": reconciliation_score,
             "hsn_summary": [
                 {
@@ -200,12 +237,14 @@ class IndiaTaxIntelligence(BaseMLModel):
             "einvoice_compliance_info": EINVOICE_COMPLIANCE,
         }
 
-        self.cache_results("india_tax_intelligence", result)
+        # Cache per period, or switching the selector would serve another
+        # window's numbers from cache.
+        self.cache_results(f"india_tax_intelligence:{self.period}", result)
         return result
 
     def predict(self) -> Dict[str, Any]:
         """Return cached results or generate new ones."""
-        cached = self.get_cached_results("india_tax_intelligence")
+        cached = self.get_cached_results(f"india_tax_intelligence:{self.period}")
         if cached:
             return cached
         return self.train()

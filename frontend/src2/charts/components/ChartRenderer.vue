@@ -123,7 +123,7 @@ function onNumberChartDrillDown(column: any, row: any) {
 	<div class="relative h-full w-full">
 		<BaseChart
 			v-if="!loading && eChartOptions"
-			class="rounded bg-white py-1 shadow"
+		class="rounded bg-surface-white py-1 shadow"
 			:class="props.chart.doc.chart_type == 'Map' ? '[&>div:last-child]:p-4' : ''"
 			:title="props.chart.doc.title"
 			:options="eChartOptions"
@@ -139,12 +139,12 @@ function onNumberChartDrillDown(column: any, row: any) {
 
 		<div v-else class="flex h-full flex-1 flex-col items-center justify-center rounded border">
 			<template v-if="loading">
-				<LoadingIndicator class="h-5 w-5 text-gray-500" />
-				<p class="mt-1.5 text-gray-500">Loading data...</p>
+				<LoadingIndicator class="h-5 w-5 text-ink-gray-4" />
+				<p class="mt-1.5 text-ink-gray-6">Loading data...</p>
 			</template>
 			<template v-else>
 				<ChartSectionEmptySvg></ChartSectionEmptySvg>
-				<p class="text-gray-500">
+				<p class="text-ink-gray-6">
 					Pick a chart type and configure options to see the chart here
 				</p>
 			</template>

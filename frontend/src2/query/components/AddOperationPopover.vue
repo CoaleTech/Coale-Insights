@@ -118,18 +118,18 @@ watch(
 				<Button
 					variant="outline"
 					label="Add Operation"
-					class="-ml-[14px] !h-6 !gap-1.5 bg-white !px-2 text-p-xs"
+					class="-ml-[14px] !h-6 !gap-1.5 bg-surface-white !px-2 text-p-xs"
 					@click="togglePopover"
 				>
 					<template #prefix>
-						<Plus class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+					<Plus class="h-4 w-4 text-ink-gray-7" stroke-width="1.5" />
 					</template>
 				</Button>
 			</div>
 		</template>
 		<template #body-main="{ togglePopover, isOpen }">
 			<div v-if="isOpen" class="flex flex-col p-1.5">
-				<span class="flex h-6 items-center px-2 text-p-xs text-gray-500">
+				<span class="flex h-6 items-center px-2 text-p-xs text-ink-gray-4">
 					Select an operation
 				</span>
 				<div class="grid grid-cols-2">
@@ -149,12 +149,12 @@ watch(
 							<div class="flex items-start gap-2 py-2">
 								<component
 									:is="button.icon"
-									class="h-4.5 w-4.5 flex-shrink-0 text-gray-700"
+								class="h-4.5 w-4.5 flex-shrink-0 text-ink-gray-7"
 									stroke-width="1.5"
 								/>
 								<div class="flex flex-1 flex-col text-left">
 									<p class="truncate text-p-sm">{{ button.label }}</p>
-									<p class="w-40 text-p-xs text-gray-500">
+									<p class="w-40 text-p-xs text-ink-gray-4">
 										{{ button.description }}
 									</p>
 								</div>

@@ -1,10 +1,10 @@
 <template>
-	<div class="flex h-7 w-full cursor-pointer select-none items-center rounded border bg-gray-100">
+	<div class="flex h-7 w-full cursor-pointer select-none items-center rounded border bg-surface-gray-2">
 		<div
 			v-for="tab in tabs"
-			class="flex h-full flex-1 items-center justify-center truncate px-4 text-gray-700 transition-all"
+		class="flex h-full flex-1 items-center justify-center truncate px-4 text-ink-gray-6 transition-all motion-reduce:transition-none"
 			:class="{
-				'rounded bg-white text-gray-800 shadow':
+			'rounded bg-surface-white text-ink-gray-8 shadow':
 					tab.active ||
 					currentTab === tab.value ||
 					(currentTab === undefined && tab.default),

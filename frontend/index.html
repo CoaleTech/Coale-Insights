@@ -1,10 +1,31 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full bg-gray-100">
+<html lang="en" class="h-full bg-canvas">
 	<head>
 		<meta charset="UTF-8" />
 		<link rel="icon" href="/favicon.png" />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Frappe Insights</title>
+		<script>
+			// Sets data-theme before first paint so there is no flash of the
+			// wrong theme. Mirrors composables/useTheme.ts's own precedence
+			// (stored choice, else OS preference) using the identical
+			// localStorage key — kept in sync by hand since this must run
+			// before any module script loads, Vue included.
+			(function () {
+				try {
+					var stored = localStorage.getItem('insights:theme')
+					var theme =
+						stored === 'light' || stored === 'dark'
+							? stored
+							: window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+								? 'dark'
+								: 'light'
+					document.documentElement.setAttribute('data-theme', theme)
+				} catch (e) {
+					document.documentElement.setAttribute('data-theme', 'light')
+				}
+			})()
+		</script>
 	</head>
 	<body class="h-full">
 		<div id="app" class="h-full"></div>

@@ -45,7 +45,7 @@ const toggleLabel = (span: string, intervalType: string) =>
 </script>
 
 <template>
-	<div class="flex w-[15rem] select-none flex-col gap-2 rounded bg-white text-base">
+	<div class="flex w-[15rem] select-none flex-col gap-2 rounded bg-surface-white text-base">
 		<div class="flex gap-2">
 			<FormControl
 				type="select"
@@ -68,7 +68,7 @@ const toggleLabel = (span: string, intervalType: string) =>
 		</div>
 		<div v-if="parts.span !== 'Current' && parts.intervalType !== 'Fiscal Year'" class="flex items-center gap-2">
 			<Toggle size="sm" v-model="parts.includeCurrent" />
-			<span class="text-p-sm text-gray-600">
+		<span class="text-p-sm text-ink-gray-6">
 				{{ toggleLabel(parts.span, parts.intervalType) }}
 			</span>
 		</div>

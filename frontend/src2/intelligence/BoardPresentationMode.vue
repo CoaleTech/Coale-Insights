@@ -1,37 +1,33 @@
 <template>
   <div class="board-presentation-mode">
     <!-- Header / Control Bar -->
-    <div v-if="!isFullscreen" class="presentation-toggle-bar bg-white shadow-sm border-b border-gray-200 px-6 py-4">
-      <div class="flex items-center justify-between">
+    <div v-if="!isFullscreen" class="presentation-toggle-bar bg-surface-white shadow-sm border-b border-outline-gray-1 px-6 py-4">
+      <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-gray-900">Board Presentations</h1>
-          <p class="text-sm text-gray-500 mt-1">Generate board-ready presentations from intelligence dashboards</p>
+          <h1 class="text-2xl font-bold text-ink-gray-9">Board Presentations</h1>
+          <p class="text-sm text-ink-gray-6 mt-1">Generate board-ready presentations from intelligence dashboards</p>
         </div>
 
         <div class="flex items-center space-x-3">
           <!-- Dashboard Type Selector -->
           <div class="flex items-center space-x-2">
-            <label class="text-sm font-medium text-gray-700">Dashboard:</label>
-            <select v-model="selectedDashboardType"
-                    class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-              <option v-for="dt in dashboardTypes" :key="dt.value" :value="dt.value">
-                {{ dt.label }}
-              </option>
-            </select>
+            <label class="text-sm font-medium text-ink-gray-7">Dashboard:</label>
+            <Select
+              v-model="selectedDashboardType"
+              :options="dashboardTypeOptions"
+            />
           </div>
 
           <!-- Presentation Type Selector -->
           <div class="flex items-center space-x-2">
-            <label class="text-sm font-medium text-gray-700">Type:</label>
-            <select v-model="presentationType"
-                    class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-              <option value="executive">Executive Summary</option>
-              <option value="detailed">Detailed Analysis</option>
-              <option value="comparison">Comparison View</option>
-            </select>
+            <label class="text-sm font-medium text-ink-gray-7">Type:</label>
+            <Select
+              v-model="presentationType"
+              :options="presentationTypeOptions"
+            />
           </div>
 
-          <Button @click="generatePresentation" :loading="generating" variant="solid">
+          <Button @click="generatePresentation" :loading="generating" variant="solid" theme="gray">
             <FileText class="w-4 h-4 mr-2" />
             Generate
           </Button>
@@ -59,19 +55,19 @@
     <!-- Loading State -->
     <div v-if="generating" class="flex items-center justify-center" style="min-height: 60vh">
       <div class="text-center">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
-        <p class="text-gray-700 font-medium">Generating board-ready presentation...</p>
-        <p class="text-sm text-gray-500 mt-1">Analyzing {{ selectedDashboardType }} dashboard data</p>
+        <LoadingIndicator class="h-12 w-12 mx-auto mb-4 text-ink-gray-6" />
+        <p class="text-ink-gray-7 font-medium">Generating board-ready presentation...</p>
+        <p class="text-sm text-ink-gray-6 mt-1">Analyzing {{ selectedDashboardType }} dashboard data</p>
       </div>
     </div>
 
     <!-- Error State -->
     <div v-else-if="error" class="flex items-center justify-center" style="min-height: 60vh">
       <div class="text-center">
-        <AlertTriangle class="w-12 h-12 mx-auto text-red-500" />
-        <p class="mt-4 text-gray-900 font-medium">Failed to generate presentation</p>
-        <p class="text-gray-600 mt-1">{{ error }}</p>
-        <Button @click="generatePresentation" class="mt-4" variant="solid">
+        <AlertTriangle class="w-12 h-12 mx-auto text-ink-gray-5" />
+        <p class="mt-4 text-ink-gray-9 font-medium">Failed to generate presentation</p>
+        <p class="text-ink-gray-6 mt-1">{{ error }}</p>
+        <Button @click="generatePresentation" class="mt-4" variant="solid" theme="gray">
           Try Again
         </Button>
       </div>
@@ -80,12 +76,12 @@
     <!-- Empty State (no presentation generated yet) -->
     <div v-else-if="!presentationEnabled && !isFullscreen" class="flex items-center justify-center" style="min-height: 60vh">
       <div class="text-center max-w-md">
-        <Presentation class="w-16 h-16 mx-auto text-gray-400 mb-4" />
-        <h2 class="text-xl font-semibold text-gray-900 mb-2">No Presentation Generated</h2>
-        <p class="text-gray-600 mb-6">
+        <Presentation class="w-16 h-16 mx-auto text-ink-gray-5 mb-4" />
+        <h2 class="text-xl font-semibold text-ink-gray-9 mb-2">No Presentation Generated</h2>
+        <p class="text-ink-gray-6 mb-6">
           Select a dashboard type and click <strong>Generate</strong> to create a board-ready presentation with executive summaries, key insights, and strategic recommendations.
         </p>
-        <Button @click="generatePresentation" variant="solid" size="lg">
+        <Button @click="generatePresentation" variant="solid" theme="gray" size="lg">
           <FileText class="w-4 h-4 mr-2" />
           Generate Presentation
         </Button>
@@ -93,23 +89,38 @@
     </div>
 
     <!-- Fullscreen Presentation Mode -->
-    <div v-if="isFullscreen" class="fullscreen-presentation fixed inset-0 z-50 bg-gray-900">
+    <div v-if="isFullscreen" class="fullscreen-presentation fixed inset-0 z-50 bg-surface-gray-7">
       <!-- Presentation Navigation -->
       <div class="absolute top-4 left-4 right-4 z-10">
         <div class="flex items-center justify-between">
-          <div class="text-white">
+          <div class="text-ink-white">
             <h2 class="text-xl font-semibold">{{ presentationData.metadata?.dashboard_type }} Intelligence</h2>
             <p class="text-sm opacity-75">Slide {{ currentSlide }} of {{ totalSlides }}</p>
           </div>
 
           <div class="flex items-center space-x-3">
-            <Button @click="previousSlide" variant="ghost" class="text-white hover:bg-gray-800">
+            <Button
+              @click="previousSlide"
+              variant="ghost"
+              class="text-ink-white hover:bg-surface-gray-6"
+              aria-label="Previous slide"
+            >
               <ChevronLeft class="w-5 h-5" />
             </Button>
-            <Button @click="nextSlide" variant="ghost" class="text-white hover:bg-gray-800">
+            <Button
+              @click="nextSlide"
+              variant="ghost"
+              class="text-ink-white hover:bg-surface-gray-6"
+              aria-label="Next slide"
+            >
               <ChevronRight class="w-5 h-5" />
             </Button>
-            <Button @click="exitFullscreen" variant="ghost" class="text-white hover:bg-gray-800">
+            <Button
+              @click="exitFullscreen"
+              variant="ghost"
+              class="text-ink-white hover:bg-surface-gray-6"
+              aria-label="Exit fullscreen"
+            >
               <X class="w-5 h-5" />
             </Button>
           </div>
@@ -129,37 +140,42 @@
 
       <!-- Slide Indicators -->
       <div class="absolute bottom-8 left-1/2 transform -translate-x-1/2">
-        <div class="flex space-x-2">
-          <div
+        <div class="flex space-x-2" role="tablist" aria-label="Slide navigation">
+          <button
             v-for="n in totalSlides"
             :key="n"
+            role="tab"
+            :aria-selected="n === currentSlide"
+            :aria-label="`Go to slide ${n}`"
             @click="goToSlide(n)"
-            class="w-3 h-3 rounded-full cursor-pointer transition-all"
-            :class="n === currentSlide ? 'bg-white' : 'bg-gray-500 hover:bg-gray-400'"
-          ></div>
+            class="w-3 h-3 rounded-full motion-reduce:transition-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-white"
+            :class="n === currentSlide ? 'bg-surface-white' : 'bg-surface-gray-4 hover:bg-surface-gray-3'"
+          ></button>
         </div>
       </div>
     </div>
 
     <!-- Regular Presentation View -->
-    <div v-else-if="presentationEnabled" class="presentation-view bg-gray-50 min-h-screen">
+    <div v-else-if="presentationEnabled" class="presentation-view bg-surface-gray-1 min-h-screen">
       <!-- Executive Summary -->
-      <div v-if="presentationData.executive_summary" class="bg-white shadow-sm mb-6 rounded-lg">
+      <div v-if="presentationData.executive_summary" class="bg-surface-white shadow-sm mb-6 rounded-lg">
         <div class="px-6 py-8">
-          <h2 class="text-2xl font-bold text-gray-900 mb-4">Executive Summary</h2>
+          <h2 class="text-2xl font-bold text-ink-gray-9 mb-4">Executive Summary</h2>
           <div class="prose prose-lg max-w-none">
-            <p class="text-gray-700 leading-relaxed">{{ presentationData.executive_summary.text }}</p>
+            <p class="text-ink-gray-7 leading-relaxed">{{ presentationData.executive_summary.text }}</p>
           </div>
 
           <!-- Key Points -->
           <div v-if="presentationData.executive_summary.key_points?.length" class="mt-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-3">Key Points</h3>
+            <h3 class="text-lg font-semibold text-ink-gray-9 mb-3">Key Points</h3>
             <ul class="space-y-2">
-              <li v-for="point in presentationData.executive_summary.key_points"
-                  :key="point"
-                  class="flex items-start">
-                <CheckCircle class="w-5 h-5 text-green-500 mt-0.5 mr-3 flex-shrink-0" />
-                <span class="text-gray-700">{{ point }}</span>
+              <li
+                v-for="point in presentationData.executive_summary.key_points"
+                :key="point"
+                class="flex items-start"
+              >
+                <CheckCircle class="w-5 h-5 text-ink-gray-5 mt-0.5 mr-3 flex-shrink-0" />
+                <span class="text-ink-gray-7">{{ point }}</span>
               </li>
             </ul>
           </div>
@@ -170,17 +186,21 @@
       <div v-if="presentationData.key_insights?.length" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
         <Card v-for="insight in presentationData.key_insights" :key="insight.title" class="p-6">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="font-semibold text-gray-900">{{ insight.title }}</h3>
-            <Badge :variant="getImpactVariant(insight.impact)">{{ insight.impact }}</Badge>
+            <h3 class="font-semibold text-ink-gray-9">{{ insight.title }}</h3>
+            <Badge v-bind="severityBadge(priorityToSeverity(insight.impact))" size="sm" />
           </div>
-          <div class="text-2xl font-bold text-blue-600 mb-2">{{ insight.value }}</div>
-          <p class="text-sm text-gray-600">{{ insight.insight }}</p>
+          <div class="text-2xl font-bold text-ink-gray-9 mb-2">{{ insight.value }}</div>
+          <p class="text-sm text-ink-gray-6">{{ insight.insight }}</p>
         </Card>
       </div>
 
       <!-- Presentation Slides -->
       <div class="space-y-8">
-        <div v-for="slide in presentationData.slides" :key="slide.id" class="bg-white shadow-lg rounded-lg overflow-hidden">
+        <div
+          v-for="slide in presentationData.slides"
+          :key="slide.id"
+          class="bg-surface-white shadow-lg rounded-lg overflow-hidden"
+        >
           <PresentationSlide
             :slide="slide"
             :fullscreen="false"
@@ -190,25 +210,28 @@
       </div>
 
       <!-- Recommendations Section -->
-      <div v-if="presentationData.recommendations?.length" class="bg-white shadow-sm mt-8 rounded-lg">
+      <div v-if="presentationData.recommendations?.length" class="bg-surface-white shadow-sm mt-8 rounded-lg">
         <div class="px-6 py-8">
-          <h2 class="text-2xl font-bold text-gray-900 mb-6">Strategic Recommendations</h2>
+          <h2 class="text-2xl font-bold text-ink-gray-9 mb-6">Strategic Recommendations</h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div v-for="rec in presentationData.recommendations" :key="rec.title"
-                 class="border border-gray-200 rounded-lg p-6">
+            <div
+              v-for="rec in presentationData.recommendations"
+              :key="rec.title"
+              class="border border-outline-gray-1 rounded-lg p-6"
+            >
               <div class="flex items-start justify-between mb-4">
-                <h3 class="font-semibold text-gray-900">{{ rec.title }}</h3>
-                <Badge :variant="getPriorityVariant(rec.priority)">{{ rec.priority }}</Badge>
+                <h3 class="font-semibold text-ink-gray-9">{{ rec.title }}</h3>
+                <Badge v-bind="severityBadge(priorityToSeverity(rec.priority))" size="sm" />
               </div>
-              <p class="text-gray-700 mb-4">{{ rec.description }}</p>
+              <p class="text-ink-gray-7 mb-4">{{ rec.description }}</p>
               <div class="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span class="text-gray-500">Impact:</span>
-                  <span class="ml-2 font-medium">{{ rec.impact }}</span>
+                  <span class="text-ink-gray-6">Impact:</span>
+                  <span class="ml-2 font-medium text-ink-gray-8">{{ rec.impact }}</span>
                 </div>
                 <div>
-                  <span class="text-gray-500">Effort:</span>
-                  <span class="ml-2 font-medium">{{ rec.effort }}</span>
+                  <span class="text-ink-gray-6">Effort:</span>
+                  <span class="ml-2 font-medium text-ink-gray-8">{{ rec.effort }}</span>
                 </div>
               </div>
             </div>
@@ -229,47 +252,47 @@
       }"
     >
       <template #body-content>
-      <div class="space-y-6">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">Export Format</label>
-          <div class="space-y-3">
-            <label v-for="format in exportFormats" :key="format.value" class="flex items-center">
-              <input
-                type="radio"
-                v-model="exportFormat"
-                :value="format.value"
-                class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
-              />
-              <span class="ml-3">
-                <span class="font-medium">{{ format.label }}</span>
-                <span class="text-sm text-gray-500 block">{{ format.description }}</span>
-              </span>
-            </label>
+        <div class="space-y-6">
+          <div>
+            <label class="block text-sm font-medium text-ink-gray-7 mb-2">Export Format</label>
+            <div class="space-y-3">
+              <label v-for="format in exportFormats" :key="format.value" class="flex items-center">
+                <input
+                  type="radio"
+                  v-model="exportFormat"
+                  :value="format.value"
+                  class="h-4 w-4 border-outline-gray-2 focus-visible:ring-2 focus-visible:ring-outline-gray-3"
+                />
+                <span class="ml-3">
+                  <span class="font-medium text-ink-gray-8">{{ format.label }}</span>
+                  <span class="text-sm text-ink-gray-6 block">{{ format.description }}</span>
+                </span>
+              </label>
+            </div>
           </div>
-        </div>
 
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-2">Export Options</label>
-          <div class="space-y-2">
-            <label class="flex items-center">
-              <input type="checkbox" v-model="exportOptions.includeCharts" class="rounded border-gray-300" />
-              <span class="ml-2 text-sm">Include Charts and Visualizations</span>
-            </label>
-            <label class="flex items-center">
-              <input type="checkbox" v-model="exportOptions.includeTables" class="rounded border-gray-300" />
-              <span class="ml-2 text-sm">Include Data Tables</span>
-            </label>
-            <label class="flex items-center">
-              <input type="checkbox" v-model="exportOptions.includeRecommendations" class="rounded border-gray-300" />
-              <span class="ml-2 text-sm">Include Recommendations</span>
-            </label>
-            <label class="flex items-center">
-              <input type="checkbox" v-model="exportOptions.companyBranding" class="rounded border-gray-300" />
-              <span class="ml-2 text-sm">Include Company Branding</span>
-            </label>
+          <div>
+            <label class="block text-sm font-medium text-ink-gray-7 mb-2">Export Options</label>
+            <div class="space-y-2">
+              <label class="flex items-center">
+                <input type="checkbox" v-model="exportOptions.includeCharts" class="rounded border-outline-gray-2" />
+                <span class="ml-2 text-sm text-ink-gray-7">Include Charts and Visualizations</span>
+              </label>
+              <label class="flex items-center">
+                <input type="checkbox" v-model="exportOptions.includeTables" class="rounded border-outline-gray-2" />
+                <span class="ml-2 text-sm text-ink-gray-7">Include Data Tables</span>
+              </label>
+              <label class="flex items-center">
+                <input type="checkbox" v-model="exportOptions.includeRecommendations" class="rounded border-outline-gray-2" />
+                <span class="ml-2 text-sm text-ink-gray-7">Include Recommendations</span>
+              </label>
+              <label class="flex items-center">
+                <input type="checkbox" v-model="exportOptions.companyBranding" class="rounded border-outline-gray-2" />
+                <span class="ml-2 text-sm text-ink-gray-7">Include Company Branding</span>
+              </label>
+            </div>
           </div>
         </div>
-      </div>
       </template>
     </Dialog>
   </div>
@@ -282,7 +305,9 @@ import {
   Button,
   Card,
   Badge,
-  Dialog
+  Dialog,
+  Select,
+  LoadingIndicator,
 } from 'frappe-ui'
 import {
   FileText,
@@ -297,6 +322,14 @@ import {
 } from 'lucide-vue-next'
 import PresentationSlide from './PresentationSlide.vue'
 import { apiCall } from '../helpers/api'
+import { BOARD_DASHBOARD_OPTIONS } from '../helpers/dashboards'
+import { severityBadge } from '../utils/status'
+
+/** Map a priority / impact string to a Severity. */
+function priorityToSeverity(priority) {
+  const map = { high: 'high', medium: 'medium', low: 'low' }
+  return map[priority?.toLowerCase()] ?? 'none'
+}
 
 // Props (optional - component works standalone or embedded)
 const props = defineProps({
@@ -310,14 +343,16 @@ const props = defineProps({
   }
 })
 
-// Available dashboard types
-const dashboardTypes = [
-  { value: 'executive', label: 'Executive' },
-  { value: 'financial', label: 'Financial' },
-  { value: 'operations', label: 'Operations' },
-  { value: 'hr', label: 'HR' },
-  { value: 'esg', label: 'ESG' },
-  { value: 'budget', label: 'Budget' }
+// From `helpers/dashboards`. The previous six-entry list both under- and
+// over-shot: seven domains could not be presented at all, while `operations`
+// named a dashboard that has never existed and `budget` named one that
+// dissolved into Finance, so selecting either sent the server a dead identity.
+const dashboardTypeOptions = BOARD_DASHBOARD_OPTIONS
+
+const presentationTypeOptions = [
+  { value: 'executive', label: 'Executive Summary' },
+  { value: 'detailed', label: 'Detailed Analysis' },
+  { value: 'comparison', label: 'Comparison View' },
 ]
 
 // Reactive state
@@ -376,7 +411,6 @@ const currentSlideData = computed(() => {
   return presentationData.value.slides[currentSlide.value - 1]
 })
 
-// Use prop data if provided, otherwise pass empty object for backend to generate sample data
 const activeDashboardData = computed(() => {
   return Object.keys(props.dashboardData).length > 0 ? props.dashboardData : {}
 })
@@ -485,7 +519,6 @@ const downloadExportedFile = (exportData, format) => {
   } else if (format === 'json') {
     blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
   } else {
-    // PowerPoint/PDF - export data as JSON for now (backend generates actual files)
     blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/octet-stream' })
   }
 
@@ -499,26 +532,7 @@ const downloadExportedFile = (exportData, format) => {
   URL.revokeObjectURL(url)
 }
 
-// Utility functions
-const getImpactVariant = (impact) => {
-  const variants = {
-    'high': 'red',
-    'medium': 'yellow',
-    'low': 'blue'
-  }
-  return variants[impact?.toLowerCase()] || 'gray'
-}
-
-const getPriorityVariant = (priority) => {
-  const variants = {
-    'high': 'red',
-    'medium': 'yellow',
-    'low': 'blue'
-  }
-  return variants[priority?.toLowerCase()] || 'gray'
-}
-
-// Keyboard navigation
+// Keyboard navigation — leave the addEventListener/onUnmounted pair intact
 const handleKeyNavigation = (event) => {
   if (!isFullscreen.value) return
 
@@ -562,25 +576,22 @@ onUnmounted(() => {
 <style scoped>
 .board-presentation-mode {
   min-height: 100vh;
-  background: #f9fafb;
+  background: var(--surface-gray-1, #f9fafb);
 }
 
 .presentation-view {
   padding: 2rem;
 }
 
-.animate-spin {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-/* Smooth transitions */
+/* Smooth transitions with reduced-motion opt-out */
 .presentation-view > * {
   transition: all 0.3s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presentation-view > * {
+    transition: none;
+  }
 }
 
 /* Print styles for PDF export */
@@ -594,7 +605,7 @@ onUnmounted(() => {
     background: white !important;
   }
 
-  .bg-gray-50 {
+  .bg-surface-gray-1 {
     background: white !important;
   }
 }

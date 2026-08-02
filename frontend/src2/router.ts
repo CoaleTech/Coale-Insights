@@ -30,14 +30,20 @@ const routes = [
 		component: () => import('./intelligence/ExecutiveDashboard.vue'),
 	},
 	{
-		path: '/customer-intelligence',
-		name: 'CustomerIntelligence',
-		component: () => import('./dashboard/CustomerIntelligence.vue'),
+		path: '/revenue-customers-intelligence',
+		name: 'RevenueCustomerIntelligence',
+		component: () => import('./dashboard/RevenueCustomerIntelligence.vue'),
 	},
 	{
-		// Legacy route — redirect to merged Customer Intelligence page
+		// Legacy route: Sales Intelligence and Customer Intelligence were merged
+		// into one Revenue & Customers dashboard.
+		path: '/customer-intelligence',
+		redirect: '/revenue-customers-intelligence',
+	},
+	{
+		// Legacy route: redirects to the merged Revenue & Customers page.
 		path: '/customer-360',
-		redirect: '/customer-intelligence',
+		redirect: '/revenue-customers-intelligence',
 	},
 	{
 		path: '/customer/:customerId',
@@ -46,9 +52,10 @@ const routes = [
 		props: true,
 	},
 	{
+		// Legacy route: Sales Intelligence and Customer Intelligence were merged
+		// into one Revenue & Customers dashboard.
 		path: '/sales-intelligence',
-		name: 'SalesIntelligence',
-		component: () => import('./dashboard/SalesIntelligence.vue'),
+		redirect: '/revenue-customers-intelligence',
 	},
 	{
 		path: '/inventory-intelligence',
@@ -78,7 +85,7 @@ const routes = [
 	{
 		path: '/strategic-finance-intelligence',
 		name: 'StrategicFinanceIntelligence',
-		component: () => import('./intelligence/StrategicFinanceIntelligence.vue'),
+		redirect: '/financial-intelligence',
 	},
 	{
 		path: '/manufacturing-intelligence',
@@ -103,12 +110,30 @@ const routes = [
 	{
 		path: '/budget-variance-intelligence',
 		name: 'BudgetVarianceIntelligence',
-		redirect: '/strategic-finance-intelligence',
+		redirect: '/financial-intelligence',
 	},
 	{
 		path: '/board-presentation',
 		name: 'BoardPresentationMode',
 		component: () => import('./intelligence/BoardPresentationMode.vue'),
+	},
+	{
+		// `ExecutiveDashboard.vue:492,504` already pushed here from two buttons
+		// ("Strategic Report" and "Schedule Reports"), but no route existed, so
+		// both landed on the catch-all NotFound. The component was built and
+		// stranded.
+		path: '/executive-reports',
+		name: 'ExecutiveReports',
+		component: () => import('./intelligence/ExecutiveReports.vue'),
+	},
+	{
+		// Was unreachable: no route, no importer, while its five backend endpoints
+		// (`api/ml/search.py`) were implemented and whitelisted the whole time.
+		// Also the app's only alternative to sidebar navigation, which Dan Brown's
+		// "multiple classification" principle asks for.
+		path: '/search',
+		name: 'CrossDashboardSearch',
+		component: () => import('./intelligence/CrossDashboardSearch.vue'),
 	},
 	{
 		props: true,

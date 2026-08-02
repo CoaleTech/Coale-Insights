@@ -27,7 +27,7 @@ const listColumns = [
 		label: 'Table',
 		key: 'table_name',
 		width: 2,
-		prefix: () => h(Table2Icon, { class: 'h-4 w-4 text-gray-600' }),
+		prefix: () => h(Table2Icon, { class: 'h-4 w-4 text-ink-gray-6' }),
 	},
 	{
 		label: 'Data Source',
@@ -76,7 +76,7 @@ const emptyState = computed(() => {
 					autocomplete="off"
 				>
 					<template #prefix>
-						<SearchIcon class="h-4 w-4 text-gray-500" />
+					<SearchIcon class="h-4 w-4 text-ink-gray-4" />
 					</template>
 				</FormControl>
 			</div>
@@ -88,7 +88,7 @@ const emptyState = computed(() => {
 					@click="tableStore.updateDataSourceTables(props.data_source)"
 				>
 					<template #prefix>
-						<RefreshCcw class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+					<RefreshCcw class="h-4 w-4 text-ink-gray-7" stroke-width="1.5" />
 					</template>
 				</Button>
 			</div>

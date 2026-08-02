@@ -159,22 +159,33 @@ insights/
 | Dashboard | Route | Description |
 |-----------|-------|-------------|
 | **Executive Dashboard** | `/executive-dashboard` | C-suite view aggregating KPIs from all departments with RAG status indicators |
-| **Sales Intelligence** | `/sales-intelligence` | Revenue trends, AOV, rep performance, pipeline analytics, fulfillment metrics |
-| **Financial Intelligence** | `/financial-intelligence` | P&L, cash flow, financial ratios, receivables/payables, budget variance |
-| **Strategic Finance** | `/strategic-finance-intelligence` | 13-week cash flow forecast, runway analysis, CAPEX planning, scenario analysis |
-| **Inventory Intelligence** | `/inventory-intelligence` | Multi-warehouse stock, FIFO aging, dead stock, turnover, transfer recommendations |
+| **Revenue & Customers** | `/revenue-customers-intelligence` | Revenue trends, AOV, rep performance, margins, attribution, plus CLV, RFM segmentation, churn risk and geography. Two groups: Revenue (6 tabs), Customers (7 tabs) |
+| **Finance** | `/financial-intelligence` | Two groups: Actuals (P&L, cash, receivables, payables, working capital, ratios, forex) and Planning (cash forecast, 13-week flow, capital, scenarios, period comparison, budget variance, break-even) |
+| **Tax Intelligence** | `/tax-intelligence` | India GST, TDS and ITC analytics, compliance monitoring, tax planning |
 | **Procurement Intelligence** | `/procurement-intelligence` | Spend analysis, supplier scorecards, purchase cycle, price intelligence |
-| **Customer Intelligence** | `/customer-intelligence` | CLV, RFM segmentation, churn risk, 360° view, geographic insights |
-| **Risk Intelligence** | `/risk-intelligence` | Credit, cash flow, operational, compliance risk scoring and prediction |
-| **HR Intelligence** | `/hr-intelligence` | Headcount, attrition prediction, payroll optimization, workforce planning |
-| **Manufacturing Intelligence** | `/manufacturing-intelligence` | OEE tracking, production efficiency, quality metrics, capacity planning |
-| **Marketing & CRM** | `/marketing-crm-intelligence` | Pipeline analysis, campaign effectiveness, lead scoring, marketing ROI |
-| **Tax Intelligence** | `/tax-intelligence` | Kenya Corporate Tax (30%), capital allowances, KRA quarterly scheduling, WHT |
-| **ESG Intelligence** | `/esg-intelligence` | Environmental/Social/Governance metrics, carbon tracking, sustainability reporting |
-| **Budget Variance** | `/strategic-finance-intelligence` | Budget vs actual, forecast accuracy, department performance, variance alerts |
-| **Board Presentation** | `/board-presentation` | Full-screen executive presentations with PowerPoint export |
+| **Inventory Intelligence** | `/inventory-intelligence` | Multi-warehouse stock, FIFO aging, ABC/XYZ, turnover, transfer recommendations |
+| **Manufacturing Intelligence** | `/manufacturing-intelligence` | OEE tracking, production efficiency, capacity planning, production forecast |
+| **Marketing & CRM** | `/marketing-crm-intelligence` | Funnel, channels, trend, coverage; lead scoring and campaign effectiveness |
+| **HR Intelligence** | `/hr-intelligence` | Headcount, attrition prediction, payroll, department health, workforce planning |
+| **ESG Intelligence** | `/esg-intelligence` | Environmental / Social / Governance metrics, carbon tracking, sustainability reporting |
+| **Risk Intelligence** | `/risk-intelligence` | Credit, cash flow, operational and compliance risk scoring with an active alert register |
+| **Cross-Dashboard Search** | `/search` | Search metrics, alerts, recommendations and trends across all domain dashboards |
+| **Executive Reports** | `/executive-reports` | Strategic report generation and report scheduling |
+| **Board Presentation** | `/board-presentation` | Board-ready slide generation from any domain dashboard |
 
 Each dashboard includes an **AI chat assistant** (floating chat button) for natural-language interaction with the data.
+
+**Consolidated surfaces.** Sales Intelligence and Customer Intelligence were merged into
+**Revenue & Customers**; Customer 360 became a per-customer detail route
+(`/customer/:customerId`); Strategic Finance and Budget Variance were merged into
+**Finance** under its Planning group. The former routes redirect, so existing links
+and bookmarks continue to resolve.
+
+**Navigation.** Dashboards with more than about seven views use a two-level control: a
+group selector (`Actuals` / `Planning`, `Revenue` / `Customers`) above a tab strip scoped
+to that group. The group is the primary axis because each group is a separate fetch with
+its own failure mode, so an outage in one does not blank the other. Tab position is
+remembered per group.
 
 ---
 
@@ -622,6 +633,44 @@ The app hooks into ERPNext document events and syncs data from 9 modules:
 | **CRM** | Lead, Opportunity, Contact | Lead scoring, conversion analysis, customer journey |
 | **HR** | Employee, Attendance, Salary Slip | Workforce analytics, performance metrics |
 | **Assets** | Asset, Asset Movement, Asset Maintenance | Utilization tracking, maintenance scheduling |
+
+---
+
+## Dashboard Conventions
+
+Rules the intelligence dashboards are built to. `DESIGN.md` at the bench root carries
+the full reference; these are the ones that break things when ignored.
+
+**Absent is not zero.** Every formatter in `frontend/src2/utils/format.ts` returns `-`
+for `null`, `undefined` and non-finite input; a real `0` still renders `0`. Pass raw
+fields to `KpiCard` and let it decide — do not pre-guard with `|| 0`, which converts an
+absent measurement into a confident one before the component can tell the difference.
+Payload fields typed `unknown` go through `asNumber()`, which narrows rather than casts.
+
+**Money is labelled by the ledger.** Read `base_currency` from the payload and pass it
+to `formatMoney`. Never write a currency code as a literal; `yarn lint:currency` rejects
+it. A `withDefaults` prop fallback is exempt, formatting with a constant is not.
+
+**Shared components, not per-dashboard copies:**
+
+| Need | Use |
+|---|---|
+| Metric | `intelligence/components/KpiCard.vue` (`value` / `amount`+`currency` / `percent`, plus `unit`) |
+| Dense inner metric | the same, `variant="tile"` |
+| Loading / error / permission / empty | `intelligence/components/IntelligenceDashboardShell.vue` |
+| Two-level tabs | `composables/useGroupedTabs.ts` |
+| Dashboard fetch | `intelligence/composables/useIntelligenceDashboard.ts` (unwraps the response envelope) |
+| Status colour | `utils/status.ts` |
+| Chart series colour | `utils/chartTheme.ts` — `chartPalette(n)`, every entry distinct |
+
+**Response envelope.** `helpers/api.ts` is the single decoder. Endpoints return either
+`{status, data:{…}}` or `status` at the top level with the payload as siblings; both are
+handled there and nowhere else.
+
+**Gates.** `yarn lint` runs four greps that catch what `vue-tsc` cannot: colour families
+that emit no CSS, cross-family semantic token misuse, raw hex in SVG presentation
+attributes, and hardcoded currency codes. Run `npx vitest run` and `yarn vue-tsc --noEmit`
+before a PR.
 
 ---
 

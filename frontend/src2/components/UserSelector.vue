@@ -57,7 +57,7 @@ const filteredUsers = computed(() => {
 				@focus="open"
 			>
 				<template #prefix>
-					<SearchIcon class="h-4 w-4 text-gray-500" stroke-width="1.5" />
+					<SearchIcon class="h-4 w-4 text-ink-gray-4" stroke-width="1.5" />
 				</template>
 			</FormControl>
 		</template>

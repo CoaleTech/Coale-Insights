@@ -41,12 +41,12 @@ const suggestions = [
 ]
 
 const erpNextModules: ModuleInsight[] = [
-	{ name: 'financial', title: 'Financial Analytics', description: 'Revenue, expenses, cash flow', icon: '💰', color: 'bg-green-100 hover:bg-green-200' },
-	{ name: 'sales', title: 'Sales Intelligence', description: 'Customer trends, sales performance', icon: '📈', color: 'bg-blue-100 hover:bg-blue-200' },
-	{ name: 'procurement', title: 'Procurement Analytics', description: 'Supplier performance, costs', icon: '🛒', color: 'bg-purple-100 hover:bg-purple-200' },
-	{ name: 'inventory', title: 'Inventory Insights', description: 'Stock levels, turnover rates', icon: '📦', color: 'bg-orange-100 hover:bg-orange-200' },
-	{ name: 'production', title: 'Production Analytics', description: 'Efficiency, resource planning', icon: '🏭', color: 'bg-indigo-100 hover:bg-indigo-200' },
-	{ name: 'customer', title: 'Customer Intelligence', description: 'Lead conversion, customer journey', icon: '👥', color: 'bg-pink-100 hover:bg-pink-200' }
+	{ name: 'financial', title: 'Financial Analytics', description: 'Revenue, expenses, cash flow', icon: '💰', color: 'bg-surface-green-1 hover:bg-surface-green-2' },
+	{ name: 'sales', title: 'Sales Intelligence', description: 'Customer trends, sales performance', icon: '📈', color: 'bg-surface-blue-1 hover:bg-surface-blue-2' },
+	{ name: 'procurement', title: 'Procurement Analytics', description: 'Supplier performance, costs', icon: '🛒', color: 'bg-surface-violet-1' },
+	{ name: 'inventory', title: 'Inventory Insights', description: 'Stock levels, turnover rates', icon: '📦', color: 'bg-surface-orange-1' },
+	{ name: 'production', title: 'Production Analytics', description: 'Efficiency, resource planning', icon: '🏭', color: 'bg-surface-violet-1' },
+	{ name: 'customer', title: 'Customer Intelligence', description: 'Lead conversion, customer journey', icon: '👥', color: 'bg-surface-pink-1' }
 ]
 
 const recentInsights = ref<{id: string, title: string, time: string}[]>([])
@@ -172,19 +172,19 @@ onMounted(() => {
 </script>
 
 <template>
-	<div class="flex h-full flex-col bg-white">
+	<div class="flex h-full flex-col bg-surface-white">
 		<!-- Header -->
 		<header class="flex h-14 items-center justify-between border-b px-6 py-3">
 			<div>
-				<h1 class="text-xl font-semibold text-gray-900 flex items-center gap-2">
-					<Brain class="h-6 w-6 text-blue-600" />
+				<h1 class="text-xl font-semibold text-ink-gray-9 flex items-center gap-2">
+					<Brain class="h-6 w-6 text-accent" />
 					AI-Powered Insights
 				</h1>
-				<p class="text-sm text-gray-600">Ask natural language questions about your business data</p>
+				<p class="text-sm text-ink-gray-6">Ask natural language questions about your business data</p>
 			</div>
 			<div class="flex items-center gap-3">
-				<div class="flex items-center gap-1 text-sm text-gray-500">
-					<div class="w-2 h-2 rounded-full bg-green-500"></div>
+				<div class="flex items-center gap-1 text-sm text-ink-gray-6">
+					<div class="w-2 h-2 rounded-full bg-pos-fill"></div>
 					<span>AI Online</span>
 				</div>
 				<Button v-if="messages.length > 0" variant="outline" size="sm" @click="clearChat">
@@ -201,17 +201,17 @@ onMounted(() => {
 				<div ref="chatContainer" class="flex-1 overflow-y-auto p-6 space-y-4">
 					<!-- Welcome Message -->
 					<div v-if="messages.length === 0" class="text-center py-12">
-						<div class="text-gray-300 mb-4">
+					<div class="text-ink-gray-2 mb-4">
 							<MessageSquare class="w-16 h-16 mx-auto" />
 						</div>
-						<h3 class="text-lg font-medium text-gray-900 mb-2">Welcome to AI Insights</h3>
-						<p class="text-gray-600 mb-6">Ask questions about your business data in natural language</p>
+						<h3 class="text-lg font-medium text-ink-gray-9 mb-2">Welcome to AI Insights</h3>
+						<p class="text-ink-gray-6 mb-6">Ask questions about your business data in natural language</p>
 						<div class="flex flex-wrap justify-center gap-2 max-w-2xl mx-auto">
 							<button
 								v-for="suggestion in suggestions"
 								:key="suggestion"
 								@click="askQuestion(suggestion)"
-								class="px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-md transition-colors text-gray-700"
+								class="px-3 py-2 text-sm bg-surface-gray-2 hover:bg-surface-gray-3 rounded-md transition-colors text-ink-gray-6 motion-reduce:transition-none"
 							>
 								{{ suggestion }}
 							</button>
@@ -227,13 +227,13 @@ onMounted(() => {
 					>
 						<div
 							class="max-w-3xl px-4 py-3 rounded-lg"
-							:class="message.type === 'user' 
-								? 'bg-blue-500 text-white' 
-								: 'bg-gray-100 text-gray-900'"
+						:class="message.type === 'user' 
+							? 'bg-accent text-ink-white' 
+							: 'bg-surface-gray-2 text-ink-gray-9'"
 						>
 							<div v-if="message.type === 'ai'" class="prose prose-sm max-w-none">
 								<div v-html="formatContent(message.content)"></div>
-								<div v-if="message.metadata?.model_used" class="text-xs text-gray-500 mt-3 pt-2 border-t border-gray-200">
+							<div v-if="message.metadata?.model_used" class="text-xs text-ink-gray-6 mt-3 pt-2 border-t border-outline-gray-1">
 									Model: {{ message.metadata.model_used }}
 									<span v-if="message.metadata.processing_time"> | Time: {{ message.metadata.processing_time }}s</span>
 									<span v-if="message.metadata.cached"> | Cached</span>
@@ -245,10 +245,10 @@ onMounted(() => {
 
 					<!-- Loading Indicator -->
 					<div v-if="isLoading" class="flex justify-start">
-						<div class="max-w-3xl px-4 py-3 bg-gray-100 rounded-lg">
+					<div class="max-w-3xl px-4 py-3 bg-surface-gray-2 rounded-lg">
 							<div class="flex items-center gap-2">
-								<Loader2 class="h-4 w-4 animate-spin text-blue-500" />
-								<span class="text-gray-600">AI is thinking...</span>
+							<Loader2 class="h-4 w-4 animate-spin text-accent motion-reduce:animate-none" />
+							<span class="text-ink-gray-6">AI is thinking...</span>
 							</div>
 						</div>
 					</div>
@@ -262,7 +262,7 @@ onMounted(() => {
 								v-model="currentQuestion"
 								@keydown.enter="handleEnter"
 								placeholder="Ask a question about your business data..."
-								class="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none text-sm"
+							class="w-full p-3 border border-outline-gray-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent resize-none text-sm"
 								rows="2"
 							></textarea>
 						</div>
@@ -280,7 +280,7 @@ onMounted(() => {
 							</Button>
 							<select
 								v-model="selectedComplexity"
-								class="px-3 py-2 border border-gray-300 rounded-md text-sm"
+							class="px-3 py-2 border border-outline-gray-2 rounded-md text-sm"
 							>
 								<option value="simple">Simple</option>
 								<option value="medium">Medium</option>
@@ -292,20 +292,20 @@ onMounted(() => {
 			</div>
 
 			<!-- Quick Insights Sidebar -->
-			<div class="w-80 border-l bg-gray-50 p-4 overflow-y-auto hidden lg:block">
-				<h3 class="text-lg font-medium text-gray-900 mb-4">Quick Insights</h3>
+			<div class="w-80 border-l bg-surface-gray-1 p-4 overflow-y-auto hidden lg:block">
+				<h3 class="text-lg font-medium text-ink-gray-9 mb-4">Quick Insights</h3>
 				
 				<div class="space-y-3">
 					<div
 						v-for="module in erpNextModules"
 						:key="module.name"
-						:class="['rounded-lg p-4 border border-gray-200 cursor-pointer transition-all', module.color]"
+					:class="['rounded-lg p-4 border border-outline-gray-1 cursor-pointer transition-all', module.color, 'motion-reduce:transition-none']"
 						@click="getBIInsights(module.name)"
 					>
 						<div class="flex items-center justify-between">
 							<div>
-								<h4 class="font-medium text-gray-900">{{ module.title }}</h4>
-								<p class="text-sm text-gray-600">{{ module.description }}</p>
+								<h4 class="font-medium text-ink-gray-9">{{ module.title }}</h4>
+								<p class="text-sm text-ink-gray-6">{{ module.description }}</p>
 							</div>
 							<div class="text-2xl">{{ module.icon }}</div>
 						</div>
@@ -314,15 +314,15 @@ onMounted(() => {
 
 				<!-- Recent Insights -->
 				<div v-if="recentInsights.length > 0" class="mt-6">
-					<h4 class="text-md font-medium text-gray-900 mb-3">Recent Insights</h4>
+					<h4 class="text-md font-medium text-ink-gray-9 mb-3">Recent Insights</h4>
 					<div class="space-y-2">
 						<div
 							v-for="insight in recentInsights"
 							:key="insight.id"
-							class="p-3 bg-white rounded border text-sm"
+							class="p-3 bg-surface-white rounded border text-sm"
 						>
-							<p class="text-gray-900 font-medium">{{ insight.title }}</p>
-							<p class="text-gray-500 text-xs">{{ insight.time }}</p>
+							<p class="text-ink-gray-9 font-medium">{{ insight.title }}</p>
+							<p class="text-ink-gray-4 text-xs">{{ insight.time }}</p>
 						</div>
 					</div>
 				</div>

@@ -2,11 +2,11 @@
   <div class="flex items-center gap-3">
     <!-- Company Selector -->
     <div class="flex items-center gap-2">
-      <label class="text-sm font-medium text-gray-600">Company:</label>
+      <label class="text-sm font-medium text-ink-gray-6">Company:</label>
       <select
         v-model="selectedCompany"
         @change="onCompanyChange"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        class="px-3 py-1.5 text-sm border border-outline-gray-2 rounded-lg bg-surface-white focus:ring-2 focus:ring-accent focus:border-accent"
       >
         <option v-for="company in companies" :key="company.name" :value="company.name">
           {{ company.name }}
@@ -16,11 +16,11 @@
 
     <!-- From Period Selector -->
     <div class="flex items-center gap-2">
-      <label class="text-sm font-medium text-gray-600">From:</label>
+      <label class="text-sm font-medium text-ink-gray-6">From:</label>
       <select
         v-model="fromFiscalYear"
         @change="onPeriodChange"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        class="px-3 py-1.5 text-sm border border-outline-gray-2 rounded-lg bg-surface-white focus:ring-2 focus:ring-accent focus:border-accent"
       >
         <option v-for="fy in fiscalYears" :key="fy.name" :value="fy.name">
           {{ fy.name }}
@@ -30,11 +30,11 @@
 
     <!-- To Period Selector -->
     <div class="flex items-center gap-2">
-      <label class="text-sm font-medium text-gray-600">To:</label>
+      <label class="text-sm font-medium text-ink-gray-6">To:</label>
       <select
         v-model="toFiscalYear"
         @change="onPeriodChange"
-        class="px-3 py-1.5 text-sm border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        class="px-3 py-1.5 text-sm border border-outline-gray-2 rounded-lg bg-surface-white focus:ring-2 focus:ring-accent focus:border-accent"
       >
         <option v-for="fy in fiscalYears" :key="fy.name" :value="fy.name">
           {{ fy.name }}
@@ -43,7 +43,7 @@
     </div>
 
     <!-- Loading indicator -->
-    <Loader2 v-if="isLoading" class="w-4 h-4 text-gray-400 animate-spin" />
+    <Loader2 v-if="isLoading" class="w-4 h-4 text-ink-gray-3 animate-spin motion-reduce:animate-none" />
   </div>
 </template>
 

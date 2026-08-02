@@ -14,9 +14,7 @@ from insights.ml.base import BaseMLModel
 from insights.ml.strategic_finance.data import (
     sanitize_for_json,
     get_current_fiscal_year,
-    get_cash_balance,
     get_expense_breakdown,
-    analyze_budget,
 )
 from insights.ml.strategic_finance.summary import calculate_executive_summary
 from insights.ml.strategic_finance.forecast import (
@@ -76,7 +74,6 @@ class StrategicFinanceIntelligence(BaseMLModel):
             ratio_trends = calculate_ratio_trends(self)
             scenario_analysis = generate_scenario_analysis(self)
             period_comparison = compare_periods(self)
-            budget_analysis = analyze_budget(self)
             expense_breakdown = get_expense_breakdown(self)
 
             result = {
@@ -93,7 +90,6 @@ class StrategicFinanceIntelligence(BaseMLModel):
                 "ratio_trends": ratio_trends,
                 "scenario_analysis": scenario_analysis,
                 "period_comparison": period_comparison,
-                "budget_analysis": budget_analysis,
                 "expense_breakdown": expense_breakdown,
             }
 

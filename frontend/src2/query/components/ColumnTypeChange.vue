@@ -19,7 +19,7 @@ function onTypeChange(newType: ColumnDataType, togglePopover: () => void) {
 				variant="ghost"
 				class="rounded-none"
 				@click="togglePopover"
-				:class="isOpen ? '!bg-gray-100' : ''"
+			:class="isOpen ? '!bg-surface-gray-2' : ''"
 			>
 				<template #icon>
 					<DataTypeIcon :columnType="modelValue" />

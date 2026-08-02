@@ -6,6 +6,7 @@ Financial Intelligence API Endpoints
 """
 
 import frappe
+from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
 
@@ -78,66 +79,6 @@ def get_payables_analysis() -> Dict[str, Any]:
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence()
         result = model._analyze_payables()
-        return success(result)
-    except Exception as e:
-        return error(str(e))
-
-
-@frappe.whitelist()
-def get_budget_analysis() -> Dict[str, Any]:
-    """Get budget analysis"""
-    try:
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._analyze_budget_variance()
-        return success(result)
-    except Exception as e:
-        return error(str(e))
-
-
-@frappe.whitelist()
-def get_financial_ratios() -> Dict[str, Any]:
-    """Get financial ratios analysis"""
-    try:
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._calculate_financial_ratios()
-        return success(result)
-    except Exception as e:
-        return error(str(e))
-
-
-@frappe.whitelist()
-def get_tax_analysis() -> Dict[str, Any]:
-    """Get tax analysis"""
-    try:
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._analyze_kra_tax()
-        return success(result)
-    except Exception as e:
-        return error(str(e))
-
-
-@frappe.whitelist()
-def get_forex_exposure() -> Dict[str, Any]:
-    """Get forex exposure analysis"""
-    try:
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._analyze_forex_exposure()
-        return success(result)
-    except Exception as e:
-        return error(str(e))
-
-
-@frappe.whitelist()
-def get_financial_forecasts() -> Dict[str, Any]:
-    """Get financial forecasts"""
-    try:
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._generate_financial_forecasts()
         return success(result)
     except Exception as e:
         return error(str(e))

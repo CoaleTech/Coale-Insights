@@ -228,7 +228,11 @@ def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
     """
     try:
         results = frappe.db.sql(query, {"customer_id": customer_id}, as_dict=True)
-        return results
+        # Plain dicts, not frappe._dict. `_dict.__getattr__` answers ANY attribute,
+        # so numpy's `__array_struct__` probe succeeds spuriously and pandas then
+        # fails with "invalid __array_struct__" under numpy 2.4. Same conversion
+        # `BaseMLModel.get_training_data` already applies for this reason.
+        return [dict(row) for row in results] if results else []
     except Exception:
         return []
 
@@ -619,7 +623,10 @@ def get_purchase_patterns(top_percentile: int = 20, tier_filter: str = None) -> 
         if not transactions:
             return {"status": "success", "message": "No transaction data", "patterns": None}
 
-        df = pd.DataFrame(transactions)
+        # Plain dicts, not frappe._dict, or pandas raises
+        # "invalid __array_struct__" under numpy 2.4 and this whole tab renders
+        # an unpopulated template. See `_get_customer_purchase_history`.
+        df = pd.DataFrame([dict(row) for row in transactions])
 
         # Day of week analysis
         day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']

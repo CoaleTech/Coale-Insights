@@ -46,26 +46,26 @@ function saveChanges() {
 			<div class="space-y-3 text-base">
 				<div class="space-y-4">
 					<div class="flex items-center gap-3 rounded border px-3 py-2">
-						<Globe class="h-6 w-6 text-blue-500" stroke-width="1.5" />
+					<Globe class="h-6 w-6 text-accent" stroke-width="1.5" />
 						<div class="flex flex-1 flex-col">
-							<div class="font-medium leading-5 text-gray-800">
+							<div class="font-medium leading-5 text-ink-gray-8">
 								Enable Public Access
 							</div>
-							<div class="text-sm text-gray-700">
+							<div class="text-sm text-ink-gray-6">
 								Anyone with the link can view this chart
 							</div>
 						</div>
 						<Toggle v-model="isPublic" />
 					</div>
-					<div v-if="shareLink" class="flex overflow-hidden rounded bg-gray-100">
+					<div v-if="shareLink" class="flex overflow-hidden rounded bg-surface-gray-2">
 						<div
-							class="font-code form-input flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-r-none text-sm text-gray-600"
+							class="font-code form-input flex-1 overflow-hidden text-ellipsis whitespace-nowrap rounded-r-none text-sm text-ink-gray-6"
 						>
 							{{ shareLink }}
 						</div>
 						<Tooltip text="Copy Link" :hoverDelay="0.1">
 							<Button
-								class="w-8 rounded-none bg-gray-200 hover:bg-gray-300"
+							class="w-8 rounded-none bg-surface-gray-3 hover:bg-surface-gray-4"
 								icon="link-2"
 								@click="copyToClipboard(shareLink)"
 							>
@@ -73,7 +73,7 @@ function saveChanges() {
 						</Tooltip>
 						<Tooltip text="Copy iFrame" :hoverDelay="0.1">
 							<Button
-								class="w-8 rounded-l-none bg-gray-200 hover:bg-gray-300"
+							class="w-8 rounded-l-none bg-surface-gray-3 hover:bg-surface-gray-4"
 								icon="code"
 								@click="copyToClipboard(iFrameLink)"
 							>

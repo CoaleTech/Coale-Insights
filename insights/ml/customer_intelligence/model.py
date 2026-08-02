@@ -270,7 +270,17 @@ class CustomerIntelligence(BaseMLModel):
                 return ""
             return d
 
-        customers_list = clean_dict_for_json(customer_details.to_dict("records"))
+        # Annotated because `clean_dict_for_json` is untyped: without it the sorts
+        # below are unresolvable against its union return type.
+        customers_list: list[dict] = clean_dict_for_json(customer_details.to_dict("records"))
+
+        # Highest value first. The query orders by `tabCustomer.name` (the customer
+        # CODE, not the name), so the payload arrived in record-creation order and
+        # the dashboard's 100-row table showed the 100 oldest customers: 0 of 66
+        # customers with any CLV, ₹0 of ₹1.77bn. Every top customer sat past index
+        # 390 and was unreachable without searching for it by name. Same key and
+        # direction `top_customers` below already uses.
+        customers_list.sort(key=lambda c: float(c.get("total_clv") or 0), reverse=True)
 
         results = {
             "status": "success",

@@ -5,8 +5,8 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import { registerControllers, registerGlobalComponents } from './globals.ts'
 import './index.css'
+import './composables/useTheme'
 import router from './router.ts'
-import { translationPlugin } from './translation.ts'
 import { createToast } from './helpers/toasts'
 
 setConfig('resourceFetcher', frappeRequest)
@@ -52,4 +52,3 @@ registerGlobalComponents(app)
 registerControllers(app)
 
 app.mount('#app')
-app.use(translationPlugin);

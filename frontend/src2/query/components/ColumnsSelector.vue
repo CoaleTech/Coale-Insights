@@ -14,11 +14,11 @@ const query = inject('query') as Query
 				variant="ghost"
 				size="lg"
 				class="rounded-none"
-				:class="{ 'bg-gray-100': isOpen }"
+				:class="{ 'bg-surface-gray-2': isOpen }"
 				@click="togglePopover"
 			>
 				<template #icon>
-					<ColumnsIcon class="h-5 w-5 text-gray-700" stroke-width="1.5" />
+				<ColumnsIcon class="h-5 w-5 text-ink-gray-7" stroke-width="1.5" />
 				</template>
 			</Button>
 		</template>

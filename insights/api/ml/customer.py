@@ -6,6 +6,7 @@ Customer Intelligence API Endpoints
 """
 
 import frappe
+from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
 
@@ -99,6 +100,19 @@ def customer_360_detail(customer_id: str, include_purchases: bool = True, includ
         from insights.ml.customer_intelligence import get_customer_360_detail
 
         result = get_customer_360_detail(customer_id, include_purchases, include_recommendations)
+        # The payload carries its own currency so the detail view never has to
+        # guess. Without it the frontend fell back to a hardcoded default and
+        # rendered INR figures with a Kenyan Shilling symbol.
+        if isinstance(result, dict):
+            result.setdefault(
+                "base_currency",
+                frappe.get_cached_value(
+                    "Company",
+                    frappe.defaults.get_user_default("company")
+                    or frappe.db.get_single_value("Global Defaults", "default_company"),
+                    "default_currency",
+                ),
+            )
         return success(result)
     except Exception as e:
         return error(str(e))

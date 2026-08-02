@@ -43,7 +43,7 @@ const listOptions = ref({
 				return props.row.disabled ? 'Disabled' : 'Enabled'
 			},
 			prefix: (props: any) => {
-				const color = props.row.disabled ? 'text-gray-500' : 'text-green-500'
+			const color = props.row.disabled ? 'text-ink-gray-4' : 'text-pos'
 				return <IndicatorIcon class={color} />
 			},
 		},
@@ -100,7 +100,7 @@ const listOptions = ref({
 				<div class="flex justify-between gap-2 overflow-visible py-1">
 					<FormControl placeholder="Search" v-model="searchQuery" :debounce="300">
 						<template #prefix>
-							<SearchIcon class="h-4 w-4 text-gray-500" />
+						<SearchIcon class="h-4 w-4 text-ink-gray-4" />
 						</template>
 					</FormControl>
 					<Button
@@ -114,7 +114,7 @@ const listOptions = ref({
 						"
 					>
 						<template #prefix>
-							<Plus class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+						<Plus class="h-4 w-4 text-ink-gray-7" stroke-width="1.5" />
 						</template>
 					</Button>
 				</div>

@@ -1,5 +1,5 @@
 import frappe
-from ibis import _
+from frappe import _
 
 from insights.decorators import insights_whitelist
 from insights.utils import DocShare

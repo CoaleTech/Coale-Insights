@@ -148,7 +148,7 @@ function getColumnType(column_name: string) {
 				</template>
 			</DraggableList>
 			<button
-				class="mt-1.5 text-left text-xs text-gray-600 hover:underline"
+				class="mt-1.5 text-left text-xs text-ink-gray-6 hover:underline"
 				@click="config.rows.push({} as any)"
 			>
 				+ Add column
@@ -170,7 +170,7 @@ function getColumnType(column_name: string) {
 					</template>
 				</DraggableList>
 				<button
-					class="mt-1.5 text-left text-xs text-gray-600 hover:underline"
+				class="mt-1.5 text-left text-xs text-ink-gray-6 hover:underline"
 					@click="config.columns.push({} as any)"
 				>
 					+ Add column
@@ -206,7 +206,7 @@ function getColumnType(column_name: string) {
 					</template>
 				</DraggableList>
 				<button
-					class="mt-1.5 text-left text-xs text-gray-600 hover:underline"
+				class="mt-1.5 text-left text-xs text-ink-gray-6 hover:underline"
 					@click="config.values.push({} as any)"
 				>
 					+ Add column
@@ -254,7 +254,7 @@ function getColumnType(column_name: string) {
 						@click="config.conditional_formatting.formats.splice(idx, 1)"
 					>
 						<template #icon>
-							<X class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+							<X class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 						</template>
 					</Button>
 				</div>
@@ -262,7 +262,7 @@ function getColumnType(column_name: string) {
 
 			<Button class="w-full" @click="addNewRule">
 				<template #prefix>
-					<Plus class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+					<Plus class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 				</template>
 				Add Rule
 			</Button>

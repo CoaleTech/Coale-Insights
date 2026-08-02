@@ -19,19 +19,19 @@
       :class="{ 'cursor-not-allowed opacity-70': isDisabled }"
     >
       <span 
-      class="flex h-4 w-4 aspect-square items-center justify-center rounded-full border transition-colors duration-200 ease-in-out"
+      class="flex h-4 w-4 aspect-square items-center justify-center rounded-full border transition-colors duration-200 ease-in-out motion-reduce:transition-none"
         :class="[
           isChecked 
-            ? 'border-black bg-black' 
-            : 'border-gray-300',
-          isDisabled && 'border-gray-200 bg-gray-100'
+            ? 'border-accent bg-accent' 
+            : 'border-outline-gray-2',
+          isDisabled && 'border-outline-gray-1 bg-surface-gray-2'
         ]"
       >
         <span 
-          class="h-2 w-2 rounded-full transition-opacity duration-200"
+          class="h-2 w-2 rounded-full transition-opacity duration-200 motion-reduce:transition-none"
           :class="[
             isChecked ? 'opacity-100' : 'opacity-0',
-            isDisabled && isChecked ? 'bg-gray-400' : 'bg-white'
+            isDisabled && isChecked ? 'bg-surface-gray-4' : 'bg-surface-white'
           ]"
         />
       </span>

@@ -7,7 +7,7 @@ Executive summary and key insights generation for Strategic Finance Intelligence
 
 import frappe
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 from .data import get_cash_balance, get_monthly_financial_trends
 
@@ -58,9 +58,14 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
 
     # Gross Margin = (Revenue - COGS) / Revenue * 100
-    # If no COGS accounts found, fall back to a reasonable estimate (70% of revenue)
-    gross_profit = ytd_revenue - ytd_cogs if ytd_cogs > 0 else ytd_revenue * 0.7
-    gross_margin = (gross_profit / ytd_revenue * 100) if ytd_revenue > 0 else 0
+    # When COGS is zero or no COGS accounts post entries, both figures are absent —
+    # never estimate (removing the previous "* 0.7" fallback which invented a 70% margin).
+    if ytd_cogs > 0 and ytd_revenue > 0:
+        gross_profit = ytd_revenue - ytd_cogs
+        gross_margin = gross_profit / ytd_revenue * 100
+    else:
+        gross_profit = None
+        gross_margin = None
 
     # Prior Year Same Period for Growth
     prior_fy_start = (datetime.strptime(fy_start, '%Y-%m-%d') - timedelta(days=365)).strftime('%Y-%m-%d')
@@ -76,7 +81,15 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
             AND gle.is_cancelled = 0
     """, (prior_fy_start, prior_today, intelligence.company), as_dict=True)[0].amount or 0
 
-    revenue_growth = ((ytd_revenue - prior_revenue) / prior_revenue * 100) if prior_revenue > 0 else 0
+    # Return None when the YoY comparison is not meaningful:
+    #   - prior_revenue == 0: division undefined, currently returns 0 which reads as "flat"
+    #   - prior_revenue < 10% of ytd_revenue: base is too small for the ratio to be informative
+    #     (e.g. ≥900% growth); such extremes usually reflect incomplete prior-year data rather
+    #     than real performance — a governance dashboard must not show them as facts.
+    if prior_revenue > 0 and prior_revenue >= ytd_revenue * 0.10:
+        revenue_growth = (ytd_revenue - prior_revenue) / prior_revenue * 100
+    else:
+        revenue_growth = None
 
     # Cash Position
     cash_balance = get_cash_balance(intelligence)
@@ -164,11 +177,18 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "ytd_expenses": ytd_expenses,
         "ytd_cogs": ytd_cogs,
         "gross_profit": gross_profit,
-        "gross_margin": round(gross_margin, 2),
+        "gross_margin": round(gross_margin, 2) if gross_margin is not None else None,
         "ytd_net_income": ytd_net_income,
         "net_margin": round(net_margin, 2),
-        "revenue_growth_yoy": round(revenue_growth, 2),
-        "revenue_growth": round(revenue_growth, 2),  # alias for frontend compatibility
+        "revenue_growth_yoy": round(revenue_growth, 2) if revenue_growth is not None else None,
+        "revenue_growth": round(revenue_growth, 2) if revenue_growth is not None else None,  # alias for frontend compatibility
+        # Exposed so a suppressed percentage is disclosed rather than concealed.
+        # Withholding the ratio is right -- 1554% off a 6% base is not a
+        # performance signal -- but hiding the change altogether would be its own
+        # form of under-reporting. The frontend states the base instead, and the
+        # reader discounts it themselves.
+        "prior_period_revenue": prior_revenue,
+        "prior_period_start": prior_fy_start,
         "cash_balance": cash_balance,
         "cash_runway_months": round(cash_runway_months, 1),
         "monthly_burn_rate": monthly_expenses,
@@ -182,7 +202,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "health_scores": health_scores,
         "key_insights": key_insights,
         "kpis": [
-            {"label": "Total Revenue", "value": ytd_revenue, "format": "currency", "subtitle": "Year to Date", "trend": round(revenue_growth, 1)},
+            {"label": "Total Revenue", "value": ytd_revenue, "format": "currency", "subtitle": "Year to Date", "trend": round(revenue_growth, 1) if revenue_growth is not None else None},
             {"label": "Net Profit", "value": ytd_net_income, "format": "currency", "subtitle": f"{net_margin:.1f}% margin"},
             {"label": "Gross Margin", "value": gross_margin, "format": "percent", "subtitle": "Revenue - COGS"},
             {"label": "Revenue Growth", "value": revenue_growth, "format": "percent", "subtitle": "YoY"},
@@ -194,7 +214,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
 
 def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: float,
                             debt_to_equity: float, cash_runway_months: float,
-                            revenue_growth: float) -> Dict[str, Any]:
+                            revenue_growth: Optional[float]) -> Dict[str, Any]:
     """Calculate financial health scores (0-100) for liquidity, profitability, and efficiency"""
 
     # Liquidity Score (based on cash runway and debt ratio)
@@ -249,12 +269,13 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
         efficiency_score = 35
 
     # Boost for revenue growth
-    if revenue_growth >= 20:
-        efficiency_score = min(100, efficiency_score + 15)
-    elif revenue_growth >= 10:
-        efficiency_score = min(100, efficiency_score + 10)
-    elif revenue_growth < 0:
-        efficiency_score = max(0, efficiency_score - 10)
+    if revenue_growth is not None:
+        if revenue_growth >= 20:
+            efficiency_score = min(100, efficiency_score + 15)
+        elif revenue_growth >= 10:
+            efficiency_score = min(100, efficiency_score + 10)
+        elif revenue_growth < 0:
+            efficiency_score = max(0, efficiency_score - 10)
 
     efficiency_status = "Excellent" if efficiency_score >= 80 else "Good" if efficiency_score >= 60 else "Fair" if efficiency_score >= 40 else "Poor"
 
@@ -271,31 +292,32 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
 
 
 def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: float,
-                          net_margin: float, revenue_growth: float,
+                          net_margin: float, revenue_growth: Optional[float],
                           cash_runway_months: float, debt_to_equity: float,
                           roe: float, health_scores: Dict) -> List[Dict]:
     """Generate actionable executive insights based on financial metrics"""
     insights = []
 
-    # Revenue performance insight
-    if revenue_growth > 15:
-        insights.append({
-            "type": "success",
-            "title": "Strong Revenue Growth",
-            "description": f"Revenue is growing at {revenue_growth:.1f}% YoY, outpacing industry averages. Consider reinvesting in growth initiatives."
-        })
-    elif revenue_growth > 0:
-        insights.append({
-            "type": "info",
-            "title": "Moderate Revenue Growth",
-            "description": f"Revenue growth of {revenue_growth:.1f}% YoY is positive but below optimal targets. Review sales strategies for acceleration."
-        })
-    else:
-        insights.append({
-            "type": "danger",
-            "title": "Revenue Declining",
-            "description": f"Revenue has declined {abs(revenue_growth):.1f}% YoY. Immediate attention needed on sales pipeline and market positioning."
-        })
+    # Revenue performance insight — skip entirely when growth is not measurable
+    if revenue_growth is not None:
+        if revenue_growth > 15:
+            insights.append({
+                "type": "success",
+                "title": "Strong Revenue Growth",
+                "description": f"Revenue is growing at {revenue_growth:.1f}% YoY, outpacing industry averages. Consider reinvesting in growth initiatives."
+            })
+        elif revenue_growth > 0:
+            insights.append({
+                "type": "info",
+                "title": "Moderate Revenue Growth",
+                "description": f"Revenue growth of {revenue_growth:.1f}% YoY is positive but below optimal targets. Review sales strategies for acceleration."
+            })
+        else:
+            insights.append({
+                "type": "danger",
+                "title": "Revenue Declining",
+                "description": f"Revenue has declined {abs(revenue_growth):.1f}% YoY. Immediate attention needed on sales pipeline and market positioning."
+            })
 
     # Profitability insight
     if net_margin >= 15:

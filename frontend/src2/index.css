@@ -2,6 +2,221 @@
 @import 'frappe-ui/src/style.css';
 @import './styles/codemirror.css';
 
+/**
+ * Coale Insights theme tokens — dual light/dark, frappe-ui native.
+ *
+ * Every value below is drawn directly from frappe-ui's OWN shipped palette
+ * (`node_modules/frappe-ui/src/tailwind/colors.json`) — no invented brand
+ * hex. `data-theme` toggles at runtime (`composables/useTheme.ts`), default
+ * light, override dark; frappe-ui's own `ink-*`/`surface-*`/`outline-*`
+ * variables (generated from the same file's `lightMode`/`darkMode` ramps)
+ * switch on the identical attribute, so every dashboard's existing
+ * `bg-surface-white`, `text-ink-gray-9`, `border-outline-gray-1` classes
+ * repaint for free in both themes — "extend, never replace" (trap 1).
+ *
+ * Contrast ratios in comments are computed via the WCAG relative-luminance
+ * formula, cross-checked against the same `colors.json`.
+ */
+:root {
+	/* Page canvas / card. `surface-gray-1` (lightMode gray/50) recedes a hair
+	   behind `surface-white` (neutral white) cards — frappe-ui's own light
+	   elevation direction: higher card fill, lower page fill. 1.06:1 apart;
+	   the hairline border does the rest of the separation, same as before. */
+	--app-canvas: #f8f8f8; /* = --surface-gray-1 */
+	--app-card: #ffffff; /* = --surface-white */
+
+	/* Accent. frappe-ui's own blue family, lightMode/blue/700 — the first
+	   step in that ramp that clears AA text (blue/600 is 4.03:1 on canvas,
+	   fails). 4.72:1 canvas / 5.01:1 card. */
+	--app-accent: #0070cc;
+	/* Hover/emphasis: darker, lightMode/blue/800. 6.46:1 canvas / 6.86:1 card. */
+	--app-accent-strong: #005ca3;
+	/* Active-nav fill, card hover: lightMode/blue/50 (= surface-blue-1). */
+	--app-accent-soft: #f2f9ff;
+
+	/* Secondary highlight: frappe-ui's orange family (no semantic ink-orange
+	   exists, so this stays a literal token). lightMode/orange/700, sparing
+	   use only — featured/secondary-CTA emphasis, never a risk-state colour.
+	   5.13:1 canvas / 5.44:1 card. */
+	--app-highlight: #bd3e0c;
+
+	/* Status, text-safe. Espresso's SEMANTIC status inks fail AA as body text
+	   (ink-green-3 4.06:1, ink-blue-2 3.34:1, ink-amber-3 3.16:1 — measured
+	   against the installed palette). The RAW `-700` steps clear it. All
+	   >= 4.5:1 on both canvas and card. */
+	--app-pos: #137949; /* green-700  5.12 canvas / 5.44 card */
+	--app-warn: #b35309; /* amber-700  4.76 canvas / 5.05 card */
+	--app-neg: #b52a2a; /* red-700    5.94 canvas / 6.31 card */
+
+	/* Status, non-text fills for bars, series, and indicators. WCAG asks 3:1
+	   of graphics, not 4.5:1, so these keep the mid-scale saturation that
+	   makes a chart readable. Never use them for text. */
+	--app-pos-fill: #278f5e; /* green-600 */
+	--app-warn-fill: #db7706; /* amber-600 */
+	--app-neg-fill: #cc2929; /* red-600 */
+	--app-info-fill: #0070cc; /* = accent, one blue everywhere */
+	--app-muted-fill: #7c7c7c; /* gray-600 — gray-400/500 both fail 3:1 here */
+}
+
+[data-theme='dark'] {
+	/* Canvas / card inverts direction on purpose: frappe-ui's dark ramp makes
+	   HIGHER surface tiers LIGHTER (elevation reads as "closer to a light
+	   source"), so canvas is the darkest available token (`surface-white`,
+	   darkMode/gray/900) and card is one step lighter (`surface-gray-1`,
+	   darkMode/gray/700) — genuinely elevated, not just bordered. 1.22:1 apart. */
+	--app-canvas: #0f0f0f; /* = --surface-white (dark) */
+	--app-card: #232323; /* = --surface-gray-1 (dark) */
+
+	/* Accent: darkMode/blue/400. 5.92:1 canvas / 4.85:1 card. */
+	--app-accent: #3294e3;
+	/* Hover/emphasis: LIGHTER than the base accent here, not darker — on a
+	   dark surface, brighter reads as "more". darkMode/blue/300.
+	   8.01:1 canvas / 6.56:1 card. */
+	--app-accent-strong: #5aaef2;
+	/* Active-nav fill, card hover: darkMode/blue/900 (= surface-blue-1 dark). */
+	--app-accent-soft: #0e2037;
+
+	/* Secondary highlight: darkMode/orange/300, lighter than the light-mode
+	   step for the same reason accent-strong flips. 5.76:1 canvas / 4.72:1 card. */
+	--app-highlight: #de6d1b;
+
+	/* Status, text-safe. Reused from lightMode's mid-scale steps: on a dark
+	   surface those clear AA, where the `-700` steps tuned for light-on-white
+	   text invert to failing. */
+	--app-pos: #46b37e; /* green-500 (light ramp)  7.31 canvas / 5.99 card */
+	--app-warn: #e79913; /* amber-500 (light ramp)  8.18 canvas / 6.71 card */
+	--app-neg: #f79596; /* red-400 (light ramp)    8.85 canvas / 7.26 card */
+
+	--app-pos-fill: #46b37e;
+	--app-warn-fill: #e79913;
+	--app-neg-fill: #cc2929;
+	--app-info-fill: #3294e3; /* = accent */
+	--app-muted-fill: #808080; /* gray-300 (dark ramp)  4.85 canvas / 3.98 card */
+}
+
+/**
+ * Global reduced-motion reset.
+ *
+ * PRODUCT.md requires `prefers-reduced-motion` be respected. Tailwind's
+ * `motion-reduce:` variant only reaches classes written in this repo, and a
+ * runtime audit found transitions inside frappe-ui's own components (Button,
+ * Tabs, Select) and upstream Insights views that no codemod here can annotate.
+ *
+ * A near-zero duration rather than `none` so transitionend / animationend
+ * listeners still fire and nothing waits forever on an event that never lands.
+ *
+ * Charts are the one case CSS cannot cover: ECharts animates on a canvas via its
+ * own loop, so that preference is plumbed through
+ * `composables/usePrefersReducedMotion.ts` into
+ * `intelligence/components/IntelligenceChart.vue`.
+ */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/**
+ * Let crowded tab strips scroll instead of wrapping.
+ *
+ * frappe-ui's TabList already sets `overflow-x-auto`, so the strip is willing to
+ * scroll, but its tab buttons are flex children and flex children shrink by
+ * default. On a 375px phone that meant "Cash Flow" wrapped onto two lines and
+ * "Payables" was clipped mid-word rather than the strip becoming scrollable.
+ *
+ * Done here rather than through frappe-ui's `tab-item` slot deliberately: that
+ * slot would require re-implementing frappe-ui's own button styling, including
+ * selected and hover states, at all 21 call sites. Two properties on a
+ * third-party internal is the smaller and more honest change.
+ */
+[role='tablist'] [role='tab'],
+[role='tablist'] > button {
+	flex-shrink: 0;
+	white-space: nowrap;
+}
+
+/**
+ * Touch target floor on phones.
+ *
+ * Measured at 375px, the primary controls on every dashboard were 26-31px tall:
+ * the period select, Refresh, Export, and the tab buttons at 41px. All are
+ * comfortably under the 44px that reliable thumb targeting needs.
+ *
+ * Scoped to `button`, `select` and `[role="tab"]`, deliberately not `a[href]`:
+ * giving inline prose links a 44px box would wreck running text, and the
+ * breadcrumb links measure 26px, which already clears WCAG 2.2 AA's 24px
+ * Target Size (Minimum). PRODUCT.md commits to AA, and 44px is the AAA bar
+ * applied here only where it costs nothing.
+ *
+ * This intentionally also grows in-table action buttons on phones. PRODUCT.md's
+ * density requirement describes the audit team working at a desk; on a phone,
+ * hitting the right control matters more than fitting one more row.
+ */
+@media (max-width: 767px) {
+	button,
+	select,
+	[role='tab'],
+	[role='button'] {
+		min-height: 2.75rem;
+	}
+}
+
+/**
+ * Correct frappe-ui's hardcoded chart minimums for a responsive layout.
+ *
+ * `frappe-ui/src/components/Charts/ECharts.vue` sizes its container with
+ * `min-w-[400px] min-h-[300px]`. Both fail silently on this surface, because the
+ * app shell is `overflow-hidden`: an oversized chart is cut off with nothing to
+ * scroll, and the page never reports overflow.
+ *
+ * The width floor is released at every size, not just on phones. It is
+ * unsatisfiable well into desktop territory: measured at 1024x768 a chart in a
+ * two-column grid had a 364px cell and rendered 400px, bleeding 37px; at 375px
+ * it bled 74px past the viewport. Every chart container here is a responsive
+ * grid cell, and ECharts renders correctly far below 400px, so a fixed floor
+ * buys nothing and breaks real layouts. Charts also each carry an `.sr-only`
+ * table, so narrow rendering never costs access to the data.
+ *
+ * `!important` is needed because Tailwind's arbitrary-value classes carry the
+ * same specificity as this attribute selector; matching the reduced-motion reset
+ * above rather than escalating selector weight.
+ *
+ * `[_echarts_instance_]` is the attribute ECharts stamps on its own container,
+ * so every chart is covered without opting in, and frappe-ui's ResizeObserver
+ * re-renders each one to the corrected box.
+ */
+[_echarts_instance_] {
+	min-width: 0 !important;
+}
+
+@media (max-width: 767px) {
+	[_echarts_instance_] {
+		/* Lower the 300px height floor rather than remove it. Zeroing it collapsed
+		   charts to 16px wherever a parent had no definite height, because
+		   frappe-ui's container is `h-full` and the floor was the only thing
+		   giving it size. 8rem sits below every declared phone height on this
+		   surface (h-44/h-48/h-52) so it never fights them, while still
+		   guaranteeing a usable chart when the parent height is auto. */
+		min-height: 8rem !important;
+	}
+}
+
+@media (max-height: 480px) {
+	[_echarts_instance_] {
+		/* Replace the 300px floor rather than remove it: zeroing the minimum let
+		   `h-full` collapse the chart to 48px. Equal min and max pin the height
+		   to exactly 55vh, about 206px on a 375px-tall landscape phone, which
+		   leaves the rest of the viewport for the surrounding context. */
+		min-height: 55vh !important;
+		max-height: 55vh;
+	}
+}
+
 body {
 	@apply text-base;
 }
@@ -14,7 +229,7 @@ body {
 	/* Works on Firefox */
 	* {
 		scrollbar-width: thin;
-		scrollbar-color: #c0c6cc #ebeef0;
+		scrollbar-color: var(--outline-gray-3) var(--app-canvas);
 	}
 
 	html {
@@ -23,13 +238,13 @@ body {
 
 	/* Works on Chrome, Edge, and Safari */
 	*::-webkit-scrollbar-thumb {
-		background: #e2e8f0;
+		background: var(--outline-gray-3);
 		border-radius: 6px;
 	}
 
 	*::-webkit-scrollbar-track,
 	*::-webkit-scrollbar-corner {
-		background: #f8fafc;
+		background: var(--app-canvas);
 	}
 
 	*::-webkit-scrollbar {

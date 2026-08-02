@@ -60,9 +60,9 @@ function resetNewMeasure() {
 		@close="!newMeasure.expression && (showDialog = false)"
 	>
 		<template #body>
-			<div class="bg-white px-4 pb-6 pt-5 sm:px-6">
+			<div class="bg-surface-white px-4 pb-6 pt-5 sm:px-6">
 				<div class="flex items-center justify-between pb-4">
-					<h3 class="text-2xl font-semibold leading-6 text-gray-900">Create Measure</h3>
+				<h3 class="text-2xl font-semibold leading-6 text-ink-gray-9">Create Measure</h3>
 					<Button variant="ghost" @click="showDialog = false" icon="x" size="md">
 					</Button>
 				</div>

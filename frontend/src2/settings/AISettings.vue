@@ -75,9 +75,9 @@ const quotaPercent = computed(() => {
 })
 
 const quotaColor = computed(() => {
-	if (quotaPercent.value >= 90) return 'bg-red-500'
-	if (quotaPercent.value >= 70) return 'bg-amber-500'
-	return 'bg-blue-500'
+	if (quotaPercent.value >= 90) return 'bg-neg-fill'
+	if (quotaPercent.value >= 70) return 'bg-warn-fill'
+	return 'bg-info-fill'
 })
 
 function formatDate(dateStr: string | null) {
@@ -154,8 +154,8 @@ onMounted(() => {
 		<!-- Header -->
 		<div class="flex items-center justify-between">
 			<div>
-				<h1 class="text-xl font-semibold text-gray-900">AI Analytics</h1>
-				<p class="text-sm text-gray-500 mt-1">Configure AI-powered insights for your dashboards</p>
+				<h1 class="text-xl font-semibold text-ink-gray-9">AI Analytics</h1>
+				<p class="text-sm text-ink-gray-6 mt-1">Configure AI-powered insights for your dashboards</p>
 			</div>
 			<Badge
 				v-if="settings.doc.enable_ai_analytics"
@@ -181,25 +181,25 @@ onMounted(() => {
 		<template v-if="settings.doc.enable_ai_analytics">
 			<!-- Provider Selection -->
 			<div class="border-t pt-6">
-				<h2 class="text-base font-medium text-gray-800 mb-3">Provider</h2>
+				<h2 class="text-base font-medium text-ink-gray-8 mb-3">Provider</h2>
 				<div class="grid grid-cols-2 gap-3">
 					<label
 						v-for="p in providerOptions"
 						:key="p.value"
-						class="relative flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-all"
-						:class="selectedProvider === p.value
-							? 'border-blue-500 bg-blue-50/50 ring-1 ring-blue-200'
-							: 'border-gray-200 hover:border-gray-300 hover:bg-gray-50/50'"
+						class="relative flex items-start gap-3 p-4 border rounded-lg cursor-pointer transition-all motion-reduce:transition-none"
+					:class="selectedProvider === p.value
+						? 'border-accent bg-surface-blue-1 ring-1 ring-outline-blue-1'
+						: 'border-outline-gray-1 hover:border-outline-gray-2 hover:bg-surface-gray-1'"
 					>
 						<input
 							type="radio"
 							:value="p.value"
 							v-model="settings.doc.ai_provider"
-							class="mt-0.5 text-blue-600"
+						class="mt-0.5 text-accent"
 						/>
 						<div class="flex-1 min-w-0">
-							<div class="font-medium text-sm text-gray-900">{{ p.label }}</div>
-							<div class="text-xs text-gray-500 mt-0.5">{{ p.desc }}</div>
+						<div class="font-medium text-sm text-ink-gray-9">{{ p.label }}</div>
+						<div class="text-xs text-ink-gray-6 mt-0.5">{{ p.desc }}</div>
 						</div>
 					</label>
 				</div>
@@ -207,10 +207,10 @@ onMounted(() => {
 
 			<!-- OpenRouter Config -->
 			<div v-if="selectedProvider === 'openrouter'" class="border-t pt-6 space-y-5">
-				<h2 class="text-base font-medium text-gray-800">OpenRouter Settings</h2>
+				<h2 class="text-base font-medium text-ink-gray-8">OpenRouter Settings</h2>
 
 				<div>
-					<label class="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
+					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">API Key</label>
 					<div class="flex gap-2">
 						<FormControl
 							type="password"
@@ -224,15 +224,15 @@ onMounted(() => {
 							@click="testConnection"
 						>Test</Button>
 					</div>
-					<p class="text-xs text-gray-400 mt-1">Get your key at openrouter.ai/keys</p>
+					<p class="text-xs text-ink-gray-3 mt-1">Get your key at openrouter.ai/keys</p>
 				</div>
 
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">Primary Model</label>
+					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Primary Model</label>
 						<select
 							v-model="settings.doc.ai_model"
-							class="w-full rounded-md border border-gray-300 px-3 py-[7px] text-sm bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
 						>
 							<optgroup v-for="group in modelOptions" :key="group.group" :label="group.group">
 								<option v-for="opt in group.options" :key="opt.value" :value="opt.value">
@@ -242,10 +242,10 @@ onMounted(() => {
 						</select>
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">Fallback Model</label>
+					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Fallback Model</label>
 						<select
 							v-model="settings.doc.ai_model_fallback"
-							class="w-full rounded-md border border-gray-300 px-3 py-[7px] text-sm bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
 						>
 							<optgroup v-for="group in modelOptions" :key="group.group" :label="group.group">
 								<option v-for="opt in group.options" :key="opt.value" :value="opt.value">
@@ -260,27 +260,27 @@ onMounted(() => {
 			<!-- Ollama Config -->
 			<div v-if="selectedProvider === 'ollama' || selectedProvider === 'ollama_cloud'" class="border-t pt-6 space-y-5">
 				<div>
-					<h2 class="text-base font-medium text-gray-800">
+					<h2 class="text-base font-medium text-ink-gray-8">
 						{{ selectedProvider === 'ollama_cloud' ? 'Ollama Cloud Settings' : 'Ollama Settings' }}
 					</h2>
-					<p class="text-xs text-gray-500 mt-1">
+					<p class="text-xs text-ink-gray-6 mt-1">
 						{{ selectedProvider === 'ollama_cloud' ? 'Remote Ollama instance. Enter the URL of your hosted Ollama server.' : 'Runs locally on your machine. Make sure Ollama is running before testing.' }}
 					</p>
 				</div>
 
 				<div v-if="selectedProvider === 'ollama_cloud'">
-					<label class="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
+					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">API Key</label>
 					<FormControl
 						type="password"
 						v-model="settings.doc.ollama_api_key"
 						placeholder="ollama-..."
 					/>
-					<p class="text-xs text-gray-400 mt-1">Required for ollama.com. Get your key from your Ollama account.</p>
+					<p class="text-xs text-ink-gray-3 mt-1">Required for ollama.com. Get your key from your Ollama account.</p>
 				</div>
 
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">Base URL</label>
+						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Base URL</label>
 						<div class="flex gap-2">
 							<FormControl
 								type="text"
@@ -296,7 +296,7 @@ onMounted(() => {
 						</div>
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">Model</label>
+						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Model</label>
 						<FormControl
 							v-if="ollamaModels.length === 0"
 							type="text"
@@ -306,11 +306,11 @@ onMounted(() => {
 						<select
 							v-else
 							v-model="settings.doc.ollama_model"
-							class="w-full rounded-md border border-gray-300 px-3 py-[7px] text-sm bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
 						>
 							<option v-for="m in ollamaModels" :key="m" :value="m">{{ m }}</option>
 						</select>
-						<p class="text-xs text-gray-400 mt-1">
+						<p class="text-xs text-ink-gray-3 mt-1">
 							{{ ollamaModels.length > 0 ? `${ollamaModels.length} models detected` : 'Test connection to discover models' }}
 						</p>
 					</div>
@@ -319,11 +319,11 @@ onMounted(() => {
 
 			<!-- Moonshot Config -->
 			<div v-if="selectedProvider === 'moonshot'" class="border-t pt-6 space-y-5">
-				<h2 class="text-base font-medium text-gray-800">Moonshot Settings</h2>
+				<h2 class="text-base font-medium text-ink-gray-8">Moonshot Settings</h2>
 
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">API Key</label>
+						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">API Key</label>
 						<div class="flex gap-2">
 							<FormControl
 								type="password"
@@ -337,13 +337,13 @@ onMounted(() => {
 								@click="testConnection"
 							>Test</Button>
 						</div>
-						<p class="text-xs text-gray-400 mt-1">Get your key at platform.moonshot.cn</p>
+						<p class="text-xs text-ink-gray-3 mt-1">Get your key at platform.moonshot.cn</p>
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">Model</label>
+						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Model</label>
 						<select
 							v-model="settings.doc.moonshot_model"
-							class="w-full rounded-md border border-gray-300 px-3 py-[7px] text-sm bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
 						>
 							<optgroup label="Kimi K2 (recommended)">
 								<option value="kimi-k2-0905-preview">kimi-k2-0905-preview</option>
@@ -363,14 +363,14 @@ onMounted(() => {
 
 			<!-- Schedule & Quota -->
 			<div class="border-t pt-6 space-y-5">
-				<h2 class="text-base font-medium text-gray-800">Schedule & Limits</h2>
+				<h2 class="text-base font-medium text-ink-gray-8">Schedule & Limits</h2>
 
 				<div class="grid grid-cols-2 gap-4">
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">Auto Refresh</label>
+						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Auto Refresh</label>
 						<select
 							v-model="settings.doc.refresh_schedule"
-							class="w-full rounded-md border border-gray-300 px-3 py-[7px] text-sm bg-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
 						>
 							<option v-for="opt in scheduleOptions" :key="opt.value" :value="opt.value">
 								{{ opt.label }}
@@ -378,7 +378,7 @@ onMounted(() => {
 						</select>
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-gray-700 mb-1.5">Daily Quota</label>
+						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Daily Quota</label>
 						<div class="flex items-center gap-2">
 							<FormControl
 								type="number"
@@ -386,7 +386,7 @@ onMounted(() => {
 								:min="1"
 								class="w-24"
 							/>
-							<span class="text-sm text-gray-500">requests/day</span>
+							<span class="text-sm text-ink-gray-4">requests/day</span>
 						</div>
 					</div>
 				</div>
@@ -394,29 +394,29 @@ onMounted(() => {
 
 			<!-- Usage Status -->
 			<div class="border-t pt-6">
-				<h2 class="text-base font-medium text-gray-800 mb-3">Usage</h2>
+				<h2 class="text-base font-medium text-ink-gray-8 mb-3">Usage</h2>
 				<div class="grid grid-cols-3 gap-3">
-					<div class="rounded-lg border border-gray-100 bg-gray-50/70 p-3.5">
-						<p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Quota Today</p>
-						<p class="text-lg font-semibold text-gray-900 mt-1">
-							{{ aiStatus.quota_used || 0 }}<span class="text-sm font-normal text-gray-400"> / {{ settings.doc.daily_ai_quota || 100 }}</span>
+					<div class="rounded-lg border border-outline-gray-1 bg-surface-gray-1 p-3.5">
+						<p class="text-xs font-medium text-ink-gray-6 uppercase tracking-wide">Quota Today</p>
+						<p class="text-lg font-semibold text-ink-gray-9 mt-1">
+							{{ aiStatus.quota_used || 0 }}<span class="text-sm font-normal text-ink-gray-3"> / {{ settings.doc.daily_ai_quota || 100 }}</span>
 						</p>
-						<div class="mt-2 w-full bg-gray-200 rounded-full h-1.5">
+						<div class="mt-2 w-full bg-surface-gray-3 rounded-full h-1.5">
 							<div
-								:class="[quotaColor, 'h-1.5 rounded-full transition-all']"
+								:class="[quotaColor, 'h-1.5 rounded-full transition-all', 'motion-reduce:transition-none']"
 								:style="`width: ${quotaPercent}%`"
 							></div>
 						</div>
 					</div>
-					<div class="rounded-lg border border-gray-100 bg-gray-50/70 p-3.5">
-						<p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Last Refresh</p>
-						<p class="text-sm font-medium text-gray-900 mt-1">
+					<div class="rounded-lg border border-outline-gray-1 bg-surface-gray-1 p-3.5">
+						<p class="text-xs font-medium text-ink-gray-6 uppercase tracking-wide">Last Refresh</p>
+						<p class="text-sm font-medium text-ink-gray-9 mt-1">
 							{{ formatDate(aiStatus.last_refresh) }}
 						</p>
 					</div>
-					<div class="rounded-lg border border-gray-100 bg-gray-50/70 p-3.5">
-						<p class="text-xs font-medium text-gray-500 uppercase tracking-wide">Provider</p>
-						<p class="text-sm font-medium text-gray-900 mt-1 capitalize">
+					<div class="rounded-lg border border-outline-gray-1 bg-surface-gray-1 p-3.5">
+						<p class="text-xs font-medium text-ink-gray-6 uppercase tracking-wide">Provider</p>
+						<p class="text-sm font-medium text-ink-gray-9 mt-1 capitalize">
 							{{ selectedProvider === 'openrouter' ? 'OpenRouter' : selectedProvider === 'ollama_cloud' ? 'Ollama Cloud' : selectedProvider === 'moonshot' ? 'Moonshot' : 'Ollama' }}
 						</p>
 					</div>

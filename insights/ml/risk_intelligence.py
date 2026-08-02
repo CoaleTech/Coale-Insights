@@ -471,16 +471,16 @@ class RiskIntelligence(BaseMLModel):
             "aging_analysis": aging_analysis,
             "total_outstanding": sum([c.outstanding for c in customer_scores]),
             "high_risk_customers": len([c for c in customer_scores if c.risk_score > 70]),
-            "avg_dso": np.mean([p.avg_days_overdue or 0 for p in payment_patterns])
+            "avg_days_overdue": np.mean([p.avg_days_overdue or 0 for p in payment_patterns])
         }
     
     def _analyze_cashflow_risk(self) -> Dict[str, Any]:
         """Analyze cash flow risk and working capital management"""
-        # DSO trend analysis
-        dso_trend = frappe.db.sql("""
+        # Overdue days trend analysis (avg days past due per month)
+        overdue_days_trend = frappe.db.sql("""
             SELECT 
                 DATE_FORMAT(posting_date, '%%Y-%%m') as period,
-                AVG(DATEDIFF(CURDATE(), due_date)) as avg_dso,
+                AVG(DATEDIFF(CURDATE(), due_date)) as avg_days_overdue,
                 SUM(grand_total) as monthly_sales,
                 SUM(outstanding_amount) as month_end_outstanding
             FROM `tabSales Invoice`
@@ -541,7 +541,7 @@ class RiskIntelligence(BaseMLModel):
         cash_forecast = self._forecast_cash_flow()
         
         return {
-            "dso_trend": dso_trend,
+            "overdue_days_trend": overdue_days_trend,
             "current_working_capital": working_capital,
             "working_capital_ratio": round(working_capital_ratio, 2),
             "current_cash_position": self._get_current_cash_position(),

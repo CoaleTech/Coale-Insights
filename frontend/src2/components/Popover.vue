@@ -27,7 +27,7 @@
 							v-bind="{ togglePopover, updatePosition, open, close, isOpen }"
 						>
 							<div
-								class="rounded-lg border border-gray-100 bg-white shadow-xl"
+							class="rounded-lg border bg-surface-white shadow-xl"
 								:class="bodyClass"
 							>
 								<slot

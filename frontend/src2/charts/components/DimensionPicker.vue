@@ -52,19 +52,19 @@ function selectDimension(option?: DimensionOption) {
 			>
 				<template #target="{ togglePopover }">
 					<div class="flex w-full flex-col gap-1.5">
-						<label v-if="props.label" class="block text-xs text-gray-600">
+						<label v-if="props.label" class="block text-xs text-ink-gray-6">
 							{{ props.label }}
 						</label>
 						<Button @click="togglePopover" class="w-full !justify-start">
 							<span
 								class="truncate"
-								:class="dimension.column_name ? 'text-gray-900' : 'text-gray-500'"
+							:class="dimension.column_name ? 'text-ink-gray-9' : 'text-ink-gray-4'"
 							>
 								{{ dimension.dimension_name || 'Select a column' }}
 							</span>
 							<template #suffix>
 								<ChevronDown
-									class="ml-auto h-4 w-4 text-gray-700"
+								class="ml-auto h-4 w-4 text-ink-gray-6"
 									stroke-width="1.5"
 								/>
 							</template>
@@ -77,7 +77,7 @@ function selectDimension(option?: DimensionOption) {
 			<template #target="{ togglePopover }">
 				<Button @click="togglePopover">
 					<template #icon>
-						<Settings class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+					<Settings class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 					</template>
 				</Button>
 			</template>
@@ -111,7 +111,7 @@ function selectDimension(option?: DimensionOption) {
 					<div class="flex gap-1">
 						<Button class="w-full" @click="emit('remove')" theme="red">
 							<template #prefix>
-								<XIcon class="h-4 w-4 text-red-700" stroke-width="1.5" />
+								<XIcon class="h-4 w-4 text-neg" stroke-width="1.5" />
 							</template>
 							Remove
 						</Button>
@@ -121,7 +121,7 @@ function selectDimension(option?: DimensionOption) {
 		</Popover>
 		<Button v-else @click="emit('remove')">
 			<template #icon>
-				<XIcon class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+			<XIcon class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 			</template>
 		</Button>
 	</div>

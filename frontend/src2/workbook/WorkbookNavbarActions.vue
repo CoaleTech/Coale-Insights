@@ -18,7 +18,7 @@ const showShareDialog = ref(false)
 			@click="showShareDialog = true"
 		>
 			<template #prefix>
-				<Share2 class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+			<Share2 class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 			</template>
 			Share
 		</Button>
@@ -28,7 +28,7 @@ const showShareDialog = ref(false)
 			@click="workbook.discard()"
 		>
 			<template #prefix>
-				<Undo2 class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+			<Undo2 class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 			</template>
 			Discard
 		</Button>
@@ -39,8 +39,8 @@ const showShareDialog = ref(false)
 			@click="workbook.save()"
 		>
 			<template #prefix>
-				<Check class="h-4 w-4 text-gray-100" stroke-width="1.5" />
-			</template>
+			<Check class="h-4 w-4 text-ink-white" stroke-width="1.5" />
+		</template>
 			Save
 		</Button> -->
 		<Dropdown

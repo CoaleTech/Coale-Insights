@@ -43,7 +43,7 @@ watchEffect(() => {
 		<div class="flex gap-2 overflow-visible py-1">
 			<FormControl placeholder="Search" v-model="searchQuery" :debounce="300">
 				<template #prefix>
-					<SearchIcon class="h-4 w-4 text-gray-500" />
+					<SearchIcon class="h-4 w-4 text-ink-gray-4" />
 				</template>
 			</FormControl>
 		</div>
@@ -57,11 +57,11 @@ watchEffect(() => {
 				<div
 					v-for="dashboard in store.dashboards"
 					:key="dashboard.name"
-					class="group relative flex w-full cursor-pointer flex-col gap-2 rounded bg-white"
+				class="group relative flex w-full cursor-pointer flex-col gap-2 rounded bg-surface-white"
 				>
 					<router-link
 						:to="`/dashboards/${dashboard.name}`"
-						class="flex h-[150px] overflow-hidden rounded shadow transition-transform duration-200 group-hover:scale-[1.01]"
+						class="flex h-[150px] overflow-hidden rounded shadow transition-transform duration-200 group-hover:scale-[1.01] motion-reduce:transition-none"
 					>
 						<img
 							v-if="dashboard.preview_image"
@@ -71,7 +71,7 @@ watchEffect(() => {
 						/>
 						<div
 							v-else
-							class="flex h-full w-full items-center justify-center bg-gray-50/70"
+						class="flex h-full w-full items-center justify-center bg-surface-gray-1"
 						>
 							<Button
 								variant="ghost"
@@ -79,9 +79,9 @@ watchEffect(() => {
 								:loading="store.updatingPreviewImage[dashboard.name]"
 							>
 								<template #prefix>
-									<RefreshCw class="h-3.5 w-3.5 text-gray-500" />
+									<RefreshCw class="h-3.5 w-3.5 text-ink-gray-4" />
 								</template>
-								<span class="text-gray-500">Load Preview</span>
+								<span class="text-ink-gray-6">Load Preview</span>
 							</Button>
 						</div>
 					</router-link>
@@ -94,20 +94,20 @@ watchEffect(() => {
 							</div>
 							<div class="mt-1.5 flex gap-2">
 								<div class="flex items-center gap-1">
-									<Eye class="h-3 w-3 text-gray-600" stroke-width="1.5" />
-									<span class="text-xs text-gray-600">
+								<Eye class="h-3 w-3 text-ink-gray-6" stroke-width="1.5" />
+									<span class="text-xs text-ink-gray-6">
 										{{ dashboard.views }}
 									</span>
 								</div>
 								<div class="flex items-center gap-1">
-									<BarChart2 class="h-3 w-3 text-gray-600" stroke-width="1.5" />
-									<span class="text-xs text-gray-600">
+								<BarChart2 class="h-3 w-3 text-ink-gray-6" stroke-width="1.5" />
+									<span class="text-xs text-ink-gray-6">
 										{{ dashboard.charts }}
 									</span>
 								</div>
 								<div class="flex items-center gap-1">
-									<Clock class="h-3 w-3 text-gray-600" stroke-width="1.5" />
-									<span class="text-xs text-gray-600">
+								<Clock class="h-3 w-3 text-ink-gray-6" stroke-width="1.5" />
+									<span class="text-xs text-ink-gray-6">
 										{{ dashboard.modified_from_now }}
 									</span>
 								</div>
@@ -117,10 +117,7 @@ watchEffect(() => {
 							<Dropdown :options="dropdownOptions(dashboard)">
 								<Button variant="ghost">
 									<template #icon>
-										<MoreVertical
-											class="h-4 w-4 text-gray-700"
-											stroke-width="1.5"
-										/>
+										<MoreVertical class="h-4 w-4 text-ink-gray-6" stroke-width="1.5" />
 									</template>
 								</Button>
 							</Dropdown>
@@ -132,7 +129,7 @@ watchEffect(() => {
 			<!-- Empty State -->
 			<div v-else class="flex h-full w-full flex-col items-center justify-center text-base">
 				<div class="text-xl font-medium">No Dashboards</div>
-				<div class="mt-1 text-base text-gray-600">
+				<div class="mt-1 text-base text-ink-gray-6">
 					Create a dashboard in your workbook to view it here.
 				</div>
 			</div>

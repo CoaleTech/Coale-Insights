@@ -1,5 +1,6 @@
 import { call } from 'frappe-ui'
 import { ref, type Ref } from 'vue'
+import { readFrappeError } from '../../helpers/api'
 
 export interface DrillDownColumn {
   label: string
@@ -10,7 +11,8 @@ export interface DrillDownColumn {
 
 export interface DrillDownParams {
   metric: string
-  [key: string]: any // period, company, department, supplier, etc.
+  /** Arbitrary context filters: period, company, department, supplier, and so on. */
+  [key: string]: unknown
 }
 
 export interface DrillDownState {
@@ -20,7 +22,7 @@ export interface DrillDownState {
   isPermissionError: Ref<boolean>
   title: Ref<string>
   columns: Ref<DrillDownColumn[]>
-  rows: Ref<Record<string, any>[]>
+  rows: Ref<Record<string, unknown>[]>
   total: Ref<number>
   page: Ref<number>
   readonly pageSize: number
@@ -38,7 +40,7 @@ export function useDrillDown(): DrillDownState {
   const isPermissionError = ref(false)
   const title = ref('')
   const columns = ref<DrillDownColumn[]>([])
-  const rows = ref<Record<string, any>[]>([])
+  const rows = ref<Record<string, unknown>[]>([])
   const total = ref(0)
   const page = ref(1)
   const pageSize = 50
@@ -62,17 +64,18 @@ export function useDrillDown(): DrillDownState {
         // Backend signature: (metric: str, filters: str)
         // Frappe unpacks POST body as kwargs: metric=string, filters=json-string
         filters: JSON.stringify({ page: pageNum, ...contextFilters }),
-      })) as { columns: DrillDownColumn[]; rows: Record<string, any>[]; total: number }
+      })) as { columns: DrillDownColumn[]; rows: Record<string, unknown>[]; total: number }
 
       if (thisRequest !== requestId) return // stale — discard
       columns.value = result.columns
       rows.value = result.rows
       total.value = result.total
       page.value = pageNum
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (thisRequest !== requestId) return
-      isPermissionError.value = e.exc_type === 'PermissionError' || e.status === 403
-      error.value = e.messages?.[0] ?? e.message ?? 'An error occurred'
+      const decoded = readFrappeError(e, 'An error occurred')
+      isPermissionError.value = decoded.permission
+      error.value = decoded.message
     } finally {
       if (thisRequest === requestId) {
         loading.value = false

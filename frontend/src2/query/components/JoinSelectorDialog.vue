@@ -227,10 +227,10 @@ function reset() {
 <template>
 	<Dialog :modelValue="showDialog">
 		<template #body>
-			<div class="rounded-lg bg-white px-4 pb-6 pt-5 sm:px-6">
+			<div class="rounded-lg bg-surface-white px-4 pb-6 pt-5 sm:px-6">
 				<!-- Title & Close -->
 				<div class="flex items-center justify-between pb-4">
-					<h3 class="text-2xl font-semibold leading-6 text-gray-900">Join Table</h3>
+					<h3 class="text-2xl font-semibold leading-6 text-ink-gray-9">Join Table</h3>
 					<Button variant="ghost" @click="showDialog = false" icon="x" size="md">
 					</Button>
 				</div>
@@ -287,9 +287,9 @@ function reset() {
 							</template>
 							<template v-else-if="'join_expression' in join.join_condition">
 								<div class="flex-1">
-									<label class="mb-1 block text-xs text-gray-600"
-										>Custom Join Condition
-									</label>
+								<label class="mb-1 block text-xs text-ink-gray-6"
+									>Custom Join Condition
+								</label>
 									<InlineExpression
 										v-model="join.join_condition.join_expression"
 										placeholder="Example: (t1.column_name = t2.column_name) & (t1.column_name > 10)"
@@ -299,40 +299,40 @@ function reset() {
 							<div class="flex flex-shrink-0 items-start">
 								<Button @click="toggleJoinConditionEditor">
 									<template #icon>
-										<Braces class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+										<Braces class="h-4 w-4 text-ink-gray-7" stroke-width="1.5" />
 									</template>
 								</Button>
 							</div>
 						</div>
 					</div>
 					<div>
-						<label class="mb-1 block text-xs text-gray-600">Select Join Type</label>
+						<label class="mb-1 block text-xs text-ink-gray-6">Select Join Type</label>
 						<div class="flex gap-2">
 							<div
 								v-for="joinType in joinTypes"
 								:key="joinType.label"
-								class="flex flex-1 flex-col items-center justify-center rounded border py-3 transition-all"
+								class="flex flex-1 flex-col items-center justify-center rounded border py-3 transition-all motion-reduce:transition-none"
 								:class="
 									join.join_type === joinType.value
-										? 'border-gray-700'
-										: 'cursor-pointer hover:border-gray-400'
+								? 'border-outline-gray-5'
+								: 'cursor-pointer hover:border-outline-gray-3'
 								"
 								@click="join.join_type = joinType.value"
 							>
 								<component
 									:is="joinType.icon"
-									class="h-6 w-6 text-gray-600"
+							class="h-6 w-6 text-ink-gray-6"
 									stroke-width="1.5"
 								/>
 								<span class="block text-center text-xs">{{ joinType.label }}</span>
 							</div>
 						</div>
-						<div class="mt-1 text-xs text-gray-600">
+						<div class="mt-1 text-xs text-ink-gray-6">
 							{{ joinTypes.find((j) => j.value === join.join_type)?.description }}
 						</div>
 					</div>
 					<div>
-						<label class="mb-1 block text-xs text-gray-600"
+						<label class="mb-1 block text-xs text-ink-gray-6"
 							>Select Columns to Add</label
 						>
 						<Autocomplete

@@ -15,14 +15,14 @@
 				></div>
 				<Input
 					type="text"
-					class="dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:focus:bg-zinc-700 w-full rounded-md text-sm text-gray-700"
+				class=" w-full rounded-md text-sm text-ink-gray-6"
 					placeholder="Select Color"
 					inputClass="pl-8 pr-6"
 					:modelValue="value"
 					@update:modelValue="handleColorChange"
 				></Input>
 				<div
-					class="dark:text-zinc-300 absolute right-1 top-[3px] cursor-pointer p-1 text-gray-700"
+				class=" absolute right-1 top-[3px] cursor-pointer p-1 text-ink-gray-6"
 					@click="clearValue"
 					v-show="value"
 				>

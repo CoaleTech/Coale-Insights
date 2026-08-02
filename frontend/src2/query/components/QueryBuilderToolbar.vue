@@ -12,25 +12,25 @@ const showViewSQLDialog = ref(false)
 const moreActions = [
 	{
 		label: 'View SQL',
-		icon: h(Scroll, { class: 'h-3 w-3 text-gray-700', strokeWidth: 1.5 }),
+		icon: h(Scroll, { class: 'h-3 w-3 text-ink-gray-7', strokeWidth: 1.5 }),
 		onClick: () => (showViewSQLDialog.value = true),
 	},
 	{
 		label: 'Copy Query',
-		icon: h(Copy, { class: 'h-3 w-3 text-gray-700', strokeWidth: 1.5 }),
+		icon: h(Copy, { class: 'h-3 w-3 text-ink-gray-7', strokeWidth: 1.5 }),
 		onClick: () => query.copy(),
 	},
 ]
 </script>
 
 <template>
-	<div class="flex w-full flex-shrink-0 items-center justify-between bg-white">
+	<div class="flex w-full flex-shrink-0 items-center justify-between bg-surface-white">
 		<div>
 			<div
 				v-show="query.result.executedSQL"
-				class="tnum flex items-center gap-2 text-sm text-gray-600"
+			class="tnum flex items-center gap-2 text-sm text-ink-gray-6"
 			>
-				<div class="h-2 w-2 rounded-full bg-green-500"></div>
+				<div class="h-2 w-2 rounded-full bg-pos-fill"></div>
 				<div>
 					<span v-if="query.result.timeTaken == -1"> Fetched from cache </span>
 					<span v-else> Fetched in {{ query.result.timeTaken }}s </span>
@@ -43,16 +43,16 @@ const moreActions = [
 				variant="ghost"
 				label="Execute"
 				@click="() => query.execute(true)"
-				class="!h-6 !gap-1.5 bg-white !px-2 text-xs shadow"
+			class="!h-6 !gap-1.5 bg-surface-white !px-2 text-xs shadow"
 			>
 				<template #prefix>
-					<PlayIcon class="h-3 w-3 text-gray-700" stroke-width="1.5" />
+					<PlayIcon class="h-3 w-3 text-ink-gray-7" stroke-width="1.5" />
 				</template>
 			</Button>
 			<Dropdown placement="right" :options="moreActions">
-				<Button variant="ghost" class="!h-6 !gap-1.5 bg-white !px-2 text-xs shadow">
+			<Button variant="ghost" class="!h-6 !gap-1.5 bg-surface-white !px-2 text-xs shadow">
 					<template #icon>
-						<MoreHorizontal class="h-3 w-3 text-gray-700" stroke-width="1.5" />
+					<MoreHorizontal class="h-3 w-3 text-ink-gray-7" stroke-width="1.5" />
 					</template>
 				</Button>
 			</Dropdown>

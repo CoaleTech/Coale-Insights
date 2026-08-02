@@ -1,148 +1,113 @@
 <template>
   <div class="space-y-6">
-    <!-- Working Capital Metrics -->
+
+    <!-- Working Capital Metric Cards -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <div class="flex items-center gap-3">
-          <div class="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-            <Repeat class="h-5 w-5 text-blue-600" />
-          </div>
-          <div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Days Sales Outstanding</p>
-            <p class="text-2xl font-bold text-gray-900 dark:text-white">
-              {{ data?.dso?.toFixed(1) || '0' }} <span class="text-sm font-normal text-gray-500">days</span>
-            </p>
-          </div>
-        </div>
-        <div class="mt-3">
-          <span :class="getDSOHealthClass(data?.dso)">
-            {{ getDSOHealth(data?.dso) }}
-          </span>
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <div class="flex items-center gap-3">
-          <div class="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-            <Package class="h-5 w-5 text-green-600" />
-          </div>
-          <div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Days Inventory Outstanding</p>
-            <p class="text-2xl font-bold text-gray-900 dark:text-white">
-              {{ data?.dio?.toFixed(1) || '0' }} <span class="text-sm font-normal text-gray-500">days</span>
-            </p>
-          </div>
-        </div>
-        <div class="mt-3">
-          <span :class="getDIOHealthClass(data?.dio)">
-            {{ getDIOHealth(data?.dio) }}
-          </span>
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <div class="flex items-center gap-3">
-          <div class="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
-            <Clock class="h-5 w-5 text-amber-600" />
-          </div>
-          <div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Days Payables Outstanding</p>
-            <p class="text-2xl font-bold text-gray-900 dark:text-white">
-              {{ data?.dpo?.toFixed(1) || '0' }} <span class="text-sm font-normal text-gray-500">days</span>
-            </p>
-          </div>
-        </div>
-        <div class="mt-3">
-          <span :class="getDPOHealthClass(data?.dpo)">
-            {{ getDPOHealth(data?.dpo) }}
-          </span>
-        </div>
-      </div>
-
-      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <div class="flex items-center gap-3">
-          <div :class="['p-2 rounded-lg', getCCCClass(data?.cash_conversion_cycle)]">
-            <RefreshCw class="h-5 w-5" :class="getCCCIconClass(data?.cash_conversion_cycle)" />
-          </div>
-          <div>
-            <p class="text-sm text-gray-500 dark:text-gray-400">Cash Conversion Cycle</p>
-            <p class="text-2xl font-bold" :class="getCCCTextClass(data?.cash_conversion_cycle)">
-              {{ data?.cash_conversion_cycle?.toFixed(1) || '0' }} <span class="text-sm font-normal text-gray-500">days</span>
-            </p>
-          </div>
-        </div>
-        <div class="mt-3">
-          <span :class="getCCCHealthClass(data?.cash_conversion_cycle)">
-            {{ getCCCHealth(data?.cash_conversion_cycle) }}
-          </span>
-        </div>
-      </div>
+      <!--
+        DSO and DIO: higherIsBetter=false (more days to collect/hold = worse).
+        DPO: higherIsBetter=true (more days before paying suppliers = better cash position).
+        Thresholds from original helpers, preserved exactly.
+      -->
+      <KpiCard
+        label="Days Sales Outstanding"
+        :value="`${data?.dso?.toFixed(1) ?? '0'} days`"
+        :severity="dsoSeverity"
+        :loading="!data"
+      />
+      <KpiCard
+        label="Days Inventory Outstanding"
+        :value="`${data?.dio?.toFixed(1) ?? '0'} days`"
+        :severity="dioSeverity"
+        :loading="!data"
+      />
+      <KpiCard
+        label="Days Payables Outstanding"
+        :value="`${data?.dpo?.toFixed(1) ?? '0'} days`"
+        :severity="dpoSeverity"
+        :loading="!data"
+      />
+      <KpiCard
+        label="Cash Conversion Cycle"
+        :value="`${data?.cash_conversion_cycle?.toFixed(1) ?? '0'} days`"
+        :severity="cccSeverity"
+        :loading="!data"
+      />
     </div>
 
-    <!-- Cash Conversion Cycle Visual -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">Cash Conversion Cycle Breakdown</h3>
-      <div class="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8">
-        <!-- DSO -->
+    <!-- Cash Conversion Cycle Visual Breakdown -->
+    <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+      <SectionHeader title="Cash Conversion Cycle Breakdown" :level="3" />
+      <div class="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 mt-6">
+        <!-- DSO circle -->
         <div class="text-center">
-          <div class="w-24 h-24 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mx-auto">
+          <div
+            class="w-24 h-24 rounded-full bg-surface-gray-2 flex items-center justify-center mx-auto"
+            :aria-label="severityAria('DSO', dsoSeverity, data?.dso?.toFixed(0))"
+            role="img"
+          >
             <div>
-              <p class="text-xl font-bold text-blue-600">{{ data?.dso?.toFixed(0) || 0 }}</p>
-              <p class="text-xs text-blue-500">days</p>
+              <p class="text-xl font-bold text-ink-gray-9">{{ data?.dso?.toFixed(0) || 0 }}</p>
+              <p class="text-xs text-ink-gray-6">days</p>
             </div>
           </div>
-          <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">DSO</p>
-          <p class="text-xs text-gray-500">Collect Receivables</p>
+          <p class="mt-2 text-sm font-medium text-ink-gray-7">DSO</p>
+          <p class="text-xs text-ink-gray-6">Collect Receivables</p>
         </div>
 
-        <div class="hidden md:block text-2xl text-gray-400">+</div>
+        <div class="hidden md:block text-2xl text-ink-gray-6">+</div>
 
-        <!-- DIO -->
+        <!-- DIO circle -->
         <div class="text-center">
-          <div class="w-24 h-24 rounded-full bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto">
+          <div
+            class="w-24 h-24 rounded-full bg-surface-gray-2 flex items-center justify-center mx-auto"
+            :aria-label="severityAria('DIO', dioSeverity, data?.dio?.toFixed(0))"
+            role="img"
+          >
             <div>
-              <p class="text-xl font-bold text-green-600">{{ data?.dio?.toFixed(0) || 0 }}</p>
-              <p class="text-xs text-green-500">days</p>
+              <p class="text-xl font-bold text-ink-gray-9">{{ data?.dio?.toFixed(0) || 0 }}</p>
+              <p class="text-xs text-ink-gray-6">days</p>
             </div>
           </div>
-          <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">DIO</p>
-          <p class="text-xs text-gray-500">Sell Inventory</p>
+          <p class="mt-2 text-sm font-medium text-ink-gray-7">DIO</p>
+          <p class="text-xs text-ink-gray-6">Sell Inventory</p>
         </div>
 
-        <div class="hidden md:block text-2xl text-gray-400">−</div>
+        <div class="hidden md:block text-2xl text-ink-gray-6">-</div>
 
-        <!-- DPO -->
+        <!-- DPO circle -->
         <div class="text-center">
-          <div class="w-24 h-24 rounded-full bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center mx-auto">
+          <div
+            class="w-24 h-24 rounded-full bg-surface-gray-2 flex items-center justify-center mx-auto"
+            :aria-label="severityAria('DPO', dpoSeverity, data?.dpo?.toFixed(0))"
+            role="img"
+          >
             <div>
-              <p class="text-xl font-bold text-amber-600">{{ data?.dpo?.toFixed(0) || 0 }}</p>
-              <p class="text-xs text-amber-500">days</p>
+              <p class="text-xl font-bold text-ink-gray-9">{{ data?.dpo?.toFixed(0) || 0 }}</p>
+              <p class="text-xs text-ink-gray-6">days</p>
             </div>
           </div>
-          <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">DPO</p>
-          <p class="text-xs text-gray-500">Pay Suppliers</p>
+          <p class="mt-2 text-sm font-medium text-ink-gray-7">DPO</p>
+          <p class="text-xs text-ink-gray-6">Pay Suppliers</p>
         </div>
 
-        <div class="hidden md:block text-2xl text-gray-400">=</div>
+        <div class="hidden md:block text-2xl text-ink-gray-6">=</div>
 
-        <!-- CCC -->
+        <!-- CCC circle: non-text fill from severity -->
         <div class="text-center">
-          <div :class="['w-24 h-24 rounded-full flex items-center justify-center mx-auto', 
-            (data?.cash_conversion_cycle || 0) <= 30 ? 'bg-green-100 dark:bg-green-900/30' : 
-            (data?.cash_conversion_cycle || 0) <= 60 ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-red-100 dark:bg-red-900/30']">
+          <div
+            :class="['w-24 h-24 rounded-full flex items-center justify-center mx-auto', severityFill(cccSeverity)]"
+            :aria-label="severityAria('Cash Conversion Cycle', cccSeverity, data?.cash_conversion_cycle?.toFixed(0))"
+            role="img"
+          >
             <div>
-              <p :class="['text-xl font-bold', 
-                (data?.cash_conversion_cycle || 0) <= 30 ? 'text-green-600' : 
-                (data?.cash_conversion_cycle || 0) <= 60 ? 'text-amber-600' : 'text-red-600']">
+              <p :class="['text-xl font-bold', cccSeverity === 'high' || cccSeverity === 'critical' ? 'text-ink-red-4' : 'text-ink-gray-9']">
                 {{ data?.cash_conversion_cycle?.toFixed(0) || 0 }}
               </p>
-              <p :class="['text-xs', 
-                (data?.cash_conversion_cycle || 0) <= 30 ? 'text-green-500' : 
-                (data?.cash_conversion_cycle || 0) <= 60 ? 'text-amber-500' : 'text-red-500']">days</p>
+              <p class="text-xs text-ink-gray-6">days</p>
             </div>
           </div>
-          <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-300">CCC</p>
-          <p class="text-xs text-gray-500">Cash Cycle</p>
+          <p class="mt-2 text-sm font-medium text-ink-gray-7">CCC</p>
+          <p class="text-xs text-ink-gray-6">Cash Cycle</p>
         </div>
       </div>
     </div>
@@ -150,49 +115,44 @@
     <!-- Working Capital Components -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- Current Assets -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <ArrowUpCircle class="h-5 w-5 text-green-500" />
-          Current Assets
-        </h3>
-        <div class="space-y-4">
-          <div class="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Cash & Bank</span>
-            <span class="text-sm font-semibold text-gray-900 dark:text-white">
-              {{ formatCurrency(data?.cash || 0) }}
-            </span>
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+        <SectionHeader title="Current Assets" :level="3">
+          <template #actions>
+            <ArrowUpCircle class="h-5 w-5 text-ink-gray-5" />
+          </template>
+        </SectionHeader>
+        <div class="space-y-4 mt-4">
+          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg">
+            <span class="text-sm font-medium text-ink-gray-7">Cash &amp; Bank</span>
+            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.cash || 0) }}</span>
           </div>
-          <div class="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Accounts Receivable</span>
-            <span class="text-sm font-semibold text-gray-900 dark:text-white">
-              {{ formatCurrency(data?.receivables || 0) }}
-            </span>
+          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg">
+            <span class="text-sm font-medium text-ink-gray-7">Accounts Receivable</span>
+            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.receivables || 0) }}</span>
           </div>
-          <div class="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Inventory</span>
-            <span class="text-sm font-semibold text-gray-900 dark:text-white">
-              {{ formatCurrency(data?.inventory || 0) }}
-            </span>
+          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg">
+            <span class="text-sm font-medium text-ink-gray-7">Inventory</span>
+            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.inventory || 0) }}</span>
           </div>
-          <div class="flex justify-between items-center p-3 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-            <span class="text-sm font-bold text-green-700 dark:text-green-400">Total Current Assets</span>
-            <span class="text-sm font-bold text-green-700 dark:text-green-400">
-              {{ formatCurrency(data?.total_current_assets || 0) }}
-            </span>
+          <!-- Total row: neutral emphasis, not a status colour -->
+          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2">
+            <span class="text-sm font-bold text-ink-gray-9">Total Current Assets</span>
+            <span class="text-sm font-bold text-ink-gray-9">{{ formatCurrency(data?.total_current_assets || 0) }}</span>
           </div>
         </div>
       </div>
 
       <!-- Current Liabilities -->
-      <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-        <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-          <ArrowDownCircle class="h-5 w-5 text-red-500" />
-          Current Liabilities
-        </h3>
-        <div class="space-y-4">
-          <div class="flex justify-between items-center p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
-            <span class="text-sm font-bold text-red-700 dark:text-red-400">Total Current Liabilities</span>
-            <span class="text-sm font-bold text-red-700 dark:text-red-400">
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+        <SectionHeader title="Current Liabilities" :level="3">
+          <template #actions>
+            <ArrowDownCircle class="h-5 w-5 text-ink-gray-5" />
+          </template>
+        </SectionHeader>
+        <div class="space-y-4 mt-4">
+          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2">
+            <span class="text-sm font-bold text-ink-gray-9">Total Current Liabilities</span>
+            <span class="text-sm font-bold text-ink-gray-9">
               {{ formatCurrency(data?.total_current_liabilities || 0) }}
             </span>
           </div>
@@ -201,17 +161,18 @@
     </div>
 
     <!-- Net Working Capital -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+    <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Net Working Capital</h3>
-          <p class="text-sm text-gray-500 dark:text-gray-400">Current Assets - Current Liabilities</p>
+          <SectionHeader title="Net Working Capital" :level="3" hint="Current Assets - Current Liabilities" />
         </div>
         <div class="text-center md:text-right">
-          <p :class="['text-3xl font-bold', (data?.working_capital || 0) >= 0 ? 'text-green-600' : 'text-red-600']">
+          <p
+            :class="['text-3xl font-bold', (data?.working_capital || 0) >= 0 ? 'text-ink-gray-9' : 'text-ink-red-4']"
+          >
             {{ formatCurrency(data?.working_capital || 0) }}
           </p>
-          <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p class="text-sm text-ink-gray-6 mt-1">
             Current Ratio: <span class="font-semibold">{{ data?.current_ratio?.toFixed(2) || '0' }}</span>
             | Quick Ratio: <span class="font-semibold">{{ data?.quick_ratio?.toFixed(2) || '0' }}</span>
           </p>
@@ -219,224 +180,182 @@
       </div>
     </div>
 
-    <!-- Trend Analysis (Transposed: Months as Columns) -->
-    <div class="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-      <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
-        <TrendingUp class="h-5 w-5 text-gray-500" />
-        Working Capital Trends (Last 6 Months)
-      </h3>
-      <div v-if="trendMonths.length" class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-          <thead class="bg-gray-50 dark:bg-gray-800">
+    <!-- Trend Analysis (Months as Columns) -->
+    <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+      <SectionHeader title="Working Capital Trends" hint="Last 6 months" :level="3">
+        <template #actions>
+          <TrendingUp class="h-5 w-5 text-ink-gray-5" />
+        </template>
+      </SectionHeader>
+      <div v-if="trendMonths.length" class="overflow-x-auto mt-4">
+        <table class="min-w-full divide-y divide-outline-gray-1">
+          <thead class="bg-surface-gray-1">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50 dark:bg-gray-800">Metric</th>
-              <th v-for="month in trendMonths" :key="month.period"
-                  class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
+              <th
+                scope="col"
+                class="px-4 py-3 text-left text-xs font-medium text-ink-gray-6 uppercase sticky left-0 bg-surface-gray-1"
+              >
+                Metric
+              </th>
+              <th
+                v-for="month in trendMonths"
+                :key="month.period"
+                scope="col"
+                class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase whitespace-nowrap"
+              >
                 {{ formatPeriod(month.period) }}
               </th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
-            <!-- Current Assets Row -->
-            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-              <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white sticky left-0 bg-white dark:bg-gray-800">Current Assets</td>
-              <td v-for="month in trendMonths" :key="'ca-'+month.period" 
-                  class="px-4 py-3 text-sm text-right text-green-600 dark:text-green-400 whitespace-nowrap">
+          <tbody class="divide-y divide-outline-gray-1">
+            <tr class="hover:bg-surface-gray-1">
+              <th scope="row" class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white">Current Assets</th>
+              <td
+                v-for="month in trendMonths"
+                :key="'ca-' + month.period"
+                class="px-4 py-3 text-sm text-right text-ink-gray-9 whitespace-nowrap"
+              >
                 {{ formatCompactCurrency(month.current_assets) }}
               </td>
             </tr>
-            <!-- Current Liabilities Row -->
-            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-              <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white sticky left-0 bg-white dark:bg-gray-800">Current Liabilities</td>
-              <td v-for="month in trendMonths" :key="'cl-'+month.period" 
-                  class="px-4 py-3 text-sm text-right text-red-600 dark:text-red-400 whitespace-nowrap">
-                {{ formatCompactCurrency(Math.abs(month.current_liabilities)) }}
+            <tr class="hover:bg-surface-gray-1">
+              <th scope="row" class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white">Current Liabilities</th>
+              <td
+                v-for="month in trendMonths"
+                :key="'cl-' + month.period"
+                class="px-4 py-3 text-sm text-right text-ink-red-4 whitespace-nowrap"
+              >
+                {{ formatCompactCurrency(Math.abs(month.current_liabilities || 0)) }}
               </td>
             </tr>
-            <!-- Working Capital Row -->
-            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 font-semibold">
-              <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white sticky left-0 bg-white dark:bg-gray-800">Working Capital</td>
-              <td v-for="month in trendMonths" :key="'wc-'+month.period" 
-                  class="px-4 py-3 text-sm text-right whitespace-nowrap"
-                  :class="month.working_capital >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'">
+            <tr class="hover:bg-surface-gray-1 font-semibold">
+              <th scope="row" class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white">Working Capital</th>
+              <td
+                v-for="month in trendMonths"
+                :key="'wc-' + month.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="(month.working_capital ?? -1) >= 0 ? 'text-ink-gray-9' : 'text-ink-red-4'"
+              >
                 {{ formatCompactCurrency(month.working_capital) }}
               </td>
             </tr>
-            <!-- Current Ratio Row -->
-            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700">
-              <td class="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white sticky left-0 bg-white dark:bg-gray-800">Current Ratio</td>
-              <td v-for="month in trendMonths" :key="'cr-'+month.period" 
-                  class="px-4 py-3 text-sm text-right whitespace-nowrap"
-                  :class="getRatioClass(month.current_ratio)">
-                {{ month.current_ratio >= 999 ? '∞' : month.current_ratio?.toFixed(2) }}
+            <tr class="hover:bg-surface-gray-1">
+              <th scope="row" class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white">Current Ratio</th>
+              <td
+                v-for="month in trendMonths"
+                :key="'cr-' + month.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="ratioInk(month.current_ratio)"
+              >
+                {{ (month.current_ratio ?? 0) >= 999 ? '∞' : month.current_ratio?.toFixed(2) }}
               </td>
             </tr>
           </tbody>
         </table>
       </div>
-      <div v-else class="text-center py-8 text-gray-500">
-        No trend data available
-      </div>
+      <div v-else class="text-center py-8 text-ink-gray-6 mt-4">No trend data available</div>
     </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
-import { 
-  Repeat, 
-  Package, 
-  Clock, 
-  RefreshCw, 
-  ArrowUpCircle, 
+import { NO_VALUE } from '../../utils/format'
+import { computed, inject, isRef, type Ref } from 'vue'
+import {
+  Repeat,
+  Package,
+  Clock,
+  RefreshCw,
+  ArrowUpCircle,
   ArrowDownCircle,
-  TrendingUp
+  TrendingUp,
 } from 'lucide-vue-next'
+import { scoreSeverity, severityFill, severityAria, type Severity } from '../../utils/status'
+import KpiCard from '../../intelligence/components/KpiCard.vue'
+import SectionHeader from '../../intelligence/components/SectionHeader.vue'
+import { WorkingCapitalData, WorkingCapitalTrendRow } from './types'
+
+/** API trend rows also carry display fields the shell contract does not need. */
+interface TrendRow extends WorkingCapitalTrendRow {
+  period?: string
+  current_assets?: number
+  current_liabilities?: number
+}
 
 interface Props {
-  data: any
+  data?: WorkingCapitalData
 }
 
 const props = defineProps<Props>()
 
-const _currency = inject('currency', 'KES')
-const getCurrency = () => (typeof _currency === 'string' ? _currency : (_currency as any)?.value) || 'KES'
+const _currency = inject<string | Ref<string>>('currency', 'KES')
+const getCurrency = () => (isRef(_currency) ? _currency.value : _currency) || 'KES'
 
-// Computed property for transposed table - last 6 months
-const trendMonths = computed(() => {
-  return props.data?.trends?.slice(-6) || []
-})
+// DSO: higherIsBetter=false (fewer days to collect is better).
+// Thresholds carried from original getDSOHealthClass: <=30 good, <=45 fair, <=60 warn, >60 high
+const dsoSeverity = computed((): Severity =>
+  scoreSeverity(props.data?.dso, { good: 30, warn: 60, higherIsBetter: false })
+)
 
-// Format period (YYYY-MM to Mon YY)
-const formatPeriod = (period: string) => {
+// DIO: higherIsBetter=false (fewer days holding inventory is better).
+// Original: <=30 good, <=60 fair, <=90 warn, >90 high
+const dioSeverity = computed((): Severity =>
+  scoreSeverity(props.data?.dio, { good: 30, warn: 90, higherIsBetter: false })
+)
+
+// DPO: higherIsBetter=true (paying later is better for cash position).
+// Original: >=45 good, >=30 fair, >=15 warn, <15 high
+const dpoSeverity = computed((): Severity =>
+  scoreSeverity(props.data?.dpo, { good: 45, warn: 30, higherIsBetter: true })
+)
+
+// CCC: higherIsBetter=false (lower/negative cycle is better).
+// Original: <=0 excellent, <=30 good, <=60 fair, >60 high
+const cccSeverity = computed((): Severity =>
+  scoreSeverity(props.data?.cash_conversion_cycle, { good: 0, warn: 60, higherIsBetter: false })
+)
+
+// Current ratio ink: below 1 is bad (red), 1-2 is neutral, >=2 is good (neutral)
+const ratioInk = (ratio: number | null | undefined): string => {
+  if (!ratio || ratio >= 999) return 'text-ink-gray-9'
+  if (ratio >= 1) return 'text-ink-gray-9'
+  return 'text-ink-red-4'
+}
+
+// API trend rows include display fields (period, current_assets, current_liabilities) beyond the
+// shared minimal contract; cast once at this computed boundary.
+const trendMonths = computed(() => (props.data?.trends as unknown as TrendRow[] | undefined)?.slice(-6) || [])
+
+const formatPeriod = (period: string | undefined): string => {
   if (!period) return ''
   const [year, month] = period.split('-')
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   return `${monthNames[parseInt(month) - 1]} ${year.slice(2)}`
 }
 
-// Format currency in compact form
-const formatCompactCurrency = (value: number | undefined) => {
-  if (value === undefined || value === null) return `${getCurrency()} 0`
+const formatCompactCurrency = (value: number | undefined): string => {
+  // Absent is not zero, same as the exact formatter below.
+  if (value === undefined || value === null) return NO_VALUE
   const absValue = Math.abs(value)
   const sign = value < 0 ? '-' : ''
   const c = getCurrency()
-  if (absValue >= 1000000) {
-    return `${sign}${c} ${(absValue / 1000000).toFixed(1)}M`
-  } else if (absValue >= 1000) {
-    return `${sign}${c} ${(absValue / 1000).toFixed(0)}K`
-  }
+  if (absValue >= 1_000_000) return `${sign}${c} ${(absValue / 1_000_000).toFixed(1)}M`
+  if (absValue >= 1_000) return `${sign}${c} ${(absValue / 1_000).toFixed(0)}K`
   return `${sign}${c} ${absValue.toFixed(0)}`
 }
 
-// Current ratio class
-const getRatioClass = (ratio: number | null | undefined) => {
-  if (!ratio || ratio >= 999) return 'text-green-600 dark:text-green-400'
-  if (ratio >= 2) return 'text-green-600 dark:text-green-400'
-  if (ratio >= 1) return 'text-amber-600 dark:text-amber-400'
-  return 'text-red-600 dark:text-red-400'
-}
-
-const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return `${getCurrency()} 0`
+const formatCurrency = (value: number): string => {
+  // Absent is not zero: this returned `${getCurrency()} 0`, reporting zero money
+  // for a field the server never sent. Notation is unchanged -- exact
+  // `en-KE` grouping is a deliberate choice for this surface, and
+  // switching it is a separate product decision.
+  if (value === null || value === undefined) return NO_VALUE
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
     currency: getCurrency(),
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)
-}
-
-// DSO Health
-const getDSOHealth = (dso: number | null | undefined) => {
-  if (!dso) return 'No data'
-  if (dso <= 30) return 'Excellent'
-  if (dso <= 45) return 'Good'
-  if (dso <= 60) return 'Fair'
-  return 'Needs Attention'
-}
-
-const getDSOHealthClass = (dso: number | null | undefined) => {
-  if (!dso) return 'text-gray-500 text-xs'
-  const base = 'px-2 py-0.5 rounded text-xs font-medium'
-  if (dso <= 30) return `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`
-  if (dso <= 45) return `${base} bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400`
-  if (dso <= 60) return `${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`
-  return `${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`
-}
-
-// DIO Health
-const getDIOHealth = (dio: number | null | undefined) => {
-  if (!dio) return 'No data'
-  if (dio <= 30) return 'Excellent'
-  if (dio <= 60) return 'Good'
-  if (dio <= 90) return 'Fair'
-  return 'High Inventory'
-}
-
-const getDIOHealthClass = (dio: number | null | undefined) => {
-  if (!dio) return 'text-gray-500 text-xs'
-  const base = 'px-2 py-0.5 rounded text-xs font-medium'
-  if (dio <= 30) return `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`
-  if (dio <= 60) return `${base} bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400`
-  if (dio <= 90) return `${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`
-  return `${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`
-}
-
-// DPO Health
-const getDPOHealth = (dpo: number | null | undefined) => {
-  if (!dpo) return 'No data'
-  if (dpo >= 45) return 'Optimal'
-  if (dpo >= 30) return 'Good'
-  if (dpo >= 15) return 'Fast Payment'
-  return 'Very Fast'
-}
-
-const getDPOHealthClass = (dpo: number | null | undefined) => {
-  if (!dpo) return 'text-gray-500 text-xs'
-  const base = 'px-2 py-0.5 rounded text-xs font-medium'
-  if (dpo >= 45) return `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`
-  if (dpo >= 30) return `${base} bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400`
-  if (dpo >= 15) return `${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`
-  return `${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`
-}
-
-// CCC Health
-const getCCCHealth = (ccc: number | null | undefined) => {
-  if (ccc === null || ccc === undefined) return 'No data'
-  if (ccc <= 0) return 'Excellent (Negative)'
-  if (ccc <= 30) return 'Good'
-  if (ccc <= 60) return 'Fair'
-  return 'Needs Improvement'
-}
-
-const getCCCHealthClass = (ccc: number | null | undefined) => {
-  if (ccc === null || ccc === undefined) return 'text-gray-500 text-xs'
-  const base = 'px-2 py-0.5 rounded text-xs font-medium'
-  if (ccc <= 0) return `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`
-  if (ccc <= 30) return `${base} bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400`
-  if (ccc <= 60) return `${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`
-  return `${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`
-}
-
-const getCCCClass = (ccc: number | null | undefined) => {
-  if (ccc === null || ccc === undefined) return 'bg-gray-100 dark:bg-gray-700'
-  if (ccc <= 30) return 'bg-green-100 dark:bg-green-900/30'
-  if (ccc <= 60) return 'bg-amber-100 dark:bg-amber-900/30'
-  return 'bg-red-100 dark:bg-red-900/30'
-}
-
-const getCCCIconClass = (ccc: number | null | undefined) => {
-  if (ccc === null || ccc === undefined) return 'text-gray-500'
-  if (ccc <= 30) return 'text-green-600'
-  if (ccc <= 60) return 'text-amber-600'
-  return 'text-red-600'
-}
-
-const getCCCTextClass = (ccc: number | null | undefined) => {
-  if (ccc === null || ccc === undefined) return 'text-gray-900 dark:text-white'
-  if (ccc <= 30) return 'text-green-600'
-  if (ccc <= 60) return 'text-amber-600'
-  return 'text-red-600'
 }
 </script>

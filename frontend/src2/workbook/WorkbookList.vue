@@ -61,12 +61,12 @@ const listOptions = ref({
 			prefix: (props: any) => {
 				const workbook = props.row as WorkbookListItem
 				if (workbook.shared_with_organization) {
-					return <Building2 class="h-3.5 w-3.5 text-blue-500" />
+					return <Building2 class="h-3.5 w-3.5 text-ink-blue-2" />
 				}
 				if (workbook.shared_with.length === 0) {
-					return <Lock class="h-3.5 w-3.5 text-orange-500" />
+					return <Lock class="h-3.5 w-3.5 text-highlight" />
 				}
-				return <Shield class="h-3.5 w-3.5 text-green-500" />
+				return <Shield class="h-3.5 w-3.5 text-ink-green-2" />
 			},
 		},
 		{
@@ -78,8 +78,8 @@ const listOptions = ref({
 				const workbook = props.row as WorkbookListItem
 				return (
 					<div class="flex gap-1">
-						<Eye class="h-3.5 w-3.5 text-gray-600" stroke-width="1.5" />
-						<span class="font-mono text-sm text-gray-700">{workbook.views}</span>
+					<Eye class="h-3.5 w-3.5 text-ink-gray-5" stroke-width="1.5" />
+					<span class="font-mono text-sm text-ink-gray-7">{workbook.views}</span>
 					</div>
 				)
 			},
@@ -168,7 +168,7 @@ watchEffect(() => {
 				autocomplete="off"
 			>
 				<template #prefix>
-					<SearchIcon class="h-4 w-4 text-gray-500" />
+				<SearchIcon class="h-4 w-4 text-ink-gray-4" />
 				</template>
 			</FormControl>
 		</div>

@@ -71,11 +71,7 @@ _LAZY_MAP = {
     "get_cash_flow_analysis": ("insights.api.ml.financial", "get_cash_flow_analysis"),
     "get_receivables_analysis": ("insights.api.ml.financial", "get_receivables_analysis"),
     "get_payables_analysis": ("insights.api.ml.financial", "get_payables_analysis"),
-    "get_budget_analysis": ("insights.api.ml.financial", "get_budget_analysis"),
-    "get_financial_ratios": ("insights.api.ml.financial", "get_financial_ratios"),
-    "get_tax_analysis": ("insights.api.ml.financial", "get_tax_analysis"),
     "get_forex_exposure": ("insights.api.ml.financial", "get_forex_exposure"),
-    "get_financial_forecasts": ("insights.api.ml.financial", "get_financial_forecasts"),
     # ------------------------------------------------------------------ tax
     "tax_intelligence": ("insights.api.ml.tax", "tax_intelligence"),
     "gst_summary": ("insights.api.ml.tax", "gst_summary"),

@@ -313,24 +313,6 @@ class TestFinancialIntelligence(FrappeTestCase):
         self.assertIn('debit', df.columns)
         self.assertIn('credit', df.columns)
 
-    def test_calculate_financial_ratios(self):
-        """Test financial ratios calculation"""
-        from insights.ml.financial_intelligence import FinancialIntelligence
-
-        test_data = pd.DataFrame({
-            'account': ['Revenue', 'COGS', 'Assets', 'Liabilities'],
-            'amount': [1000, 600, 2000, 800]
-        })
-
-        model = FinancialIntelligence()
-        ratios = model._calculate_financial_ratios(test_data)
-
-        self.assertIsInstance(ratios, dict)
-        # Should contain common financial ratios
-        self.assertTrue(any('ratio' in key.lower() or 'margin' in key.lower()
-                          for key in ratios.keys()))
-
-
 class TestAPIDefensiveProgramming(FrappeTestCase):
     """Test suite for API defensive programming (optional dependencies)"""
 

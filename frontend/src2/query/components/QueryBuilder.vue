@@ -35,7 +35,7 @@ onBeforeUnmount(() => {
 			</template>
 		</div>
 		<div
-			class="relative z-[1] flex h-full w-[19rem] flex-shrink-0 flex-col overflow-y-auto bg-white"
+		class="relative z-[1] flex h-full w-[19rem] flex-shrink-0 flex-col overflow-y-auto bg-surface-white"
 		>
 			<QueryInfo />
 			<QueryOperations />

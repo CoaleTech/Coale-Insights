@@ -6,6 +6,7 @@ Manufacturing Intelligence API Endpoints
 """
 
 import frappe
+from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
 

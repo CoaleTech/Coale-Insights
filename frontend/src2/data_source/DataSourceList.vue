@@ -97,7 +97,7 @@ const listOptions = ref({
 			label: 'Status',
 			key: 'status',
 			prefix: (props: any) => {
-				const color = props.row.status == 'Inactive' ? 'text-gray-500' : 'text-green-500'
+				const color = props.row.status == 'Inactive' ? 'text-ink-gray-4' : 'text-pos'
 				return <IndicatorIcon class={color} />
 			},
 		},
@@ -156,7 +156,7 @@ document.title = 'Data Sources | Insights'
 		<div class="flex gap-2 overflow-visible py-1">
 			<FormControl placeholder="Search by Title" v-model="searchQuery" :debounce="300">
 				<template #prefix>
-					<SearchIcon class="h-4 w-4 text-gray-500" />
+					<SearchIcon class="h-4 w-4 text-ink-gray-4" />
 				</template>
 			</FormControl>
 		</div>

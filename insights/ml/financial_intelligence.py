@@ -6,19 +6,20 @@ Financial Intelligence Model
 Comprehensive financial analytics with ML-powered insights for:
 - P&L analysis and profitability
 - Cash flow management and forecasting
-- Financial ratios and health metrics
-- Budget variance analysis
-- KRA Tax forecasting (16% VAT, 2% VAT Withholding)
+- Accounts receivable and payable
 - Forex exposure analysis
+
+Financial ratios and budget variance analysis have moved to the Strategic
+Finance engine (insights.ml.strategic_finance) to keep one canonical
+computation per metric; see FinancialRatiosTab.vue / BudgetVarianceTab.vue.
 """
 
 import frappe
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from datetime import datetime
+from typing import Dict, Any
 from insights.ml.base import BaseMLModel
 from insights.api.ml import get_date_filter_sql
+from insights.ml.strategic_finance.data import get_current_fiscal_year
 
 
 class FinancialIntelligence(BaseMLModel):
@@ -46,6 +47,10 @@ class FinancialIntelligence(BaseMLModel):
         self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
         # Generate SQL date filter
         self.date_filter_sql = get_date_filter_sql(date_filter, 'posting_date', '')
+        # Resolve fiscal year once; used by _calculate_financial_overview for the
+        # YTD start date (fiscal, not calendar).  Same source as
+        # strategic_finance/model.py → get_current_fiscal_year().
+        self.fiscal_year = get_current_fiscal_year(self)
     
     def train(self) -> Dict[str, Any]:
         """Generate comprehensive financial intelligence"""
@@ -54,11 +59,7 @@ class FinancialIntelligence(BaseMLModel):
             cash_flow = self._calculate_cash_flow()
             receivables = self._analyze_receivables()
             payables = self._analyze_payables()
-            budget = self._analyze_budget_variance()
-            ratios = self._calculate_financial_ratios()
-            kra_tax = self._analyze_kra_tax()
             forex = self._analyze_forex_exposure()
-            forecasts = self._generate_financial_forecasts()
             
             result = {
                 "status": "success",
@@ -69,11 +70,7 @@ class FinancialIntelligence(BaseMLModel):
                 "cash_flow": cash_flow,
                 "receivables": receivables,
                 "payables": payables,
-                "budget": budget,
-                "ratios": ratios,
-                "kra_tax": kra_tax,
                 "forex": forex,
-                "forecasts": forecasts
             }
             
             self.cache_results("financial_intelligence", result)
@@ -93,7 +90,11 @@ class FinancialIntelligence(BaseMLModel):
     def _calculate_financial_overview(self) -> Dict[str, Any]:
         """Calculate P&L overview and key metrics"""
         current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-        ytd_start = datetime.now().replace(month=1, day=1).strftime('%Y-%m-%d')
+        # Fiscal YTD start: resolved from the Fiscal Year doctype, same source as
+        # strategic_finance/summary.py (intelligence.fiscal_year["start_date"]).
+        # Falls back to calendar year start only when no Fiscal Year record covers
+        # today (the fallback is inside get_current_fiscal_year()).
+        ytd_start = self.fiscal_year["start_date"]
         
         # MTD Revenue
         mtd_revenue_data = frappe.db.sql("""
@@ -208,8 +209,13 @@ class FinancialIntelligence(BaseMLModel):
             item['pct'] = round((item['amount'] / ytd_expenses * 100), 1) if ytd_expenses > 0 else 0
         
         # Margins
-        gross_margin = round((ytd_profit / ytd_revenue * 100), 1) if ytd_revenue > 0 else 0
-        net_margin = gross_margin  # Simplified - same as gross for now
+        # net_margin: net profit after all expenses as a % of revenue — the correct
+        # definition.  gross_margin requires querying COGS (account_type = 'Cost of
+        # Goods Sold') which this function does not do; return None rather than
+        # aliasing net to gross (see strategic_finance/summary.py for COGS-based
+        # gross margin).
+        net_margin = round((ytd_profit / ytd_revenue * 100), 1) if ytd_revenue > 0 else None
+        gross_margin = None  # COGS not queried here; see strategic_finance/summary.py
         
         return {
             "mtd_revenue": mtd_revenue,
@@ -371,17 +377,40 @@ class FinancialIntelligence(BaseMLModel):
             ORDER BY FIELD(bucket, 'Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days')
         """, (self.company,), as_dict=True)
         
-        # DSO calculation
-        dso_data = frappe.db.sql("""
-            SELECT 
-                AVG(DATEDIFF(CURDATE(), posting_date)) as avg_dso
+        # DSO = (total outstanding AR / trailing-12m credit sales) × 366 days.
+        # Trailing 12 months is the conventional DSO basis; the fiscal-YTD window
+        # (used for revenue/profit above) is deliberately different — it is too
+        # short (4 months today) when outstanding receivables include invoices
+        # predating the current fiscal year.  None when denominator is zero: a
+        # DSO of 0 would falsely imply instant collection.
+        dso_ar_total = float(frappe.db.sql("""
+            SELECT COALESCE(SUM(outstanding_amount), 0) as total
+            FROM `tabSales Invoice`
+            WHERE docstatus = 1
+                AND outstanding_amount > 0
+                AND company = %s
+        """, (self.company,), as_dict=True)[0].get('total') or 0)
+
+        dso_sales_12m = float(frappe.db.sql("""
+            SELECT COALESCE(SUM(base_grand_total), 0) as total
+            FROM `tabSales Invoice`
+            WHERE docstatus = 1
+                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+                AND company = %s
+        """, (self.company,), as_dict=True)[0].get('total') or 0)
+
+        current_dso = round(dso_ar_total / dso_sales_12m * 366, 1) if dso_sales_12m > 0 else None
+
+        # Old metric preserved under an honest name: average calendar age of all
+        # open receivables (not a DSO).
+        avg_open_receivable_age_data = frappe.db.sql("""
+            SELECT AVG(DATEDIFF(CURDATE(), posting_date)) as avg_age
             FROM `tabSales Invoice`
             WHERE docstatus = 1
                 AND outstanding_amount > 0
                 AND company = %s
         """, (self.company,), as_dict=True)[0]
-        
-        current_dso = round(float(dso_data.get('avg_dso') or 0), 1)
+        avg_open_receivable_age_days = round(float(avg_open_receivable_age_data.get('avg_age') or 0), 1)
         
         # Top overdue customers
         overdue_customers = frappe.db.sql("""
@@ -423,6 +452,7 @@ class FinancialIntelligence(BaseMLModel):
             "invoice_count": int(ar_total.get('invoice_count') or 0),
             "aging_buckets": aging_buckets,
             "current_dso": current_dso,
+            "avg_open_receivable_age_days": avg_open_receivable_age_days,
             "overdue_customers": overdue_customers,
             "collection_trend": collections
         }
@@ -460,17 +490,40 @@ class FinancialIntelligence(BaseMLModel):
             ORDER BY FIELD(bucket, 'Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days')
         """, (self.company,), as_dict=True)
         
-        # DPO calculation
-        dpo_data = frappe.db.sql("""
-            SELECT 
-                AVG(DATEDIFF(CURDATE(), posting_date)) as avg_dpo
+        # DPO = (total outstanding AP / trailing-12m credit purchases) × 366 days.
+        # Trailing 12 months is the conventional DPO basis; the fiscal-YTD window
+        # (used for revenue/profit above) is deliberately different — it is too
+        # short (4 months today) when outstanding payables include invoices
+        # predating the current fiscal year, which would inflate DPO artificially.
+        # None when denominator is zero: 0 would falsely imply instant payment.
+        dpo_ap_total = float(frappe.db.sql("""
+            SELECT COALESCE(SUM(outstanding_amount), 0) as total
+            FROM `tabPurchase Invoice`
+            WHERE docstatus = 1
+                AND outstanding_amount > 0
+                AND company = %s
+        """, (self.company,), as_dict=True)[0].get('total') or 0)
+
+        dpo_purchases_12m = float(frappe.db.sql("""
+            SELECT COALESCE(SUM(base_grand_total), 0) as total
+            FROM `tabPurchase Invoice`
+            WHERE docstatus = 1
+                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+                AND company = %s
+        """, (self.company,), as_dict=True)[0].get('total') or 0)
+
+        current_dpo = round(dpo_ap_total / dpo_purchases_12m * 366, 1) if dpo_purchases_12m > 0 else None
+
+        # Old metric preserved under an honest name: average calendar age of all
+        # open payables (not a DPO).
+        avg_open_payable_age_data = frappe.db.sql("""
+            SELECT AVG(DATEDIFF(CURDATE(), posting_date)) as avg_age
             FROM `tabPurchase Invoice`
             WHERE docstatus = 1
                 AND outstanding_amount > 0
                 AND company = %s
         """, (self.company,), as_dict=True)[0]
-        
-        current_dpo = round(float(dpo_data.get('avg_dpo') or 0), 1)
+        avg_open_payable_age_days = round(float(avg_open_payable_age_data.get('avg_age') or 0), 1)
         
         # Upcoming payments
         upcoming_payments = frappe.db.sql("""
@@ -532,451 +585,10 @@ class FinancialIntelligence(BaseMLModel):
             "invoice_count": int(ap_total.get('invoice_count') or 0),
             "aging_buckets": aging_buckets,
             "current_dpo": current_dpo,
+            "avg_open_payable_age_days": avg_open_payable_age_days,
             "upcoming_payments": upcoming_payments,
             "top_suppliers": top_suppliers,
             "payment_schedule": payment_schedule
-        }
-    
-    def _analyze_budget_variance(self) -> Dict[str, Any]:
-        """Analyze budget vs actual variance"""
-        budget_exists = frappe.db.exists("Budget", {"company": self.company, "docstatus": 1})
-        
-        if not budget_exists:
-            return {
-                "status": "no_budgets",
-                "message": "No budgets configured for this company",
-                "variance_items": [],
-                "summary": {}
-            }
-        
-        current_year = datetime.now().year
-        current_month = datetime.now().month
-        
-        # Budget vs actual
-        budget_variance = frappe.db.sql("""
-            SELECT 
-                ba.account,
-                acc.account_name,
-                COALESCE(acc.parent_account, 'Uncategorized') as category,
-                SUM(ba.budget_amount) as budget_amount,
-                (
-                    SELECT COALESCE(SUM(ABS(gle.debit - gle.credit)), 0)
-                    FROM `tabGL Entry` gle
-                    WHERE gle.account = ba.account
-                        AND gle.is_cancelled = 0
-                        AND YEAR(gle.posting_date) = %s
-                        AND gle.company = %s
-                ) as actual_amount
-            FROM `tabBudget Account` ba
-            JOIN `tabBudget` b ON ba.parent = b.name
-            JOIN `tabAccount` acc ON ba.account = acc.name
-            WHERE b.docstatus = 1
-                AND b.company = %s
-            GROUP BY ba.account, acc.account_name, acc.parent_account
-            HAVING budget_amount > 0 OR actual_amount > 0
-        """, (current_year, self.company, self.company), as_dict=True)
-        
-        total_budget = 0
-        total_actual = 0
-        over_budget_items = []
-        
-        for item in budget_variance:
-            budget = float(item.get('budget_amount') or 0)
-            actual = float(item.get('actual_amount') or 0)
-            prorated_budget = budget * (current_month / 12)
-            
-            item['budget_amount'] = budget
-            item['prorated_budget'] = round(prorated_budget, 2)
-            item['actual_amount'] = actual
-            item['variance'] = round(prorated_budget - actual, 2)
-            item['variance_pct'] = round(((actual - prorated_budget) / prorated_budget * 100), 1) if prorated_budget > 0 else 0
-            item['utilization_pct'] = round((actual / prorated_budget * 100), 1) if prorated_budget > 0 else 0
-            
-            total_budget += prorated_budget
-            total_actual += actual
-            
-            if item['variance_pct'] > 10:
-                over_budget_items.append(item)
-        
-        budget_variance.sort(key=lambda x: x['variance_pct'], reverse=True)
-        over_budget_items.sort(key=lambda x: x['variance_pct'], reverse=True)
-        
-        # Cost center spending
-        cost_center_spending = frappe.db.sql("""
-            SELECT 
-                COALESCE(gle.cost_center, 'Unallocated') as cost_center,
-                SUM(ABS(gle.debit - gle.credit)) as actual_amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Expense'
-                AND gle.is_cancelled = 0
-                AND YEAR(gle.posting_date) = %s
-                AND gle.company = %s
-            GROUP BY gle.cost_center
-            ORDER BY actual_amount DESC
-            LIMIT 10
-        """, (current_year, self.company), as_dict=True)
-        
-        return {
-            "status": "success",
-            "total_budget": round(total_budget, 2),
-            "total_actual": round(total_actual, 2),
-            "total_variance": round(total_budget - total_actual, 2),
-            "overall_utilization": round((total_actual / total_budget * 100), 1) if total_budget > 0 else 0,
-            "variance_items": budget_variance[:20],
-            "over_budget_items": over_budget_items[:10],
-            "cost_center_spending": cost_center_spending
-        }
-    
-    def _calculate_financial_ratios(self) -> Dict[str, Any]:
-        """Calculate key financial ratios"""
-        # Current Assets (Bank, Cash, Receivable, Stock)
-        current_assets = frappe.db.sql("""
-            SELECT COALESCE(SUM(gle.debit - gle.credit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Asset'
-                AND acc.account_type IN ('Bank', 'Cash', 'Receivable', 'Stock')
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        # Current Liabilities (all short-term liabilities including Payable, Taxes, etc.)
-        current_liabilities = frappe.db.sql("""
-            SELECT COALESCE(SUM(gle.credit - gle.debit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Liability'
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        # Total Assets
-        total_assets = frappe.db.sql("""
-            SELECT COALESCE(SUM(gle.debit - gle.credit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Asset'
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        # Inventory
-        inventory_value = frappe.db.sql("""
-            SELECT COALESCE(SUM(gle.debit - gle.credit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.account_type = 'Stock'
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        # Cash
-        cash_value = frappe.db.sql("""
-            SELECT COALESCE(SUM(gle.debit - gle.credit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.account_type IN ('Bank', 'Cash')
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        # YTD Revenue and Profit
-        ytd_start = datetime.now().replace(month=1, day=1).strftime('%Y-%m-%d')
-        
-        ytd_pl = frappe.db.sql("""
-            SELECT 
-                SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(gle.credit - gle.debit) ELSE 0 END) as revenue,
-                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(gle.debit - gle.credit) ELSE 0 END) as expenses
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type IN ('Income', 'Expense')
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (ytd_start, self.company), as_dict=True)[0]
-        
-        ca = float(current_assets.get('amount') or 0)
-        cl = max(float(current_liabilities.get('amount') or 0), 1)
-        ta = float(total_assets.get('amount') or 0)
-        inv = float(inventory_value.get('amount') or 0)
-        cash = float(cash_value.get('amount') or 0)
-        revenue = float(ytd_pl.get('revenue') or 0)
-        expenses = float(ytd_pl.get('expenses') or 0)
-        profit = revenue - expenses
-        
-        # Calculate ratios
-        current_ratio = round(ca / cl, 2)
-        quick_ratio = round((ca - inv) / cl, 2)
-        cash_ratio = round(cash / cl, 2)
-        net_margin = round((profit / revenue * 100), 1) if revenue > 0 else 0
-        roa = round((profit / ta * 100), 1) if ta > 0 else 0
-        asset_turnover = round(revenue / ta, 2) if ta > 0 else 0
-        working_capital = ca - cl
-        
-        def assess_ratio(name, value):
-            thresholds = {
-                'current_ratio': {'good': 2.0, 'warning': 1.5},
-                'quick_ratio': {'good': 1.0, 'warning': 0.8},
-                'cash_ratio': {'good': 0.5, 'warning': 0.3},
-                'net_margin': {'good': 15, 'warning': 10},
-            }
-            if name not in thresholds:
-                return 'neutral'
-            t = thresholds[name]
-            if value >= t['good']:
-                return 'good'
-            elif value >= t['warning']:
-                return 'warning'
-            return 'critical'
-        
-        # Calculate equity and additional ratios
-        equity = ta - cl - (ta - ca)  # Simplified: Assets - Liabilities
-        total_liabilities = frappe.db.sql("""
-            SELECT COALESCE(SUM(gle.credit - gle.debit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Liability'
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (self.company,), as_dict=True)[0]
-        total_liab = float(total_liabilities.get('amount') or 0)
-        equity = max(ta - total_liab, 1)
-        
-        # Gross Profit (Revenue - COGS)
-        cogs = frappe.db.sql("""
-            SELECT COALESCE(SUM(ABS(gle.debit - gle.credit)), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.account_type = 'Cost of Goods Sold'
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (ytd_start, self.company), as_dict=True)[0]
-        cogs_amount = float(cogs.get('amount') or 0)
-        gross_profit = revenue - cogs_amount
-        gross_margin = round((gross_profit / revenue * 100), 1) if revenue > 0 else 0
-        roe = round((profit / equity * 100), 1) if equity > 0 else 0
-        
-        # Leverage ratios
-        debt_ratio = round((total_liab / ta * 100), 1) if ta > 0 else 0
-        debt_to_equity = round(total_liab / equity, 2) if equity > 0 else 0
-        equity_ratio = round((equity / ta * 100), 1) if ta > 0 else 0
-        
-        # Efficiency ratios (DSO, DPO) - get from receivables/payables data already calculated
-        dso = 0
-        dpo = 0
-        try:
-            # Get DSO from receivables analysis
-            receivables = self._analyze_receivables()
-            dso = receivables.get('current_dso', 0)
-        except Exception:
-            pass
-        try:
-            # Get DPO from payables analysis
-            payables = self._analyze_payables()
-            dpo = payables.get('current_dpo', 0)
-        except Exception:
-            pass
-        cash_conversion_cycle = dso - dpo
-        
-        # Get monthly trend for ratios (same as overview)
-        monthly_trend = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(gle.posting_date, '%%Y-%%m') as period,
-                SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(gle.credit - gle.debit) ELSE 0 END) as revenue,
-                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(gle.debit - gle.credit) ELSE 0 END) as expenses
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type IN ('Income', 'Expense')
-                AND gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-            GROUP BY DATE_FORMAT(gle.posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
-        for row in monthly_trend:
-            row['revenue'] = float(row.get('revenue') or 0)
-            row['expenses'] = float(row.get('expenses') or 0)
-            row['profit'] = row['revenue'] - row['expenses']
-            row['margin'] = round((row['profit'] / row['revenue'] * 100), 1) if row['revenue'] > 0 else 0
-        
-        return {
-            "liquidity": {
-                "current_ratio": current_ratio,
-                "quick_ratio": quick_ratio,
-                "cash_ratio": cash_ratio,
-                "working_capital": working_capital,
-                "status": {
-                    "current_ratio": assess_ratio('current_ratio', current_ratio),
-                    "quick_ratio": assess_ratio('quick_ratio', quick_ratio),
-                    "cash_ratio": assess_ratio('cash_ratio', cash_ratio),
-                }
-            },
-            "profitability": {
-                "gross_margin": gross_margin,
-                "net_margin": net_margin,
-                "roa": roa,
-                "roe": roe,
-                "status": {
-                    "net_margin": assess_ratio('net_margin', net_margin),
-                }
-            },
-            "efficiency": {
-                "asset_turnover": asset_turnover,
-                "dso": round(dso),
-                "dpo": round(dpo),
-                "cash_conversion_cycle": round(cash_conversion_cycle),
-            },
-            "leverage": {
-                "debt_ratio": debt_ratio,
-                "debt_to_equity": debt_to_equity,
-                "equity_ratio": equity_ratio,
-            },
-            "working_capital_details": {
-                "current_assets": ca,
-                "current_liabilities": cl,
-                "total_assets": ta,
-                "total_liabilities": total_liab,
-                "equity": equity,
-                "inventory": inv,
-                "cash": cash
-            },
-            "trends": monthly_trend
-        }
-    
-    def _analyze_kra_tax(self) -> Dict[str, Any]:
-        """Analyze KRA tax obligations (16% VAT, 2% VAT Withholding)"""
-        current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-        
-        # Output VAT (16% on sales)
-        output_vat = frappe.db.sql("""
-            SELECT COALESCE(SUM(stc.tax_amount), 0) as amount
-            FROM `tabSales Taxes and Charges` stc
-            JOIN `tabSales Invoice` si ON stc.parent = si.name
-            WHERE si.docstatus = 1
-                AND si.posting_date >= %s
-                AND si.company = %s
-                AND stc.rate = 16
-        """, (current_month_start, self.company), as_dict=True)[0]
-        
-        # Input VAT (16% on purchases)
-        input_vat = frappe.db.sql("""
-            SELECT COALESCE(SUM(ptc.tax_amount), 0) as amount
-            FROM `tabPurchase Taxes and Charges` ptc
-            JOIN `tabPurchase Invoice` pi ON ptc.parent = pi.name
-            WHERE pi.docstatus = 1
-                AND pi.posting_date >= %s
-                AND pi.company = %s
-                AND ptc.rate = 16
-        """, (current_month_start, self.company), as_dict=True)[0]
-        
-        output_vat_amount = abs(float(output_vat.get('amount') or 0))
-        input_vat_amount = abs(float(input_vat.get('amount') or 0))
-        net_vat_payable = output_vat_amount - input_vat_amount
-        
-        # VAT Withholding (2% of VAT amount withheld by appointed agents)
-        # This would typically be tracked via a custom field or separate doctype
-        vat_wht = frappe.db.sql("""
-            SELECT COALESCE(SUM(stc.tax_amount * 0.02 / 0.16), 0) as amount
-            FROM `tabSales Taxes and Charges` stc
-            JOIN `tabSales Invoice` si ON stc.parent = si.name
-            WHERE si.docstatus = 1
-                AND si.posting_date >= %s
-                AND si.company = %s
-                AND stc.rate = 16
-        """, (current_month_start, self.company), as_dict=True)[0]
-        
-        vat_wht_amount = abs(float(vat_wht.get('amount') or 0))
-        
-        # Monthly VAT trend (last 12 months)
-        monthly_vat = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(si.posting_date, '%%Y-%%m') as period,
-                COALESCE(SUM(stc.tax_amount), 0) as output_vat
-            FROM `tabSales Taxes and Charges` stc
-            JOIN `tabSales Invoice` si ON stc.parent = si.name
-            WHERE si.docstatus = 1
-                AND si.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND si.company = %s
-                AND stc.rate = 16
-            GROUP BY DATE_FORMAT(si.posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
-        monthly_input_vat = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(pi.posting_date, '%%Y-%%m') as period,
-                COALESCE(SUM(ptc.tax_amount), 0) as input_vat
-            FROM `tabPurchase Taxes and Charges` ptc
-            JOIN `tabPurchase Invoice` pi ON ptc.parent = pi.name
-            WHERE pi.docstatus = 1
-                AND pi.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND pi.company = %s
-                AND ptc.rate = 16
-            GROUP BY DATE_FORMAT(pi.posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
-        # Combine into monthly trend
-        input_vat_dict = {r['period']: abs(float(r['input_vat'])) for r in monthly_input_vat}
-        
-        vat_trend = []
-        for row in monthly_vat:
-            period = row['period']
-            output = abs(float(row['output_vat']))
-            input_v = input_vat_dict.get(period, 0)
-            vat_trend.append({
-                'period': period,
-                'output_vat': output,
-                'input_vat': input_v,
-                'net_vat': output - input_v
-            })
-        
-        # VAT forecast (next 3 months based on average)
-        if len(vat_trend) >= 3:
-            avg_output = sum(v['output_vat'] for v in vat_trend[-6:]) / min(len(vat_trend), 6)
-            avg_input = sum(v['input_vat'] for v in vat_trend[-6:]) / min(len(vat_trend), 6)
-            avg_net = avg_output - avg_input
-            
-            vat_forecast = []
-            today = datetime.now()
-            for i in range(1, 4):
-                future_date = today + timedelta(days=30*i)
-                vat_forecast.append({
-                    'period': future_date.strftime('%Y-%m'),
-                    'predicted_output_vat': round(avg_output, 2),
-                    'predicted_input_vat': round(avg_input, 2),
-                    'predicted_net_vat': round(avg_net, 2)
-                })
-        else:
-            vat_forecast = []
-        
-        # KRA deadlines
-        today = datetime.now()
-        current_day = today.day
-        
-        # VAT is due by 20th of following month
-        if current_day <= 20:
-            vat_due_date = today.replace(day=20)
-        else:
-            next_month = today.replace(day=1) + timedelta(days=32)
-            vat_due_date = next_month.replace(day=20)
-        
-        days_to_vat_deadline = (vat_due_date - today).days
-        
-        return {
-            "output_vat_mtd": output_vat_amount,
-            "input_vat_mtd": input_vat_amount,
-            "net_vat_payable": net_vat_payable,
-            "vat_wht_mtd": vat_wht_amount,
-            "vat_rate": self.VAT_RATE,
-            "vat_wht_rate": self.VAT_WHT_RATE,
-            "monthly_trend": vat_trend,
-            "forecast": vat_forecast,
-            "vat_due_date": vat_due_date.strftime('%Y-%m-%d'),
-            "days_to_deadline": days_to_vat_deadline
         }
     
     def _analyze_forex_exposure(self) -> Dict[str, Any]:
@@ -1161,135 +773,6 @@ class FinancialIntelligence(BaseMLModel):
             "net_unrealized": round(total_unrealized_ar - total_unrealized_ap, 2),
             "at_risk_invoices": at_risk_invoices,
             "realized_forex_trend": realized_forex
-        }
-    
-    def _generate_financial_forecasts(self) -> Dict[str, Any]:
-        """Generate financial forecasts"""
-        # Historical data
-        historical = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(gle.posting_date, '%%Y-%%m') as period,
-                SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(gle.credit - gle.debit) ELSE 0 END) as revenue,
-                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(gle.debit - gle.credit) ELSE 0 END) as expenses
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type IN ('Income', 'Expense')
-                AND gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 24 MONTH)
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-            GROUP BY DATE_FORMAT(gle.posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
-        if len(historical) < 6:
-            return {
-                "status": "insufficient_data",
-                "message": "Need at least 6 months of data for forecasting",
-                "historical": [dict(h) for h in historical] if historical else []
-            }
-        
-        # Convert frappe dicts to regular dicts for pandas compatibility
-        historical_data = [{'period': h['period'], 'revenue': float(h['revenue'] or 0), 'expenses': float(h['expenses'] or 0)} for h in historical]
-        df = pd.DataFrame(historical_data)
-        df['revenue'] = pd.to_numeric(df['revenue'])
-        df['expenses'] = pd.to_numeric(df['expenses'])
-        df['profit'] = df['revenue'] - df['expenses']
-        
-        # Calculate trends
-        revenue_avg = float(df['revenue'].tail(6).mean())
-        expense_avg = float(df['expenses'].tail(6).mean())
-        revenue_trend = float((df['revenue'].tail(3).mean() - df['revenue'].head(3).mean()) / 3)
-        expense_trend = float((df['expenses'].tail(3).mean() - df['expenses'].head(3).mean()) / 3)
-        
-        # Generate forecast
-        forecasts = []
-        today = datetime.now()
-        
-        for i in range(1, 4):
-            future_date = today + timedelta(days=30*i)
-            period = future_date.strftime('%Y-%m')
-            
-            predicted_revenue = revenue_avg + (revenue_trend * i)
-            predicted_expenses = expense_avg + (expense_trend * i)
-            
-            forecasts.append({
-                'period': period,
-                'predicted_revenue': float(round(max(0, predicted_revenue), 2)),
-                'predicted_expenses': float(round(max(0, predicted_expenses), 2)),
-                'predicted_profit': float(round(predicted_revenue - predicted_expenses, 2)),
-                'confidence': 'Medium' if i <= 2 else 'Low'
-            })
-        
-        # Cash flow forecast
-        current_cash = frappe.db.sql("""
-            SELECT COALESCE(SUM(gle.debit - gle.credit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.account_type IN ('Bank', 'Cash')
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        cash_position = float(current_cash.get('amount') or 0)
-        
-        # Expected collections/payments
-        expected_collections = frappe.db.sql("""
-            SELECT 
-                CASE 
-                    WHEN due_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'Month 1'
-                    WHEN due_date <= DATE_ADD(CURDATE(), INTERVAL 60 DAY) THEN 'Month 2'
-                    ELSE 'Month 3'
-                END as period,
-                SUM(outstanding_amount) as amount
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND due_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
-                AND company = %s
-            GROUP BY period
-        """, (self.company,), as_dict=True)
-        
-        expected_payments = frappe.db.sql("""
-            SELECT 
-                CASE 
-                    WHEN due_date <= DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'Month 1'
-                    WHEN due_date <= DATE_ADD(CURDATE(), INTERVAL 60 DAY) THEN 'Month 2'
-                    ELSE 'Month 3'
-                END as period,
-                SUM(outstanding_amount) as amount
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND due_date <= DATE_ADD(CURDATE(), INTERVAL 90 DAY)
-                AND company = %s
-            GROUP BY period
-        """, (self.company,), as_dict=True)
-        
-        collections_by_month = {c['period']: float(c['amount']) for c in expected_collections}
-        payments_by_month = {p['period']: float(p['amount']) for p in expected_payments}
-        
-        cash_forecast = []
-        running_cash = cash_position
-        
-        for month in ['Month 1', 'Month 2', 'Month 3']:
-            inflow = collections_by_month.get(month, 0)
-            outflow = payments_by_month.get(month, 0)
-            running_cash = running_cash + inflow - outflow
-            cash_forecast.append({
-                'period': month,
-                'expected_collections': inflow,
-                'expected_payments': outflow,
-                'projected_balance': round(running_cash, 2)
-            })
-        
-        return {
-            "status": "success",
-            "historical": historical,
-            "pl_forecasts": forecasts,
-            "cash_forecasts": cash_forecast,
-            "current_cash_position": cash_position,
-            "revenue_trend": "up" if revenue_trend > 0 else "down",
-            "expense_trend": "up" if expense_trend > 0 else "down"
         }
 
 

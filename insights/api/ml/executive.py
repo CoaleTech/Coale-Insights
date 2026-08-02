@@ -6,6 +6,7 @@ Executive Intelligence API Endpoints
 """
 
 import frappe
+from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
 

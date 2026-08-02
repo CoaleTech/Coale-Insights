@@ -31,7 +31,7 @@ const listColumns = [
 		label: 'Title',
 		key: 'title',
 		width: 2,
-		prefix: () => h(Table2Icon, { class: 'h-4 w-4 text-gray-600' }),
+		prefix: () => h(Table2Icon, { class: 'h-4 w-4 text-ink-gray-6' }),
 	},
 	{
 		label: 'Source',
@@ -64,7 +64,7 @@ const listColumns = [
 					autocomplete="off"
 				>
 					<template #prefix>
-						<SearchIcon class="h-4 w-4 text-gray-500" />
+					<SearchIcon class="h-4 w-4 text-ink-gray-4" />
 					</template>
 				</FormControl>
 			</div>

@@ -161,7 +161,7 @@ function setSignatureElementPosition() {
 <template>
 	<div
 		ref="codeContainer"
-		class="relative flex h-[14rem] w-full rounded border text-base items-center bg-white"
+		class="relative flex h-[14rem] w-full rounded border text-base items-center bg-surface-white"
 	>
 		<Code
 			ref="codeEditor"
@@ -178,16 +178,16 @@ function setSignatureElementPosition() {
 		<div
 			ref="signatureElement"
 			v-show="currentFunctionSignature"
-			class="absolute z-10 flex h-fit max-h-[14rem] w-[25rem] flex-col gap-2 overflow-y-auto rounded-lg bg-white px-2.5 py-1.5 shadow-md transition-all"
+		class="absolute z-10 flex h-fit max-h-[14rem] w-[25rem] flex-col gap-2 overflow-y-auto rounded-lg bg-surface-white px-2.5 py-1.5 shadow-md transition-all motion-reduce:transition-none"
 		>
 			<template v-if="currentFunctionSignature">
 				<p
 					v-if="currentFunctionSignature.definition"
 					v-html="currentFunctionSignature.definition"
-					class="font-mono text-p-sm text-gray-800"
+					class="font-mono text-p-sm text-ink-gray-8"
 				></p>
 				<hr v-if="currentFunctionSignature.definition" />
-				<div class="whitespace-pre-wrap font-mono text-p-sm text-gray-800">
+				<div class="whitespace-pre-wrap font-mono text-p-sm text-ink-gray-8">
 					{{ currentFunctionSignature.description }}
 				</div>
 			</template>

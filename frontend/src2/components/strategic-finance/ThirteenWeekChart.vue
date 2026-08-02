@@ -1,190 +1,88 @@
 <template>
   <div class="w-full h-full">
     <div v-if="hasData" class="space-y-4">
-      <!-- SVG Chart -->
-      <div class="relative ml-14">
-        <!-- Y-axis labels -->
-        <div class="absolute -left-14 top-0 h-64 flex flex-col justify-between text-xs text-gray-500 w-12 text-right pr-2">
-          <span>{{ formatCompact(maxValue) }}</span>
-          <span>{{ formatCompact(maxValue * 0.75 + minValue * 0.25) }}</span>
-          <span>{{ formatCompact(maxValue * 0.5 + minValue * 0.5) }}</span>
-          <span>{{ formatCompact(maxValue * 0.25 + minValue * 0.75) }}</span>
-          <span>{{ formatCompact(minValue) }}</span>
-        </div>
-        
-        <svg class="w-full h-64" :viewBox="`0 0 ${chartWidth} ${chartHeight}`" preserveAspectRatio="none">
-          <!-- Grid lines -->
-          <line v-for="i in 5" :key="'grid-'+i"
-            x1="0" :y1="(i-1) * chartHeight / 4"
-            :x2="chartWidth" :y2="(i-1) * chartHeight / 4"
-            stroke="#e5e7eb" stroke-dasharray="4,4" class="dark:stroke-gray-700"
-          />
-          
-          <!-- Zero line -->
-          <line 
-            x1="0" :y1="zeroY"
-            :x2="chartWidth" :y2="zeroY"
-            stroke="#9ca3af" stroke-width="1"
-          />
-          
-          <!-- Threshold line -->
-          <line v-if="threshold > 0 && thresholdY >= 0 && thresholdY <= chartHeight"
-            x1="0" :y1="thresholdY"
-            :x2="chartWidth" :y2="thresholdY"
-            stroke="#ef4444" stroke-width="2" stroke-dasharray="8,4"
-          />
-          <text v-if="threshold > 0 && thresholdY >= 0 && thresholdY <= chartHeight"
-            :x="chartWidth - 5" :y="thresholdY - 5"
-            fill="#ef4444" font-size="10" text-anchor="end"
-          >
-            Min Threshold
-          </text>
-          
-          <!-- Bars for each week -->
-          <g v-for="(week, i) in chartData" :key="'bar-'+i">
-            <!-- Background bar for actual weeks -->
-            <rect v-if="week.is_actual"
-              :x="getBarX(i) - 2" :y="0"
-              :width="barWidth + 4" :height="chartHeight"
-              fill="#dbeafe" fill-opacity="0.5"
-            />
-            
-            <!-- Current week highlight -->
-            <rect v-if="week.is_current"
-              :x="getBarX(i) - 2" :y="0"
-              :width="barWidth + 4" :height="chartHeight"
-              fill="#fef3c7" fill-opacity="0.5"
-            />
-            
-            <!-- Inflow bar (green, going up from zero) -->
-            <rect 
-              :x="getBarX(i)" 
-              :y="Math.min(zeroY, getY(week.inflows?.total || 0))"
-              :width="barWidth / 2 - 1" 
-              :height="Math.abs(zeroY - getY(week.inflows?.total || 0))"
-              :fill="week.is_actual ? '#22c55e' : '#86efac'"
-              :fill-opacity="week.is_forecast ? 0.7 : 1"
-              rx="2"
-            >
-              <title>{{ week.week_label }}: Inflows {{ formatCurrency(week.inflows?.total || 0) }}</title>
-            </rect>
-            
-            <!-- Outflow bar (red, going down from zero) -->
-            <rect 
-              :x="getBarX(i) + barWidth / 2" 
-              :y="zeroY"
-              :width="barWidth / 2 - 1" 
-              :height="Math.abs(getY(-(week.outflows?.total || 0)) - zeroY)"
-              :fill="week.is_actual ? '#ef4444' : '#fca5a5'"
-              :fill-opacity="week.is_forecast ? 0.7 : 1"
-              rx="2"
-            >
-              <title>{{ week.week_label }}: Outflows {{ formatCurrency(week.outflows?.total || 0) }}</title>
-            </rect>
-          </g>
-          
-          <!-- Balance line -->
-          <polyline 
-            :points="balanceLinePoints" 
-            fill="none" 
-            stroke="#3b82f6" 
-            stroke-width="3" 
-            stroke-linecap="round" 
-            stroke-linejoin="round"
-          />
-          
-          <!-- Balance points -->
-          <g v-for="(week, i) in chartData" :key="'point-'+i">
-            <circle 
-              :cx="getBarX(i) + barWidth / 2" 
-              :cy="getY(week.closing_balance)"
-              r="5" 
-              :fill="week.below_threshold ? '#ef4444' : '#3b82f6'" 
-              stroke="white" 
-              stroke-width="2"
-              class="cursor-pointer"
-            >
-              <title>{{ week.week_label }}: Balance {{ formatCurrency(week.closing_balance) }}</title>
-            </circle>
-            
-            <!-- Warning icon for below threshold -->
-            <text v-if="week.below_threshold"
-              :x="getBarX(i) + barWidth / 2"
-              :y="getY(week.closing_balance) - 12"
-              fill="#ef4444"
-              font-size="14"
-              text-anchor="middle"
-            >⚠</text>
-          </g>
-        </svg>
-        
-        <!-- X-axis labels -->
-        <div class="flex justify-between text-xs text-gray-500 mt-2">
-          <div 
-            v-for="(week, i) in chartData" 
-            :key="'x-'+i" 
-            class="text-center flex-1"
-            :class="{
-              'text-blue-600 font-medium': week.is_actual && !week.is_current,
-              'text-amber-600 font-bold': week.is_current
-            }"
-          >
-            {{ week.week_label }}
-          </div>
-        </div>
-      </div>
+      <!-- frappe-ui AxisChart: inflow/outflow bars on primary axis, balance + threshold on y2 -->
+      <IntelligenceChart class="h-52 sm:h-64 lg:h-72" :config="axisConfig" />
+
+      <!-- Accessible text equivalent for screen readers (canvas is invisible to AT) -->
+      <table class="sr-only">
+        <caption>13-week cash flow forecast: inflows, outflows, and closing balance by week</caption>
+        <thead>
+          <tr>
+            <th scope="col">Week</th>
+            <th scope="col">Inflows</th>
+            <th scope="col">Outflows</th>
+            <th scope="col">Closing Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="week in chartData" :key="week.week_label">
+            <th scope="row">{{ week.week_label }}</th>
+            <td>{{ formatCurrency(week.inflows?.total || 0) }}</td>
+            <td>{{ formatCurrency(week.outflows?.total || 0) }}</td>
+            <td>
+              {{ formatCurrency(week.closing_balance) }}{{ week.below_threshold ? ' (below threshold)' : '' }}
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
       <!-- Legend -->
       <div class="flex justify-center gap-6 text-xs">
         <div class="flex items-center gap-1.5">
-          <div class="w-3 h-3 bg-green-500 rounded-sm"></div>
-          <span class="text-gray-600 dark:text-gray-400">Inflows</span>
+          <div class="w-3 h-3 bg-surface-green-3 rounded-sm"></div>
+          <span class="text-ink-gray-7">Inflows</span>
         </div>
         <div class="flex items-center gap-1.5">
-          <div class="w-3 h-3 bg-red-500 rounded-sm"></div>
-          <span class="text-gray-600 dark:text-gray-400">Outflows</span>
+          <div class="w-3 h-3 bg-surface-red-5 rounded-sm"></div>
+          <span class="text-ink-gray-7">Outflows</span>
         </div>
         <div class="flex items-center gap-1.5">
-          <div class="w-4 h-0.5 bg-blue-500 rounded"></div>
-          <span class="text-gray-600 dark:text-gray-400">Balance</span>
+          <div class="w-4 h-0.5 bg-surface-blue-3 rounded"></div>
+          <span class="text-ink-gray-7">Balance</span>
         </div>
         <div v-if="threshold > 0" class="flex items-center gap-1.5">
-          <div class="w-4 h-0.5 bg-red-500 rounded border-dashed"></div>
-          <span class="text-gray-600 dark:text-gray-400">Threshold</span>
+          <div class="w-4 h-0.5 rounded" style="border-top: 2px dashed; background: transparent; border-color: var(--app-warn-fill)"></div>
+          <span class="text-ink-gray-7">Threshold</span>
         </div>
       </div>
-      
+
       <!-- Summary stats -->
-      <div class="grid grid-cols-4 gap-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+      <div class="grid grid-cols-4 gap-4 pt-4 border-t border-outline-gray-1">
         <div class="text-center">
-          <p class="text-xs text-gray-500">Avg Weekly Inflow</p>
-          <p class="text-sm font-bold text-green-600">{{ formatCompact(avgInflow) }}</p>
+          <p class="text-xs text-ink-gray-6">Avg Weekly Inflow</p>
+          <p class="text-sm font-bold text-ink-gray-8">{{ formatCompact(avgInflow) }}</p>
         </div>
         <div class="text-center">
-          <p class="text-xs text-gray-500">Avg Weekly Outflow</p>
-          <p class="text-sm font-bold text-red-600">{{ formatCompact(avgOutflow) }}</p>
+          <p class="text-xs text-ink-gray-6">Avg Weekly Outflow</p>
+          <p class="text-sm font-bold text-ink-gray-8">{{ formatCompact(avgOutflow) }}</p>
         </div>
         <div class="text-center">
-          <p class="text-xs text-gray-500">Week 13 Balance</p>
-          <p class="text-sm font-bold text-blue-600">{{ formatCompact(endingBalance) }}</p>
+          <p class="text-xs text-ink-gray-6">Week 13 Balance</p>
+          <p class="text-sm font-bold text-ink-gray-8">{{ formatCompact(endingBalance) }}</p>
         </div>
         <div class="text-center">
-          <p class="text-xs text-gray-500">Net Change</p>
-          <p :class="['text-sm font-bold', netChange >= 0 ? 'text-green-600' : 'text-red-600']">
+          <p class="text-xs text-ink-gray-6">Net Change</p>
+          <p class="text-sm font-bold" :class="deltaInk(netChange)">
             {{ netChange >= 0 ? '+' : '' }}{{ formatCompact(netChange) }}
           </p>
         </div>
       </div>
     </div>
 
-    <div v-else class="flex items-center justify-center h-full text-gray-500">
+    <div v-else class="flex items-center justify-center h-full text-ink-gray-6">
       No forecast data available
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { NO_VALUE } from '../../utils/format'
+import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
+
 import { computed, inject } from 'vue'
+import { themeColor } from '../../utils/chartTheme'
+import { deltaInk } from '../../utils/status'
 
 interface WeekData {
   week_number: number
@@ -223,12 +121,6 @@ const props = defineProps<Props>()
 
 const currency = inject('currency', 'KES')
 
-// Chart dimensions
-const chartWidth = 800
-const chartHeight = 250
-const padding = 20
-
-// Computed
 const hasData = computed(() => {
   return props.data?.weeks && props.data.weeks.length > 0
 })
@@ -241,57 +133,14 @@ const threshold = computed(() => {
   return props.threshold || props.data?.threshold || 0
 })
 
-// Calculate Y-axis range including inflows, outflows, and balances
-const allValues = computed(() => {
-  if (!chartData.value.length) return [0]
-  const values: number[] = []
-  chartData.value.forEach(w => {
-    values.push(w.inflows?.total || 0)
-    values.push(-(w.outflows?.total || 0))
-    values.push(w.closing_balance)
-  })
-  if (threshold.value > 0) {
-    values.push(threshold.value)
-  }
-  return values
-})
-
-const maxValue = computed(() => {
-  const max = Math.max(...allValues.value)
-  return max * 1.1 // Add 10% padding
-})
-
-const minValue = computed(() => {
-  const min = Math.min(...allValues.value)
-  return min < 0 ? min * 1.1 : 0
-})
-
-const valueRange = computed(() => {
-  return maxValue.value - minValue.value
-})
-
-const zeroY = computed(() => {
-  return chartHeight - ((0 - minValue.value) / valueRange.value) * chartHeight
-})
-
-const thresholdY = computed(() => {
-  return chartHeight - ((threshold.value - minValue.value) / valueRange.value) * chartHeight
-})
-
-const barWidth = computed(() => {
-  const numWeeks = chartData.value.length
-  return (chartWidth - padding * 2) / numWeeks - 8
-})
-
-// Summary stats
 const avgInflow = computed(() => {
-  const weeks = chartData.value.filter(w => w.is_forecast)
+  const weeks = chartData.value.filter((w) => w.is_forecast)
   if (!weeks.length) return 0
   return weeks.reduce((sum, w) => sum + (w.inflows?.total || 0), 0) / weeks.length
 })
 
 const avgOutflow = computed(() => {
-  const weeks = chartData.value.filter(w => w.is_forecast)
+  const weeks = chartData.value.filter((w) => w.is_forecast)
   if (!weeks.length) return 0
   return weeks.reduce((sum, w) => sum + (w.outflows?.total || 0), 0) / weeks.length
 })
@@ -308,27 +157,78 @@ const netChange = computed(() => {
   return last - first
 })
 
-// Balance line points
-const balanceLinePoints = computed(() => {
-  if (!chartData.value.length) return ''
-  return chartData.value.map((week, i) => {
-    const x = getBarX(i) + barWidth.value / 2
-    const y = getY(week.closing_balance)
-    return `${x},${y}`
-  }).join(' ')
+/**
+ * AxisChart config.
+ *
+ * Inflows and outflows share the primary y axis. Outflows are negative so they
+ * render as bars extending below zero, mirroring the original SVG layout.
+ *
+ * Balance uses y2 because its magnitude (running total) is typically an order
+ * of magnitude larger than the weekly flow bars and would crush them if on the
+ * same scale. swapXY cannot be used here because of the line series and y2.
+ *
+ * Threshold (when set) is a constant dashed line on y2 so it aligns with the
+ * balance scale, replacing the SVG dashed threshold line.
+ *
+ * themeColor is called inside computed so [data-theme] switches pick up new
+ * resolved values; ECharts canvas cannot resolve CSS custom properties.
+ */
+const axisConfig = computed(() => {
+  const pos = themeColor('--app-pos-fill')
+  const neg = themeColor('--app-neg-fill')
+  const accent = themeColor('--app-accent')
+  const warn = themeColor('--app-warn-fill')
+  const thr = threshold.value
+
+  const rows = chartData.value.map(w => {
+    const row: Record<string, string | number> = {
+      week: w.week_label,
+      Inflows: w.inflows?.total || 0,
+      Outflows: -(w.outflows?.total || 0),
+      Balance: w.closing_balance,
+    }
+    if (thr > 0) row.Threshold = thr
+    return row
+  })
+
+  type SeriesEntry = {
+    name: string
+    type: 'bar' | 'line' | 'area'
+    color: string
+    axis?: 'y' | 'y2'
+    showDataPoints?: boolean
+    lineType?: 'solid' | 'dashed' | 'dotted'
+  }
+
+  const series: SeriesEntry[] = [
+    { name: 'Inflows', type: 'bar', color: pos },
+    { name: 'Outflows', type: 'bar', color: neg },
+    { name: 'Balance', type: 'line', color: accent, axis: 'y2', showDataPoints: true },
+  ]
+
+  if (thr > 0) {
+    series.push({
+      name: 'Threshold',
+      type: 'line',
+      color: warn,
+      axis: 'y2',
+      lineType: 'dashed',
+      showDataPoints: false,
+    })
+  }
+
+  return {
+    data: rows,
+    title: '',
+    xAxis: { key: 'week', type: 'category' as const },
+    yAxis: { title: 'Weekly flow' },
+    y2Axis: { title: 'Balance' },
+    series,
+  }
 })
 
-// Methods
-const getBarX = (index: number) => {
-  return padding + index * ((chartWidth - padding * 2) / chartData.value.length) + 4
-}
-
-const getY = (value: number) => {
-  return chartHeight - ((value - minValue.value) / valueRange.value) * chartHeight
-}
-
-const formatCompact = (value: number) => {
-  if (value === null || value === undefined) return '0'
+const formatCompact = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return NO_VALUE
   const absValue = Math.abs(value)
   const sign = value < 0 ? '-' : ''
   if (absValue >= 1000000) return `${sign}${(absValue / 1000000).toFixed(1)}M`
@@ -337,7 +237,11 @@ const formatCompact = (value: number) => {
 }
 
 const formatCurrency = (value: number) => {
-  if (value === null || value === undefined) return `${currency} 0`
+  // Absent is not zero: this returned `${currency} 0`, reporting zero money
+  // for a field the server never sent. Notation is unchanged -- exact
+  // `en-KE` grouping is a deliberate choice for this surface, and
+  // switching it is a separate product decision.
+  if (value === null || value === undefined) return NO_VALUE
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
     currency: currency,

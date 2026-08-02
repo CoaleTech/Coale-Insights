@@ -1,63 +1,79 @@
 <script setup lang="ts">
-import { Breadcrumbs, ListView } from 'frappe-ui'
+import { asNumber } from '../utils/format'
+import { Badge, Button, ListView, Select, Spinner } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
-import { 
-  RefreshCcw, Loader2, User, ShoppingCart, TrendingUp, 
+import {
+  User, ShoppingCart, TrendingUp,
   Gift, AlertTriangle, ArrowLeft, Mail, Phone, MapPin,
   Calendar, DollarSign, Heart, Target, ChevronRight,
-  Package, Clock, CreditCard, BarChart3, Zap
+  Package, Clock, CreditCard, BarChart3, Zap,
+  ArrowUpRight, ArrowDownRight,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import KpiCard from '../intelligence/components/KpiCard.vue'
+import SectionHeader from '../intelligence/components/SectionHeader.vue'
+import {
+  severityBadge, severityFill, severityAria, scoreSeverity, deltaInk, deltaGlyph, type Severity,
+  HEALTH_SCORE_THRESHOLDS,
+} from '../utils/status'
 import {
   formatCurrency as formatCurrencyFull, formatCurrencyCompact, formatNumber,
   formatDate, formatPercent,
-  getTierColor, getTierBgColor, getHealthColor, getHealthBgColor,
-  getRiskColor, getRfmColor,
   addRecentCustomer,
 } from '../utils/customerUtils'
 
 const route = useRoute()
 const router = useRouter()
 
-// Props
 const customerId = computed(() => route.params.customerId as string)
 
 // State
 const isLoading = ref(true)
 const isRefreshing = ref(false)
 const error = ref<string | null>(null)
-const customer = ref<any>(null)
-const purchaseHistory = ref<any[]>([])
-const crossSellRecommendations = ref<any[]>([])
-const purchasePatterns = ref<any>(null)
+const customer = ref<Record<string, unknown> | null>(null)
+
+/**
+ * Money in the currency the server reported for this customer's company.
+ *
+ * `formatCurrency` used to default to KES with the en-KE locale, rendering KES
+ * as "Ksh" on an INR company. The 360 payload now carries `base_currency`.
+ */
+const payloadCurrency = ref<string | null>(null)
+const baseCurrency = computed<string | null>(() => payloadCurrency.value)
+function money(value: number | undefined | null): string {
+  return formatCurrencyFull(value, baseCurrency.value)
+}
+function moneyCompact(value: number | undefined | null): string {
+  return formatCurrencyCompact(value, baseCurrency.value)
+}
+const purchaseHistory = ref<Record<string, unknown>[]>([])
+const crossSellRecommendations = ref<Record<string, unknown>[]>([])
+const purchasePatterns = ref<Record<string, unknown> | null>(null)
+
+const hasData = computed(() => customer.value !== null && !isLoading.value)
 
 // Cross-sell ListView columns
 const crossSellColumns = [
-  {
-    label: 'Item Code',
-    key: 'item_code',
-    width: 1.5,
-  },
-  {
-    label: 'Item Name',
-    key: 'item_name',
-    width: 2.5,
-  },
+  { label: 'Item Code', key: 'item_code', width: 1.5 },
+  { label: 'Item Name', key: 'item_name', width: 2.5 },
   {
     label: 'Confidence',
     key: 'confidence',
     width: 1,
     align: 'right',
-    getLabel: (props: any) => `${((props.row.confidence || 0) * 100).toFixed(0)}%`,
+    getLabel: (props: { row: Record<string, unknown> }) =>
+      `${(((props.row.confidence as number) || 0) * 100).toFixed(0)}%`,
   },
   {
     label: 'Reason',
     key: 'reason',
     width: 2,
-    getLabel: (props: any) => props.row.reason || 'Purchase history',
+    getLabel: (props: { row: Record<string, unknown> }) =>
+      (props.row.reason as string) || 'Purchase history',
   },
 ]
 
@@ -79,7 +95,6 @@ const filterOptions = [
   { value: 'rfm', label: 'By RFM Segment' },
 ]
 
-// Load customer data
 async function loadCustomerData(refresh = false) {
   if (refresh) {
     isRefreshing.value = true
@@ -87,66 +102,60 @@ async function loadCustomerData(refresh = false) {
     isLoading.value = true
   }
   error.value = null
-  
+
   try {
-    // Load main customer 360 data
     const result = await apiCall('insights.api.ml.customer_360_detail', {
       customer_id: customerId.value,
       include_purchases: true,
-      include_recommendations: true
-    })
+      include_recommendations: true,
+    }) as Record<string, unknown>
 
-    customer.value = result.customer
-    purchaseHistory.value = result.purchase_history || []
-    crossSellRecommendations.value = result.cross_sell || []
-    purchasePatterns.value = result.purchase_patterns || null
-
-    createToast({
-      title: 'Customer Loaded',
-      message: `Loaded data for ${result.customer?.customer_name || customerId.value}`,
-      variant: 'success'
-    })
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load customer details'
+    customer.value = result.customer as Record<string, unknown>
+    // `base_currency` sits at the payload root, not inside `customer`, so it has
+    // to be captured here. Missing it rendered every figure with no currency at all.
+    payloadCurrency.value = (result.base_currency as string | undefined) ?? null
+    purchaseHistory.value = (result.purchase_history as Record<string, unknown>[]) || []
+    crossSellRecommendations.value = (result.cross_sell as Record<string, unknown>[]) || []
+    purchasePatterns.value = (result.purchase_patterns as Record<string, unknown>) || null
+  } catch (e: unknown) {
+    error.value = (e instanceof Error ? e.message : null) || 'Failed to load customer details'
   } finally {
     isLoading.value = false
     isRefreshing.value = false
   }
 }
 
-// Navigate back to customer intelligence
 function goBack() {
-  router.push('/customer-intelligence')
+  router.push('/revenue-customers-intelligence')
 }
 
-// Navigate to related customer
 function navigateToRelated(relatedCustomerId: string) {
   addRecentCustomer(relatedCustomerId)
   router.push(`/customer/${relatedCustomerId}`)
 }
 
 // Computed values
-const clvTier = computed(() => customer.value?.clv_tier || 'Unknown')
-const healthScore = computed(() => customer.value?.health_score || 0)
-const healthStatus = computed(() => customer.value?.health_status || 'Unknown')
-const churnRisk = computed(() => customer.value?.churn_risk || 'Unknown')
-const churnScore = computed(() => customer.value?.churn_score || 0)
-const rfmSegment = computed(() => customer.value?.rfm_segment || 'Unknown')
+const clvTier = computed(() => (customer.value?.clv_tier as string) || 'Unknown')
+const healthScore = computed(() => (customer.value?.health_score as number) || 0)
+const healthStatus = computed(() => (customer.value?.health_status as string) || 'Unknown')
+const churnRisk = computed(() => (customer.value?.churn_risk as string) || 'Unknown')
+const churnScore = computed(() => (customer.value?.churn_score as number) || 0)
+const rfmSegment = computed(() => (customer.value?.rfm_segment as string) || 'Unknown')
 
-const totalOrders = computed(() => customer.value?.order_count || 0)
-const totalRevenue = computed(() => customer.value?.historical_clv || 0)
-const avgOrderValue = computed(() => customer.value?.avg_order_value || 0)
-const daysSincePurchase = computed(() => customer.value?.days_since_last_purchase || 0)
-const predictedClv = computed(() => customer.value?.predicted_12m_clv || 0)
+const totalOrders = computed(() => (customer.value?.order_count as number) || 0)
+const totalRevenue = computed(() => (customer.value?.historical_clv as number) || 0)
+const avgOrderValue = computed(() => (customer.value?.avg_order_value as number) || 0)
+const daysSincePurchase = computed(() => (customer.value?.days_since_last_purchase as number) || 0)
+const predictedClv = computed(() => (customer.value?.predicted_12m_clv as number) || 0)
 
-const nextBestActions = computed(() => customer.value?.recommendations || [])
+const nextBestActions = computed(() => (customer.value?.recommendations as Record<string, unknown>[]) || [])
 
-// Helper functions — compact format for cards, full for tables
-function formatCurrency(value: number): string {
-  return formatCurrencyCompact(value)
-}
+// Health and churn severity computed from scores
+const healthSeverity = computed(() =>
+  scoreSeverity(healthScore.value, HEALTH_SCORE_THRESHOLDS),
+)
+const churnSeverity = computed(() => severityBadge(churnRisk.value))
 
-// Chat context for AI assistant
 const chatContext = computed(() => ({
   customer_id: customerId.value,
   customer_name: customer.value?.customer_name,
@@ -155,10 +164,9 @@ const chatContext = computed(() => ({
   churn_risk: churnRisk.value,
   total_revenue: totalRevenue.value,
   total_orders: totalOrders.value,
-  rfm_segment: rfmSegment.value
+  rfm_segment: rfmSegment.value,
 }))
 
-// Lifecycle
 onMounted(() => {
   loadCustomerData()
 })
@@ -169,609 +177,596 @@ watch(customerId, () => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-50">
+  <div class="flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
-    <header class="sticky top-0 z-10 flex items-center justify-between px-6 py-4 bg-white border-b">
+    <header class="sticky top-0 z-10 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between px-6 py-4 bg-surface-white border-b border-outline-gray-1">
       <div class="flex items-center gap-4">
-        <button 
+        <Button
+          variant="ghost"
+          theme="gray"
+          aria-label="Back to customer intelligence"
           @click="goBack"
-          class="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
         >
-          <ArrowLeft class="w-5 h-5" />
-        </button>
+          <ArrowLeft class="w-4 h-4" />
+        </Button>
         <div>
           <div class="flex items-center gap-3">
-            <h1 class="text-xl font-semibold text-gray-900">
+            <h1 class="text-xl font-semibold text-ink-gray-9">
               {{ customer?.customer_name || customerId }}
             </h1>
-            <span 
+            <Badge
               v-if="clvTier !== 'Unknown'"
-              :class="['px-3 py-1 text-sm font-medium text-white rounded-full', getTierColor(clvTier)]"
-            >
-              {{ clvTier }}
-            </span>
+              theme="gray"
+              variant="subtle"
+              :label="clvTier"
+              size="sm"
+            />
           </div>
-          <p class="text-sm text-gray-500">Customer ID: {{ customerId }}</p>
+          <p class="text-sm text-ink-gray-6">Customer ID: {{ customerId }}</p>
         </div>
       </div>
-      
+
       <div class="flex items-center gap-3">
-        <!-- Filter Type Selector -->
-        <select 
+        <Select
           v-model="filterType"
-          class="px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option v-for="opt in filterOptions" :key="opt.value" :value="opt.value">
-            {{ opt.label }}
-          </option>
-        </select>
-        
-        <button
+          :options="filterOptions"
+          aria-label="Filter customers by"
+        />
+        <Button
+          variant="subtle"
+          theme="gray"
+          :loading="isRefreshing"
           @click="loadCustomerData(true)"
-          :disabled="isRefreshing"
-          class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
         >
-          <RefreshCcw :class="['w-4 h-4', isRefreshing && 'animate-spin']" />
           Refresh
-        </button>
+        </Button>
       </div>
     </header>
-    
+
     <!-- Main Content -->
     <div class="flex flex-1 overflow-hidden">
       <!-- Sidebar Navigation -->
-      <aside class="w-64 bg-white border-r overflow-y-auto">
-        <nav class="p-4 space-y-1">
-          <button
+      <aside class="w-64 bg-surface-white border-r border-outline-gray-1 overflow-y-auto">
+        <nav class="p-4 space-y-1" aria-label="Customer sections">
+          <Button
             v-for="section in sections"
             :key="section.id"
+            variant="ghost"
+            theme="gray"
+            class="w-full justify-start text-left"
+            :class="activeSection === section.id ? 'bg-surface-gray-2 text-ink-gray-9' : 'text-ink-gray-6'"
+            :aria-pressed="activeSection === section.id"
             @click="activeSection = section.id"
-            :class="[
-              'w-full flex items-center gap-3 px-4 py-3 text-sm font-medium rounded-lg transition-colors',
-              activeSection === section.id
-                ? 'bg-blue-50 text-blue-700'
-                : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-            ]"
           >
-            <component :is="section.icon" class="w-5 h-5" />
-            {{ section.label }}
-          </button>
+            <component :is="section.icon" class="w-5 h-5 shrink-0" />
+            <span class="ml-3">{{ section.label }}</span>
+          </Button>
         </nav>
-        
+
         <!-- Quick Stats in Sidebar -->
-        <div class="p-4 border-t">
-          <h4 class="text-xs font-semibold text-gray-500 uppercase mb-3">Quick Stats</h4>
+        <div class="p-4 border-t border-outline-gray-1">
+          <h4 class="text-xs font-semibold text-ink-gray-6 uppercase mb-3">Quick Stats</h4>
           <div class="space-y-3">
             <div class="flex items-center justify-between">
-              <span class="text-sm text-gray-600">Health</span>
-              <span :class="['px-2 py-1 text-xs font-medium rounded', getHealthBgColor(healthStatus)]">
-                {{ healthScore.toFixed(0) }}%
-              </span>
+              <span class="text-sm text-ink-gray-6">Health</span>
+              <Badge
+                v-bind="severityBadge(healthSeverity)"
+                :label="`${healthScore.toFixed(0)}%`"
+                size="sm"
+              />
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-sm text-gray-600">Churn Risk</span>
-              <span :class="['px-2 py-1 text-xs font-medium rounded', getRiskColor(churnRisk)]">
-                {{ churnRisk }}
-              </span>
+              <span class="text-sm text-ink-gray-6">Churn Risk</span>
+              <Badge v-bind="severityBadge(churnRisk)" size="sm" />
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-sm text-gray-600">RFM Segment</span>
-              <span :class="['px-2 py-1 text-xs font-medium rounded truncate max-w-[100px]', getRfmColor(rfmSegment)]" :title="rfmSegment">
-                {{ rfmSegment }}
-              </span>
+              <span class="text-sm text-ink-gray-6">RFM Segment</span>
+              <Badge
+                theme="gray"
+                variant="subtle"
+                :label="rfmSegment"
+                size="sm"
+                class="max-w-[110px] truncate"
+                :title="rfmSegment"
+              />
             </div>
           </div>
         </div>
       </aside>
-      
+
       <!-- Content Area -->
       <main class="flex-1 overflow-y-auto p-6">
         <!-- Loading State -->
         <div v-if="isLoading" class="flex items-center justify-center h-64">
           <div class="text-center">
-            <Loader2 class="w-10 h-10 mx-auto text-blue-500 animate-spin" />
-            <p class="mt-4 text-gray-500">Loading customer data...</p>
+            <Spinner class="mx-auto" />
+            <p class="mt-4 text-ink-gray-6">Loading customer data...</p>
           </div>
         </div>
-        
+
         <!-- Error State -->
         <div v-else-if="error" class="flex items-center justify-center h-64">
           <div class="text-center">
-            <AlertTriangle class="w-12 h-12 mx-auto text-red-400" />
-            <p class="mt-4 text-red-600">{{ error }}</p>
-            <button
-              @click="loadCustomerData(true)"
-              class="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-            >
+            <AlertTriangle class="w-12 h-12 mx-auto text-ink-gray-6" />
+            <p class="mt-4 text-ink-gray-9 font-medium">Failed to load customer</p>
+            <p class="text-sm text-ink-gray-6 mt-1">{{ error }}</p>
+            <Button variant="solid" theme="gray" class="mt-4" @click="loadCustomerData(true)">
               Try Again
-            </button>
+            </Button>
           </div>
         </div>
-        
+
         <!-- Content Sections -->
         <div v-else>
           <!-- Profile Section -->
           <div v-if="activeSection === 'profile'" class="space-y-6">
             <!-- Key Metrics Cards -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div :class="['p-5 rounded-xl border', getTierBgColor(clvTier)]">
-                <div class="flex items-center gap-2 text-gray-600 mb-2">
-                  <DollarSign class="w-4 h-4" />
-                  <span class="text-sm">Total Revenue</span>
-                </div>
-                <p class="text-2xl font-bold text-gray-900">{{ formatCurrency(totalRevenue) }}</p>
-                <p class="text-xs text-gray-500 mt-1">Lifetime Value</p>
-              </div>
-              
-              <div class="p-5 bg-white rounded-xl border border-gray-200">
-                <div class="flex items-center gap-2 text-gray-600 mb-2">
-                  <ShoppingCart class="w-4 h-4" />
-                  <span class="text-sm">Total Orders</span>
-                </div>
-                <p class="text-2xl font-bold text-gray-900">{{ formatNumber(totalOrders) }}</p>
-                <p class="text-xs text-gray-500 mt-1">AOV: {{ formatCurrency(avgOrderValue) }}</p>
-              </div>
-              
-              <div class="p-5 bg-white rounded-xl border border-gray-200">
-                <div class="flex items-center gap-2 text-gray-600 mb-2">
-                  <TrendingUp class="w-4 h-4" />
-                  <span class="text-sm">Predicted CLV (12m)</span>
-                </div>
-                <p class="text-2xl font-bold text-green-600">{{ formatCurrency(predictedClv) }}</p>
-                <p class="text-xs text-gray-500 mt-1">Next 12 months</p>
-              </div>
-              
-              <div class="p-5 bg-white rounded-xl border border-gray-200">
-                <div class="flex items-center gap-2 text-gray-600 mb-2">
-                  <Clock class="w-4 h-4" />
-                  <span class="text-sm">Last Purchase</span>
-                </div>
-                <p class="text-2xl font-bold text-gray-900">{{ daysSincePurchase }}</p>
-                <p class="text-xs text-gray-500 mt-1">days ago</p>
-              </div>
+              <KpiCard
+                label="Total Revenue"
+                :value="money(totalRevenue)"
+                sublabel="Lifetime Value"
+                :loading="!hasData"
+              />
+              <KpiCard
+                label="Total Orders"
+                :value="formatNumber(totalOrders)"
+                :sublabel="`AOV: ${money(avgOrderValue)}`"
+                :loading="!hasData"
+              />
+              <KpiCard
+                label="Predicted CLV (12m)"
+                :value="money(predictedClv)"
+                sublabel="Next 12 months"
+                :loading="!hasData"
+              />
+              <KpiCard
+                label="Last Purchase"
+                :value="String(daysSincePurchase)"
+                sublabel="days ago"
+                :severity="scoreSeverity(daysSincePurchase, { good: 30, warn: 90, higherIsBetter: false })"
+                :loading="!hasData"
+              />
             </div>
-            
+
             <!-- Customer Details -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div class="p-6 bg-white rounded-xl border border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <User class="w-5 h-5" />
-                  Customer Information
-                </h3>
-                <div class="space-y-4">
-                  <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">Customer Group</span>
-                    <span class="text-sm font-medium text-gray-900">{{ customer?.customer_group || 'N/A' }}</span>
+              <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+                <SectionHeader title="Customer Information" :level="3">
+                  <template #actions>
+                    <User class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                  </template>
+                </SectionHeader>
+                <div class="space-y-4 mt-4">
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">Customer Group</span>
+                    <span class="text-sm font-medium text-ink-gray-8">{{ customer?.customer_group || 'N/A' }}</span>
                   </div>
-                  <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">Territory</span>
-                    <span class="text-sm font-medium text-gray-900">{{ customer?.territory || 'N/A' }}</span>
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">Territory</span>
+                    <span class="text-sm font-medium text-ink-gray-8">{{ customer?.territory || 'N/A' }}</span>
                   </div>
-                  <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">Account Manager</span>
-                    <span class="text-sm font-medium text-gray-900">{{ customer?.account_manager || 'N/A' }}</span>
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">Account Manager</span>
+                    <span class="text-sm font-medium text-ink-gray-8">{{ customer?.account_manager || 'N/A' }}</span>
                   </div>
-                  <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">Customer Since</span>
-                    <span class="text-sm font-medium text-gray-900">{{ formatDate(customer?.customer_since) }}</span>
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">Customer Since</span>
+                    <span class="text-sm font-medium text-ink-gray-8">{{ formatDate(customer?.customer_since as string) }}</span>
                   </div>
                   <div class="flex justify-between items-center py-2">
-                    <span class="text-sm text-gray-600">Tenure</span>
-                    <span class="text-sm font-medium text-gray-900">{{ customer?.tenure_days || 0 }} days</span>
+                    <span class="text-sm text-ink-gray-6">Tenure</span>
+                    <span class="text-sm font-medium text-ink-gray-8">{{ customer?.tenure_days || 0 }} days</span>
                   </div>
                 </div>
               </div>
-              
-              <div class="p-6 bg-white rounded-xl border border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <BarChart3 class="w-5 h-5" />
-                  Segmentation
-                </h3>
-                <div class="space-y-4">
-                  <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">CLV Tier</span>
-                    <span :class="['px-3 py-1 text-sm font-medium text-white rounded-full', getTierColor(clvTier)]">
-                      {{ clvTier }}
-                    </span>
+
+              <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+                <SectionHeader title="Segmentation" :level="3">
+                  <template #actions>
+                    <BarChart3 class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                  </template>
+                </SectionHeader>
+                <div class="space-y-4 mt-4">
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">CLV Tier</span>
+                    <Badge theme="gray" variant="subtle" :label="clvTier" />
                   </div>
-                  <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">RFM Segment</span>
-                    <span :class="['px-3 py-1 text-sm font-medium rounded-full', getRfmColor(rfmSegment)]">
-                      {{ rfmSegment }}
-                    </span>
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">RFM Segment</span>
+                    <Badge theme="gray" variant="subtle" :label="rfmSegment" />
                   </div>
-                  <div class="flex justify-between items-center py-2 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">Health Status</span>
-                    <span :class="['px-3 py-1 text-sm font-medium rounded-full', getHealthBgColor(healthStatus)]">
-                      {{ healthStatus }}
-                    </span>
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">Health Status</span>
+                    <Badge v-bind="severityBadge(healthSeverity)" :label="healthStatus" />
                   </div>
                   <div class="flex justify-between items-center py-2">
-                    <span class="text-sm text-gray-600">Churn Risk</span>
-                    <span :class="['px-3 py-1 text-sm font-medium rounded-full', getRiskColor(churnRisk)]">
-                      {{ churnRisk }} ({{ churnScore.toFixed(0) }}%)
-                    </span>
+                    <span class="text-sm text-ink-gray-6">Churn Risk</span>
+                    <Badge v-bind="severityBadge(churnRisk)" :label="`${churnRisk} (${churnScore.toFixed(0)}%)`" />
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          
+
           <!-- Purchases Section -->
           <div v-if="activeSection === 'purchases'" class="space-y-6">
-            <div class="p-6 bg-white rounded-xl border border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <ShoppingCart class="w-5 h-5" />
-                Purchase History
-              </h3>
-              
-              <div v-if="purchaseHistory.length > 0" class="overflow-x-auto">
+            <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+              <SectionHeader title="Purchase History" :level="3">
+                <template #actions>
+                  <ShoppingCart class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                </template>
+              </SectionHeader>
+
+              <div v-if="purchaseHistory.length > 0" class="mt-4 overflow-x-auto">
                 <table class="w-full text-sm">
                   <thead>
-                    <tr class="border-b border-gray-200">
-                      <th class="px-4 py-3 text-left text-gray-600">Invoice</th>
-                      <th class="px-4 py-3 text-left text-gray-600">Date</th>
-                      <th class="px-4 py-3 text-right text-gray-600">Amount</th>
-                      <th class="px-4 py-3 text-right text-gray-600">Outstanding</th>
-                      <th class="px-4 py-3 text-center text-gray-600">Status</th>
+                    <tr class="border-b border-outline-gray-1">
+                      <th scope="col" class="px-4 py-3 text-left text-ink-gray-7 font-medium">Invoice</th>
+                      <th scope="col" class="px-4 py-3 text-left text-ink-gray-7 font-medium">Date</th>
+                      <th scope="col" class="px-4 py-3 text-right text-ink-gray-7 font-medium">Amount</th>
+                      <th scope="col" class="px-4 py-3 text-right text-ink-gray-7 font-medium">Outstanding</th>
+                      <th scope="col" class="px-4 py-3 text-center text-ink-gray-7 font-medium">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr 
-                      v-for="purchase in purchaseHistory.slice(0, 20)" 
-                      :key="purchase.invoice_id"
-                      class="border-b border-gray-100 hover:bg-gray-50"
+                    <tr
+                      v-for="purchase in purchaseHistory.slice(0, 20)"
+                      :key="purchase.invoice_id as string"
+                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
+                      tabindex="0"
+                      @keydown.enter.prevent="navigateToRelated(purchase.invoice_id as string)"
                     >
-                      <td class="px-4 py-3 font-medium text-blue-600">{{ purchase.invoice_id }}</td>
-                      <td class="px-4 py-3 text-gray-600">{{ formatDate(purchase.posting_date) }}</td>
-                      <td class="px-4 py-3 text-right font-medium">{{ formatCurrency(purchase.grand_total) }}</td>
-                      <td class="px-4 py-3 text-right" :class="purchase.outstanding_amount > 0 ? 'text-red-600' : 'text-green-600'">
-                        {{ formatCurrency(purchase.outstanding_amount) }}
+                      <td class="px-4 py-3 font-medium text-ink-gray-8">{{ purchase.invoice_id }}</td>
+                      <td class="px-4 py-3 text-ink-gray-6">{{ formatDate(purchase.posting_date as string) }}</td>
+                      <td class="px-4 py-3 text-right font-medium text-ink-gray-8">{{ money(purchase.grand_total as number) }}</td>
+                      <td class="px-4 py-3 text-right">
+                        <span :class="(purchase.outstanding_amount as number) > 0 ? 'text-ink-red-4 font-medium' : 'text-ink-gray-8'">
+                          {{ money(purchase.outstanding_amount as number) }}
+                          <span v-if="(purchase.outstanding_amount as number) > 0" class="text-xs ml-1">(due)</span>
+                        </span>
                       </td>
                       <td class="px-4 py-3 text-center">
-                        <span :class="[
-                          'px-2 py-1 text-xs font-medium rounded-full',
-                          purchase.payment_status === 'Paid' ? 'bg-green-100 text-green-700' :
-                          purchase.payment_status === 'Overdue' ? 'bg-red-100 text-red-700' :
-                          'bg-yellow-100 text-yellow-700'
-                        ]">
-                          {{ purchase.payment_status }}
-                        </span>
+                        <Badge
+                          v-bind="severityBadge(
+                            purchase.payment_status === 'Paid' ? 'low' :
+                            purchase.payment_status === 'Overdue' ? 'high' : 'medium'
+                          )"
+                          :label="purchase.payment_status as string"
+                          size="sm"
+                        />
                       </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
-              
-              <div v-else class="text-center py-12 text-gray-500">
-                <ShoppingCart class="w-12 h-12 mx-auto text-gray-300" />
+
+              <div v-else class="mt-4 text-center py-12 text-ink-gray-6">
+                <ShoppingCart class="w-12 h-12 mx-auto text-ink-gray-6 opacity-40" aria-hidden="true" />
                 <p class="mt-4">No purchase history available</p>
               </div>
             </div>
-            
+
             <!-- Purchase Patterns -->
-            <div v-if="purchasePatterns" class="p-6 bg-white rounded-xl border border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <BarChart3 class="w-5 h-5" />
-                Purchase Patterns
-              </h3>
-              <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="p-4 bg-gray-50 rounded-lg">
-                  <p class="text-sm text-gray-600">Avg Order Frequency</p>
-                  <p class="text-xl font-bold text-gray-900">{{ purchasePatterns.avg_frequency || 'N/A' }}</p>
-                  <p class="text-xs text-gray-500">days between orders</p>
+            <div v-if="purchasePatterns" class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+              <SectionHeader title="Purchase Patterns" :level="3">
+                <template #actions>
+                  <BarChart3 class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                </template>
+              </SectionHeader>
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="p-4 bg-surface-gray-1 rounded-lg">
+                  <p class="text-sm text-ink-gray-6">Avg Order Frequency</p>
+                  <p class="text-xl font-bold text-ink-gray-9">{{ purchasePatterns.avg_frequency || 'N/A' }}</p>
+                  <p class="text-xs text-ink-gray-6">days between orders</p>
                 </div>
-                <div class="p-4 bg-gray-50 rounded-lg">
-                  <p class="text-sm text-gray-600">Preferred Day</p>
-                  <p class="text-xl font-bold text-gray-900">{{ purchasePatterns.preferred_day || 'N/A' }}</p>
-                  <p class="text-xs text-gray-500">most common purchase day</p>
+                <div class="p-4 bg-surface-gray-1 rounded-lg">
+                  <p class="text-sm text-ink-gray-6">Preferred Day</p>
+                  <p class="text-xl font-bold text-ink-gray-9">{{ purchasePatterns.preferred_day || 'N/A' }}</p>
+                  <p class="text-xs text-ink-gray-6">most common purchase day</p>
                 </div>
-                <div class="p-4 bg-gray-50 rounded-lg">
-                  <p class="text-sm text-gray-600">Peak Month</p>
-                  <p class="text-xl font-bold text-gray-900">{{ purchasePatterns.peak_month || 'N/A' }}</p>
-                  <p class="text-xs text-gray-500">highest spending month</p>
+                <div class="p-4 bg-surface-gray-1 rounded-lg">
+                  <p class="text-sm text-ink-gray-6">Peak Month</p>
+                  <p class="text-xl font-bold text-ink-gray-9">{{ purchasePatterns.peak_month || 'N/A' }}</p>
+                  <p class="text-xs text-ink-gray-6">highest spending month</p>
                 </div>
               </div>
             </div>
           </div>
-          
+
           <!-- CLV Analysis Section -->
           <div v-if="activeSection === 'clv'" class="space-y-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div class="p-6 bg-white rounded-xl border border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <TrendingUp class="w-5 h-5" />
-                  CLV Breakdown
-                </h3>
-                <div class="space-y-4">
-                  <div class="flex justify-between items-center py-3 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">Historical CLV</span>
-                    <span class="text-lg font-bold text-gray-900">{{ formatCurrency(totalRevenue) }}</span>
+              <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+                <SectionHeader title="CLV Breakdown" :level="3">
+                  <template #actions>
+                    <TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                  </template>
+                </SectionHeader>
+                <div class="space-y-4 mt-4">
+                  <div class="flex justify-between items-center py-3 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">Historical CLV</span>
+                    <span class="text-lg font-bold text-ink-gray-9">{{ money(totalRevenue) }}</span>
                   </div>
-                  <div class="flex justify-between items-center py-3 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">Predicted 12m CLV</span>
-                    <span class="text-lg font-bold text-green-600">{{ formatCurrency(predictedClv) }}</span>
+                  <div class="flex justify-between items-center py-3 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">Predicted 12m CLV</span>
+                    <span class="text-lg font-bold text-ink-gray-9">{{ money(predictedClv) }}</span>
                   </div>
-                  <div class="flex justify-between items-center py-3 border-b border-gray-100">
-                    <span class="text-sm text-gray-600">CLV Score</span>
-                    <span class="text-lg font-bold text-blue-600">{{ customer?.clv_score?.toFixed(0) || 0 }}</span>
+                  <div class="flex justify-between items-center py-3 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">CLV Score</span>
+                    <span class="text-lg font-bold text-ink-gray-8">{{ (customer?.clv_score as number)?.toFixed(0) || 0 }}</span>
                   </div>
                   <div class="flex justify-between items-center py-3">
-                    <span class="text-sm text-gray-600">CLV Tier</span>
-                    <span :class="['px-3 py-1 text-sm font-medium text-white rounded-full', getTierColor(clvTier)]">
-                      {{ clvTier }}
-                    </span>
+                    <span class="text-sm text-ink-gray-6">CLV Tier</span>
+                    <Badge theme="gray" variant="subtle" :label="clvTier" />
                   </div>
                 </div>
               </div>
-              
-              <div class="p-6 bg-white rounded-xl border border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Target class="w-5 h-5" />
-                  CLV Components
-                </h3>
-                <div class="space-y-4">
+
+              <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+                <SectionHeader title="CLV Components" :level="3">
+                  <template #actions>
+                    <Target class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                  </template>
+                </SectionHeader>
+                <div class="space-y-4 mt-4">
                   <div>
                     <div class="flex justify-between text-sm mb-1">
-                      <span class="text-gray-600">Revenue Score</span>
-                      <span class="font-medium">{{ customer?.revenue_score?.toFixed(0) || 0 }}%</span>
+                      <span class="text-ink-gray-6">Revenue Score</span>
+                      <span class="font-medium text-ink-gray-8">{{ (customer?.revenue_score as number)?.toFixed(0) || 0 }}%</span>
                     </div>
-                    <div class="w-full bg-gray-200 rounded-full h-2">
-                      <div class="bg-blue-600 rounded-full h-2" :style="{ width: `${customer?.revenue_score || 0}%` }"></div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-2">
+                      <div
+                        class="bg-surface-gray-5 rounded-full h-2"
+                        :style="{ width: `${customer?.revenue_score || 0}%` }"
+                        :aria-label="`Revenue score: ${(customer?.revenue_score as number)?.toFixed(0) || 0}%`"
+                        role="img"
+                      />
                     </div>
                   </div>
                   <div>
                     <div class="flex justify-between text-sm mb-1">
-                      <span class="text-gray-600">Engagement Score</span>
-                      <span class="font-medium">{{ customer?.engagement_score?.toFixed(0) || 0 }}%</span>
+                      <span class="text-ink-gray-6">Engagement Score</span>
+                      <span class="font-medium text-ink-gray-8">{{ (customer?.engagement_score as number)?.toFixed(0) || 0 }}%</span>
                     </div>
-                    <div class="w-full bg-gray-200 rounded-full h-2">
-                      <div class="bg-green-600 rounded-full h-2" :style="{ width: `${customer?.engagement_score || 0}%` }"></div>
-                    </div>
-                  </div>
-                  <div>
-                    <div class="flex justify-between text-sm mb-1">
-                      <span class="text-gray-600">Longevity Score</span>
-                      <span class="font-medium">{{ customer?.longevity_score?.toFixed(0) || 0 }}%</span>
-                    </div>
-                    <div class="w-full bg-gray-200 rounded-full h-2">
-                      <div class="bg-purple-600 rounded-full h-2" :style="{ width: `${customer?.longevity_score || 0}%` }"></div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-2">
+                      <div
+                        class="bg-surface-gray-5 rounded-full h-2"
+                        :style="{ width: `${customer?.engagement_score || 0}%` }"
+                        :aria-label="`Engagement score: ${(customer?.engagement_score as number)?.toFixed(0) || 0}%`"
+                        role="img"
+                      />
                     </div>
                   </div>
                   <div>
                     <div class="flex justify-between text-sm mb-1">
-                      <span class="text-gray-600">Growth Score</span>
-                      <span class="font-medium">{{ customer?.growth_score?.toFixed(0) || 0 }}%</span>
+                      <span class="text-ink-gray-6">Longevity Score</span>
+                      <span class="font-medium text-ink-gray-8">{{ (customer?.longevity_score as number)?.toFixed(0) || 0 }}%</span>
                     </div>
-                    <div class="w-full bg-gray-200 rounded-full h-2">
-                      <div class="bg-orange-600 rounded-full h-2" :style="{ width: `${customer?.growth_score || 0}%` }"></div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-2">
+                      <div
+                        class="bg-surface-gray-5 rounded-full h-2"
+                        :style="{ width: `${customer?.longevity_score || 0}%` }"
+                        :aria-label="`Longevity score: ${(customer?.longevity_score as number)?.toFixed(0) || 0}%`"
+                        role="img"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div class="flex justify-between text-sm mb-1">
+                      <span class="text-ink-gray-6">Growth Score</span>
+                      <span class="font-medium text-ink-gray-8">{{ (customer?.growth_score as number)?.toFixed(0) || 0 }}%</span>
+                    </div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-2">
+                      <div
+                        class="bg-surface-gray-5 rounded-full h-2"
+                        :style="{ width: `${customer?.growth_score || 0}%` }"
+                        :aria-label="`Growth score: ${(customer?.growth_score as number)?.toFixed(0) || 0}%`"
+                        role="img"
+                      />
                     </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          
+
           <!-- Recommendations Section -->
           <div v-if="activeSection === 'recommendations'" class="space-y-6">
             <!-- Next Best Actions -->
-            <div class="p-6 bg-white rounded-xl border border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Zap class="w-5 h-5" />
-                Next Best Actions
-              </h3>
-              <div v-if="nextBestActions.length > 0" class="space-y-3">
-                <div 
-                  v-for="action in nextBestActions" 
-                  :key="action.action"
-                  :class="[
-                    'p-4 rounded-lg border-l-4',
-                    action.priority === 'High' ? 'bg-red-50 border-red-500' :
-                    action.priority === 'Medium' ? 'bg-yellow-50 border-yellow-500' :
-                    'bg-blue-50 border-blue-500'
-                  ]"
+            <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+              <SectionHeader title="Next Best Actions" :level="3">
+                <template #actions>
+                  <Zap class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                </template>
+              </SectionHeader>
+              <div v-if="nextBestActions.length > 0" class="mt-4 space-y-3">
+                <div
+                  v-for="action in nextBestActions"
+                  :key="action.action as string"
+                  class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white"
                 >
                   <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-bold uppercase text-gray-700">
-                      {{ action.action?.replace(/_/g, ' ') }}
+                    <span class="text-sm font-bold uppercase text-ink-gray-8">
+                      {{ (action.action as string)?.replace(/_/g, ' ') }}
                     </span>
-                    <span :class="[
-                      'px-2 py-1 text-xs font-medium rounded',
-                      action.priority === 'High' ? 'bg-red-100 text-red-700' :
-                      action.priority === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-blue-100 text-blue-700'
-                    ]">
-                      {{ action.priority }} Priority
-                    </span>
+                    <Badge
+                      v-bind="severityBadge((action.priority as string)?.toLowerCase())"
+                      :label="`${action.priority} Priority`"
+                      size="sm"
+                    />
                   </div>
-                  <p class="text-sm text-gray-700">{{ action.description }}</p>
-                  <p class="mt-2 text-xs text-gray-500">💡 {{ action.suggestion }}</p>
+                  <p class="text-sm text-ink-gray-7">{{ action.description }}</p>
+                  <p v-if="action.suggestion" class="mt-2 text-xs text-ink-gray-6">{{ action.suggestion }}</p>
                 </div>
               </div>
-              <div v-else class="text-center py-12 text-gray-500">
-                <Zap class="w-12 h-12 mx-auto text-gray-300" />
+              <div v-else class="mt-4 text-center py-12 text-ink-gray-6">
+                <Zap class="w-12 h-12 mx-auto opacity-40" aria-hidden="true" />
                 <p class="mt-4">No actions recommended at this time</p>
               </div>
             </div>
-            
+
             <!-- Cross-sell Recommendations -->
-            <div class="p-6 bg-white rounded-xl border border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Gift class="w-5 h-5" />
-                Cross-sell Recommendations
-              </h3>
-              <ListView
-                v-if="crossSellRecommendations.length > 0"
-                :columns="crossSellColumns"
-                :rows="crossSellRecommendations"
-                row-key="item_code"
-                :options="{ showTooltip: false, emptyState: { title: 'No cross-sell recommendations', description: 'No recommendations available at this time.' } }"
-              />
-              <div v-else class="text-center py-12 text-gray-500">
-                <Gift class="w-12 h-12 mx-auto text-gray-300" />
-                <p class="mt-4">No cross-sell recommendations available</p>
+            <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+              <SectionHeader title="Cross-sell Recommendations" :level="3">
+                <template #actions>
+                  <Gift class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                </template>
+              </SectionHeader>
+              <div class="mt-4">
+                <ListView
+                  v-if="crossSellRecommendations.length > 0"
+                  :columns="crossSellColumns"
+                  :rows="crossSellRecommendations"
+                  row-key="item_code"
+                  :options="{ showTooltip: false, emptyState: { title: 'No cross-sell recommendations', description: 'No recommendations available at this time.' } }"
+                />
+                <div v-else class="text-center py-12 text-ink-gray-6">
+                  <Gift class="w-12 h-12 mx-auto opacity-40" aria-hidden="true" />
+                  <p class="mt-4">No cross-sell recommendations available</p>
+                </div>
               </div>
             </div>
           </div>
-          
+
           <!-- Risk Assessment Section -->
           <div v-if="activeSection === 'risk'" class="space-y-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <!-- Churn Risk -->
-              <div class="p-6 bg-white rounded-xl border border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <AlertTriangle class="w-5 h-5" />
-                  Churn Risk Assessment
-                </h3>
+              <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+                <SectionHeader title="Churn Risk Assessment" :level="3">
+                  <template #actions>
+                    <AlertTriangle class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                  </template>
+                </SectionHeader>
                 <div class="text-center py-6">
-                  <div :class="[
-                    'inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold',
-                    churnRisk === 'Low' ? 'bg-green-100 text-green-700' :
-                    churnRisk === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
-                    churnRisk === 'High' ? 'bg-orange-100 text-orange-700' :
-                    'bg-red-100 text-red-700'
-                  ]">
+                  <div
+                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(churnRisk)]"
+                    :aria-label="severityAria('Churn Risk', churnRisk, `${churnScore.toFixed(0)}%`)"
+                    role="img"
+                  >
                     {{ churnScore.toFixed(0) }}%
                   </div>
-                  <p class="mt-4 text-lg font-semibold" :class="getHealthColor(churnRisk === 'Low' ? 'Excellent' : churnRisk === 'Medium' ? 'Healthy' : churnRisk === 'High' ? 'At Risk' : 'Critical')">
-                    {{ churnRisk }} Risk
-                  </p>
+                  <div class="mt-4 flex items-center justify-center gap-2">
+                    <p class="text-lg font-semibold text-ink-gray-8">{{ churnRisk }} Risk</p>
+                    <Badge v-bind="severityBadge(churnRisk)" size="sm" />
+                  </div>
                 </div>
                 <div class="mt-4 space-y-3">
                   <div class="flex justify-between items-center text-sm">
-                    <span class="text-gray-600">Frequency Trend</span>
-                    <span :class="[
-                      'font-medium',
-                      (customer?.frequency_trend || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-                    ]">
-                      {{ (customer?.frequency_trend || 0) >= 0 ? '↑' : '↓' }} {{ Math.abs(customer?.frequency_trend || 0).toFixed(1) }}
+                    <span class="text-ink-gray-6">Frequency Trend</span>
+                    <span :class="['font-medium', deltaInk(customer?.frequency_trend as number)]">
+                      {{ deltaGlyph(customer?.frequency_trend as number) }}
+                      {{ Math.abs((customer?.frequency_trend as number) || 0).toFixed(1) }}
                     </span>
                   </div>
                   <div class="flex justify-between items-center text-sm">
-                    <span class="text-gray-600">Value Trend</span>
-                    <span :class="[
-                      'font-medium',
-                      (customer?.value_trend || 0) >= 0 ? 'text-green-600' : 'text-red-600'
-                    ]">
-                      {{ (customer?.value_trend || 0) >= 0 ? '↑' : '↓' }} {{ Math.abs(customer?.value_trend || 0).toFixed(1) }}
+                    <span class="text-ink-gray-6">Value Trend</span>
+                    <span :class="['font-medium', deltaInk(customer?.value_trend as number)]">
+                      {{ deltaGlyph(customer?.value_trend as number) }}
+                      {{ Math.abs((customer?.value_trend as number) || 0).toFixed(1) }}
                     </span>
                   </div>
                 </div>
               </div>
-              
+
               <!-- Health Score -->
-              <div class="p-6 bg-white rounded-xl border border-gray-200">
-                <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Heart class="w-5 h-5" />
-                  Health Score
-                </h3>
+              <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+                <SectionHeader title="Health Score" :level="3">
+                  <template #actions>
+                    <Heart class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                  </template>
+                </SectionHeader>
                 <div class="text-center py-6">
-                  <div :class="[
-                    'inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold',
-                    healthStatus === 'Excellent' ? 'bg-green-100 text-green-700' :
-                    healthStatus === 'Healthy' ? 'bg-blue-100 text-blue-700' :
-                    healthStatus === 'At Risk' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-red-100 text-red-700'
-                  ]">
+                  <div
+                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(healthSeverity)]"
+                    :aria-label="severityAria('Health Score', healthSeverity, healthScore.toFixed(0))"
+                    role="img"
+                  >
                     {{ healthScore.toFixed(0) }}
                   </div>
-                  <p class="mt-4 text-lg font-semibold" :class="getHealthColor(healthStatus)">
-                    {{ healthStatus }}
-                  </p>
+                  <div class="mt-4 flex items-center justify-center gap-2">
+                    <p class="text-lg font-semibold text-ink-gray-8">{{ healthStatus }}</p>
+                    <Badge v-bind="severityBadge(healthSeverity)" size="sm" />
+                  </div>
                 </div>
                 <div class="mt-4">
-                  <div class="flex justify-between text-sm text-gray-600 mb-2">
+                  <div class="flex justify-between text-sm text-ink-gray-6 mb-2">
                     <span>Health Components</span>
                     <span>Score</span>
                   </div>
                   <div class="space-y-2">
-                    <div class="flex justify-between items-center">
-                      <span class="text-sm">Revenue</span>
+                    <div v-for="(comp, label) in {
+                      Revenue: customer?.revenue_score,
+                      Engagement: customer?.engagement_score,
+                      Payment: customer?.payment_score,
+                      Longevity: customer?.longevity_score,
+                      Growth: customer?.growth_score,
+                    }" :key="label" class="flex justify-between items-center">
+                      <span class="text-sm text-ink-gray-7">{{ label }}</span>
                       <div class="flex items-center gap-2">
-                        <div class="w-20 bg-gray-200 rounded-full h-1.5">
-                          <div class="bg-blue-600 rounded-full h-1.5" :style="{ width: `${customer?.revenue_score || 0}%` }"></div>
+                        <div class="w-20 bg-surface-gray-2 rounded-full h-1.5">
+                          <div
+                            class="bg-surface-gray-5 rounded-full h-1.5"
+                            :style="{ width: `${comp || 0}%` }"
+                            :aria-label="`${label}: ${((comp as number) || 0).toFixed(0)}`"
+                            role="img"
+                          />
                         </div>
-                        <span class="text-xs font-medium w-8 text-right">{{ (customer?.revenue_score || 0).toFixed(0) }}</span>
-                      </div>
-                    </div>
-                    <div class="flex justify-between items-center">
-                      <span class="text-sm">Engagement</span>
-                      <div class="flex items-center gap-2">
-                        <div class="w-20 bg-gray-200 rounded-full h-1.5">
-                          <div class="bg-green-600 rounded-full h-1.5" :style="{ width: `${customer?.engagement_score || 0}%` }"></div>
-                        </div>
-                        <span class="text-xs font-medium w-8 text-right">{{ (customer?.engagement_score || 0).toFixed(0) }}</span>
-                      </div>
-                    </div>
-                    <div class="flex justify-between items-center">
-                      <span class="text-sm">Payment</span>
-                      <div class="flex items-center gap-2">
-                        <div class="w-20 bg-gray-200 rounded-full h-1.5">
-                          <div class="bg-purple-600 rounded-full h-1.5" :style="{ width: `${customer?.payment_score || 0}%` }"></div>
-                        </div>
-                        <span class="text-xs font-medium w-8 text-right">{{ (customer?.payment_score || 0).toFixed(0) }}</span>
-                      </div>
-                    </div>
-                    <div class="flex justify-between items-center">
-                      <span class="text-sm">Longevity</span>
-                      <div class="flex items-center gap-2">
-                        <div class="w-20 bg-gray-200 rounded-full h-1.5">
-                          <div class="bg-orange-600 rounded-full h-1.5" :style="{ width: `${customer?.longevity_score || 0}%` }"></div>
-                        </div>
-                        <span class="text-xs font-medium w-8 text-right">{{ (customer?.longevity_score || 0).toFixed(0) }}</span>
-                      </div>
-                    </div>
-                    <div class="flex justify-between items-center">
-                      <span class="text-sm">Growth</span>
-                      <div class="flex items-center gap-2">
-                        <div class="w-20 bg-gray-200 rounded-full h-1.5">
-                          <div class="bg-cyan-600 rounded-full h-1.5" :style="{ width: `${customer?.growth_score || 0}%` }"></div>
-                        </div>
-                        <span class="text-xs font-medium w-8 text-right">{{ (customer?.growth_score || 0).toFixed(0) }}</span>
+                        <span class="text-xs font-medium w-8 text-right text-ink-gray-7">
+                          {{ ((comp as number) || 0).toFixed(0) }}
+                        </span>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-            
+
             <!-- Payment Behavior -->
-            <div class="p-6 bg-white rounded-xl border border-gray-200">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <CreditCard class="w-5 h-5" />
-                Payment Behavior
-              </h3>
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div class="p-4 bg-gray-50 rounded-lg">
-                  <p class="text-sm text-gray-600">Avg Days to Pay</p>
-                  <p class="text-2xl font-bold text-gray-900">{{ customer?.avg_days_to_pay?.toFixed(0) || 'N/A' }}</p>
-                </div>
-                <div class="p-4 bg-gray-50 rounded-lg">
-                  <p class="text-sm text-gray-600">Outstanding Amount</p>
-                  <p class="text-2xl font-bold" :class="(customer?.outstanding_amount || 0) > 0 ? 'text-red-600' : 'text-green-600'">
-                    {{ formatCurrency(customer?.outstanding_amount || 0) }}
-                  </p>
-                </div>
-                <div class="p-4 bg-gray-50 rounded-lg">
-                  <p class="text-sm text-gray-600">Payment Score</p>
-                  <p class="text-2xl font-bold text-gray-900">{{ customer?.payment_score?.toFixed(0) || 0 }}%</p>
-                </div>
-                <div class="p-4 bg-gray-50 rounded-lg">
-                  <p class="text-sm text-gray-600">Overdue Invoices</p>
-                  <p class="text-2xl font-bold" :class="(customer?.overdue_count || 0) > 0 ? 'text-red-600' : 'text-green-600'">
-                    {{ customer?.overdue_count || 0 }}
-                  </p>
-                </div>
+            <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+              <SectionHeader title="Payment Behavior" :level="3">
+                <template #actions>
+                  <CreditCard class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                </template>
+              </SectionHeader>
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
+                <KpiCard
+                  label="Avg Days to Pay"
+                  :value="(customer?.avg_days_to_pay as number)?.toFixed(0) ?? 'N/A'"
+                  :severity="scoreSeverity(customer?.avg_days_to_pay as number, { good: 30, warn: 60, higherIsBetter: false })"
+                />
+                <KpiCard
+                  label="Outstanding Amount"
+                  :value="money(customer?.outstanding_amount as number)"
+                  :severity="(customer?.outstanding_amount as number) > 0 ? 'high' : undefined"
+                />
+                <KpiCard
+                  label="Payment Score"
+                  :percent="customer?.payment_score == null ? null : Math.round(customer?.payment_score as number)"
+                  :severity="scoreSeverity(customer?.payment_score as number, { good: 75, warn: 50 })"
+                />
+                <KpiCard
+                  label="Overdue Invoices"
+                  :value="asNumber(customer?.overdue_count)"
+                  :severity="(customer?.overdue_count as number) > 0 ? 'high' : undefined"
+                />
               </div>
             </div>
           </div>
         </div>
       </main>
     </div>
-    
+
     <!-- AI Chat Button -->
+    <!--
+      "Customer", not "Customer 360": the server has no agent registered under
+      the latter, so `get_agent_for_dashboard` threw "No agent available" and the
+      chat was dead here. Verified against the live endpoint. "Customer" is the
+      exact match for a per-customer profile and returns real quick actions.
+    -->
     <DashboardChatButton
-      dashboard-type="Customer 360"
+      dashboard-type="Customer"
       :dashboard-context="chatContext"
     />
   </div>

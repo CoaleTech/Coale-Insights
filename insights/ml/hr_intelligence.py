@@ -8,6 +8,7 @@ payroll optimization, and workforce planning with AI-powered insights.
 import frappe
 from frappe import _
 from frappe.utils import nowdate, add_months, add_days, flt, cint, date_diff
+from frappe.defaults import get_user_default
 from datetime import datetime, date, timedelta
 import pandas as pd
 import numpy as np
@@ -30,6 +31,21 @@ class HRIntelligence:
         self.current_month_start = datetime.now().replace(day=1).date()
         self.current_quarter_start = self._get_quarter_start()
         self.current_year_start = datetime.now().replace(month=1, day=1).date()
+        # Payroll figures are money, so the frontend needs the company's currency
+        # to label them. Without this the HR dashboard hardcoded "KES" in nine
+        # places, which is wrong on any site whose company reports in anything
+        # else. Same resolution order as the other seven intelligence modules,
+        # but importing `get_user_default` directly: `frappe.defaults` is not
+        # re-exported on the package, so attribute access on it does not resolve.
+        company = get_user_default("Company") or frappe.db.get_single_value(
+            "Global Defaults", "default_company"
+        )
+        self.company = str(company) if company else None
+        self.base_currency = (
+            frappe.db.get_value("Company", self.company, "default_currency")
+            if self.company
+            else None
+        ) or "KES"
         
     def _get_quarter_start(self) -> date:
         """Get the start date of current quarter"""
@@ -68,6 +84,8 @@ class HRIntelligence:
             insights = {
                 "period": period,
                 "generated_at": datetime.now().isoformat(),
+                "company": self.company,
+                "base_currency": self.base_currency,
                 
                 # Key metrics
                 "headcount_metrics": self._analyze_headcount(hr_data.get("headcount", {})),

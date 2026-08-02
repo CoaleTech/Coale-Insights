@@ -135,17 +135,17 @@ function onExport(format: 'csv' | 'excel', filename: string) {
 			<slot name="header-suffix" :column="column" />
 		</template>
 		<template #footer-left>
-			<div class="tnum flex items-center gap-1 text-sm text-gray-600">
+			<div class="tnum flex items-center gap-1 text-sm text-ink-gray-6">
 				<span> Showing {{ previewRowCount.toLocaleString() }} of </span>
 				<span v-if="!totalRowCount" class="inline-block">
 					<Tooltip text="Load Count">
 						<RefreshCw
 							v-if="!props.query.fetchingCount"
-							class="h-3.5 w-3.5 cursor-pointer transition-all hover:text-gray-800"
+					class="h-3.5 w-3.5 cursor-pointer transition-all hover:text-ink-gray-8 motion-reduce:transition-none"
 							stroke-width="1.5"
 							@click="props.query.fetchResultCount"
 						/>
-						<LoadingIndicator v-else class="h-3.5 w-3.5 text-gray-600" />
+						<LoadingIndicator v-else class="h-3.5 w-3.5 text-ink-gray-5" />
 					</Tooltip>
 				</span>
 				<span v-else> {{ totalRowCount.toLocaleString() }} </span>
@@ -159,12 +159,12 @@ function onExport(format: 'csv' | 'excel', filename: string) {
 				@click="showAlertsDialog = true"
 			>
 				<template #icon>
-					<Bell class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+					<Bell class="h-4 w-4 text-ink-gray-7" stroke-width="1.5" />
 				</template>
 			</Button>
             <Button variant="ghost" @click="openExport">
                 <template #icon>
-                    <Download class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+                    <Download class="h-4 w-4 text-ink-gray-7" stroke-width="1.5" />
                 </template>
             </Button>
 		</template>

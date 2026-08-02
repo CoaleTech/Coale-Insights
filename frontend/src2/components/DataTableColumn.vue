@@ -17,17 +17,17 @@ watchEffect(() => (_label.value = props.label))
 const sortOptions = [
 	{
 		label: 'Sort Ascending',
-		icon: h(ArrowUpNarrowWide, { class: 'h-4 w-4 text-gray-700', strokeWidth: 1.5 }),
+		icon: h(ArrowUpNarrowWide, { class: 'h-4 w-4 text-ink-gray-6', strokeWidth: 1.5 }),
 		onClick: () => props.onSortChange?.('asc'),
 	},
 	{
 		label: 'Sort Descending',
-		icon: h(ArrowDownWideNarrow, { class: 'h-4 w-4 text-gray-700', strokeWidth: 1.5 }),
+		icon: h(ArrowDownWideNarrow, { class: 'h-4 w-4 text-ink-gray-6', strokeWidth: 1.5 }),
 		onClick: () => props.onSortChange?.('desc'),
 	},
 	{
 		label: 'Remove Sort',
-		icon: h(XIcon, { class: 'h-4 w-4 text-gray-700', strokeWidth: 1.5 }),
+		icon: h(XIcon, { class: 'h-4 w-4 text-ink-gray-6', strokeWidth: 1.5 }),
 		onClick: () => props.onSortChange?.(''),
 	},
 ]
@@ -39,7 +39,7 @@ const sortOptions = [
 		<ContentEditable
 			v-model="_label"
 			placeholder="Column"
-			class="flex h-6 items-center whitespace-nowrap rounded-sm px-0.5 text-sm font-medium first:ml-2 focus:ring-1 focus:ring-gray-700 focus:ring-offset-1"
+			class="flex h-6 items-center whitespace-nowrap rounded-sm px-0.5 text-sm font-medium first:ml-2 focus:ring-1 focus:ring-accent focus:ring-offset-1"
 			:disabled="!props.onRename"
 			@returned="props.onRename?.(_label)"
 			@blur="props.onRename?.(_label)"
@@ -55,7 +55,7 @@ const sortOptions = [
 								? ArrowUpNarrowWide
 								: ArrowDownWideNarrow
 						"
-						class="h-3.5 w-3.5 text-gray-700"
+					class="h-3.5 w-3.5 text-ink-gray-6"
 						stroke-width="1.5"
 					/>
 				</template>

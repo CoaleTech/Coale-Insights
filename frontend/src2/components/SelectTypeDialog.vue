@@ -17,8 +17,8 @@ const show = defineModel()
 <template>
 	<Dialog v-model="show">
 		<template #body>
-			<div class="bg-white px-4 py-5 text-base sm:p-6">
-				<h3 class="text-lg font-medium leading-6 text-gray-900">
+			<div class="bg-surface-white px-4 py-5 text-base sm:p-6">
+				<h3 class="text-lg font-medium leading-6 text-ink-gray-9">
 					{{ props.title }}
 				</h3>
 				<div class="mt-4 grid grid-cols-1 gap-6">
@@ -29,14 +29,14 @@ const show = defineModel()
 						@click="type.onClick?.()"
 					>
 						<div
-							class="rounded border p-4 text-gray-500 shadow-sm transition-all group-hover:scale-105"
+						class="rounded border p-4 text-ink-gray-4 shadow-sm transition-all group-hover:scale-105 motion-reduce:transition-none"
 						>
 							<component :is="type.icon" />
 						</div>
 						<div>
 							<div class="flex items-center space-x-2">
 								<p
-									class="text-lg font-medium leading-6 text-gray-900 transition-colors group-hover:text-blue-500"
+								class="text-lg font-medium leading-6 text-ink-gray-9 transition-colors group-hover:text-accent motion-reduce:transition-none"
 								>
 									{{ type.label }}
 								</p>
@@ -44,7 +44,7 @@ const show = defineModel()
 									{{ type.tag }}
 								</Badge>
 							</div>
-							<p class="text-sm leading-5 text-gray-600">
+							<p class="text-sm leading-5 text-ink-gray-6">
 								{{ type.description }}
 							</p>
 						</div>

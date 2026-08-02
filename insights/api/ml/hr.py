@@ -6,6 +6,7 @@ HR Intelligence API Endpoints
 """
 
 import frappe
+from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
 
@@ -17,6 +18,10 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
         from insights.ml.hr_intelligence import HRIntelligence
         model = HRIntelligence()
         result = model.get_hr_overview(period)
+        company = frappe.defaults.get_user_default("Company")
+        result["currency"] = (
+            frappe.db.get_value("Company", company, "default_currency") if company else None
+        ) or frappe.db.get_default("currency") or ""
         return success(result)
     except Exception as e:
         return error(str(e))

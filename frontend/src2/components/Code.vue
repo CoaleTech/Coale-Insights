@@ -1,5 +1,5 @@
 <template>
-	<p v-if="props.hideLineNumbers" class="font-mono text-gray-600 pl-2">=</p>
+	<p v-if="props.hideLineNumbers" class="font-mono text-ink-gray-5 pl-2">=</p>
 	<codemirror
 		:tab-size="2"
 		:disabled="readOnly"
@@ -117,7 +117,7 @@ const autocompletionOptions = {
 	closeOnBlur: false,
 	maxRenderedOptions: 10,
 	icons: false,
-	optionClass: () => 'flex h-7 !px-2 items-center rounded !text-gray-600',
+	optionClass: () => 'flex h-7 !px-2 items-center rounded !text-ink-gray-6',
 }
 if (props.completions) {
 	autocompletionOptions.override = [

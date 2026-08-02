@@ -13,6 +13,8 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, List
 
+from insights.ml.territory_geo_mapper import map_territories_bulk
+
 
 def analyze_geography(intelligence, health_df: pd.DataFrame, territory_df: pd.DataFrame) -> Dict[str, Any]:
     """Geographic distribution analysis using ERPNext territories"""
@@ -68,10 +70,20 @@ def analyze_geography(intelligence, health_df: pd.DataFrame, territory_df: pd.Da
         'territory', 'customer_count', 'total_revenue', 'avg_health_score', 'revenue_share'
     ]].to_dict('records')
 
+    # Geo projection for the choropleth. `map_data` is territory rows keyed by the
+    # ERPNext territory name, which no map can render; the mapper resolves each to
+    # an ISO country code or an India state and reports what it could not place.
+    # Without this the map component received empty arrays and painted every
+    # country the same grey with a 0-1 legend.
+    territory_geo = map_territories_bulk(
+        map_data, territory_field='territory', value_field='customer_count'
+    )
+
     return {
         'territory_analysis': territory_analysis.to_dict('records'),
         'customer_group_analysis': group_analysis.to_dict('records'),
         'map_data': map_data,
+        'territory_geo': territory_geo,
         'top_territories': territory_analysis.head(10).to_dict('records'),
         'coverage': {
             'territories_covered': len(territory_analysis),

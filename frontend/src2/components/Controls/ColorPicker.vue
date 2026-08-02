@@ -18,7 +18,7 @@
 			></slot>
 		</template>
 		<template #body>
-			<div ref="colorPicker" class="dark:bg-zinc-900 rounded-lg bg-white p-3 shadow-lg">
+			<div ref="colorPicker" class=" rounded-lg bg-surface-white p-3 shadow-lg">
 				<div
 					ref="colorMap"
 					:style="{
@@ -35,7 +35,7 @@
 					<div
 						ref="colorSelector"
 						@mousedown.stop="handleSelectorMove"
-						class="absolute rounded-full border border-black border-opacity-20 before:absolute before:h-full before:w-full before:rounded-full before:border-2 before:border-white before:bg-[currentColor] after:absolute after:left-[2px] after:top-[2px] after:h-[calc(100%-4px)] after:w-[calc(100%-4px)] after:rounded-full after:border after:border-black after:border-opacity-20 after:bg-transparent"
+						class="absolute rounded-full border border-[rgba(0,0,0,.2)] before:absolute before:h-full before:w-full before:rounded-full before:border-2 before:border-outline-white before:bg-[currentColor] after:absolute after:left-[2px] after:top-[2px] after:h-[calc(100%-4px)] after:w-[calc(100%-4px)] after:rounded-full after:border after:border-[rgba(0,0,0,.2)] after:bg-transparent"
 						:style="{
 							height: '12px',
 							width: '12px',
@@ -63,7 +63,7 @@
 					<div
 						ref="hueSelector"
 						@mousedown.stop="handleHueSelectorMove"
-						class="absolute rounded-full border border-[rgba(0,0,0,.2)] before:absolute before:h-full before:w-full before:rounded-full before:border-2 before:border-white before:bg-[currentColor] after:absolute after:left-[2px] after:top-[2px] after:h-[calc(100%-4px)] after:w-[calc(100%-4px)] after:rounded-full after:border after:border-[rgba(0,0,0,.2)] after:bg-transparent"
+						class="absolute rounded-full border border-[rgba(0,0,0,.2)] before:absolute before:h-full before:w-full before:rounded-full before:border-2 before:border-outline-white before:bg-[currentColor] after:absolute after:left-[2px] after:top-[2px] after:h-[calc(100%-4px)] after:w-[calc(100%-4px)] after:rounded-full after:border after:border-[rgba(0,0,0,.2)] after:bg-transparent"
 						:style="{
 							height: '12px',
 							width: '12px',
@@ -91,7 +91,7 @@
 						></div>
 						<svg
 							v-if="isSupported"
-							class="dark:text-zinc-300 text-gray-700"
+							class=" text-ink-gray-6"
 							@click="() => open()"
 							xmlns="http://www.w3.org/2000/svg"
 							width="16"

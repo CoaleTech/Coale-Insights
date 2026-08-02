@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useDrillDown } from './useDrillDown'
 
+/** Error as Frappe returns it: an Error carrying exc_type, status and messages. */
+type FrappeErrorStub = Error & { exc_type?: string; status?: number; messages?: string[] }
+
 // Mock frappe-ui call
 vi.mock('frappe-ui', () => ({
   call: vi.fn(),
@@ -75,7 +78,7 @@ describe('useDrillDown', () => {
   })
 
   it('open() maps PermissionError correctly', async () => {
-    const err: any = new Error('PermissionError: not permitted')
+    const err: FrappeErrorStub = new Error('PermissionError: not permitted')
     err.exc_type = 'PermissionError'
     err.status = 403
     err.messages = ['You do not have permission']
@@ -90,7 +93,7 @@ describe('useDrillDown', () => {
   })
 
   it('open() maps generic errors correctly', async () => {
-    const err: any = new Error('Server Error')
+    const err: FrappeErrorStub = new Error('Server Error')
     err.exc_type = 'ValidationError'
     err.messages = ['Unknown metric']
     mockCall.mockRejectedValue(err)
@@ -103,7 +106,7 @@ describe('useDrillDown', () => {
   })
 
   it('stale responses are discarded', async () => {
-    let resolveFirst!: (v: any) => void
+    let resolveFirst!: (v: unknown) => void
     const firstCall = new Promise(r => { resolveFirst = r })
     const secondResult = { columns: [{ label: 'B', fieldname: 'b', fieldtype: 'Data' }], rows: [{ b: 2 }], total: 2 }
     mockCall
@@ -150,7 +153,7 @@ describe('useDrillDown', () => {
   })
 
   it('close() cancels in-flight request', async () => {
-    let resolve!: (v: any) => void
+    let resolve!: (v: unknown) => void
     mockCall.mockReturnValue(new Promise(r => { resolve = r }))
     const dd = useDrillDown()
     dd.open('method', 'T', { metric: 'm' })

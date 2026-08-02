@@ -58,9 +58,9 @@ const areFiltersUpdated = computed(() => {
 </script>
 
 <template>
-	<div class="min-w-[36rem] rounded-lg bg-white px-4 pb-6 pt-5 sm:px-6">
+	<div class="min-w-[36rem] rounded-lg bg-surface-white px-4 pb-6 pt-5 sm:px-6">
 		<div class="flex items-center justify-between pb-4">
-			<h3 class="text-2xl font-semibold leading-6 text-gray-900">Filter</h3>
+		<h3 class="text-2xl font-semibold leading-6 text-ink-gray-9">Filter</h3>
 			<Button variant="ghost" @click="emit('close')" icon="x" size="md"> </Button>
 		</div>
 		<div
@@ -71,7 +71,7 @@ const areFiltersUpdated = computed(() => {
 			class="mb-3 flex items-start justify-between gap-2"
 		>
 			<div class="flex flex-1 items-start gap-2">
-				<div class="flex h-7 w-15 flex-shrink-0 items-center text-base text-gray-600">
+			<div class="flex h-7 w-15 flex-shrink-0 items-center text-base text-ink-gray-6">
 					<span v-if="i == 0">Where</span>
 					<Button
 						v-else
@@ -85,7 +85,7 @@ const areFiltersUpdated = computed(() => {
 						"
 					>
 						<template #prefix>
-							<RefreshCcw class="h-3 w-3 text-gray-700" stroke-width="1.5" />
+						<RefreshCcw class="h-3 w-3 text-ink-gray-7" stroke-width="1.5" />
 						</template>
 						{{ filterGroup.logical_operator.toLowerCase() }}
 					</Button>
@@ -134,13 +134,13 @@ const areFiltersUpdated = computed(() => {
 				/>
 			</div>
 		</div>
-		<div v-else class="mb-3 flex h-7 items-center px-0 text-sm text-gray-600">
+		<div v-else class="mb-3 flex h-7 items-center px-0 text-sm text-ink-gray-6">
 			Empty - Click 'Add Filter' to add a filter
 		</div>
 		<div class="mt-2 flex items-center justify-between gap-2">
 			<Button @click="addFilter" label="Add Filter">
 				<template #prefix>
-					<PlusIcon class="h-4 w-4 text-gray-700" stroke-width="1.5" />
+				<PlusIcon class="h-4 w-4 text-ink-gray-7" stroke-width="1.5" />
 				</template>
 			</Button>
 			<div class="flex items-center gap-2">

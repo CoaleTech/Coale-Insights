@@ -1,94 +1,74 @@
 <template>
-  <div class="flex flex-col h-full bg-gray-50">
+  <div class="flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
-    <header class="bg-white border-b px-6 py-4 flex items-center justify-between">
+    <header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
-        <h1 class="text-2xl font-bold text-gray-900">CEO Executive Dashboard</h1>
-        <p class="text-sm text-gray-500 mt-1">
-          Unified view of business performance across all departments with AI insights
+        <h1 class="text-2xl font-bold text-ink-gray-9">CEO Executive Dashboard</h1>
+        <p v-if="lastUpdated" class="text-sm text-ink-gray-6 mt-1">
+          Updated: {{ formatDateTime(lastUpdated) }} · {{ selectedPeriod }}
         </p>
+        <p v-else class="text-sm text-ink-gray-6 mt-1">{{ selectedPeriod }}</p>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-2 sm:gap-3">
         <!-- Period Selector -->
-        <select
+        <Select
           v-model="selectedPeriod"
+          :options="periodOptions"
           @change="refreshData"
-          class="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-        >
-          <option value="MTD">Month to Date</option>
-          <option value="QTD">Quarter to Date</option>
-          <option value="YTD" selected>Year to Date</option>
-          <option value="TTM">Trailing 12 Months</option>
-        </select>
+        />
 
-        <span v-if="lastUpdated" class="text-sm text-gray-500">
-          Updated: {{ formatDateTime(lastUpdated) }}
-        </span>
-        <button
+        <Button
+          :loading="isLoading"
+          variant="solid"
+          theme="gray"
           @click="refreshData"
-          :disabled="isLoading"
-          class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
         >
-          <RefreshCw v-if="!isLoading" class="w-4 h-4" />
-          <Loader2 v-else class="w-4 h-4 animate-spin" />
+          <RefreshCw class="w-4 h-4 mr-2" />
           Refresh
-        </button>
-        <button
-          @click="exportData"
+        </Button>
+        <Button
+          variant="subtle"
           :disabled="!data"
-          class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          @click="exportData"
         >
-          <Download class="w-4 h-4" />
+          <Download class="w-4 h-4 mr-2" />
           Export
-        </button>
+        </Button>
       </div>
     </header>
 
-    <!-- Loading State -->
-    <div v-if="isLoading && !data" class="flex items-center justify-center flex-1">
-      <div class="text-center">
-        <Loader2 class="w-12 h-12 mx-auto text-blue-600 animate-spin" />
-        <p class="mt-4 text-gray-600">Loading executive dashboard...</p>
-      </div>
-    </div>
-
-    <!-- Error State -->
-    <div v-else-if="error" class="flex items-center justify-center flex-1">
-      <div class="text-center">
-        <AlertTriangle class="w-12 h-12 mx-auto text-red-500" />
-        <p class="mt-4 text-gray-900 font-medium">Failed to load data</p>
-        <p class="text-gray-600">{{ error }}</p>
-        <button
-          @click="refreshData"
-          class="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          Try Again
-        </button>
-      </div>
-    </div>
-
     <!-- Main Content -->
-    <div v-else-if="data" class="flex-1 overflow-auto">
+    <IntelligenceDashboardShell
+      :loading="isLoading"
+      :error="error"
+      :has-data="!!data"
+      subject="executive data"
+      @retry="refreshData"
+    >
       <!-- Business Health Score -->
       <div class="p-6">
-        <div class="bg-white rounded-lg shadow-sm border overflow-hidden">
-          <div class="px-6 py-4 border-b bg-gray-50">
+        <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
+          <div class="px-6 py-4 border-b border-outline-gray-1 bg-surface-gray-1">
             <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold text-gray-900">Business Health Score</h2>
-              <div class="flex items-center gap-2">
-                <div :class="getHealthScoreColor(businessHealth.overall_score)" class="w-3 h-3 rounded-full"></div>
-                <span class="text-2xl font-bold text-gray-900">{{ businessHealth.overall_score || 0 }}%</span>
+              <h2 class="text-lg font-semibold text-ink-gray-9">Business Health Score</h2>
+              <div class="flex items-center gap-3">
+                <Badge
+                  v-bind="severityBadge(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }))"
+                  :aria-label="severityAria('Health', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
+                  size="sm"
+                />
+                <span class="text-2xl font-bold text-ink-gray-9">{{ businessHealth.overall_score || 0 }}%</span>
               </div>
             </div>
           </div>
           <div class="p-6">
             <!-- AI Narrative -->
-            <div v-if="data.narrative" class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div v-if="data.narrative" class="mb-6 p-4 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
               <div class="flex items-start gap-3">
-                <Brain class="w-5 h-5 text-blue-600 mt-0.5" />
+                <Brain class="w-5 h-5 text-ink-gray-5 mt-0.5" />
                 <div>
-                  <h3 class="text-sm font-medium text-blue-900">AI Executive Summary</h3>
-                  <p class="text-sm text-blue-800 mt-1">{{ data.narrative }}</p>
+                  <h3 class="text-sm font-medium text-ink-gray-9">AI Executive Summary</h3>
+                  <p class="text-sm text-ink-gray-7 mt-1">{{ data.narrative }}</p>
                 </div>
               </div>
             </div>
@@ -98,15 +78,23 @@
               <div
                 v-for="(score, department) in businessHealth.department_scores"
                 :key="department"
-                class="text-center cursor-pointer hover:bg-gray-50 rounded-lg p-2 transition-colors"
+                class="text-center cursor-pointer hover:bg-surface-gray-1 rounded-lg p-2 motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
+                :tabindex="departmentRoutes[department] ? 0 : undefined"
+                :role="departmentRoutes[department] ? 'button' : undefined"
+                :aria-label="departmentRoutes[department] ? `Go to ${department} dashboard` : undefined"
                 @click="departmentRoutes[department] && router.push(departmentRoutes[department])"
+                @keydown.enter="departmentRoutes[department] && router.push(departmentRoutes[department])"
               >
-                <div class="text-sm font-medium text-gray-500 capitalize">{{ department }}</div>
+                <div class="text-sm font-medium text-ink-gray-6 capitalize">{{ department }}</div>
                 <div class="mt-1">
-                  <div :class="getHealthScoreColor(score)" class="text-lg font-bold">{{ Math.round(score) }}%</div>
-                  <div class="w-full h-2 bg-gray-200 rounded-full mt-1">
+                  <div class="text-lg font-bold text-ink-gray-9">{{ Math.round(score) }}%</div>
+                  <div
+                    class="w-full h-2 bg-surface-gray-3 rounded-full mt-1"
+                    :aria-label="severityAria(String(department), scoreSeverity(score, { good: 80, warn: 60 }), score)"
+                    role="img"
+                  >
                     <div
-                      :class="[getHealthScoreBgColor(score), 'h-full rounded-full transition-all']"
+                      :class="[severityFill(scoreSeverity(score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
                       :style="`width: ${score}%`"
                     ></div>
                   </div>
@@ -119,10 +107,10 @@
 
       <!-- Critical Alerts -->
       <div v-if="alerts && alerts.length > 0" class="px-6 mb-6">
-        <div class="bg-white rounded-lg shadow-sm border">
-          <div class="px-6 py-4 border-b bg-gray-50">
-            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <AlertTriangle class="w-5 h-5 text-red-500" />
+        <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1">
+          <div class="px-6 py-4 border-b border-outline-gray-1 bg-surface-gray-1">
+            <h2 class="text-lg font-semibold text-ink-gray-9 flex items-center gap-2">
+              <AlertTriangle class="w-5 h-5 text-ink-gray-5" />
               Critical Alerts
             </h2>
           </div>
@@ -131,20 +119,18 @@
               <div
                 v-for="alert in alerts.slice(0, 5)"
                 :key="alert.message"
-                :class="getAlertClass(alert.priority)"
-                class="p-4 rounded-lg border-l-4"
+                class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white"
               >
                 <div class="flex items-center justify-between">
                   <div class="flex items-center gap-3">
-                    <div :class="getAlertIconColor(alert.priority)" class="w-2 h-2 rounded-full"></div>
-                    <span class="font-medium text-gray-900">{{ alert.department }}</span>
-                    <span :class="getAlertPriorityClass(alert.priority)" class="px-2 py-1 text-xs font-medium rounded-full">
-                      {{ alert.priority.toUpperCase() }}
-                    </span>
+                    <span class="font-medium text-ink-gray-9">{{ alert.department }}</span>
+                    <Badge
+                      v-bind="severityBadge(ragSeverity(alert.rag_status))"
+                      size="sm"
+                    />
                   </div>
-                  <div :class="'w-3 h-3 rounded-full ' + getRagColor(alert.rag_status)"></div>
                 </div>
-                <p class="text-sm text-gray-700 mt-2">{{ alert.message }}</p>
+                <p class="text-sm text-ink-gray-7 mt-2">{{ alert.message }}</p>
               </div>
             </div>
           </div>
@@ -161,10 +147,14 @@
             class="space-y-4"
           >
             <h3
-              class="text-lg font-semibold text-gray-900 flex items-center gap-2 cursor-pointer hover:text-blue-600 transition-colors"
+              class="text-lg font-semibold text-ink-gray-9 flex items-center gap-2 cursor-pointer hover:text-ink-gray-7 motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 rounded"
+              tabindex="0"
+              role="button"
+              :aria-label="`Navigate to ${dept.label} dashboard`"
               @click="router.push(departmentRoutes[dept.key])"
+              @keydown.enter="router.push(departmentRoutes[dept.key])"
             >
-              <component :is="dept.icon" :class="['w-5 h-5', dept.iconColor]" />
+              <component :is="dept.icon" class="w-5 h-5 text-ink-gray-5" />
               {{ dept.label }}
             </h3>
             <template
@@ -173,25 +163,38 @@
             >
               <div
                 v-if="kpi && typeof kpi === 'object' && !kpi.error"
-                :class="['bg-white p-4 rounded-lg shadow-sm border', getExecMetric(kpi.label) ? 'cursor-pointer hover:ring-2 hover:ring-blue-300 transition-shadow' : '']"
+                class="bg-surface-white p-4 rounded-lg shadow-sm border border-outline-gray-1"
+                :class="getExecMetric(kpi.label) ? 'cursor-pointer hover:ring-2 hover:ring-outline-gray-3 motion-reduce:transition-none transition-shadow' : ''"
+                :tabindex="getExecMetric(kpi.label) ? 0 : undefined"
+                :role="getExecMetric(kpi.label) ? 'button' : undefined"
+                :aria-label="getExecMetric(kpi.label) ? `Drill down: ${kpi.label}` : undefined"
                 @click="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) })"
+                @keydown.enter="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) })"
               >
                 <div class="flex items-center justify-between mb-2">
-                  <div class="text-sm font-medium text-gray-500">{{ kpi.label }}</div>
-                  <div :class="'w-3 h-3 rounded-full ' + getRagColor(kpi.rag_status)"></div>
+                  <div class="text-sm font-medium text-ink-gray-6">{{ kpi.label }}</div>
+                  <Badge
+                    v-bind="severityBadge(ragSeverity(kpi.rag_status))"
+                    size="sm"
+                    :aria-label="severityAria(kpi.label, ragSeverity(kpi.rag_status))"
+                  />
                 </div>
-                <div class="text-2xl font-bold text-gray-900">
+                <div class="text-2xl font-bold text-ink-gray-9">
                   {{ formatKpiValue(kpi.value, kpi.format) }}
                 </div>
-                <div v-if="getKpiVariance(kpi) !== null" :class="getVarianceColor(getKpiVariance(kpi), dept.reverseVariance)" class="text-sm mt-1">
-                  {{ getKpiVariance(kpi) >= 0 ? '&#8593;' : '&#8595;' }} {{ Math.abs(getKpiVariance(kpi)).toFixed(1) }}% vs target
+                <div
+                  v-if="getKpiVariance(kpi) !== null"
+                  :class="deltaInk(getKpiVariance(kpi), { higherIsBetter: !dept.reverseVariance })"
+                  class="text-sm mt-1"
+                >
+                  {{ deltaGlyph(getKpiVariance(kpi)) }} {{ Math.abs(getKpiVariance(kpi)).toFixed(1) }}% vs target
                 </div>
-                <div v-if="getTrendData((departmentTrendKeys[dept.key] || [])[kpiIndex] || '').length > 1" class="mt-2">
-                  <svg class="w-full h-8" viewBox="0 0 100 20">
+                <div v-if="sparklineData(dept, kpiIndex).length > 1" class="mt-2">
+                  <svg class="w-full h-8 text-ink-gray-5" viewBox="0 0 100 20" aria-hidden="true">
                     <path
-                      :d="generateSparkline(getTrendData((departmentTrendKeys[dept.key] || [])[kpiIndex] || ''))"
+                      :d="generateSparkline(sparklineData(dept, kpiIndex))"
                       fill="none"
-                      :stroke="kpi.rag_status === 'green' ? '#10b981' : kpi.rag_status === 'amber' ? '#f59e0b' : '#ef4444'"
+                      stroke="currentColor"
                       stroke-width="1"
                     />
                   </svg>
@@ -204,60 +207,64 @@
 
       <!-- Quick Actions -->
       <div class="px-6 pb-6">
-        <div class="bg-white rounded-lg shadow-sm border">
-          <div class="px-6 py-4 border-b bg-gray-50">
-            <h2 class="text-lg font-semibold text-gray-900">Quick Actions</h2>
+        <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1">
+          <div class="px-6 py-4 border-b border-outline-gray-1 bg-surface-gray-1">
+            <h2 class="text-lg font-semibold text-ink-gray-9">Quick Actions</h2>
           </div>
           <div class="p-6">
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <button
+            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+              <Button
+                variant="subtle"
+                class="flex items-center gap-3 p-4 text-left h-auto"
                 @click="generateStrategicReport"
-                class="flex items-center gap-3 p-4 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                <FileText class="w-5 h-5 text-blue-600" />
+                <FileText class="w-5 h-5 text-ink-gray-5" />
                 <div>
-                  <div class="text-sm font-medium text-gray-900">Strategic Report</div>
-                  <div class="text-xs text-gray-500">Generate board-ready summary</div>
+                  <div class="text-sm font-medium text-ink-gray-9">Strategic Report</div>
+                  <div class="text-xs text-ink-gray-6">Generate board-ready summary</div>
                 </div>
-              </button>
+              </Button>
 
-              <button
+              <Button
+                variant="subtle"
+                class="flex items-center gap-3 p-4 text-left h-auto"
                 @click="exportExecutiveData"
-                class="flex items-center gap-3 p-4 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                <Download class="w-5 h-5 text-green-600" />
+                <Download class="w-5 h-5 text-ink-gray-5" />
                 <div>
-                  <div class="text-sm font-medium text-gray-900">Export Data</div>
-                  <div class="text-xs text-gray-500">Download PDF/Excel report</div>
+                  <div class="text-sm font-medium text-ink-gray-9">Export Data</div>
+                  <div class="text-xs text-ink-gray-6">Download PDF/Excel report</div>
                 </div>
-              </button>
+              </Button>
 
-              <button
+              <Button
+                variant="subtle"
+                class="flex items-center gap-3 p-4 text-left h-auto"
                 @click="openAIChat"
-                class="flex items-center gap-3 p-4 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                <Brain class="w-5 h-5 text-purple-600" />
+                <Brain class="w-5 h-5 text-ink-gray-5" />
                 <div>
-                  <div class="text-sm font-medium text-gray-900">Ask AI</div>
-                  <div class="text-xs text-gray-500">Get insights & recommendations</div>
+                  <div class="text-sm font-medium text-ink-gray-9">Ask AI</div>
+                  <div class="text-xs text-ink-gray-6">Get insights &amp; recommendations</div>
                 </div>
-              </button>
+              </Button>
 
-              <button
+              <Button
+                variant="subtle"
+                class="flex items-center gap-3 p-4 text-left h-auto"
                 @click="scheduleReport"
-                class="flex items-center gap-3 p-4 text-left border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
               >
-                <Calendar class="w-5 h-5 text-orange-600" />
+                <Calendar class="w-5 h-5 text-ink-gray-5" />
                 <div>
-                  <div class="text-sm font-medium text-gray-900">Schedule Reports</div>
-                  <div class="text-xs text-gray-500">Setup automated delivery</div>
+                  <div class="text-sm font-medium text-ink-gray-9">Schedule Reports</div>
+                  <div class="text-xs text-ink-gray-6">Setup automated delivery</div>
                 </div>
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </IntelligenceDashboardShell>
 
     <IntelligenceDrillDown
       v-model:show="drillDown.show.value"
@@ -283,7 +290,6 @@ import { ref, computed, onMounted } from 'vue'
 import {
   RefreshCw,
   Download,
-  Loader2,
   AlertTriangle,
   Brain,
   DollarSign,
@@ -296,10 +302,17 @@ import {
   UserCog,
   Factory
 } from 'lucide-vue-next'
+import { Button, Badge, Select, LoadingIndicator } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
 import { useRouter } from 'vue-router'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
+import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
+import {
+  severityBadge, severityFill, severityAria,
+  scoreSeverity, ragSeverity, deltaInk, deltaGlyph,
+} from '../utils/status'
+import { formatMoney } from '../utils/format'
 
 const router = useRouter()
 
@@ -325,21 +338,38 @@ const isLoading = ref(false)
 const error = ref(null)
 const lastUpdated = ref(null)
 const selectedPeriod = ref('YTD')
-const companyCurrency = ref('KES')
+const companyCurrency = ref(null)
+
+const periodOptions = [
+  { label: 'Month to Date', value: 'MTD' },
+  { label: 'Quarter to Date', value: 'QTD' },
+  { label: 'Year to Date', value: 'YTD' },
+  { label: 'Trailing 12 Months', value: 'TTM' },
+]
 
 const businessHealth = computed(() => data.value?.business_health_score || {})
 const alerts = computed(() => data.value?.alerts || [])
 const kpis = computed(() => data.value?.kpis || {})
 const trends = computed(() => data.value?.trends || {})
 
+/**
+ * Department columns with neutral annotation icon color.
+ *
+ * Thresholds stay explicit at 80/60 rather than adopting
+ * `HEALTH_SCORE_THRESHOLDS`: `business_health_score` comes from
+ * `ml/executive_intelligence`, and unlike the strategic-finance and customer
+ * health scores its server-side band vocabulary has not been verified. Moving
+ * it to 60/40 unverified would shift the green/amber line for the C-suite view
+ * on no evidence. Needs a product decision, then this becomes the constant.
+ */
 const departmentColumns = computed(() => [
-  { key: 'financial', label: 'Financial', icon: DollarSign, iconColor: 'text-green-600', reverseVariance: false },
-  { key: 'sales', label: 'Sales', icon: TrendingUp, iconColor: 'text-blue-600', reverseVariance: false },
-  { key: 'customer', label: 'Customer', icon: Users, iconColor: 'text-purple-600', reverseVariance: false },
-  { key: 'operations', label: 'Operations', icon: Settings, iconColor: 'text-orange-600', reverseVariance: false },
-  { key: 'risk', label: 'Risk', icon: Shield, iconColor: 'text-red-600', reverseVariance: true },
-  { key: 'hr', label: 'HR', icon: UserCog, iconColor: 'text-indigo-600', reverseVariance: false },
-  { key: 'manufacturing', label: 'Manufacturing', icon: Factory, iconColor: 'text-teal-600', reverseVariance: false },
+  { key: 'financial', label: 'Financial', icon: DollarSign, reverseVariance: false },
+  { key: 'sales', label: 'Sales', icon: TrendingUp, reverseVariance: false },
+  { key: 'customer', label: 'Customer', icon: Users, reverseVariance: false },
+  { key: 'operations', label: 'Operations', icon: Settings, reverseVariance: false },
+  { key: 'risk', label: 'Risk', icon: Shield, reverseVariance: true },
+  { key: 'hr', label: 'HR', icon: UserCog, reverseVariance: false },
+  { key: 'manufacturing', label: 'Manufacturing', icon: Factory, reverseVariance: false },
 ])
 
 onMounted(() => {
@@ -356,7 +386,6 @@ async function loadData() {
     })
     lastUpdated.value = new Date()
 
-    // Read currency from backend response
     if (data.value?.currency) {
       companyCurrency.value = data.value.currency
     }
@@ -391,7 +420,7 @@ function formatKpiValue(value, format) {
   if (value === null || value === undefined) return 'N/A'
   switch (format) {
     case 'currency':
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: companyCurrency.value, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(value)
+      return formatMoney(value, companyCurrency.value)
     case 'percentage':
       return `${value.toFixed(1)}%`
     case 'decimal':
@@ -405,20 +434,13 @@ function formatKpiValue(value, format) {
   }
 }
 
-function getHealthScoreColor(score) {
-  if (score >= 80) return 'text-green-600'
-  if (score >= 60) return 'text-yellow-600'
-  return 'text-red-600'
-}
-
-function getHealthScoreBgColor(score) {
-  if (score >= 80) return 'bg-green-500'
-  if (score >= 60) return 'bg-yellow-500'
-  return 'bg-red-500'
-}
-
 function getKpiVariance(kpi) {
   return kpi.variance_pct ?? kpi.variance_points ?? kpi.variance_ratio ?? kpi.variance_weeks ?? kpi.variance_turns ?? null
+}
+
+function sparklineData(dept, kpiIndex) {
+  const key = (departmentTrendKeys[dept.key] || [])[kpiIndex] || ''
+  return getTrendData(key)
 }
 
 const departmentRoutes = {
@@ -441,61 +463,26 @@ const departmentTrendKeys = {
   manufacturing: ['oee', 'oee', 'oee'],
 }
 
-function getRagColor(status) {
-  switch (status) {
-    case 'green': return 'bg-green-500'
-    case 'amber': return 'bg-yellow-500'
-    case 'red': return 'bg-red-500'
-    default: return 'bg-gray-400'
-  }
-}
-
-function getVarianceColor(variance, reverse = false) {
-  if (variance === null || variance === undefined) return 'text-gray-500'
-  const isPositive = variance >= 0
-  if (reverse) return isPositive ? 'text-red-600' : 'text-green-600'
-  return isPositive ? 'text-green-600' : 'text-red-600'
-}
-
-function getAlertClass(priority) {
-  switch (priority) {
-    case 'critical': return 'bg-red-50 border-red-500'
-    case 'high': return 'bg-orange-50 border-orange-500'
-    case 'medium': return 'bg-yellow-50 border-yellow-500'
-    default: return 'bg-blue-50 border-blue-500'
-  }
-}
-
-function getAlertIconColor(priority) {
-  switch (priority) {
-    case 'critical': return 'bg-red-500'
-    case 'high': return 'bg-orange-500'
-    case 'medium': return 'bg-yellow-500'
-    default: return 'bg-blue-500'
-  }
-}
-
-function getAlertPriorityClass(priority) {
-  switch (priority) {
-    case 'critical': return 'bg-red-100 text-red-800'
-    case 'high': return 'bg-orange-100 text-orange-800'
-    case 'medium': return 'bg-yellow-100 text-yellow-800'
-    default: return 'bg-blue-100 text-blue-800'
-  }
-}
-
 function getTrendData(metric) {
   return trends.value[metric] || []
 }
 
-function generateSparkline(data) {
-  if (!data || data.length === 0) return ''
-  const max = Math.max(...data)
-  const min = Math.min(...data)
-  const range = max - min
-  return data.map((value, index) => {
-    const x = (index / (data.length - 1)) * 100
-    const y = range > 0 ? ((max - value) / range) * 20 : 10
+function generateSparkline(points) {
+  if (!points || points.length === 0) return ''
+  // The domain includes zero on purpose. A min-to-max domain rescales every
+  // series to fill the full 20-unit band, so a 98->100 wobble rendered exactly
+  // as steep as a 90->45 collapse and a CEO reading these calibrated severity
+  // from noise. Including zero means height encodes magnitude, not rank.
+  //
+  // `Math.min(0, ...)` rather than 0 outright so negative series (sales_growth,
+  // churn deltas) still plot, with the zero line inside the band.
+  const lo = Math.min(0, ...points)
+  const hi = Math.max(0, ...points)
+  const range = hi - lo
+  return points.map((value, index) => {
+    // Guard length 1: `0 / 0` produced `NaN` and emitted an unrenderable path.
+    const x = points.length === 1 ? 0 : (index / (points.length - 1)) * 100
+    const y = range > 0 ? ((hi - value) / range) * 20 : 20
     return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
   }).join(' ')
 }
@@ -516,7 +503,3 @@ function scheduleReport() {
   router.push('/executive-reports')
 }
 </script>
-
-<style scoped>
-/* Add any custom styles here */
-</style>

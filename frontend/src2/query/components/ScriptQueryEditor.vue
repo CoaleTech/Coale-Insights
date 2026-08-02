@@ -51,7 +51,7 @@ function handleSaveVariables(variables: any[]) {
 		<div class="relative flex h-[55%] w-full flex-col rounded border">
 			<div class="flex flex-shrink-0 items-center gap-1 border-b p-1">
 				<ContentEditable
-					class="flex h-7 cursor-text items-center justify-center rounded bg-white px-2 text-base text-gray-800 focus-visible:ring-1 focus-visible:ring-gray-600"
+					class="flex h-7 cursor-text items-center justify-center rounded bg-surface-white px-2 text-base text-ink-gray-8 focus-visible:ring-1 focus-visible:ring-outline-gray-4"
 					v-model="query.doc.title"
 					placeholder="Untitled Dashboard"
 				></ContentEditable>
@@ -64,22 +64,22 @@ function handleSaveVariables(variables: any[]) {
 				<transition
 					tag="div"
 					name="slide"
-					enter-active-class="transition ease-out duration-200"
+					enter-active-class="transition ease-out duration-200 motion-reduce:transition-none"
 					enter-from-class="transform translate-x-full opacity-0"
 					enter-to-class="transform translate-x-0 opacity-100"
-					leave-active-class="transition ease-in duration-200"
+					leave-active-class="transition ease-in duration-200 motion-reduce:transition-none"
 					leave-from-class="transform translate-x-0"
 					leave-to-class="transform translate-x-full"
 				>
 					<div
 						v-if="showLogs"
-						class="flex h-full w-[30rem] flex-shrink-0 flex-col overflow-hidden bg-gray-50 p-3"
+					class="flex h-full w-[30rem] flex-shrink-0 flex-col overflow-hidden bg-surface-gray-1 p-3"
 					>
-						<div class="font-mono text-sm uppercase text-gray-600">Logs</div>
+						<div class="font-mono text-sm uppercase text-ink-gray-5">Logs</div>
 						<div class="mt-2 flex w-full flex-col gap-2 overflow-y-auto font-mono">
 							<div v-for="(log, index) in scriptLogs" :key="index" class="flex gap-2">
-								<div class="text-gray-400">[{{ index + 1 }}]</div>
-								<div class="text-gray-500">{{ log }}</div>
+								<div class="text-ink-gray-3">[{{ index + 1 }}]</div>
+								<div class="text-ink-gray-4">{{ log }}</div>
 							</div>
 						</div>
 					</div>
@@ -88,7 +88,7 @@ function handleSaveVariables(variables: any[]) {
 			<div class="flex flex-shrink-0 gap-1 border-t p-1">
 				<Button @click="query.execute" label="Run">
 					<template #prefix>
-						<Play class="h-3.5 w-3.5 text-gray-700" stroke-width="1.5" />
+						<Play class="h-3.5 w-3.5 text-ink-gray-7" stroke-width="1.5" />
 					</template>
 				</Button>
 				<Dropdown
@@ -116,9 +116,9 @@ function handleSaveVariables(variables: any[]) {
 
 		<div
 			v-show="query.result.executedSQL"
-			class="tnum flex flex-shrink-0 items-center gap-2 text-sm text-gray-600"
+			class="tnum flex flex-shrink-0 items-center gap-2 text-sm text-ink-gray-5"
 		>
-			<div class="h-2 w-2 rounded-full bg-green-500"></div>
+			<div class="h-2 w-2 rounded-full bg-pos-fill"></div>
 			<div>
 				<span v-if="query.result.timeTaken == -1"> Fetched from cache </span>
 				<span v-else> Fetched in {{ query.result.timeTaken }}s </span>

@@ -1,20 +1,28 @@
 <script setup lang="ts">
 defineOptions({ name: 'InventoryIntelligence' })
-import { Breadcrumbs } from 'frappe-ui'
+import { Breadcrumbs, Button, Badge, Tabs, Spinner } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
-import { 
-  RefreshCcw, Loader2, Package, Warehouse, ArrowRightLeft, Clock,
-  AlertTriangle, TrendingUp, TrendingDown, Activity, BarChart3,
+import {
+  RefreshCcw, Package, Warehouse, ArrowRightLeft, Clock,
+  TrendingUp, TrendingDown, Activity, BarChart3,
   PieChart, ShoppingCart, Truck, DollarSign, Archive, Boxes,
-  ArrowUpRight, ArrowDownRight, Heart, Layers, ArrowRight, Zap
+  ArrowRight, Layers,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
+import {
+  scoreSeverity, severityBadge, severityFill, severityAria,
+  ragSeverity, deltaInk, deltaGlyph, type Severity,
+} from '../utils/status'
+import { formatDate, formatCount, asNumber, NO_VALUE } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
 import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
+import KpiCard from '../intelligence/components/KpiCard.vue'
+import SectionHeader from '../intelligence/components/SectionHeader.vue'
+import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 
 const router = useRouter()
 
@@ -25,29 +33,36 @@ const drillDown = useDrillDown()
 const isLoading = ref(true)
 const isRefreshing = ref(false)
 const error = ref<string | null>(null)
-const data = ref<any>(null)
+const data = ref<Record<string, unknown> | null>(null)
 const dateFilter = ref('12m')
 
 // Training state
 const isTraining = ref(false)
 const trainingStatus = ref('')
+const trainingSuccess = ref(false)
 
-// Active tab
-const activeTab = ref('overview')
+// Tab management
+const tabIndex = ref(0)
+
+const tabDefs = [
+  { label: 'Stock Overview' },
+  { label: 'Turnover' },
+  { label: 'ABC/XYZ' },
+  { label: 'Itemwise BE' },
+  { label: 'Aging (FIFO)' },
+  { label: 'Warehouses & Transfers' },
+  { label: 'Procurement' },
+]
+
+const tabIds = ['overview', 'turnover', 'abc-xyz', 'itemwise-be', 'aging', 'warehouses', 'procurement']
+const activeTab = computed(() => tabIds[tabIndex.value] ?? 'overview')
 
 // Itemwise BE state
-const itemwiseBeData = ref<any>(null)
+const itemwiseBeData = ref<Record<string, unknown> | null>(null)
 const itemwiseBeLoading = ref(false)
 const itemwiseBeError = ref<string | null>(null)
-const tabs = [
-  { id: 'overview', label: 'Stock Overview', icon: Package },
-  { id: 'turnover', label: 'Turnover', icon: Activity },
-  { id: 'abc-xyz', label: 'ABC/XYZ', icon: Layers },
-  { id: 'itemwise-be', label: 'Itemwise BE', icon: Zap },
-  { id: 'aging', label: 'Aging (FIFO)', icon: Clock },
-  { id: 'warehouses', label: 'Warehouses & Transfers', icon: Warehouse },
-  { id: 'procurement', label: 'Procurement', icon: Truck },
-]
+
+const hasData = computed(() => data.value !== null && !error.value)
 
 // Load inventory intelligence data
 async function loadData(refresh = false) {
@@ -57,21 +72,15 @@ async function loadData(refresh = false) {
     isLoading.value = true
   }
   error.value = null
-  
-  try {
-    const result = await apiCall('insights.api.ml.inventory_intelligence', {
-      refresh: refresh,
-      date_filter: dateFilter.value
-    })
 
-    data.value = result
-    createToast({
-      title: 'Data Loaded',
-      message: `Analyzed ${result?.stock_overview?.total_skus || 0} SKUs`,
-      variant: 'success'
+  try {
+    const result = await apiCall<Record<string, unknown>>('insights.api.ml.inventory_intelligence', {
+      refresh: refresh,
+      date_filter: dateFilter.value,
     })
-  } catch (e: any) {
-    error.value = e.message || 'Failed to load inventory intelligence'
+    data.value = result
+  } catch (e: unknown) {
+    error.value = (e instanceof Error ? e.message : String(e)) || 'Failed to load inventory intelligence'
   } finally {
     isLoading.value = false
     isRefreshing.value = false
@@ -82,23 +91,24 @@ async function loadData(refresh = false) {
 async function trainInventoryIntelligence() {
   isTraining.value = true
   trainingStatus.value = ''
-  
-  try {
-    const result = await apiCall('insights.api.ml.train_inventory_intelligence')
 
-    trainingStatus.value = '✓ Successfully refreshed inventory analysis'
+  try {
+    const result = await apiCall<Record<string, unknown>>('insights.api.ml.train_inventory_intelligence')
+    trainingStatus.value = 'Analysis complete'
+    trainingSuccess.value = true
     data.value = result
     createToast({
       title: 'Analysis Complete',
-      message: `Analyzed ${result?.stock_overview?.total_skus || 0} SKUs across ${result?.stock_overview?.warehouse_count || 0} warehouses`,
-      variant: 'success'
+      message: `Analyzed ${(result.stock_overview as Record<string, unknown>)?.total_skus || 0} SKUs across ${(result.stock_overview as Record<string, unknown>)?.warehouse_count || 0} warehouses`,
+      variant: 'success',
     })
-  } catch (e: any) {
-    trainingStatus.value = `✗ Analysis error: ${e.message}`
+  } catch (e: unknown) {
+    trainingStatus.value = `Analysis error: ${(e instanceof Error ? e.message : String(e))}`
+    trainingSuccess.value = false
     createToast({
       title: 'Analysis Error',
-      message: e.message,
-      variant: 'error'
+      message: (e instanceof Error ? e.message : String(e)) || 'Analysis failed',
+      variant: 'error',
     })
   } finally {
     isTraining.value = false
@@ -109,88 +119,80 @@ async function trainInventoryIntelligence() {
 const isTrainingAbcXyz = ref(false)
 async function trainAbcXyz() {
   isTrainingAbcXyz.value = true
-  
+
   try {
     const result = await apiCall('insights.api.ml.inventory_classification', {
-      refresh: true
+      refresh: true,
     })
-
     createToast({
       title: 'ABC/XYZ Classification Complete',
-      message: `Classified ${result?.total_items || 0} items`,
-      variant: 'success'
+      message: `Classified ${(result as Record<string, unknown>)?.total_items || 0} items`,
+      variant: 'success',
     })
-    // Reload main data to get updated ABC/XYZ
     await loadData(true)
-  } catch (e: any) {
+  } catch (e: unknown) {
     createToast({
       title: 'Classification Error',
-      message: e.message,
-      variant: 'error'
+      message: (e instanceof Error ? e.message : String(e)) || 'Classification failed',
+      variant: 'error',
     })
   } finally {
     isTrainingAbcXyz.value = false
   }
 }
 
+/** Counts per ABC/XYZ class for the summary cards. */
+interface AbcXyzSummary {
+  a_count?: number; b_count?: number; c_count?: number
+  x_count?: number; y_count?: number; z_count?: number
+}
+/** Shape of the abc_xyz sub-object returned by inventory_intelligence. */
+interface AbcXyzData {
+  summary?: AbcXyzSummary
+  matrix?: Record<string, unknown>[]
+  total_items?: number
+  classification_date?: string
+}
+
 // Computed values
-const stockOverview = computed(() => data.value?.stock_overview || {})
-const turnoverAnalysis = computed(() => data.value?.turnover_analysis || {})
-const agingAnalysis = computed(() => data.value?.aging_analysis || {})
-const warehouseAnalysis = computed(() => data.value?.warehouse_analysis || {})
-const transferRecommendations = computed(() => data.value?.transfer_recommendations || [])
-const deadStock = computed(() => data.value?.dead_stock || {})
-const procurementInsights = computed(() => data.value?.procurement_insights || {})
-const abcXyz = computed(() => data.value?.abc_xyz || null)
-const demandPlanning = computed(() => data.value?.demand_planning || null)
+const stockOverview = computed(() => (data.value?.stock_overview as Record<string, unknown>) || {})
+const turnoverAnalysis = computed(() => (data.value?.turnover_analysis as Record<string, unknown>) || {})
+const agingAnalysis = computed(() => (data.value?.aging_analysis as Record<string, unknown>) || {})
+const warehouseAnalysis = computed(() => (data.value?.warehouse_analysis as Record<string, unknown>) || {})
+const transferRecommendations = computed(() => (data.value?.transfer_recommendations as unknown[]) || [])
+const deadStock = computed(() => (data.value?.dead_stock as Record<string, unknown>) || {})
+const procurementInsights = computed(() => (data.value?.procurement_insights as Record<string, unknown>) || {})
+const abcXyz = computed(() => (data.value?.abc_xyz as AbcXyzData | null) ?? null)
+const demandPlanning = computed(() => (data.value?.demand_planning as Record<string, unknown> | null) ?? null)
+
+// Max value for age bucket bars (avoids inline template Math.max)
+const maxAgeBucketValue = computed(() => {
+  const buckets = agingAnalysis.value.age_buckets as Record<string, { value: number }> | undefined
+  if (!buckets) return 1
+  return Math.max(...Object.values(buckets).map(b => b.value || 1))
+})
 
 // Format helpers
 function formatCurrency(value: number): string {
-  if (value === undefined || value === null) return '0'
+  if (value === undefined || value === null) return NO_VALUE
   if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
   if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
   return value?.toFixed(0) || '0'
 }
 
-function formatNumber(value: number): string {
-  return value?.toLocaleString() || '0'
-}
 
 function formatPercent(value: number): string {
   return `${value?.toFixed(1) || 0}%`
 }
 
-function formatDate(dateString: string): string {
-  if (!dateString) return 'N/A'
-  const date = new Date(dateString)
-  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
-}
 
-function getHealthScoreColor(score: number): string {
-  if (score >= 80) return 'text-green-600'
-  if (score >= 60) return 'text-yellow-600'
-  return 'text-red-600'
-}
-
-function getHealthScoreBg(score: number): string {
-  if (score >= 80) return 'bg-green-100 border-green-200'
-  if (score >= 60) return 'bg-yellow-100 border-yellow-200'
-  return 'bg-red-100 border-red-200'
-}
-
-function getPriorityColor(priority: string): string {
-  if (priority === 'High') return 'bg-red-100 text-red-700'
-  if (priority === 'Medium') return 'bg-yellow-100 text-yellow-700'
-  return 'bg-green-100 text-green-700'
-}
-
-function getAgeBucketColor(bucket: string): string {
-  if (bucket.includes('0-30')) return 'bg-green-500'
-  if (bucket.includes('31-60')) return 'bg-blue-500'
-  if (bucket.includes('61-90')) return 'bg-yellow-500'
-  if (bucket.includes('91-180')) return 'bg-orange-500'
-  if (bucket.includes('181-365')) return 'bg-red-400'
-  return 'bg-red-600'
+// Age bucket: severity by bucket name
+function ageBucketSeverity(name: string): Severity {
+  if (name.includes('0-30')) return 'none'
+  if (name.includes('31-60')) return 'low'
+  if (name.includes('61-90')) return 'medium'
+  if (name.includes('91-180')) return 'high'
+  return 'critical'
 }
 
 // Load itemwise break-even data
@@ -202,20 +204,14 @@ async function loadItemwiseBe() {
 
   try {
     const result = await apiCall('insights.api.ml.inventory.item_breakeven', {
-      period: 'Quarterly'
+      period: 'Quarterly',
     })
-    itemwiseBeData.value = result
-  } catch (e: any) {
-    itemwiseBeError.value = e.message || 'Failed to load itemwise break-even data'
+    itemwiseBeData.value = result as Record<string, unknown>
+  } catch (e: unknown) {
+    itemwiseBeError.value = (e instanceof Error ? e.message : String(e)) || 'Failed to load itemwise break-even data'
   } finally {
     itemwiseBeLoading.value = false
   }
-}
-
-function getRagDotClass(rag: string): string {
-  if (rag === 'green') return 'bg-green-500'
-  if (rag === 'amber') return 'bg-amber-500'
-  return 'bg-red-500'
 }
 
 // Load on mount
@@ -238,7 +234,7 @@ watch(activeTab, (tab) => {
 // Breadcrumbs
 const breadcrumbs = [
   { label: 'Insights', href: '/insights' },
-  { label: 'Inventory Intelligence' }
+  { label: 'Inventory Intelligence' },
 ]
 
 // Chat context for AI insights
@@ -251,7 +247,7 @@ const chatContext = computed(() => ({
   procurementInsights: data.value?.procurement_insights || {},
   demandPlanning: data.value?.demand_planning || {},
   activeTab: activeTab.value,
-  isLoading: isLoading.value
+  isLoading: isLoading.value,
 }))
 
 // Handle navigation to other dashboards from chat suggestions
@@ -262,7 +258,7 @@ function handleDashboardRedirect(target: string) {
     'Procurement': '/procurement-intelligence',
     'Financial': '/financial-intelligence',
     'Customer': '/customer-intelligence',
-    'Inventory': '/inventory-intelligence'
+    'Inventory': '/inventory-intelligence',
   }
   if (routes[target]) {
     router.push(routes[target])
@@ -271,151 +267,107 @@ function handleDashboardRedirect(target: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-gray-50">
+  <div class="flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
-    <div class="flex items-center justify-between px-6 py-4 bg-white border-b">
+    <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between px-6 py-4 bg-surface-white border-b border-outline-gray-1">
       <div>
         <Breadcrumbs :items="breadcrumbs" />
-        <h1 class="text-2xl font-bold text-gray-900 mt-1">Inventory Intelligence</h1>
-        <p class="text-sm text-gray-500">Comprehensive inventory analytics with FIFO valuation</p>
+        <h1 class="text-2xl font-bold text-ink-gray-9 mt-1">Inventory Intelligence</h1>
       </div>
       <div class="flex items-center gap-3">
         <IntelligenceDateFilter v-model="dateFilter" />
-        <button
+        <Button
+          variant="subtle"
+          :loading="isTraining"
           @click="trainInventoryIntelligence"
-          :disabled="isTraining"
-          class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-lg hover:bg-blue-100 disabled:opacity-50 border border-blue-200"
         >
-          <Loader2 v-if="isTraining" class="w-4 h-4 animate-spin" />
-          <Activity v-else class="w-4 h-4" />
+          <template #prefix><Activity class="w-4 h-4" /></template>
           {{ isTraining ? 'Analyzing...' : 'Refresh Analysis' }}
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="solid"
+          :loading="isRefreshing"
           @click="loadData(true)"
-          :disabled="isRefreshing"
-          class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          aria-label="Refresh inventory data"
         >
-          <RefreshCcw v-if="!isRefreshing" class="w-4 h-4" />
-          <Loader2 v-else class="w-4 h-4 animate-spin" />
+          <template #prefix><RefreshCcw class="w-4 h-4" /></template>
           Refresh
-        </button>
+        </Button>
       </div>
     </div>
 
     <!-- Training Status -->
     <div v-if="trainingStatus" class="mx-6 mt-4">
-      <div :class="[
-        'px-4 py-2 rounded-lg text-sm',
-        trainingStatus.startsWith('✓') ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'
-      ]">
-        {{ trainingStatus }}
+      <div class="px-4 py-2 rounded-lg text-sm border border-outline-gray-1 flex items-center gap-2 bg-surface-white">
+        <Badge v-bind="severityBadge(trainingSuccess ? 'none' : 'high')"
+               :label="trainingSuccess ? 'Success' : 'Error'" size="sm" />
+        <span class="text-ink-gray-7">{{ trainingStatus }}</span>
       </div>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="isLoading" class="flex items-center justify-center flex-1">
-      <div class="text-center">
-        <Loader2 class="w-12 h-12 mx-auto text-blue-600 animate-spin" />
-        <p class="mt-4 text-gray-600">Loading inventory intelligence...</p>
-      </div>
-    </div>
-
-    <!-- Error State -->
-    <div v-else-if="error" class="flex items-center justify-center flex-1">
-      <div class="text-center">
-        <AlertTriangle class="w-12 h-12 mx-auto text-red-500" />
-        <p class="mt-4 text-gray-900 font-medium">Failed to load data</p>
-        <p class="text-gray-600">{{ error }}</p>
-        <button
-          @click="loadData()"
-          class="mt-4 px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700"
-        >
-          Try Again
-        </button>
-      </div>
-    </div>
-
+    <IntelligenceDashboardShell
+      :loading="isLoading"
+      :refreshing="isRefreshing"
+      :error="error"
+      :has-data="!!data"
+      :kpi-count="6"
+      subject="inventory data"
+      @retry="loadData()"
+    >
     <!-- Main Content -->
-    <div v-else class="flex-1 overflow-auto p-6">
+    <div class="flex-1 overflow-auto p-6">
       <!-- Summary Cards -->
       <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
         <!-- Health Score -->
-        <div :class="['bg-white rounded-xl shadow-sm p-4 border', getHealthScoreBg(stockOverview.health_score)]">
-          <div class="flex items-center justify-between">
-            <Heart :class="['w-8 h-8', getHealthScoreColor(stockOverview.health_score)]" />
-          </div>
-          <p :class="['text-2xl font-bold mt-2', getHealthScoreColor(stockOverview.health_score)]">
-            {{ stockOverview.health_score || 0 }}
-          </p>
-          <p class="text-sm text-gray-500">Health Score</p>
-        </div>
-
+        <KpiCard
+          label="Health Score"
+          :value="asNumber(stockOverview.health_score)"
+          :severity="scoreSeverity(stockOverview.health_score as number, { good: 80, warn: 60, higherIsBetter: true })"
+          :loading="!hasData"
+        />
         <!-- Total SKUs -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border cursor-pointer hover:bg-blue-50 transition-colors"
-             @click="drillDown.open(INV_ENDPOINT, 'Active SKUs', { metric: 'total_skus' })">
-          <div class="flex items-center justify-between">
-            <Package class="w-8 h-8 text-blue-500" />
-          </div>
-          <p class="text-2xl font-bold mt-2">{{ formatNumber(stockOverview.total_skus) }}</p>
-          <p class="text-sm text-gray-500">Active SKUs</p>
-        </div>
-
+        <KpiCard
+          label="Active SKUs"
+          :value="formatCount(stockOverview.total_skus as number)"
+          :clickable="true"
+          :loading="!hasData"
+          @click="drillDown.open(INV_ENDPOINT, 'Active SKUs', { metric: 'total_skus' })"
+        />
         <!-- Stock Value -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border">
-          <div class="flex items-center justify-between">
-            <DollarSign class="w-8 h-8 text-green-500" />
-          </div>
-          <p class="text-2xl font-bold mt-2">{{ formatCurrency(stockOverview.total_value) }}</p>
-          <p class="text-sm text-gray-500">Stock Value</p>
-        </div>
-
+        <KpiCard
+          label="Stock Value"
+          :value="formatCurrency(stockOverview.total_value as number)"
+          :loading="!hasData"
+        />
         <!-- Out of Stock -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border">
-          <div class="flex items-center justify-between">
-            <AlertTriangle class="w-8 h-8 text-red-500" />
-            <span class="text-xs text-red-600 font-medium">Alert</span>
-          </div>
-          <p class="text-2xl font-bold mt-2 text-red-600">{{ formatNumber(stockOverview.out_of_stock_count) }}</p>
-          <p class="text-sm text-gray-500">Out of Stock</p>
-        </div>
-
+        <KpiCard
+          label="Out of Stock"
+          :value="formatCount(stockOverview.out_of_stock_count as number)"
+          :severity="(stockOverview.out_of_stock_count as number) > 0 ? 'high' : 'none'"
+          :loading="!hasData"
+        />
         <!-- Low Stock -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border cursor-pointer hover:bg-blue-50 transition-colors"
-             @click="drillDown.open(INV_ENDPOINT, 'Low Stock Items', { metric: 'low_stock_items' })">
-          <div class="flex items-center justify-between">
-            <TrendingDown class="w-8 h-8 text-orange-500" />
-          </div>
-          <p class="text-2xl font-bold mt-2 text-orange-600">{{ formatNumber(stockOverview.low_stock_count) }}</p>
-          <p class="text-sm text-gray-500">Low Stock</p>
-        </div>
-
+        <KpiCard
+          label="Low Stock"
+          :value="formatCount(stockOverview.low_stock_count as number)"
+          :severity="(stockOverview.low_stock_count as number) > 0 ? 'medium' : 'none'"
+          :clickable="true"
+          :loading="!hasData"
+          @click="drillDown.open(INV_ENDPOINT, 'Low Stock Items', { metric: 'low_stock_items' })"
+        />
         <!-- Overstock -->
-        <div class="bg-white rounded-xl shadow-sm p-4 border">
-          <div class="flex items-center justify-between">
-            <TrendingUp class="w-8 h-8 text-purple-500" />
-          </div>
-          <p class="text-2xl font-bold mt-2 text-purple-600">{{ formatNumber(stockOverview.overstock_count) }}</p>
-          <p class="text-sm text-gray-500">Overstock</p>
-        </div>
+        <KpiCard
+          label="Overstock"
+          :value="formatCount(stockOverview.overstock_count as number)"
+          :severity="(stockOverview.overstock_count as number) > 0 ? 'low' : 'none'"
+          :loading="!hasData"
+        />
       </div>
 
       <!-- Tabs -->
-      <div class="bg-white rounded-xl shadow-sm border mb-6">
-        <div class="flex border-b overflow-x-auto">
-          <button
-            v-for="tab in tabs"
-            :key="tab.id"
-            @click="activeTab = tab.id"
-            :class="[
-              'flex items-center gap-2 px-4 py-3 text-sm font-medium whitespace-nowrap border-b-2 -mb-px',
-              activeTab === tab.id 
-                ? 'text-blue-600 border-blue-600' 
-                : 'text-gray-500 border-transparent hover:text-gray-700'
-            ]"
-          >
-            <component :is="tab.icon" class="w-4 h-4" />
-            {{ tab.label }}
-          </button>
+      <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 mb-6">
+        <div class="border-b border-outline-gray-1 px-2">
+          <Tabs v-model="tabIndex" :tabs="tabDefs" />
         </div>
 
         <!-- Tab Content -->
@@ -425,30 +377,27 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Stock by Item Group -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Boxes class="w-4 h-4" />
-                  Stock Value by Item Group
-                </h3>
-                <div class="bg-white rounded-lg border overflow-hidden">
+                <SectionHeader title="Stock Value by Item Group" :level="3" />
+                <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-gray-1">
                       <tr>
-                        <th class="px-4 py-2 text-left">Item Group</th>
-                        <th class="px-4 py-2 text-right">Items</th>
-                        <th class="px-4 py-2 text-right">Qty</th>
-                        <th class="px-4 py-2 text-right">Value</th>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Group</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Qty</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr 
-                        v-for="(group, idx) in stockOverview.by_item_group" 
+                      <tr
+                        v-for="(group, idx) in stockOverview.by_item_group as unknown[]"
                         :key="idx"
-                        class="border-b hover:bg-blue-50"
+                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
-                        <td class="px-4 py-2 font-medium">{{ group.item_group }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatNumber(group.item_count) }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatNumber(group.total_qty) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-green-600">{{ formatCurrency(group.stock_value) }}</td>
+                        <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).item_count as number) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).total_qty as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((group as Record<string, unknown>).stock_value as number) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -457,40 +406,37 @@ function handleDashboardRedirect(target: string) {
 
               <!-- Dead Stock Summary -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Archive class="w-4 h-4" />
-                  Dead Stock (No Sales 180+ Days)
-                </h3>
-                <div class="bg-red-50 rounded-lg border border-red-200 p-4 mb-4">
+                <SectionHeader title="Dead Stock (No Sales 180+ Days)" :level="3" />
+                <div class="mt-4 bg-surface-gray-1 rounded-lg border border-outline-gray-2 p-4 mb-4">
                   <div class="flex justify-between items-center">
                     <div>
-                      <p class="text-sm text-red-600">Total Dead Stock Value</p>
-                      <p class="text-2xl font-bold text-red-700">{{ formatCurrency(deadStock.total_value) }}</p>
+                      <p class="text-sm text-ink-gray-6">Total Dead Stock Value</p>
+                      <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(deadStock.total_value as number) }}</p>
                     </div>
                     <div class="text-right">
-                      <p class="text-sm text-red-600">Items</p>
-                      <p class="text-xl font-bold text-red-700">{{ formatNumber(deadStock.total_items) }}</p>
+                      <p class="text-sm text-ink-gray-6">Items</p>
+                      <p class="text-xl font-bold text-ink-gray-9">{{ formatCount(deadStock.total_items as number) }}</p>
                     </div>
                   </div>
                 </div>
-                <div class="bg-white rounded-lg border overflow-hidden">
+                <div class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-gray-1">
                       <tr>
-                        <th class="px-4 py-2 text-left">Item Group</th>
-                        <th class="px-4 py-2 text-right">Count</th>
-                        <th class="px-4 py-2 text-right">Value</th>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Group</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Count</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr 
-                        v-for="(group, idx) in deadStock.by_product_group?.slice(0, 8)" 
+                      <tr
+                        v-for="(group, idx) in (deadStock.by_product_group as unknown[])?.slice(0, 8)"
                         :key="idx"
-                        class="border-b hover:bg-red-50"
+                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
-                        <td class="px-4 py-2 font-medium">{{ group.item_group }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatNumber(group.count) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-red-600">{{ formatCurrency(group.value) }}</td>
+                        <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).count as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((group as Record<string, unknown>).value as number) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -501,53 +447,56 @@ function handleDashboardRedirect(target: string) {
 
           <!-- Turnover Tab -->
           <div v-if="activeTab === 'turnover'">
-            <!-- Turnover Summary -->
+            <!-- Turnover Summary - KpiCards replace the banned gradient blocks -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-              <div class="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg p-4 text-white">
-                <p class="text-sm opacity-80">Turnover Ratio</p>
-                <p class="text-2xl font-bold">{{ turnoverAnalysis.overall_turnover_ratio || 0 }}x</p>
-              </div>
-              <div class="bg-gradient-to-br from-green-500 to-green-600 rounded-lg p-4 text-white">
-                <p class="text-sm opacity-80">Days Sales Inventory</p>
-                <p class="text-2xl font-bold">{{ turnoverAnalysis.days_sales_inventory || 0 }} days</p>
-              </div>
-              <div class="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-4 text-white">
-                <p class="text-sm opacity-80">COGS (12m)</p>
-                <p class="text-2xl font-bold">{{ formatCurrency(turnoverAnalysis.cogs_12m) }}</p>
-              </div>
-              <div class="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg p-4 text-white">
-                <p class="text-sm opacity-80">Avg Inventory Value</p>
-                <p class="text-2xl font-bold">{{ formatCurrency(turnoverAnalysis.avg_inventory_value) }}</p>
-              </div>
+              <KpiCard
+                label="Turnover Ratio"
+                :value="asNumber(turnoverAnalysis.overall_turnover_ratio)"
+                unit="x"
+                :loading="!hasData"
+              />
+              <KpiCard
+                label="Days Sales Inventory"
+                :value="asNumber(turnoverAnalysis.days_sales_inventory)"
+                unit=" days"
+                :loading="!hasData"
+              />
+              <KpiCard
+                label="COGS (12m)"
+                :value="formatCurrency(turnoverAnalysis.cogs_12m as number)"
+                :loading="!hasData"
+              />
+              <KpiCard
+                label="Avg Inventory Value"
+                :value="formatCurrency(turnoverAnalysis.avg_inventory_value as number)"
+                :loading="!hasData"
+              />
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Turnover by Product Group -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <BarChart3 class="w-4 h-4" />
-                  Turnover by Product Group
-                </h3>
-                <div class="bg-white rounded-lg border overflow-hidden">
+                <SectionHeader title="Turnover by Product Group" :level="3" />
+                <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-gray-1">
                       <tr>
-                        <th class="px-4 py-2 text-left">Item Group</th>
-                        <th class="px-4 py-2 text-right">Sales 12m</th>
-                        <th class="px-4 py-2 text-right">Turnover</th>
-                        <th class="px-4 py-2 text-right">DSI</th>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Group</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Sales 12m</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Turnover</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">DSI</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr 
-                        v-for="(group, idx) in turnoverAnalysis.by_product_group" 
+                      <tr
+                        v-for="(group, idx) in turnoverAnalysis.by_product_group as unknown[]"
                         :key="idx"
-                        class="border-b hover:bg-blue-50"
+                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
-                        <td class="px-4 py-2 font-medium">{{ group.item_group }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatCurrency(group.sales_12m) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-blue-600">{{ group.turnover_ratio }}x</td>
-                        <td class="px-4 py-2 text-right">{{ group.dsi }} days</td>
+                        <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((group as Record<string, unknown>).sales_12m as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ (group as Record<string, unknown>).turnover_ratio }}x</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ (group as Record<string, unknown>).dsi }} days</td>
                       </tr>
                     </tbody>
                   </table>
@@ -558,30 +507,28 @@ function handleDashboardRedirect(target: string) {
               <div class="space-y-6">
                 <!-- Fast Moving -->
                 <div>
-                  <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <TrendingUp class="w-4 h-4 text-green-500" />
-                    Fast Moving Items (90d)
-                  </h3>
-                  <div class="bg-white rounded-lg border overflow-hidden">
+                  <SectionHeader title="Fast Moving Items (90d)" :level="3" />
+                  <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
-                      <thead class="bg-gray-50">
+                      <thead class="bg-surface-gray-1">
                         <tr>
-                          <th class="px-4 py-2 text-left">Item</th>
-                          <th class="px-4 py-2 text-right">Sold</th>
-                          <th class="px-4 py-2 text-right">Stock</th>
+                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Sold</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Stock</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr 
-                          v-for="(item, idx) in turnoverAnalysis.fast_moving?.slice(0, 5)" 
+                        <tr
+                          v-for="(item, idx) in (turnoverAnalysis.fast_moving as unknown[])?.slice(0, 5)"
                           :key="idx"
-                          class="border-b hover:bg-green-50"
+                          class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                         >
-                          <td class="px-4 py-2 font-medium truncate max-w-[200px]" :title="item.item_name">
-                            {{ item.item_code }}
+                          <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[200px]"
+                              :title="(item as Record<string, unknown>).item_name as string">
+                            {{ (item as Record<string, unknown>).item_code }}
                           </td>
-                          <td class="px-4 py-2 text-right text-green-600 font-bold">{{ formatNumber(item.qty_sold) }}</td>
-                          <td class="px-4 py-2 text-right">{{ formatNumber(item.current_stock) }}</td>
+                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).qty_sold as number) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).current_stock as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -590,30 +537,28 @@ function handleDashboardRedirect(target: string) {
 
                 <!-- Slow Moving -->
                 <div>
-                  <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <TrendingDown class="w-4 h-4 text-red-500" />
-                    Slow Moving Items (90d)
-                  </h3>
-                  <div class="bg-white rounded-lg border overflow-hidden">
+                  <SectionHeader title="Slow Moving Items (90d)" :level="3" />
+                  <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
-                      <thead class="bg-gray-50">
+                      <thead class="bg-surface-gray-1">
                         <tr>
-                          <th class="px-4 py-2 text-left">Item</th>
-                          <th class="px-4 py-2 text-right">Stock</th>
-                          <th class="px-4 py-2 text-right">Value</th>
+                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Stock</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr 
-                          v-for="(item, idx) in turnoverAnalysis.slow_moving?.slice(0, 5)" 
+                        <tr
+                          v-for="(item, idx) in (turnoverAnalysis.slow_moving as unknown[])?.slice(0, 5)"
                           :key="idx"
-                          class="border-b hover:bg-red-50"
+                          class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                         >
-                          <td class="px-4 py-2 font-medium truncate max-w-[200px]" :title="item.item_name">
-                            {{ item.item_code }}
+                          <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[200px]"
+                              :title="(item as Record<string, unknown>).item_name as string">
+                            {{ (item as Record<string, unknown>).item_code }}
                           </td>
-                          <td class="px-4 py-2 text-right">{{ formatNumber(item.current_stock) }}</td>
-                          <td class="px-4 py-2 text-right text-red-600 font-bold">{{ formatCurrency(item.stock_value) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).current_stock as number) }}</td>
+                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((item as Record<string, unknown>).stock_value as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -628,105 +573,77 @@ function handleDashboardRedirect(target: string) {
             <div v-if="abcXyz">
               <!-- Summary Cards -->
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
-                <div class="bg-green-50 rounded-lg p-4 border border-green-200">
-                  <p class="text-sm text-green-600">Class A Items</p>
-                  <p class="text-2xl font-bold text-green-700">{{ formatNumber(abcXyz.summary?.a_count) }}</p>
-                  <p class="text-xs text-green-500">High Value (~80%)</p>
-                </div>
-                <div class="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                  <p class="text-sm text-yellow-600">Class B Items</p>
-                  <p class="text-2xl font-bold text-yellow-700">{{ formatNumber(abcXyz.summary?.b_count) }}</p>
-                  <p class="text-xs text-yellow-500">Medium Value (~15%)</p>
-                </div>
-                <div class="bg-red-50 rounded-lg p-4 border border-red-200">
-                  <p class="text-sm text-red-600">Class C Items</p>
-                  <p class="text-2xl font-bold text-red-700">{{ formatNumber(abcXyz.summary?.c_count) }}</p>
-                  <p class="text-xs text-red-500">Low Value (~5%)</p>
-                </div>
-                <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                  <p class="text-sm text-blue-600">Class X Items</p>
-                  <p class="text-2xl font-bold text-blue-700">{{ formatNumber(abcXyz.summary?.x_count) }}</p>
-                  <p class="text-xs text-blue-500">Stable Demand</p>
-                </div>
-                <div class="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                  <p class="text-sm text-purple-600">Class Y Items</p>
-                  <p class="text-2xl font-bold text-purple-700">{{ formatNumber(abcXyz.summary?.y_count) }}</p>
-                  <p class="text-xs text-purple-500">Variable Demand</p>
-                </div>
-                <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                  <p class="text-sm text-gray-600">Class Z Items</p>
-                  <p class="text-2xl font-bold text-gray-700">{{ formatNumber(abcXyz.summary?.z_count) }}</p>
-                  <p class="text-xs text-gray-500">Irregular Demand</p>
-                </div>
+                <KpiCard label="Class A Items" :value="formatCount(abcXyz.summary?.a_count as number)"
+                         sublabel="High Value (~80%)" />
+                <KpiCard label="Class B Items" :value="formatCount(abcXyz.summary?.b_count as number)"
+                         sublabel="Medium Value (~15%)" />
+                <KpiCard label="Class C Items" :value="formatCount(abcXyz.summary?.c_count as number)"
+                         sublabel="Low Value (~5%)" />
+                <KpiCard label="Class X Items" :value="formatCount(abcXyz.summary?.x_count as number)"
+                         sublabel="Stable Demand" />
+                <KpiCard label="Class Y Items" :value="formatCount(abcXyz.summary?.y_count as number)"
+                         sublabel="Variable Demand" />
+                <KpiCard label="Class Z Items" :value="formatCount(abcXyz.summary?.z_count as number)"
+                         sublabel="Irregular Demand" />
               </div>
 
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- ABC/XYZ Matrix -->
                 <div>
-                  <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <Layers class="w-4 h-4" />
-                    ABC/XYZ Classification Matrix
-                  </h3>
-                  <p class="text-sm text-gray-500 mb-4">
-                    Classification Date: {{ formatDate(abcXyz.classification_date) }} • {{ formatNumber(abcXyz.total_items) }} items analyzed
-                  </p>
-                  <div class="bg-white rounded-lg border overflow-hidden">
+                  <SectionHeader title="ABC/XYZ Classification Matrix" :level="3"
+                                 :hint="`${formatCount(abcXyz.total_items as number)} items, ${formatDate(abcXyz.classification_date as string)}`" />
+                  <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
-                      <thead class="bg-gray-50">
+                      <thead class="bg-surface-gray-1">
                         <tr>
-                          <th class="px-4 py-2 text-left">Class</th>
-                          <th class="px-4 py-2 text-right">Items</th>
-                          <th class="px-4 py-2 text-right">Sales Value</th>
-                          <th class="px-4 py-2 text-right">Stock Value</th>
+                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Class</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Sales Value</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Stock Value</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr 
-                          v-for="(item, idx) in abcXyz.matrix" 
+                        <tr
+                          v-for="(item, idx) in abcXyz.matrix as unknown[]"
                           :key="idx"
-                          class="border-b hover:bg-blue-50"
+                          class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                         >
                           <td class="px-4 py-2">
-                            <span :class="[
-                              'px-2 py-1 rounded text-xs font-medium',
-                              item.class?.startsWith('A') ? 'bg-green-100 text-green-700' :
-                              item.class?.startsWith('B') ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-red-100 text-red-700'
-                            ]">
-                              {{ item.class }}
-                            </span>
+                            <Badge v-bind="severityBadge(
+                              ((item as Record<string, unknown>).class as string | undefined)?.startsWith('A') ? 'none' :
+                              ((item as Record<string, unknown>).class as string | undefined)?.startsWith('B') ? 'medium' : 'high'
+                            )" :label="String((item as Record<string, unknown>).class)" size="sm" />
                           </td>
-                          <td class="px-4 py-2 text-right font-bold">{{ formatNumber(item.item_count) }}</td>
-                          <td class="px-4 py-2 text-right">{{ formatCurrency(item.sales_value) }}</td>
-                          <td class="px-4 py-2 text-right">{{ formatCurrency(item.stock_value) }}</td>
+                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).item_count as number) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).sales_value as number) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).stock_value as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
 
                   <!-- ABC Summary -->
-                  <h4 class="font-medium text-gray-700 mt-6 mb-3">ABC Summary (by Value)</h4>
-                  <div class="bg-white rounded-lg border overflow-hidden">
+                  <SectionHeader title="ABC Summary (by Value)" :level="4" class="mt-6 mb-3" />
+                  <div class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
-                      <thead class="bg-gray-50">
+                      <thead class="bg-surface-gray-1">
                         <tr>
-                          <th class="px-4 py-2 text-left">Class</th>
-                          <th class="px-4 py-2 text-right">Items</th>
-                          <th class="px-4 py-2 text-right">Total Value</th>
+                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Class</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Total Value</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr v-for="(item, idx) in abcXyz.abc_summary" :key="idx" class="border-b hover:bg-blue-50">
+                        <tr v-for="(item, idx) in abcXyz.abc_summary as unknown[]" :key="idx"
+                            class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
                           <td class="px-4 py-2">
-                            <span :class="[
-                              'px-2 py-1 rounded text-xs font-medium',
-                              item.class === 'A' ? 'bg-green-100 text-green-700' :
-                              item.class === 'B' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-red-100 text-red-700'
-                            ]">{{ item.class }}</span>
+                            <Badge v-bind="severityBadge(
+                              (item as Record<string, unknown>).class === 'A' ? 'none' :
+                              (item as Record<string, unknown>).class === 'B' ? 'medium' : 'high'
+                            )" :label="String((item as Record<string, unknown>).class)" size="sm" />
                           </td>
-                          <td class="px-4 py-2 text-right font-bold">{{ formatNumber(item.item_count) }}</td>
-                          <td class="px-4 py-2 text-right">{{ formatCurrency(item.total_value) }}</td>
+                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).item_count as number) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).total_value as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -735,121 +652,126 @@ function handleDashboardRedirect(target: string) {
 
                 <!-- Top Items with Strategy -->
                 <div>
-                  <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                    <PieChart class="w-4 h-4" />
-                    Top Items with Strategy Recommendations
-                  </h3>
-                  <div class="bg-white rounded-lg border overflow-hidden max-h-[600px] overflow-y-auto">
+                  <SectionHeader title="Top Items with Strategy Recommendations" :level="3" />
+                  <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden max-h-[600px] overflow-y-auto">
                     <table class="w-full text-sm">
-                      <thead class="bg-gray-50 sticky top-0">
+                      <thead class="bg-surface-gray-1 sticky top-0">
                         <tr>
-                          <th class="px-3 py-2 text-left">Item</th>
-                          <th class="px-3 py-2 text-center">Class</th>
-                          <th class="px-3 py-2 text-right">Sales</th>
-                          <th class="px-3 py-2 text-right">Stock</th>
+                          <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Item</th>
+                          <th scope="col" class="px-3 py-2 text-center text-ink-gray-6">Class</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Sales</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Stock</th>
                         </tr>
                       </thead>
                       <tbody>
-                        <tr 
-                          v-for="(item, idx) in abcXyz.top_items?.slice(0, 20)" 
+                        <tr
+                          v-for="(item, idx) in (abcXyz.top_items as unknown[])?.slice(0, 20)"
                           :key="idx"
-                          class="border-b hover:bg-blue-50"
+                          class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                         >
                           <td class="px-3 py-2">
-                            <div class="font-medium truncate max-w-[120px]" :title="item.item_name">{{ item.item_code }}</div>
-                            <div class="text-xs text-gray-500 truncate max-w-[120px]" :title="item.item_name">{{ item.item_name }}</div>
+                            <div class="font-medium text-ink-gray-9 truncate max-w-[120px]"
+                                 :title="(item as Record<string, unknown>).item_name as string">
+                              {{ (item as Record<string, unknown>).item_code }}
+                            </div>
+                            <div class="text-xs text-ink-gray-6 truncate max-w-[120px]"
+                                 :title="(item as Record<string, unknown>).item_name as string">
+                              {{ (item as Record<string, unknown>).item_name }}
+                            </div>
                           </td>
                           <td class="px-3 py-2 text-center">
-                            <span :class="[
-                              'px-1.5 py-0.5 rounded text-xs font-bold',
-                              item.abc_class === 'A' ? 'bg-green-100 text-green-700' :
-                              item.abc_class === 'B' ? 'bg-yellow-100 text-yellow-700' :
-                              'bg-red-100 text-red-700'
-                            ]">{{ item.abc_class }}</span>
-                            <span :class="[
-                              'px-1.5 py-0.5 rounded text-xs font-bold ml-1',
-                              item.xyz_class === 'X' ? 'bg-blue-100 text-blue-700' :
-                              item.xyz_class === 'Y' ? 'bg-purple-100 text-purple-700' :
-                              'bg-gray-100 text-gray-700'
-                            ]">{{ item.xyz_class }}</span>
+                            <Badge v-bind="severityBadge(
+                              (item as Record<string, unknown>).abc_class === 'A' ? 'none' :
+                              (item as Record<string, unknown>).abc_class === 'B' ? 'medium' : 'high'
+                            )" :label="String((item as Record<string, unknown>).abc_class)" size="sm" />
+                            <Badge v-bind="severityBadge(
+                              (item as Record<string, unknown>).xyz_class === 'X' ? 'none' :
+                              (item as Record<string, unknown>).xyz_class === 'Y' ? 'medium' : 'low'
+                            )" :label="String((item as Record<string, unknown>).xyz_class)" size="sm" class="ml-1" />
                           </td>
-                          <td class="px-3 py-2 text-right text-xs">{{ formatCurrency(item.total_value) }}</td>
-                          <td class="px-3 py-2 text-right text-xs">{{ formatNumber(item.stock_qty) }}</td>
+                          <td class="px-3 py-2 text-right text-xs text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).total_value as number) }}</td>
+                          <td class="px-3 py-2 text-right text-xs text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).stock_qty as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
                   </div>
 
                   <!-- Strategy Legend -->
-                  <div class="mt-4 p-4 bg-gray-50 rounded-lg border">
-                    <h4 class="font-medium text-gray-700 mb-2">Strategy Guide</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                      <div><span class="font-bold text-green-700">AX:</span> JIT inventory, tight control</div>
-                      <div><span class="font-bold text-green-600">AY:</span> Safety stock, close monitoring</div>
-                      <div><span class="font-bold text-green-500">AZ:</span> Make-to-order preferred</div>
-                      <div><span class="font-bold text-yellow-700">BX:</span> Moderate stock levels</div>
-                      <div><span class="font-bold text-yellow-600">BY:</span> Regular review cycles</div>
-                      <div><span class="font-bold text-yellow-500">BZ:</span> Buffer safety stock</div>
-                      <div><span class="font-bold text-red-700">CX:</span> Simple reorder rules</div>
-                      <div><span class="font-bold text-red-600">CY:</span> Periodic review</div>
-                      <div><span class="font-bold text-red-500">CZ:</span> Consider discontinuing</div>
+                  <div class="mt-4 p-4 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
+                    <h4 class="font-medium text-ink-gray-7 mb-2">Strategy Guide</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs text-ink-gray-6">
+                      <div><span class="font-bold text-ink-gray-8">AX:</span> JIT inventory, tight control</div>
+                      <div><span class="font-bold text-ink-gray-8">AY:</span> Safety stock, close monitoring</div>
+                      <div><span class="font-bold text-ink-gray-8">AZ:</span> Make-to-order preferred</div>
+                      <div><span class="font-bold text-ink-gray-8">BX:</span> Moderate stock levels</div>
+                      <div><span class="font-bold text-ink-gray-8">BY:</span> Regular review cycles</div>
+                      <div><span class="font-bold text-ink-gray-8">BZ:</span> Buffer safety stock</div>
+                      <div><span class="font-bold text-ink-gray-8">CX:</span> Simple reorder rules</div>
+                      <div><span class="font-bold text-ink-gray-8">CY:</span> Periodic review</div>
+                      <div><span class="font-bold text-ink-gray-8">CZ:</span> Consider discontinuing</div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
             <div v-else class="text-center py-12">
-              <Layers class="w-12 h-12 mx-auto text-gray-400" />
-              <p class="mt-4 text-gray-600">ABC/XYZ Classification not available</p>
-              <p class="text-sm text-gray-500 mb-4">Run ABC/XYZ analysis to see classification data</p>
-              <button
-                @click="trainAbcXyz"
-                :disabled="isTrainingAbcXyz"
-                class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                <span v-if="isTrainingAbcXyz">Running Analysis...</span>
-                <span v-else>Run ABC/XYZ Classification</span>
-              </button>
+              <Layers class="w-12 h-12 mx-auto text-ink-gray-5" aria-hidden="true" />
+              <p class="mt-4 text-ink-gray-6">ABC/XYZ Classification not available</p>
+              <p class="text-sm text-ink-gray-6 mb-4">Run ABC/XYZ analysis to see classification data</p>
+              <Button variant="solid" :loading="isTrainingAbcXyz" @click="trainAbcXyz">
+                {{ isTrainingAbcXyz ? 'Running Analysis...' : 'Run ABC/XYZ Classification' }}
+              </Button>
             </div>
           </div>
 
           <!-- Itemwise BE Tab -->
           <div v-if="activeTab === 'itemwise-be'">
             <div v-if="itemwiseBeLoading" class="flex items-center justify-center py-12">
-              <Loader2 class="w-8 h-8 text-blue-600 animate-spin" />
+              <Spinner class="w-8 h-8" />
             </div>
-            <div v-else-if="itemwiseBeError" class="text-center py-12 text-red-500">{{ itemwiseBeError }}</div>
-            <div v-else-if="itemwiseBeData?.items?.length" class="bg-white rounded-xl shadow-sm border overflow-x-auto">
-              <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
+            <div v-else-if="itemwiseBeError" class="text-center py-12 text-ink-gray-6">{{ itemwiseBeError }}</div>
+            <div v-else-if="(itemwiseBeData?.items as unknown[])?.length" class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-x-auto">
+              <table class="min-w-full divide-y divide-outline-gray-1">
+                <thead class="bg-surface-gray-1">
                   <tr>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Item</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Selling Price</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Variable Cost</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">CM</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">BE Qty</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actual Qty</th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Coverage %</th>
-                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">RAG</th>
+                    <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-ink-gray-6 uppercase">Item</th>
+                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Selling Price</th>
+                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Variable Cost</th>
+                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">CM</th>
+                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">BE Qty</th>
+                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Actual Qty</th>
+                    <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Coverage %</th>
+                    <th scope="col" class="px-4 py-3 text-center text-xs font-medium text-ink-gray-6 uppercase">RAG</th>
                   </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200">
-                  <tr v-for="item in itemwiseBeData.items" :key="item.item_code" class="hover:bg-gray-50">
-                    <td class="px-4 py-3 text-sm font-medium text-gray-900">{{ item.item_code }}<br><span class="text-xs text-gray-500">{{ item.item_name }}</span></td>
-                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ formatCurrency(item.selling_price) }}</td>
-                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ formatCurrency(item.variable_cost) }}</td>
-                    <td class="px-4 py-3 text-sm text-right font-medium text-gray-900">{{ formatCurrency(item.contribution_margin) }}</td>
-                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ item.be_qty?.toLocaleString() }}</td>
-                    <td class="px-4 py-3 text-sm text-right text-gray-600">{{ item.actual_qty?.toLocaleString() }}</td>
-                    <td class="px-4 py-3 text-sm text-right font-medium" :class="item.coverage >= 1 ? 'text-green-600' : 'text-red-600'">{{ (item.coverage * 100)?.toFixed(1) }}%</td>
+                <tbody class="divide-y divide-outline-gray-1">
+                  <tr v-for="item in (itemwiseBeData?.items || []) as unknown[]" :key="(item as Record<string, unknown>).item_code as string"
+                      class="hover:bg-surface-gray-1">
+                    <td class="px-4 py-3 text-sm font-medium text-ink-gray-9">
+                      {{ (item as Record<string, unknown>).item_code }}
+                      <br>
+                      <span class="text-xs text-ink-gray-6">{{ (item as Record<string, unknown>).item_name }}</span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).selling_price as number) }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).variable_cost as number) }}</td>
+                    <td class="px-4 py-3 text-sm text-right font-medium text-ink-gray-9">{{ formatCurrency((item as Record<string, unknown>).contribution_margin as number) }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ ((item as Record<string, unknown>).be_qty as number)?.toLocaleString() }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ ((item as Record<string, unknown>).actual_qty as number)?.toLocaleString() }}</td>
+                    <td class="px-4 py-3 text-sm text-right font-medium"
+                        :class="deltaInk((item as Record<string, unknown>).coverage as number >= 1 ? 1 : -1, { higherIsBetter: true })">
+                      {{ (((item as Record<string, unknown>).coverage as number) * 100)?.toFixed(1) }}%
+                    </td>
                     <td class="px-4 py-3 text-center">
-                      <span class="inline-block w-3 h-3 rounded-full" :class="getRagDotClass(item.rag)"></span>
+                      <Badge v-bind="severityBadge(ragSeverity((item as Record<string, unknown>).rag as string))"
+                             :label="severityBadge(ragSeverity((item as Record<string, unknown>).rag as string)).label"
+                             size="sm"
+                             :aria-label="severityAria('Break-even', ragSeverity((item as Record<string, unknown>).rag as string))" />
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
-            <div v-else class="text-center py-12 text-gray-500">No item break-even data available</div>
+            <div v-else class="text-center py-12 text-ink-gray-6">No item break-even data available</div>
           </div>
 
           <!-- Aging (FIFO) Tab -->
@@ -857,35 +779,32 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Age Buckets Visual -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Clock class="w-4 h-4" />
-                  Stock Age Distribution (FIFO)
-                </h3>
-                <div class="space-y-3">
-                  <div 
-                    v-for="(bucket, name) in agingAnalysis.age_buckets" 
+                <SectionHeader title="Stock Age Distribution (FIFO)" :level="3" />
+                <div class="mt-4 space-y-3">
+                  <div
+                    v-for="(bucket, name) in agingAnalysis.age_buckets as Record<string, { value: number; count: number }>"
                     :key="name"
                     class="flex items-center gap-4"
                   >
-                    <div class="w-24 text-sm font-medium text-gray-600">{{ name }}</div>
-                    <div class="flex-1 bg-gray-100 rounded-full h-6 overflow-hidden">
-                      <div 
-                        :class="['h-full rounded-full', getAgeBucketColor(String(name))]"
-                        :style="{ 
-                          width: `${Math.min(100, (bucket.value / Math.max(...Object.values(agingAnalysis.age_buckets || {}).map((b: any) => b.value || 1))) * 100)}%` 
-                        }"
+                    <div class="w-24 text-sm font-medium text-ink-gray-6">{{ name }}</div>
+                    <div class="flex-1 bg-surface-gray-2 rounded-full h-6 overflow-hidden"
+                         role="img"
+                         :aria-label="severityAria(String(name), ageBucketSeverity(String(name)), formatCurrency(bucket.value))">
+                      <div
+                        :class="['h-full rounded-full', severityFill(ageBucketSeverity(String(name)))]"
+                        :style="{ width: `${Math.min(100, (bucket.value / maxAgeBucketValue) * 100)}%` }"
                       ></div>
                     </div>
-                    <div class="w-20 text-right text-sm font-bold">{{ formatCurrency(bucket.value) }}</div>
-                    <div class="w-12 text-right text-xs text-gray-500">{{ bucket.count }} items</div>
+                    <div class="w-20 text-right text-sm font-bold text-ink-gray-9">{{ formatCurrency(bucket.value) }}</div>
+                    <div class="w-16 text-right text-xs text-ink-gray-6">{{ bucket.count }} items</div>
                   </div>
                 </div>
 
-                <div class="mt-6 p-4 bg-gray-50 rounded-lg border">
-                  <p class="text-sm text-gray-600">
-                    <strong>Total Items Analyzed:</strong> {{ formatNumber(agingAnalysis.total_items_analyzed) }}
+                <div class="mt-6 p-4 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
+                  <p class="text-sm text-ink-gray-6">
+                    <strong class="text-ink-gray-8">Total Items Analyzed:</strong> {{ formatCount(agingAnalysis.total_items_analyzed as number) }}
                   </p>
-                  <p class="text-xs text-gray-500 mt-1">
+                  <p class="text-xs text-ink-gray-6 mt-1">
                     Age calculation based on FIFO (First-In-First-Out) valuation method
                   </p>
                 </div>
@@ -893,36 +812,31 @@ function handleDashboardRedirect(target: string) {
 
               <!-- Aging by Product Group -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <BarChart3 class="w-4 h-4" />
-                  Average Age by Product Group
-                </h3>
-                <div class="bg-white rounded-lg border overflow-hidden">
+                <SectionHeader title="Average Age by Product Group" :level="3" />
+                <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-gray-1">
                       <tr>
-                        <th class="px-4 py-2 text-left">Item Group</th>
-                        <th class="px-4 py-2 text-right">Items</th>
-                        <th class="px-4 py-2 text-right">Value</th>
-                        <th class="px-4 py-2 text-right">Avg Age</th>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Group</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Avg Age</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr 
-                        v-for="(group, idx) in agingAnalysis.by_product_group" 
+                      <tr
+                        v-for="(group, idx) in agingAnalysis.by_product_group as unknown[]"
                         :key="idx"
-                        class="border-b hover:bg-blue-50"
+                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
-                        <td class="px-4 py-2 font-medium">{{ group.item_group }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatNumber(group.item_count) }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatCurrency(group.total_value) }}</td>
+                        <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).item_count as number) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((group as Record<string, unknown>).total_value as number) }}</td>
                         <td class="px-4 py-2 text-right">
-                          <span :class="[
-                            'font-bold',
-                            group.avg_age_days <= 30 ? 'text-green-600' :
-                            group.avg_age_days <= 90 ? 'text-yellow-600' :
-                            'text-red-600'
-                          ]">{{ group.avg_age_days }} days</span>
+                          <!-- Age: good <= 30, warn <= 90, higherIsBetter: false -->
+                          <span :class="['font-bold', deltaInk((group as Record<string, unknown>).avg_age_days as number - 90, { higherIsBetter: false })]">
+                            {{ (group as Record<string, unknown>).avg_age_days }} days
+                          </span>
                         </td>
                       </tr>
                     </tbody>
@@ -933,34 +847,33 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Oldest Items -->
             <div class="mt-6">
-              <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <AlertTriangle class="w-4 h-4 text-red-500" />
-                Oldest Stock Items
-              </h3>
-              <div class="bg-white rounded-lg border overflow-hidden">
+              <SectionHeader title="Oldest Stock Items" :level="3" />
+              <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                 <table class="w-full text-sm">
-                  <thead class="bg-gray-50">
+                  <thead class="bg-surface-gray-1">
                     <tr>
-                      <th class="px-4 py-2 text-left">Item Code</th>
-                      <th class="px-4 py-2 text-left">Item Name</th>
-                      <th class="px-4 py-2 text-left">Item Group</th>
-                      <th class="px-4 py-2 text-right">Qty</th>
-                      <th class="px-4 py-2 text-right">Value</th>
-                      <th class="px-4 py-2 text-right">Avg Age</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Code</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Name</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Group</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Qty</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Avg Age</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr 
-                      v-for="(item, idx) in agingAnalysis.oldest_items" 
+                    <tr
+                      v-for="(item, idx) in agingAnalysis.oldest_items as unknown[]"
                       :key="idx"
-                      class="border-b hover:bg-red-50"
+                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
-                      <td class="px-4 py-2 font-medium">{{ item.item_code }}</td>
-                      <td class="px-4 py-2 truncate max-w-[200px]">{{ item.item_name }}</td>
-                      <td class="px-4 py-2">{{ item.item_group }}</td>
-                      <td class="px-4 py-2 text-right">{{ formatNumber(item.total_qty) }}</td>
-                      <td class="px-4 py-2 text-right">{{ formatCurrency(item.total_value) }}</td>
-                      <td class="px-4 py-2 text-right font-bold text-red-600">{{ item.avg_age_days }} days</td>
+                      <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (item as Record<string, unknown>).item_code }}</td>
+                      <td class="px-4 py-2 text-ink-gray-6 truncate max-w-[200px]">{{ (item as Record<string, unknown>).item_name }}</td>
+                      <td class="px-4 py-2 text-ink-gray-6">{{ (item as Record<string, unknown>).item_group }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).total_qty as number) }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).total_value as number) }}</td>
+                      <td class="px-4 py-2 text-right font-bold" :class="deltaInk(-1, { higherIsBetter: true })">
+                        {{ (item as Record<string, unknown>).avg_age_days }} days
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -973,36 +886,38 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Warehouse Stock -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Warehouse class="w-4 h-4" />
-                  Stock by Warehouse
-                </h3>
-                <div class="bg-white rounded-lg border overflow-hidden">
+                <SectionHeader title="Stock by Warehouse" :level="3" />
+                <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-gray-1">
                       <tr>
-                        <th class="px-4 py-2 text-left">Warehouse</th>
-                        <th class="px-4 py-2 text-right">Items</th>
-                        <th class="px-4 py-2 text-right">Value</th>
-                        <th class="px-4 py-2 text-right">% Total</th>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Warehouse</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">% Total</th>
                       </tr>
                     </thead>
                     <tbody>
                       <tr
-                        v-for="(wh, idx) in warehouseAnalysis.by_warehouse"
+                        v-for="(wh, idx) in warehouseAnalysis.by_warehouse as unknown[]"
                         :key="idx"
-                        class="border-b hover:bg-blue-50 cursor-pointer rounded transition-colors"
-                        @click="drillDown.open(INV_ENDPOINT, wh.warehouse + ' Stock', { metric: 'warehouse_stock', warehouse: wh.warehouse })"
+                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1 cursor-pointer"
+                        tabindex="0"
+                        @click="drillDown.open(INV_ENDPOINT, (wh as Record<string, unknown>).warehouse + ' Stock', { metric: 'warehouse_stock', warehouse: (wh as Record<string, unknown>).warehouse })"
+                        @keydown.enter="drillDown.open(INV_ENDPOINT, (wh as Record<string, unknown>).warehouse + ' Stock', { metric: 'warehouse_stock', warehouse: (wh as Record<string, unknown>).warehouse })"
                       >
-                        <td class="px-4 py-2 font-medium truncate max-w-[200px]">{{ wh.warehouse }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatNumber(wh.item_count) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-green-600">{{ formatCurrency(wh.stock_value) }}</td>
+                        <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[200px]">{{ (wh as Record<string, unknown>).warehouse }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((wh as Record<string, unknown>).item_count as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((wh as Record<string, unknown>).stock_value as number) }}</td>
                         <td class="px-4 py-2 text-right">
                           <div class="flex items-center justify-end gap-2">
-                            <div class="w-16 bg-gray-100 rounded-full h-2">
-                              <div class="bg-blue-500 h-2 rounded-full" :style="{ width: `${wh.pct_of_total}%` }"></div>
+                            <div class="w-16 bg-surface-gray-2 rounded-full h-2">
+                              <div class="bg-surface-blue-3 h-2 rounded-full"
+                                   :style="{ width: `${(wh as Record<string, unknown>).pct_of_total}%` }"
+                                   role="img"
+                                   :aria-label="`${(wh as Record<string, unknown>).pct_of_total}% of total`"></div>
                             </div>
-                            <span class="text-xs">{{ formatPercent(wh.pct_of_total) }}</span>
+                            <span class="text-xs text-ink-gray-6">{{ formatPercent((wh as Record<string, unknown>).pct_of_total as number) }}</span>
                           </div>
                         </td>
                       </tr>
@@ -1012,92 +927,92 @@ function handleDashboardRedirect(target: string) {
 
                 <!-- Summary -->
                 <div class="mt-4 grid grid-cols-2 gap-4">
-                  <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                    <p class="text-sm text-blue-600">Total Warehouses</p>
-                    <p class="text-2xl font-bold text-blue-700">{{ warehouseAnalysis.total_warehouses }}</p>
+                  <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
+                    <p class="text-sm text-ink-gray-6">Total Warehouses</p>
+                    <p class="text-2xl font-bold text-ink-gray-9">{{ warehouseAnalysis.total_warehouses }}</p>
                   </div>
-                  <div class="bg-green-50 rounded-lg p-4 border border-green-200">
-                    <p class="text-sm text-green-600">Total Stock Value</p>
-                    <p class="text-2xl font-bold text-green-700">{{ formatCurrency(warehouseAnalysis.total_stock_value) }}</p>
+                  <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
+                    <p class="text-sm text-ink-gray-6">Total Stock Value</p>
+                    <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(warehouseAnalysis.total_stock_value as number) }}</p>
                   </div>
                 </div>
               </div>
 
               <!-- Transfer Recommendations -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <ArrowRightLeft class="w-4 h-4" />
-                  Transfer Recommendations
-                </h3>
-                <p class="text-sm text-gray-500 mb-4">
-                  Suggested stock transfers to balance inventory across warehouses
-                </p>
-                <div v-if="transferRecommendations.length > 0" class="space-y-3">
-                  <div 
-                    v-for="(rec, idx) in transferRecommendations.slice(0, 8)" 
+                <SectionHeader title="Transfer Recommendations" :level="3"
+                               hint="Suggested transfers to balance inventory" />
+                <div v-if="(transferRecommendations as unknown[]).length > 0" class="mt-4 space-y-3">
+                  <div
+                    v-for="(rec, idx) in (transferRecommendations as unknown[]).slice(0, 8)"
                     :key="idx"
-                    class="bg-white rounded-lg border p-4 hover:shadow-md transition-shadow"
+                    class="bg-surface-white rounded-lg border border-outline-gray-1 p-4 hover:shadow-md transition-shadow motion-reduce:transition-none"
                   >
                     <div class="flex items-center justify-between mb-2">
-                      <span class="font-medium truncate max-w-[200px]" :title="rec.item_name">
-                        {{ rec.item_code }}
+                      <span class="font-medium text-ink-gray-9 truncate max-w-[200px]"
+                            :title="(rec as Record<string, unknown>).item_name as string">
+                        {{ (rec as Record<string, unknown>).item_code }}
                       </span>
-                      <span :class="['text-xs px-2 py-1 rounded', getPriorityColor(rec.priority)]">
-                        {{ rec.priority }}
-                      </span>
+                      <Badge v-bind="severityBadge(
+                        (rec as Record<string, unknown>).priority === 'High' ? 'high' :
+                        (rec as Record<string, unknown>).priority === 'Medium' ? 'medium' : 'none'
+                      )" :label="(rec as Record<string, unknown>).priority as string" size="sm" />
                     </div>
-                    <div class="flex items-center gap-2 text-sm text-gray-600">
-                      <span class="truncate max-w-[100px]" :title="rec.from_warehouse">{{ rec.from_warehouse }}</span>
-                      <ArrowRight class="w-4 h-4 text-blue-500 flex-shrink-0" />
-                      <span class="truncate max-w-[100px]" :title="rec.to_warehouse">{{ rec.to_warehouse }}</span>
+                    <div class="flex items-center gap-2 text-sm text-ink-gray-6">
+                      <span class="truncate max-w-[100px]"
+                            :title="(rec as Record<string, unknown>).from_warehouse as string">
+                        {{ (rec as Record<string, unknown>).from_warehouse }}
+                      </span>
+                      <ArrowRight class="w-4 h-4 text-ink-gray-5 flex-shrink-0" aria-hidden="true" />
+                      <span class="truncate max-w-[100px]"
+                            :title="(rec as Record<string, unknown>).to_warehouse as string">
+                        {{ (rec as Record<string, unknown>).to_warehouse }}
+                      </span>
                     </div>
                     <div class="mt-2 flex justify-between items-center">
-                      <span class="text-xs text-gray-500">{{ rec.reason }}</span>
-                      <span class="text-sm font-bold text-blue-600">{{ formatNumber(rec.recommended_qty) }} units</span>
+                      <span class="text-xs text-ink-gray-6">{{ (rec as Record<string, unknown>).reason }}</span>
+                      <span class="text-sm font-bold text-ink-gray-9">{{ formatCount((rec as Record<string, unknown>).recommended_qty as number) }} units</span>
                     </div>
                   </div>
                 </div>
-                <div v-else class="text-center py-8 bg-gray-50 rounded-lg border">
-                  <ArrowRightLeft class="w-8 h-8 mx-auto text-gray-400" />
-                  <p class="mt-2 text-gray-600">No transfer recommendations</p>
-                  <p class="text-sm text-gray-500">Stock is well-balanced across warehouses</p>
+                <div v-else class="mt-4 text-center py-8 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
+                  <ArrowRightLeft class="w-8 h-8 mx-auto text-ink-gray-5" aria-hidden="true" />
+                  <p class="mt-2 text-ink-gray-6">No transfer recommendations</p>
+                  <p class="text-sm text-ink-gray-6">Stock is well-balanced across warehouses</p>
                 </div>
               </div>
             </div>
 
             <!-- Multi-Warehouse Items -->
             <div class="mt-6">
-              <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Boxes class="w-4 h-4" />
-                Items in Multiple Warehouses
-              </h3>
-              <div class="bg-white rounded-lg border overflow-hidden">
+              <SectionHeader title="Items in Multiple Warehouses" :level="3" />
+              <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                 <table class="w-full text-sm">
-                  <thead class="bg-gray-50">
+                  <thead class="bg-surface-gray-1">
                     <tr>
-                      <th class="px-4 py-2 text-left">Item Code</th>
-                      <th class="px-4 py-2 text-left">Item Name</th>
-                      <th class="px-4 py-2 text-right">Warehouses</th>
-                      <th class="px-4 py-2 text-right">Total Qty</th>
-                      <th class="px-4 py-2 text-left">Distribution</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Code</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Name</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Warehouses</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Total Qty</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Distribution</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr 
-                      v-for="(item, idx) in warehouseAnalysis.multi_warehouse_items?.slice(0, 10)" 
+                    <tr
+                      v-for="(item, idx) in (warehouseAnalysis.multi_warehouse_items as unknown[])?.slice(0, 10)"
                       :key="idx"
-                      class="border-b hover:bg-blue-50"
+                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
-                      <td class="px-4 py-2 font-medium">{{ item.item_code }}</td>
-                      <td class="px-4 py-2 truncate max-w-[150px]">{{ item.item_name }}</td>
+                      <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (item as Record<string, unknown>).item_code }}</td>
+                      <td class="px-4 py-2 text-ink-gray-6 truncate max-w-[150px]">{{ (item as Record<string, unknown>).item_name }}</td>
                       <td class="px-4 py-2 text-right">
-                        <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-bold">
-                          {{ item.warehouse_count }}
-                        </span>
+                        <Badge v-bind="severityBadge('none')"
+                               :label="String((item as Record<string, unknown>).warehouse_count)" size="sm" />
                       </td>
-                      <td class="px-4 py-2 text-right font-bold">{{ formatNumber(item.total_qty) }}</td>
-                      <td class="px-4 py-2 text-xs text-gray-500 truncate max-w-[200px]" :title="item.distribution">
-                        {{ item.distribution }}
+                      <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).total_qty as number) }}</td>
+                      <td class="px-4 py-2 text-xs text-ink-gray-6 truncate max-w-[200px]"
+                          :title="(item as Record<string, unknown>).distribution as string">
+                        {{ (item as Record<string, unknown>).distribution }}
                       </td>
                     </tr>
                   </tbody>
@@ -1111,38 +1026,34 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Supplier Performance -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <Truck class="w-4 h-4" />
-                  Supplier Performance (12m)
-                </h3>
-                <div class="bg-white rounded-lg border overflow-hidden">
+                <SectionHeader title="Supplier Performance (12m)" :level="3" />
+                <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-gray-1">
                       <tr>
-                        <th class="px-4 py-2 text-left">Supplier</th>
-                        <th class="px-4 py-2 text-right">Orders</th>
-                        <th class="px-4 py-2 text-right">Value</th>
-                        <th class="px-4 py-2 text-right">Lead Time</th>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Supplier</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Orders</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Lead Time</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr 
-                        v-for="(supplier, idx) in procurementInsights.supplier_performance" 
+                      <tr
+                        v-for="(supplier, idx) in procurementInsights.supplier_performance as unknown[]"
                         :key="idx"
-                        class="border-b hover:bg-blue-50"
+                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
-                        <td class="px-4 py-2 font-medium truncate max-w-[150px]" :title="supplier.supplier_name">
-                          {{ supplier.supplier_name || supplier.supplier }}
+                        <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[150px]"
+                            :title="(supplier as Record<string, unknown>).supplier_name as string">
+                          {{ (supplier as Record<string, unknown>).supplier_name || (supplier as Record<string, unknown>).supplier }}
                         </td>
-                        <td class="px-4 py-2 text-right">{{ formatNumber(supplier.order_count) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-green-600">{{ formatCurrency(supplier.total_value) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((supplier as Record<string, unknown>).order_count as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((supplier as Record<string, unknown>).total_value as number) }}</td>
                         <td class="px-4 py-2 text-right">
-                          <span :class="[
-                            'font-medium',
-                            supplier.avg_lead_time <= 7 ? 'text-green-600' :
-                            supplier.avg_lead_time <= 14 ? 'text-yellow-600' :
-                            'text-red-600'
-                          ]">{{ Math.round(supplier.avg_lead_time || 0) }} days</span>
+                          <!-- Lead time: good <= 7, warn <= 14, higherIsBetter: false -->
+                          <span :class="['font-medium', deltaInk(Math.round((supplier as Record<string, unknown>).avg_lead_time as number || 0) - 14, { higherIsBetter: false })]">
+                            {{ Math.round((supplier as Record<string, unknown>).avg_lead_time as number || 0) }} days
+                          </span>
                         </td>
                       </tr>
                     </tbody>
@@ -1152,35 +1063,37 @@ function handleDashboardRedirect(target: string) {
 
               <!-- Reorder Needed -->
               <div>
-                <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                  <ShoppingCart class="w-4 h-4" />
-                  Items Needing Reorder
-                  <span class="ml-2 px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold">
-                    {{ procurementInsights.reorder_count }}
-                  </span>
-                </h3>
-                <div class="bg-white rounded-lg border overflow-hidden">
+                <SectionHeader title="Items Needing Reorder" :level="3">
+                  <template #actions>
+                    <Badge v-bind="severityBadge(scoreSeverity(procurementInsights.reorder_count as number, { good: 0, warn: 5, higherIsBetter: false }))"
+                           :label="String(procurementInsights.reorder_count)" size="sm" />
+                  </template>
+                </SectionHeader>
+                <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
-                    <thead class="bg-gray-50">
+                    <thead class="bg-surface-gray-1">
                       <tr>
-                        <th class="px-4 py-2 text-left">Item</th>
-                        <th class="px-4 py-2 text-right">Stock</th>
-                        <th class="px-4 py-2 text-right">Reorder Level</th>
-                        <th class="px-4 py-2 text-right">Daily Demand</th>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Stock</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Reorder Level</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Daily Demand</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr 
-                        v-for="(item, idx) in procurementInsights.reorder_needed?.slice(0, 10)" 
+                      <tr
+                        v-for="(item, idx) in (procurementInsights.reorder_needed as unknown[])?.slice(0, 10)"
                         :key="idx"
-                        class="border-b hover:bg-red-50"
+                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
-                        <td class="px-4 py-2 font-medium truncate max-w-[150px]" :title="item.item_name">
-                          {{ item.item_code }}
+                        <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[150px]"
+                            :title="(item as Record<string, unknown>).item_name as string">
+                          {{ (item as Record<string, unknown>).item_code }}
                         </td>
-                        <td class="px-4 py-2 text-right text-red-600 font-bold">{{ formatNumber(item.current_stock) }}</td>
-                        <td class="px-4 py-2 text-right">{{ formatNumber(item.reorder_level) }}</td>
-                        <td class="px-4 py-2 text-right">{{ (item.avg_daily_demand || 0).toFixed(1) }}</td>
+                        <td class="px-4 py-2 text-right font-bold" :class="deltaInk(-1, { higherIsBetter: true })">
+                          {{ formatCount((item as Record<string, unknown>).current_stock as number) }}
+                        </td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).reorder_level as number) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ ((item as Record<string, unknown>).avg_daily_demand as number || 0).toFixed(1) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -1190,47 +1103,42 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Pending Orders -->
             <div class="mt-6">
-              <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Clock class="w-4 h-4" />
-                Pending Purchase Orders
-                <span class="ml-2 px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-bold">
-                  {{ procurementInsights.pending_orders_count }}
-                </span>
-              </h3>
-              <div class="bg-white rounded-lg border overflow-hidden">
+              <SectionHeader title="Pending Purchase Orders" :level="3">
+                <template #actions>
+                  <Badge v-bind="severityBadge(scoreSeverity(procurementInsights.pending_orders_count as number, { good: 0, warn: 10, higherIsBetter: false }))"
+                         :label="String(procurementInsights.pending_orders_count)" size="sm" />
+                </template>
+              </SectionHeader>
+              <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                 <table class="w-full text-sm">
-                  <thead class="bg-gray-50">
+                  <thead class="bg-surface-gray-1">
                     <tr>
-                      <th class="px-4 py-2 text-left">PO Number</th>
-                      <th class="px-4 py-2 text-left">Supplier</th>
-                      <th class="px-4 py-2 text-left">Date</th>
-                      <th class="px-4 py-2 text-right">Value</th>
-                      <th class="px-4 py-2 text-right">Days Pending</th>
-                      <th class="px-4 py-2 text-center">Status</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">PO Number</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Supplier</th>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Date</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Days Pending</th>
+                      <th scope="col" class="px-4 py-2 text-center text-ink-gray-6">Status</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr 
-                      v-for="(order, idx) in procurementInsights.pending_orders" 
+                    <tr
+                      v-for="(order, idx) in procurementInsights.pending_orders as unknown[]"
                       :key="idx"
-                      class="border-b hover:bg-orange-50"
+                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
-                      <td class="px-4 py-2 font-medium">{{ order.name }}</td>
-                      <td class="px-4 py-2 truncate max-w-[150px]">{{ order.supplier }}</td>
-                      <td class="px-4 py-2">{{ order.transaction_date }}</td>
-                      <td class="px-4 py-2 text-right font-bold">{{ formatCurrency(order.grand_total) }}</td>
+                      <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (order as Record<string, unknown>).name }}</td>
+                      <td class="px-4 py-2 text-ink-gray-6 truncate max-w-[150px]">{{ (order as Record<string, unknown>).supplier }}</td>
+                      <td class="px-4 py-2 text-ink-gray-6">{{ (order as Record<string, unknown>).transaction_date }}</td>
+                      <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((order as Record<string, unknown>).grand_total as number) }}</td>
                       <td class="px-4 py-2 text-right">
-                        <span :class="[
-                          'font-medium',
-                          order.days_pending <= 7 ? 'text-green-600' :
-                          order.days_pending <= 14 ? 'text-yellow-600' :
-                          'text-red-600'
-                        ]">{{ order.days_pending }} days</span>
+                        <!-- Days pending: good <= 7, warn <= 14, higherIsBetter: false -->
+                        <Badge v-bind="severityBadge(scoreSeverity((order as Record<string, unknown>).days_pending as number, { good: 7, warn: 14, higherIsBetter: false }))"
+                               :label="`${(order as Record<string, unknown>).days_pending} days`" size="sm" />
                       </td>
                       <td class="px-4 py-2 text-center">
-                        <span class="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
-                          {{ order.status }}
-                        </span>
+                        <Badge v-bind="severityBadge('none')"
+                               :label="(order as Record<string, unknown>).status as string" size="sm" />
                       </td>
                     </tr>
                   </tbody>
@@ -1240,33 +1148,25 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Demand Planning Integration -->
             <div v-if="demandPlanning" class="mt-6">
-              <h3 class="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                <Activity class="w-4 h-4" />
-                Demand Planning Summary
-              </h3>
-              <div class="grid grid-cols-4 gap-4 mb-4">
-                <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                  <p class="text-sm text-blue-600">Total Items</p>
-                  <p class="text-xl font-bold text-blue-700">{{ demandPlanning.summary?.total_items || 0 }}</p>
-                </div>
-                <div class="bg-red-50 rounded-lg p-4 border border-red-200">
-                  <p class="text-sm text-red-600">Reorder Now</p>
-                  <p class="text-xl font-bold text-red-700">{{ demandPlanning.summary?.reorder_now_count || 0 }}</p>
-                </div>
-                <div class="bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                  <p class="text-sm text-yellow-600">Monitor</p>
-                  <p class="text-xl font-bold text-yellow-700">{{ demandPlanning.summary?.monitor_count || 0 }}</p>
-                </div>
-                <div class="bg-green-50 rounded-lg p-4 border border-green-200">
-                  <p class="text-sm text-green-600">Adequate</p>
-                  <p class="text-xl font-bold text-green-700">{{ demandPlanning.summary?.adequate_count || 0 }}</p>
-                </div>
+              <SectionHeader title="Demand Planning Summary" :level="3" />
+              <div class="mt-4 grid grid-cols-4 gap-4 mb-4">
+                <KpiCard label="Total Items"
+                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.total_items)" />
+                <KpiCard label="Reorder Now"
+                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.reorder_now_count)"
+                         :severity="Number((demandPlanning.summary as Record<string, unknown>)?.reorder_now_count) > 0 ? 'high' : 'none'" />
+                <KpiCard label="Monitor"
+                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.monitor_count)"
+                         :severity="Number((demandPlanning.summary as Record<string, unknown>)?.monitor_count) > 0 ? 'medium' : 'none'" />
+                <KpiCard label="Adequate"
+                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.adequate_count)" />
               </div>
             </div>
           </div>
         </div>
       </div>
     </div>
+    </IntelligenceDashboardShell>
 
     <!-- AI Chat Button -->
     <DashboardChatButton

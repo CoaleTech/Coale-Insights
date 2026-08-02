@@ -365,13 +365,13 @@ const isInvalidColumn = computed(() => {
 			:options="availableColumns"
 			@update:modelValue="onColumnChange(typeof $event === 'string' ? $event : $event?.value)"
 		/>
-		<p v-if="isInvalidColumn" class="text-xs text-red-500">Invalid Column</p>
+	<p v-if="isInvalidColumn" class="text-xs text-neg">Invalid Column</p>
 	</div>
 
 	<template v-if="!isInvalidColumn">
 		<div v-if="props.formatMode === 'color_scale'" class="w-full">
 			<div>
-				<h3 class="text-sm text-gray-600 mb-3">Color</h3>
+			<h3 class="text-sm text-ink-gray-6 mb-3">Color</h3>
 				<RadioGroup
 					name="color-scale"
 					:modelValue="(format as color_scale).colorScale"
@@ -381,10 +381,10 @@ const isInvalidColumn = computed(() => {
 						<div class="flex items-center justify-between gap-2 w-full">
 							<span class="text-sm">Red to Green</span>
 							<div class="flex h-2 w-32">
-								<div class="w-1/2 bg-red-400"></div>
-								<div class="w-1/2 bg-red-300"></div>
-								<div class="w-1/2 bg-green-300"></div>
-								<div class="w-1/2 bg-green-500"></div>
+							<div class="w-1/2 bg-neg-fill"></div>
+							<div class="w-1/2 bg-surface-red-3"></div>
+							<div class="w-1/2 bg-surface-green-2"></div>
+							<div class="w-1/2 bg-pos-fill"></div>
 							</div>
 						</div>
 					</RadioGroupItem>
@@ -392,10 +392,10 @@ const isInvalidColumn = computed(() => {
 						<div class="flex items-center justify-between gap-2 w-full">
 							<span class="text-sm">Green to Red</span>
 							<div class="flex h-2 w-32">
-								<div class="w-1/2 bg-green-500"></div>
-								<div class="w-1/2 bg-green-300"></div>
-								<div class="w-1/2 bg-red-300"></div>
-								<div class="w-1/2 bg-red-400"></div>
+							<div class="w-1/2 bg-pos-fill"></div>
+							<div class="w-1/2 bg-surface-green-2"></div>
+							<div class="w-1/2 bg-surface-red-3"></div>
+							<div class="w-1/2 bg-neg-fill"></div>
 							</div>
 						</div>
 					</RadioGroupItem>
@@ -461,7 +461,7 @@ const isInvalidColumn = computed(() => {
 					@update:modelValue="onOperatorChange($event)"
 				/>
 				<template v-if="isDateValueRule">
-					<h3 class="text-sm text-gray-600">Date Value</h3>
+				<h3 class="text-sm text-ink-gray-6">Date Value</h3>
 					<template v-if="(format as date_rules).operator === 'date_between'">
 						<!-- todo: find a proper fix for datepicker v-model -->
 						<DatePicker
