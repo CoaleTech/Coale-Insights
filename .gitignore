@@ -184,3 +184,17 @@ pids
 *.seed
 *.pid.lock
 todo
+
+# Local agent/tooling state. Per-developer, never shared.
+.claude-flow/
+.mcp.json
+.observer.lock
+.graphifyignore
+graphify-out/
+
+# Agent planning scratch. Real documentation under docs/ stays tracked.
+docs/superpowers/
+
+# Pre-migration backups, e.g. TaxIntelligence.vue.kenya.bak from the
+# Kenya-to-India tax retarget. Kept locally for reference, not shipped.
+*.bak
