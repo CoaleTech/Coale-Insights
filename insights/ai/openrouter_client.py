@@ -43,29 +43,34 @@ class OpenRouterClient:
 
     provider_name = "OpenRouter"
     
-    # Free models (prioritized) - updated Jul 2025
+    # Verified live against GET https://openrouter.ai/api/v1/models (Aug 2026).
+    # The previous Jul-2025 list was almost entirely delisted upstream.
     FREE_MODELS = [
-        "mistralai/mistral-small-3.1-24b-instruct:free",
-        "google/gemma-3-27b-it:free",
-        "meta-llama/llama-3.3-70b-instruct:free",
-        "qwen/qwen3-coder:free",
-        "openai/gpt-oss-120b:free",
-        "nousresearch/hermes-3-llama-3.1-405b:free",
-        "google/gemma-3-12b-it:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "google/gemma-4-31b-it:free",
+        "google/gemma-4-26b-a4b-it:free",
         "nvidia/nemotron-3-nano-30b-a3b:free",
-        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "inclusionai/ling-3.0-flash:free",
+        "cohere/north-mini-code:free",
         "openai/gpt-oss-20b:free",
-        "deepseek/deepseek-r1-0528:free",
+        "nvidia/nemotron-nano-9b-v2:free",
     ]
-    
+
     # Paid models (fallback)
     PAID_MODELS = [
-        "openai/gpt-4o-mini",
-        "openai/gpt-4o",
-        "anthropic/claude-3.5-sonnet"
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
+        "openai/gpt-5.6-sol",
+        "anthropic/claude-sonnet-5",
+        "anthropic/claude-haiku-4.5",
+        "google/gemini-3.5-flash",
+        "moonshotai/kimi-k3",
+        "deepseek/deepseek-v4-pro",
     ]
     
-    def __init__(self):
+    def __init__(self, provider: Optional[str] = None):
         self.settings = frappe.get_single("Insights Settings")
         self.api_key = (
             self.settings.get_password("openrouter_api_key") if self.settings.openrouter_api_key
@@ -552,17 +557,32 @@ def get_ai_status() -> Dict[str, Any]:
     provider = getattr(settings, "ai_provider", "openrouter")
 
     configured = False
+    primary_model = ""
+    fallback_model = ""
+
     if provider == "openrouter":
         configured = bool(settings.openrouter_api_key)
-    elif provider == "ollama":
+        primary_model = settings.ai_model
+        fallback_model = settings.ai_model_fallback
+    elif provider in ("ollama", "ollama_cloud"):
         configured = bool(getattr(settings, "ollama_base_url", ""))
+        primary_model = getattr(settings, "ollama_model", "")
+    elif provider == "moonshot":
+        configured = bool(getattr(settings, "moonshot_api_key", ""))
+        primary_model = getattr(settings, "moonshot_model", "")
+    elif provider == "openai":
+        configured = bool(getattr(settings, "openai_api_key", ""))
+        primary_model = getattr(settings, "openai_model", "")
+    elif provider == "nvidia":
+        configured = bool(getattr(settings, "nvidia_api_key", ""))
+        primary_model = getattr(settings, "nvidia_model", "")
 
     return {
         "enabled": bool(settings.enable_ai_analytics),
         "configured": configured,
         "provider": provider,
-        "primary_model": settings.ai_model if provider == "openrouter" else getattr(settings, "ollama_model", ""),
-        "fallback_model": settings.ai_model_fallback if provider == "openrouter" else "",
+        "primary_model": primary_model,
+        "fallback_model": fallback_model,
         "daily_quota": cint(settings.daily_ai_quota) or 100,
         "quota_used": cint(settings.ai_quota_used) or 0,
         "quota_remaining": max(0, (cint(settings.daily_ai_quota) or 100) - (cint(settings.ai_quota_used) or 0)),
@@ -577,7 +597,7 @@ def test_connection(provider: str = None) -> Dict[str, Any]:
     without needing to save settings first."""
     try:
         from insights.ai.provider_factory import AIProviderFactory
-        if provider and provider in ("openrouter", "ollama", "ollama_cloud", "moonshot"):
+        if provider and provider in ("openrouter", "ollama", "ollama_cloud", "moonshot", "openai", "nvidia"):
             client = AIProviderFactory.get_provider(provider)
         else:
             client = AIProviderFactory.get_client()

@@ -36,7 +36,7 @@ DEFAULT_SYSTEM_PROMPTS = {
 ## Your Expertise:
 - Credit risk assessment and management
 - Overdue payment analysis and collection priorities
-- Compliance monitoring (including KRA tax compliance)
+- Compliance monitoring (including GST tax compliance)
 - Operational risk identification
 - Anomaly detection in transactions
 - Cash flow risk analysis
@@ -101,7 +101,7 @@ DEFAULT_SYSTEM_PROMPTS = {
 - Cash flow forecasting and management
 - Accounts receivable and payable analysis
 - Financial ratio analysis (liquidity, profitability, efficiency)
-- Tax compliance including KRA VAT (16%)
+- Tax compliance including India GST (CGST/SGST/IGST) and TDS
 - Budget variance analysis
 
 ## Guidelines:
@@ -167,7 +167,7 @@ DEFAULT_QUICK_ACTIONS = {
         {"label": "📈 P&L Summary", "prompt_template": "Provide a summary of our P&L performance and key insights.", "icon": "file-text"},
         {"label": "💵 Cash Flow Status", "prompt_template": "What is our current cash flow situation and forecast?", "icon": "dollar-sign"},
         {"label": "📊 Financial Ratios", "prompt_template": "Analyze our key financial ratios and their implications.", "icon": "activity"},
-        {"label": "🧾 Tax Compliance", "prompt_template": "What is our tax compliance status, especially for KRA VAT?", "icon": "file-check"}
+        {"label": "🧾 Tax Compliance", "prompt_template": "What is our GST and TDS compliance status? Any pending filings?", "icon": "file-check"}
     ],
     "Customer": [
         {"label": "⚠️ At-Risk Customers", "prompt_template": "Which customers are at risk of churning and what should we do?", "icon": "alert-triangle"},
@@ -180,10 +180,10 @@ DEFAULT_QUICK_ACTIONS = {
 # Default routing keywords for each dashboard type
 DEFAULT_ROUTING_KEYWORDS = {
     "Sales": ["revenue", "sales", "invoice", "order", "sold", "selling", "rep", "representative", "forecast", "target", "quota", "deal", "opportunity", "pipeline"],
-    "Risk": ["risk", "credit", "overdue", "compliance", "kra", "exposure", "default", "bad debt", "anomaly", "fraud", "audit", "violation"],
+    "Risk": ["risk", "credit", "overdue", "compliance", "gst", "exposure", "default", "bad debt", "anomaly", "fraud", "audit", "violation"],
     "Inventory": ["stock", "inventory", "warehouse", "reorder", "turnover", "abc", "xyz", "aging", "fifo", "dead stock", "stockout", "excess"],
     "Procurement": ["supplier", "vendor", "purchase", "procurement", "spend", "buying", "sourcing", "contract", "lead time", "price variance"],
-    "Financial": ["profit", "loss", "p&l", "cash flow", "receivable", "payable", "ratio", "liquidity", "margin", "budget", "tax", "vat", "forex"],
+    "Financial": ["profit", "loss", "p&l", "cash flow", "receivable", "payable", "ratio", "liquidity", "margin", "budget", "tax", "gst", "tds", "forex"],
     "Customer": ["customer", "client", "clv", "lifetime value", "churn", "retention", "segment", "cohort", "loyalty", "satisfaction", "nps"]
 }
 
@@ -207,7 +207,7 @@ class DashboardAIAgentConfig(Document):
 
         dashboard_type: DF.Literal["", "Sales", "Risk", "Inventory", "Procurement", "Financial", "Customer"]
         is_enabled: DF.Check
-        model_preference: DF.Literal["auto", "meta-llama/llama-3.1-8b-instruct:free", "meta-llama/llama-3.1-70b-instruct", "anthropic/claude-3-haiku", "openai/gpt-4o-mini"]
+        model_preference: DF.Literal["auto", "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "nvidia/nemotron-3-nano-30b-a3b:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-20b:free", "openai/gpt-5.6-terra", "openai/gpt-5.6-luna", "anthropic/claude-haiku-4.5", "google/gemini-3.5-flash"]
         max_context_tokens: DF.Int
         system_prompt: DF.LongText | None
         quick_actions: DF.JSON | None

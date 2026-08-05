@@ -13,10 +13,15 @@ import hashlib
 
 
 class ModelType(Enum):
-    """Available AI models for different task types"""
-    LLAMA_8B = "meta-llama/llama-3.1-8b-instruct:free"
-    LLAMA_70B = "meta-llama/llama-3.1-70b-instruct:free" 
-    CLAUDE_HAIKU = "anthropic/claude-3.5-haiku:beta"
+    """Routing tiers for OpenRouter task dispatch.
+
+    Values are OpenRouter model ids verified live (Aug 2026); the previous
+    llama-3.1 / claude-3.5 ids were delisted upstream. Tier names are
+    deliberately model-agnostic so a catalog refresh is a one-line change.
+    """
+    FAST = "nvidia/nemotron-3-nano-30b-a3b:free"
+    BALANCED = "nvidia/nemotron-3-super-120b-a12b:free"
+    PREMIUM = "anthropic/claude-haiku-4.5"
 
 
 class TaskComplexity(Enum):
@@ -69,22 +74,22 @@ class AIModelRouter:
         daily_total = frappe.db.get_single_value("Insights Settings", "daily_ai_quota") or 1000
         
         return {
-            ModelType.LLAMA_8B: ModelQuota(
-                model=ModelType.LLAMA_8B,
+            ModelType.FAST: ModelQuota(
+                model=ModelType.FAST,
                 daily_limit=int(daily_total * 0.70),
-                current_usage=self._get_current_usage(ModelType.LLAMA_8B),
+                current_usage=self._get_current_usage(ModelType.FAST),
                 percentage_allocation=70.0
             ),
-            ModelType.LLAMA_70B: ModelQuota(
-                model=ModelType.LLAMA_70B, 
+            ModelType.BALANCED: ModelQuota(
+                model=ModelType.BALANCED, 
                 daily_limit=int(daily_total * 0.25),
-                current_usage=self._get_current_usage(ModelType.LLAMA_70B),
+                current_usage=self._get_current_usage(ModelType.BALANCED),
                 percentage_allocation=25.0
             ),
-            ModelType.CLAUDE_HAIKU: ModelQuota(
-                model=ModelType.CLAUDE_HAIKU,
+            ModelType.PREMIUM: ModelQuota(
+                model=ModelType.PREMIUM,
                 daily_limit=int(daily_total * 0.05),
-                current_usage=self._get_current_usage(ModelType.CLAUDE_HAIKU),
+                current_usage=self._get_current_usage(ModelType.PREMIUM),
                 percentage_allocation=5.0
             )
         }
@@ -150,13 +155,13 @@ class AIModelRouter:
         """Select optimal model based on task complexity and performance"""
         
         complexity_mapping = {
-            TaskComplexity.SIMPLE: ModelType.LLAMA_8B,
-            TaskComplexity.MEDIUM: ModelType.LLAMA_8B,
-            TaskComplexity.COMPLEX: ModelType.LLAMA_70B
+            TaskComplexity.SIMPLE: ModelType.FAST,
+            TaskComplexity.MEDIUM: ModelType.FAST,
+            TaskComplexity.COMPLEX: ModelType.BALANCED
         }
         
         # Default model selection
-        selected_model = complexity_mapping.get(task.complexity, ModelType.LLAMA_8B)
+        selected_model = complexity_mapping.get(task.complexity, ModelType.FAST)
         
         # Override for specific patterns
         query_lower = task.query.lower()
@@ -167,14 +172,14 @@ class AIModelRouter:
             "machine learning", "statistical", "regression", "clustering"
         ]
         if any(keyword in query_lower for keyword in complex_keywords):
-            selected_model = ModelType.LLAMA_70B
+            selected_model = ModelType.BALANCED
         
         # Simple parsing tasks -> use Haiku
         simple_keywords = [
             "parse", "extract", "classify", "summarize", "translate"
         ]
         if any(keyword in query_lower for keyword in simple_keywords):
-            selected_model = ModelType.CLAUDE_HAIKU
+            selected_model = ModelType.PREMIUM
             
         return selected_model
     
@@ -186,12 +191,12 @@ class AIModelRouter:
     def _get_fallback_model(self, complexity: TaskComplexity) -> ModelType:
         """Get fallback model when primary choice unavailable"""
         # Try models in order of availability
-        for model in [ModelType.LLAMA_8B, ModelType.CLAUDE_HAIKU, ModelType.LLAMA_70B]:
+        for model in [ModelType.FAST, ModelType.PREMIUM, ModelType.BALANCED]:
             if self._check_quota(model):
                 return model
         
-        # If all quotas exhausted, use 8B (most generous quota)
-        return ModelType.LLAMA_8B
+        # If all quotas exhausted, use the FAST tier (most generous quota)
+        return ModelType.FAST
     
     def _execute_request(self, task: TaskRequest, model: ModelType) -> str:
         """Execute AI request with selected model"""
@@ -229,7 +234,7 @@ Instructions:
 Response:"""
 
         # Model-specific optimizations
-        if model == ModelType.LLAMA_70B:
+        if model == ModelType.BALANCED:
             # Complex analysis prompt
             return f"""{base_prompt}
 
@@ -241,7 +246,7 @@ Perform deep analysis with:
 
 Detailed Analysis:"""
 
-        elif model == ModelType.CLAUDE_HAIKU:
+        elif model == ModelType.PREMIUM:
             # Fast parsing prompt
             return f"""Parse and extract key information:
 
@@ -250,16 +255,16 @@ Context: {context}
 
 Provide concise, structured response:"""
 
-        else:  # LLAMA_8B
+        else:  # FAST
             # Balanced analysis prompt
             return base_prompt
     
     def _get_max_tokens(self, model: ModelType) -> int:
         """Get optimal max tokens for each model"""
         token_limits = {
-            ModelType.LLAMA_8B: 2000,
-            ModelType.LLAMA_70B: 4000,
-            ModelType.CLAUDE_HAIKU: 1000
+            ModelType.FAST: 2000,
+            ModelType.BALANCED: 4000,
+            ModelType.PREMIUM: 1000
         }
         return token_limits.get(model, 2000)
     

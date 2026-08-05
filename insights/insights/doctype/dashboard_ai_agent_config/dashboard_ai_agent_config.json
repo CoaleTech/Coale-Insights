@@ -45,10 +45,11 @@
   },
   {
    "default": "auto",
+   "description": "Leave on 'auto' to use the model configured in Insights Settings. An explicit model must be valid for the active AI provider.",
    "fieldname": "model_preference",
    "fieldtype": "Select",
    "label": "Model Preference",
-   "options": "auto\nmeta-llama/llama-3.1-8b-instruct:free\nmeta-llama/llama-3.1-70b-instruct\nanthropic/claude-3-haiku\nopenai/gpt-4o-mini"
+   "options": "auto\nnvidia/nemotron-3-super-120b-a12b:free\nnvidia/nemotron-3-ultra-550b-a55b:free\nnvidia/nemotron-3-nano-30b-a3b:free\ngoogle/gemma-4-31b-it:free\nopenai/gpt-oss-20b:free\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-luna\nanthropic/claude-haiku-4.5\ngoogle/gemini-3.5-flash"
   },
   {
    "default": "2000",

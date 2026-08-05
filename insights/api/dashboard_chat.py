@@ -628,18 +628,32 @@ def get_ai_chat_status() -> Dict[str, Any]:
     """
     try:
         settings = frappe.get_single("Insights Settings")
-        
+        provider = getattr(settings, "ai_provider", "openrouter")
+
+        configured = False
+        if provider == "openrouter":
+            configured = bool(settings.openrouter_api_key)
+        elif provider in ("ollama", "ollama_cloud"):
+            configured = bool(getattr(settings, "ollama_base_url", ""))
+        elif provider == "moonshot":
+            configured = bool(getattr(settings, "moonshot_api_key", ""))
+        elif provider == "openai":
+            configured = bool(getattr(settings, "openai_api_key", ""))
+        elif provider == "nvidia":
+            configured = bool(getattr(settings, "nvidia_api_key", ""))
+
         return {
             "success": True,
-            "enabled": bool(settings.enable_ai_analytics),
-            "configured": bool(settings.openrouter_api_key),
-            "daily_quota": settings.daily_ai_quota or 100,
-            "quota_used": settings.ai_quota_used or 0,
-            "quota_remaining": max(0, (settings.daily_ai_quota or 100) - (settings.ai_quota_used or 0)),
+            "enabled": bool(getattr(settings, "enable_ai_analytics", False)),
+            "configured": configured,
+            "provider": provider,
+            "daily_quota": getattr(settings, "daily_ai_quota", 0) or 100,
+            "quota_used": getattr(settings, "ai_quota_used", 0) or 0,
+            "quota_remaining": max(0, (getattr(settings, "daily_ai_quota", 0) or 100) - (getattr(settings, "ai_quota_used", 0) or 0)),
             "available_dashboards": ["Sales", "Risk", "Inventory", "Procurement", "Financial", "Customer", "General",
                                      "HR", "Executive", "Marketing", "Manufacturing", "ESG"]
         }
-        
+
     except Exception as e:
         _safe_log_error(f"Status error: {str(e)[:200]}", "Chat API")
         return {

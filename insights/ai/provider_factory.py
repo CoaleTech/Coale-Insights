@@ -35,7 +35,10 @@ class AIProviderFactory:
         provider_class = cls._providers.get(provider_name)
         if not provider_class:
             raise ValueError(f"Unknown AI provider: {provider_name}. Available: {list(cls._providers.keys())}")
-        return provider_class()
+        # Pass the requested name through: a client whose behaviour depends on
+        # which provider was asked for (Ollama local vs cloud) must not fall back
+        # to the *saved* ai_provider, or "test before saving" probes the wrong host.
+        return provider_class(provider_name)
 
     @classmethod
     def get_client(cls) -> BaseAIProvider:
@@ -65,6 +68,18 @@ class AIProviderFactory:
             try:
                 from insights.ai.moonshot_client import MoonshotClient
                 cls.register("moonshot", MoonshotClient)
+            except ImportError:
+                pass
+        if "openai" not in cls._providers:
+            try:
+                from insights.ai.openai_client import OpenAIClient
+                cls.register("openai", OpenAIClient)
+            except ImportError:
+                pass
+        if "nvidia" not in cls._providers:
+            try:
+                from insights.ai.nvidia_client import NvidiaClient
+                cls.register("nvidia", NvidiaClient)
             except ImportError:
                 pass
 

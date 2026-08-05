@@ -8,11 +8,14 @@ OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 MODEL_TIMEOUT = 30
 MAX_RETRIES = 3
 
-# Quota Management (percentages)
+# Quota Management (percentages).
+# Keyed by ModelType tier rather than a model id so a catalog refresh does not
+# invalidate this table. Mirrors the allocations in
+# AIModelRouter._initialize_quotas.
 MODEL_QUOTAS = {
-    "llama-3.1-8b-instruct": 70,
-    "llama-3.1-70b-instruct": 25, 
-    "claude-3.5-haiku": 5
+    "FAST": 70,
+    "BALANCED": 25,
+    "PREMIUM": 5,
 }
 
 # Redis Configuration

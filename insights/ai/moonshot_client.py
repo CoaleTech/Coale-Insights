@@ -18,38 +18,65 @@ class MoonshotClient(BaseAIProvider):
     """Moonshot AI client for Kimi models"""
 
     provider_name = "Moonshot"
-    BASE_URL = "https://api.moonshot.cn/v1"
+    # Global Open Platform endpoint. Override with MOONSHOT_BASE_URL for the
+    # China platform (https://api.moonshot.cn/v1).
+    BASE_URL = "https://api.moonshot.ai/v1"
 
-    # Kimi K2 (default) plus legacy Moonshot v1 models for backwards-compat.
+    # Verified against platform.kimi.ai/docs/models (Aug 2026).
+    # The whole kimi-k2-*-preview family was discontinued 2026-05-25, and
+    # kimi-k2.5 + the moonshot-v1 series sunset 2026-08-31 — none are listed.
     # Order matters — first entry is the recommended default.
     MODELS = [
-        "kimi-k2-0905-preview",
-        "kimi-k2-0711-preview",
-        "kimi-k2-turbo-preview",
-        "moonshot-v1-8k",
-        "moonshot-v1-32k",
-        "moonshot-v1-128k",
-        "moonshot-v1-auto",
+        "kimi-k3",
+        "kimi-k2.7-code",
+        "kimi-k2.7-code-highspeed",
+        "kimi-k2.6",
     ]
 
-    DEFAULT_MODEL = "kimi-k2-0905-preview"
+    DEFAULT_MODEL = "kimi-k3"
 
-    def __init__(self):
+    def __init__(self, provider: Optional[str] = None):
         self.settings = frappe.get_single("Insights Settings")
-        self.api_key = (
-            getattr(self.settings, "moonshot_api_key", None)
-            or os.environ.get("MOONSHOT_API_KEY")
-        )
-        self.default_model = getattr(self.settings, "moonshot_model", None) or self.DEFAULT_MODEL
+        self.auth_mode = getattr(self.settings, "moonshot_auth_mode", None) or "API Key"
+        self.is_subscription = self.auth_mode == "Kimi Subscription"
+    
+        if self.is_subscription:
+            # Kimi Code is a different service from the Open Platform: different
+            # host, different model ids, and it rejects Open Platform keys.
+            from insights.ai.kimi_code_auth import (
+                CODING_BASE_URL,
+                SUBSCRIPTION_MODELS,
+                get_access_token,
+            )
+    
+            self.BASE_URL = CODING_BASE_URL
+            self.api_key = get_access_token(self.settings)
+            self.available_models = list(SUBSCRIPTION_MODELS)
+            self.default_model = SUBSCRIPTION_MODELS[0]
+            self.fallback_model = SUBSCRIPTION_MODELS[-1]
+        else:
+            self.BASE_URL = os.environ.get("MOONSHOT_BASE_URL") or self.BASE_URL
+            self.api_key = (
+                getattr(self.settings, "moonshot_api_key", None)
+                or os.environ.get("MOONSHOT_API_KEY")
+            )
+            self.available_models = list(self.MODELS)
+            self.default_model = getattr(self.settings, "moonshot_model", None) or self.DEFAULT_MODEL
+            # Cheaper general-purpose sibling; k3 is the frontier tier.
+            self.fallback_model = "kimi-k2.6"
+    
         self.primary_model = self.default_model
-        # Fallback to the older K2 preview (still K2 family) before auto
-        self.fallback_model = "kimi-k2-0711-preview"
 
     def _get_headers(self) -> Dict[str, str]:
-        return {
+        headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
+        if self.is_subscription:
+            # Kimi ties the grant to a stable device id; send the same one back.
+            headers["X-Msh-Platform"] = "kimi_cli"
+            headers["X-Msh-Device-Id"] = getattr(self.settings, "kimi_device_id", "") or ""
+        return headers
 
     def is_enabled(self) -> bool:
         provider = getattr(self.settings, "ai_provider", None)
@@ -75,7 +102,7 @@ class MoonshotClient(BaseAIProvider):
         models = [self.default_model]
         if self.fallback_model and self.fallback_model not in models:
             models.append(self.fallback_model)
-        for m in self.MODELS:
+        for m in self.available_models:
             if m not in models:
                 models.append(m)
         return models

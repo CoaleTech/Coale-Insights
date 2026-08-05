@@ -12,6 +12,7 @@ import requests
 import frappe
 from frappe.utils import cint
 from typing import Dict, List, Optional, Any
+from urllib.parse import urlparse
 from insights.ai.base_provider import BaseAIProvider
 
 
@@ -27,28 +28,50 @@ class OllamaClient(BaseAIProvider):
 
     provider_name = "Ollama"
 
+    # Fallback list only — installed models are discovered live via /api/tags
+    # and take precedence (see self._installed_models).
     DEFAULT_MODELS = [
-        "llama3.1",
-        "llama3.1:70b",
-        "mistral",
-        "codellama",
-        "gemma2",
+        "qwen3.6",
+        "gemma4:31b",
+        "qwen3-coder:30b",
+        "gpt-oss:20b",
+        "deepseek-v3.1",
     ]
     # Aliases for compatibility with agents/__init__.py which references FREE_MODELS
     FREE_MODELS = DEFAULT_MODELS
     PAID_MODELS: list = []
 
-    def __init__(self):
+    LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"}
+
+    @classmethod
+    def _is_loopback(cls, url: str) -> bool:
+        """True when `url` points at this machine (or is blank)."""
+        if not url:
+            return True
+        host = urlparse(url if "//" in url else f"//{url}").hostname or ""
+        return host.lower() in cls.LOOPBACK_HOSTS
+
+    def __init__(self, provider: Optional[str] = None):
         self.settings = frappe.get_single("Insights Settings")
-        provider = getattr(self.settings, "ai_provider", None)
+        # Prefer the explicitly requested provider so "Test" works before the
+        # settings are saved; fall back to whatever is persisted.
+        provider = provider or getattr(self.settings, "ai_provider", None)
         self.is_cloud = provider == "ollama_cloud"
         # Cloud default differs from local default
         default_url = "https://ollama.com" if self.is_cloud else "http://localhost:11434"
-        self.base_url = (
+        configured = (
             getattr(self.settings, "ollama_base_url", None)
             or os.environ.get("OLLAMA_BASE_URL")
-            or default_url
-        ).rstrip("/")
+            or ""
+        ).strip()
+        # `ollama_base_url` ships with a localhost default, so on Ollama Cloud it
+        # would otherwise shadow the cloud endpoint and make discovery probe the
+        # local daemon — the cloud catalog would never appear. A loopback address
+        # is meaningless for cloud, so fall through to the cloud default and keep
+        # honouring any genuine remote override.
+        if self.is_cloud and self._is_loopback(configured):
+            configured = ""
+        self.base_url = (configured or default_url).rstrip("/")
         # API key is only required for Ollama Cloud (bearer auth on ollama.com)
         self.api_key = None
         if self.is_cloud:

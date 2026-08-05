@@ -24,11 +24,36 @@
   "ai_model_column",
   "ai_model",
   "ai_model_fallback",
+  "openai_section",
+  "openai_api_key",
+  "openai_base_url",
+  "openai_auth_mode",
+  "openai_oauth_access_token",
+  "openai_oauth_refresh_token",
+  "openai_oauth_account_id",
+  "openai_oauth_account_label",
+  "openai_oauth_expires_at",
+  "openai_column",
+  "openai_model",
+  "nvidia_section",
+  "nvidia_api_key",
+  "nvidia_column",
+  "nvidia_model",
   "ollama_section",
   "ollama_base_url",
   "ollama_api_key",
   "ollama_column",
   "ollama_model",
+  "moonshot_section",
+  "moonshot_api_key",
+  "moonshot_auth_mode",
+  "kimi_oauth_access_token",
+  "kimi_oauth_refresh_token",
+  "kimi_oauth_account_label",
+  "kimi_oauth_expires_at",
+  "kimi_device_id",
+  "moonshot_column",
+  "moonshot_model",
   "ai_schedule_section",
   "refresh_schedule",
   "last_ai_refresh",
@@ -56,7 +81,35 @@
   "column_break_be",
   "corporate_tax_rate",
   "roce_settings_section",
-  "roce_target"
+  "roce_target",
+  "cost_structure_settings_section",
+  "gp_salary_ideal",
+  "gp_salary_risky",
+  "np_salary_ideal",
+  "np_salary_risky",
+  "fixed_cost_np_ideal",
+  "fixed_cost_np_risky",
+  "fixed_cost_gp_ideal",
+  "fixed_cost_gp_risky",
+  "marketing_pct_ideal",
+  "column_break_cs1",
+  "marketing_pct_risky",
+  "training_pct_ideal",
+  "training_pct_risky",
+  "incentive_pct_ideal",
+  "incentive_pct_risky",
+  "rent_pct_ideal",
+  "rent_pct_risky",
+  "electricity_pct_ideal",
+  "electricity_pct_risky",
+  "cost_structure_keywords_section",
+  "salary_cost_keywords",
+  "marketing_cost_keywords",
+  "training_cost_keywords",
+  "column_break_cs2",
+  "incentive_cost_keywords",
+  "rent_cost_keywords",
+  "electricity_cost_keywords"
  ],
  "fields": [
   {
@@ -132,7 +185,7 @@
    "fieldname": "ai_provider",
    "fieldtype": "Select",
    "label": "AI Provider",
-   "options": "openrouter\nollama\nollama_cloud\nmoonshot",
+   "options": "openrouter\nopenai\nnvidia\nollama\nollama_cloud\nmoonshot",
    "description": "Select your AI provider"
   },
   {
@@ -155,22 +208,131 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "meta-llama/llama-3.3-70b-instruct:free",
+   "default": "nvidia/nemotron-3-super-120b-a12b:free",
    "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='openrouter'",
    "fieldname": "ai_model",
    "fieldtype": "Select",
    "label": "Primary AI Model",
-   "options": "mistralai/mistral-small-3.1-24b-instruct:free\ngoogle/gemma-3-27b-it:free\nmeta-llama/llama-3.3-70b-instruct:free\nqwen/qwen3-coder:free\nopenai/gpt-oss-120b:free\nnousresearch/hermes-3-llama-3.1-405b:free\ngoogle/gemma-3-12b-it:free\nnvidia/nemotron-3-nano-30b-a3b:free\nqwen/qwen3-next-80b-a3b-instruct:free\nopenai/gpt-oss-20b:free\ndeepseek/deepseek-r1-0528:free\ngoogle/gemini-2.0-flash-exp:free\nqwen/qwen3-235b-a22b:free\nopenai/gpt-4o-mini\nopenai/gpt-4o\nanthropic/claude-3.5-sonnet",
+   "options": "nvidia/nemotron-3-super-120b-a12b:free\nnvidia/nemotron-3-ultra-550b-a55b:free\ngoogle/gemma-4-31b-it:free\ngoogle/gemma-4-26b-a4b-it:free\nnvidia/nemotron-3-nano-30b-a3b:free\nnvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free\ninclusionai/ling-3.0-flash:free\ncohere/north-mini-code:free\nopenai/gpt-oss-20b:free\nnvidia/nemotron-nano-9b-v2:free\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-luna\nopenai/gpt-5.6-sol\nanthropic/claude-sonnet-5\nanthropic/claude-haiku-4.5\ngoogle/gemini-3.5-flash\nmoonshotai/kimi-k3\ndeepseek/deepseek-v4-pro",
    "description": "Select primary AI model (free tier models from OpenRouter)"
   },
   {
-   "default": "google/gemini-2.0-flash-exp:free",
+   "default": "nvidia/nemotron-3-ultra-550b-a55b:free",
    "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='openrouter'",
    "fieldname": "ai_model_fallback",
    "fieldtype": "Select",
    "label": "Fallback AI Model",
-   "options": "mistralai/mistral-small-3.1-24b-instruct:free\ngoogle/gemma-3-27b-it:free\nmeta-llama/llama-3.3-70b-instruct:free\nqwen/qwen3-coder:free\nopenai/gpt-oss-120b:free\nnousresearch/hermes-3-llama-3.1-405b:free\ngoogle/gemma-3-12b-it:free\nnvidia/nemotron-3-nano-30b-a3b:free\nqwen/qwen3-next-80b-a3b-instruct:free\nopenai/gpt-oss-20b:free\ndeepseek/deepseek-r1-0528:free\ngoogle/gemini-2.0-flash-exp:free\nqwen/qwen3-235b-a22b:free\nopenai/gpt-4o-mini\nopenai/gpt-4o\nanthropic/claude-3.5-sonnet",
+   "options": "nvidia/nemotron-3-super-120b-a12b:free\nnvidia/nemotron-3-ultra-550b-a55b:free\ngoogle/gemma-4-31b-it:free\ngoogle/gemma-4-26b-a4b-it:free\nnvidia/nemotron-3-nano-30b-a3b:free\nnvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free\ninclusionai/ling-3.0-flash:free\ncohere/north-mini-code:free\nopenai/gpt-oss-20b:free\nnvidia/nemotron-nano-9b-v2:free\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-luna\nopenai/gpt-5.6-sol\nanthropic/claude-sonnet-5\nanthropic/claude-haiku-4.5\ngoogle/gemini-3.5-flash\nmoonshotai/kimi-k3\ndeepseek/deepseek-v4-pro",
    "description": "Select fallback AI model if primary fails"
+  },
+  {
+   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='openai'",
+   "fieldname": "openai_section",
+   "fieldtype": "Section Break",
+   "label": "OpenAI Settings",
+   "collapsible": 1
+  },
+  {
+   "depends_on": "eval:doc.ai_provider=='openai' && doc.openai_auth_mode!='ChatGPT Subscription'",
+   "fieldname": "openai_api_key",
+   "fieldtype": "Password",
+   "label": "OpenAI API Key",
+   "description": "Get your API key from https://platform.openai.com/api-keys"
+  },
+  {
+   "default": "https://api.openai.com/v1",
+   "depends_on": "eval:doc.ai_provider=='openai' && doc.openai_auth_mode!='ChatGPT Subscription'",
+   "description": "OpenAI-compatible endpoint. Point this at an omp auth-gateway (e.g. http://127.0.0.1:4000/v1) to drive a ChatGPT Plus/Pro subscription instead of a metered API key.",
+   "fieldname": "openai_base_url",
+   "fieldtype": "Data",
+   "label": "OpenAI Base URL"
+  },
+  {
+   "default": "API Key",
+   "depends_on": "eval:doc.ai_provider=='openai'",
+   "description": "API Key bills a metered OpenAI key. ChatGPT Subscription signs in with a Plus/Pro account via device login.",
+   "fieldname": "openai_auth_mode",
+   "fieldtype": "Select",
+   "label": "OpenAI Authentication",
+   "options": "API Key\nChatGPT Subscription"
+  },
+  {
+   "fieldname": "openai_oauth_access_token",
+   "fieldtype": "Password",
+   "label": "ChatGPT Access Token",
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "openai_oauth_refresh_token",
+   "fieldtype": "Password",
+   "label": "ChatGPT Refresh Token",
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "openai_oauth_account_id",
+   "fieldtype": "Data",
+   "label": "ChatGPT Account ID",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "openai_oauth_account_label",
+   "fieldtype": "Data",
+   "label": "ChatGPT Account",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "openai_oauth_expires_at",
+   "fieldtype": "Int",
+   "label": "ChatGPT Token Expiry (epoch)",
+   "read_only": 1,
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='openai'",
+   "fieldname": "openai_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "gpt-5.6-terra",
+   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='openai'",
+   "fieldname": "openai_model",
+   "fieldtype": "Select",
+   "label": "OpenAI Model",
+   "options": "gpt-5.6-terra\ngpt-5.6-sol\ngpt-5.6-luna\ngpt-5.5\ngpt-5.4\ngpt-5.4-mini\ngpt-5.4-nano\ngpt-4.1\ngpt-4.1-mini\ngpt-4o\ngpt-4o-mini",
+   "description": "Select OpenAI model"
+  },
+  {
+   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='nvidia'",
+   "fieldname": "nvidia_section",
+   "fieldtype": "Section Break",
+   "label": "NVIDIA Settings",
+   "collapsible": 1
+  },
+  {
+   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='nvidia'",
+   "fieldname": "nvidia_api_key",
+   "fieldtype": "Password",
+   "label": "NVIDIA API Key",
+   "description": "Get your API key from https://build.nvidia.com"
+  },
+  {
+   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='nvidia'",
+   "fieldname": "nvidia_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "nvidia/nemotron-3-super-120b-a12b",
+   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='nvidia'",
+   "fieldname": "nvidia_model",
+   "fieldtype": "Select",
+   "label": "NVIDIA Model",
+   "options": "nvidia/nemotron-3-super-120b-a12b\nnvidia/nemotron-3-ultra-550b-a55b\nnvidia/nemotron-3-nano-30b-a3b\nnvidia/llama-3.3-nemotron-super-49b-v1.5\nmeta/llama-3.3-70b-instruct\ndeepseek-ai/deepseek-v4-pro\nminimaxai/minimax-m3\nmoonshotai/kimi-k2.6\nopenai/gpt-oss-120b\nmistralai/mistral-nemotron",
+   "description": "Select NVIDIA NIM model"
   },
   {
    "depends_on": "eval:doc.enable_ai_analytics && (doc.ai_provider=='ollama' || doc.ai_provider=='ollama_cloud')",
@@ -200,7 +362,7 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "llama3.1",
+   "default": "qwen3.6",
    "depends_on": "eval:doc.enable_ai_analytics && (doc.ai_provider=='ollama' || doc.ai_provider=='ollama_cloud')",
    "fieldname": "ollama_model",
    "fieldtype": "Data",
@@ -215,11 +377,57 @@
    "collapsible": 1
   },
   {
-   "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='moonshot'",
+   "depends_on": "eval:doc.ai_provider=='moonshot' && doc.moonshot_auth_mode!='Kimi Subscription'",
    "fieldname": "moonshot_api_key",
    "fieldtype": "Password",
    "label": "Moonshot API Key",
    "description": "Get your API key from https://platform.moonshot.cn"
+  },
+  {
+   "default": "API Key",
+   "depends_on": "eval:doc.ai_provider=='moonshot'",
+   "description": "API Key bills a metered Moonshot Open Platform key. Kimi Subscription signs in to a Kimi Code plan via device login (a platform key is NOT accepted there).",
+   "fieldname": "moonshot_auth_mode",
+   "fieldtype": "Select",
+   "label": "Kimi Authentication",
+   "options": "API Key\nKimi Subscription"
+  },
+  {
+   "fieldname": "kimi_oauth_access_token",
+   "fieldtype": "Password",
+   "label": "Kimi Access Token",
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "kimi_oauth_refresh_token",
+   "fieldtype": "Password",
+   "label": "Kimi Refresh Token",
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "kimi_oauth_account_label",
+   "fieldtype": "Data",
+   "label": "Kimi Account",
+   "read_only": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "kimi_oauth_expires_at",
+   "fieldtype": "Int",
+   "label": "Kimi Token Expiry (epoch)",
+   "read_only": 1,
+   "hidden": 1,
+   "no_copy": 1
+  },
+  {
+   "fieldname": "kimi_device_id",
+   "fieldtype": "Data",
+   "label": "Kimi Device ID",
+   "read_only": 1,
+   "hidden": 1,
+   "no_copy": 1
   },
   {
    "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='moonshot'",
@@ -227,12 +435,12 @@
    "fieldtype": "Column Break"
   },
   {
-   "default": "moonshot-v1-8k",
+   "default": "kimi-k3",
    "depends_on": "eval:doc.enable_ai_analytics && doc.ai_provider=='moonshot'",
    "fieldname": "moonshot_model",
    "fieldtype": "Select",
    "label": "Moonshot Model",
-   "options": "kimi-k2-0905-preview\nkimi-k2-0711-preview\nkimi-k2-turbo-preview\nmoonshot-v1-8k\nmoonshot-v1-32k\nmoonshot-v1-128k\nmoonshot-v1-auto",
+   "options": "kimi-k3\nkimi-k2.7-code\nkimi-k2.7-code-highspeed\nkimi-k2.6",
    "description": "Select Kimi model"
   },
   {
@@ -404,12 +612,184 @@
    "fieldtype": "Percent",
    "label": "ROCE Target",
    "description": "Benchmark for RAG comparison"
+  },
+  {
+   "fieldname": "cost_structure_settings_section",
+   "fieldtype": "Section Break",
+   "label": "Cost Structure Benchmarks",
+   "description": "Ideal and risky thresholds used to grade cost-structure ratios as good, moderate, or risky. Values apply against YTD figures for the current fiscal year."
+  },
+  {
+   "default": "3",
+   "fieldname": "gp_salary_ideal",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Gross Profit / Salary — Ideal (≥x)"
+  },
+  {
+   "default": "1.5",
+   "fieldname": "gp_salary_risky",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Gross Profit / Salary — Risky (<x)"
+  },
+  {
+   "default": "1",
+   "fieldname": "np_salary_ideal",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Net Profit / Salary — Ideal (≥x)"
+  },
+  {
+   "default": "0.3",
+   "fieldname": "np_salary_risky",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Net Profit / Salary — Risky (<x)"
+  },
+  {
+   "default": "0.5",
+   "fieldname": "fixed_cost_np_ideal",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Fixed Cost / Net Profit — Ideal (≤x)"
+  },
+  {
+   "default": "1.5",
+   "fieldname": "fixed_cost_np_risky",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Fixed Cost / Net Profit — Risky (>x)"
+  },
+  {
+   "default": "0.4",
+   "fieldname": "fixed_cost_gp_ideal",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Fixed Cost / Gross Profit — Ideal (≤x)"
+  },
+  {
+   "default": "0.8",
+   "fieldname": "fixed_cost_gp_risky",
+   "fieldtype": "Float",
+   "precision": "2",
+   "label": "Fixed Cost / Gross Profit — Risky (>x)"
+  },
+  {
+   "default": "8",
+   "fieldname": "marketing_pct_ideal",
+   "fieldtype": "Percent",
+   "label": "Marketing Cost % of Revenue — Ideal (≤%)"
+  },
+  {
+   "fieldname": "column_break_cs1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "15",
+   "fieldname": "marketing_pct_risky",
+   "fieldtype": "Percent",
+   "label": "Marketing Cost % of Revenue — Risky (>%)"
+  },
+  {
+   "default": "3",
+   "fieldname": "training_pct_ideal",
+   "fieldtype": "Percent",
+   "label": "Training & Development % of Revenue — Ideal (≤%)"
+  },
+  {
+   "default": "6",
+   "fieldname": "training_pct_risky",
+   "fieldtype": "Percent",
+   "label": "Training & Development % of Revenue — Risky (>%)"
+  },
+  {
+   "default": "5",
+   "fieldname": "incentive_pct_ideal",
+   "fieldtype": "Percent",
+   "label": "Incentives/Increment/Appraisal % of Revenue — Ideal (≤%)"
+  },
+  {
+   "default": "10",
+   "fieldname": "incentive_pct_risky",
+   "fieldtype": "Percent",
+   "label": "Incentives/Increment/Appraisal % of Revenue — Risky (>%)"
+  },
+  {
+   "default": "8",
+   "fieldname": "rent_pct_ideal",
+   "fieldtype": "Percent",
+   "label": "Rent % of Revenue — Ideal (≤%)"
+  },
+  {
+   "default": "15",
+   "fieldname": "rent_pct_risky",
+   "fieldtype": "Percent",
+   "label": "Rent % of Revenue — Risky (>%)"
+  },
+  {
+   "default": "3",
+   "fieldname": "electricity_pct_ideal",
+   "fieldtype": "Percent",
+   "label": "Electricity % of Revenue — Ideal (≤%)"
+  },
+  {
+   "default": "6",
+   "fieldname": "electricity_pct_risky",
+   "fieldtype": "Percent",
+   "label": "Electricity % of Revenue — Risky (>%)"
+  },
+  {
+   "fieldname": "cost_structure_keywords_section",
+   "fieldtype": "Section Break",
+   "label": "Cost Category Keywords",
+   "description": "One keyword per line. An expense account whose name contains any keyword (case-insensitive) is included in that category's total."
+  },
+  {
+   "default": "Salary\nPayroll\nWages",
+   "fieldname": "salary_cost_keywords",
+   "fieldtype": "Small Text",
+   "label": "Salary / Payroll Account Keywords"
+  },
+  {
+   "default": "Marketing\nAdvertising\nPromotion\nBranding",
+   "fieldname": "marketing_cost_keywords",
+   "fieldtype": "Small Text",
+   "label": "Marketing Account Keywords"
+  },
+  {
+   "default": "Training\nDevelopment\nLearning",
+   "fieldname": "training_cost_keywords",
+   "fieldtype": "Small Text",
+   "label": "Training & Development Account Keywords"
+  },
+  {
+   "fieldname": "column_break_cs2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Incentive\nBonus\nCommission\nAppraisal\nIncrement",
+   "fieldname": "incentive_cost_keywords",
+   "fieldtype": "Small Text",
+   "label": "Incentives / Appraisal Account Keywords"
+  },
+  {
+   "default": "Rent\nLease",
+   "fieldname": "rent_cost_keywords",
+   "fieldtype": "Small Text",
+   "label": "Rent Account Keywords"
+  },
+  {
+   "default": "Electricity\nPower\nUtilities\nUtility",
+   "fieldname": "electricity_cost_keywords",
+   "fieldtype": "Small Text",
+   "label": "Electricity / Utilities Account Keywords"
   }
  ],
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-02-24 17:00:00.000000",
+ "modified": "2026-08-05 13:53:41.859853",
  "modified_by": "Administrator",
  "module": "Insights",
  "name": "Insights Settings",
