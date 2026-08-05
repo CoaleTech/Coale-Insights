@@ -234,12 +234,14 @@ class BaseIntelligenceAgent(ABC):
             models_to_try.append(preferred)
             if client.fallback_model and client.fallback_model != preferred:
                 models_to_try.append(client.fallback_model)
-            for m in client.FREE_MODELS:
+            # get_available_models() is the BaseAIProvider contract every client
+            # implements; FREE_MODELS only exists on OpenRouter and Ollama.
+            for m in client.get_available_models():
                 if m not in models_to_try:
                     models_to_try.append(m)
 
             for try_model in models_to_try:
-                result = client._make_request(
+                result = client.make_request(
                     messages=messages,
                     model=try_model,
                     temperature=temperature,

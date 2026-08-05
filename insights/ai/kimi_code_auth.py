@@ -87,6 +87,10 @@ def _persist(tokens: Dict[str, Any]):
 		set_value("Insights Settings", "kimi_oauth_refresh_token", tokens["refresh_token"])
 	set_value("Insights Settings", "kimi_oauth_expires_at", int(time.time()) + expires_in)
 	set_value("Insights Settings", "kimi_oauth_account_label", _("Kimi Code subscription"))
+	# Connecting a subscription is the intent to use it: flip the auth mode so the
+	# credential is not stored but silently ignored while the client stays on the
+	# metered Open Platform key.
+	set_value("Insights Settings", "moonshot_auth_mode", "Kimi Subscription")
 	frappe.db.commit()
 
 

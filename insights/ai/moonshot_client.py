@@ -110,6 +110,10 @@ class MoonshotClient(BaseAIProvider):
     def make_request(self, messages: List[Dict], model: str,
                      temperature: float = 0.7, max_tokens: int = 2000) -> Optional[Dict]:
         try:
+            # kimi-for-coding rejects anything but temperature 1
+            # ("invalid temperature: only 1 is allowed for this model").
+            if self.is_subscription:
+                temperature = 1
             response = requests.post(
                 f"{self.BASE_URL}/chat/completions",
                 headers=self._get_headers(),

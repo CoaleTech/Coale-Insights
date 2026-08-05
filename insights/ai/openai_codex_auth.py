@@ -86,6 +86,9 @@ def _persist(tokens: Dict[str, Any]) -> Dict[str, str]:
 	set_value("Insights Settings", "openai_oauth_expires_at", int(time.time()) + expires_in)
 	label = " · ".join(p for p in (identity["email"], identity["plan"]) if p)
 	set_value("Insights Settings", "openai_oauth_account_label", label or _("Connected"))
+	# Connecting a subscription is the intent to use it; otherwise the credential
+	# is stored but ignored while the client stays on the metered API key.
+	set_value("Insights Settings", "openai_auth_mode", "ChatGPT Subscription")
 	frappe.db.commit()
 	return identity
 
