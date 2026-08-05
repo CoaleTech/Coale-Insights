@@ -396,56 +396,92 @@ async function startNewSession() {
   }
 }
 
-// Compress context to prevent large payloads - aggressive compression for API
-function compressContext(context: Record<string, any>): Record<string, any> {
-  if (!context) return {}
-  
-  const compressed: Record<string, any> = {}
-  
-  // Extract only the most important numeric and summary data
-  for (const [key, value] of Object.entries(context)) {
-    if (value === null || value === undefined) continue
-    
-    if (typeof value === 'number' || typeof value === 'boolean') {
-      compressed[key] = value
-    } else if (typeof value === 'string' && value.length <= 100) {
-      compressed[key] = value
-    } else if (Array.isArray(value)) {
-      // Only first 3 items, simplified
-      compressed[key] = value.slice(0, 3).map(item => {
-        if (typeof item === 'object' && item !== null) {
-          // Only keep name/label and value/amount fields
-          const simple: Record<string, any> = {}
-          for (const [k, v] of Object.entries(item)) {
-            if (['name', 'label', 'title', 'value', 'amount', 'total', 'count', 'rate', 'percent'].includes(k.toLowerCase())) {
-              simple[k] = typeof v === 'string' ? v.slice(0, 50) : v
-            }
-          }
-          return Object.keys(simple).length > 0 ? simple : null
-        }
-        return item
-      }).filter(Boolean)
-    } else if (typeof value === 'object') {
-      // For nested objects, only include numeric values and short strings
-      const simplified: Record<string, any> = {}
-      let count = 0
-      for (const [k, v] of Object.entries(value)) {
-        if (count >= 8) break
-        if (typeof v === 'number') {
-          simplified[k] = v
-          count++
-        } else if (typeof v === 'string' && v.length <= 50) {
-          simplified[k] = v
-          count++
-        }
-      }
-      if (Object.keys(simplified).length > 0) {
-        compressed[key] = simplified
-      }
-    }
-  }
-  
-  return compressed
+// Dashboard payloads are large but modern models have six-figure context
+// windows, so the budget is about staying cheap, not about fitting.
+const AI_CONTEXT_MAX_CHARS = 24000
+
+type PruneOpts = { depth: number; arrayCap: number; stringCap: number }
+
+/** Our ML endpoints answer {status, data}; the figures live under `data`. */
+function unwrapEnvelope(value: any): any {
+	if (
+		value && typeof value === 'object' && !Array.isArray(value) &&
+		'data' in value && ('status' in value || 'success' in value)
+	) {
+		return value.data
+	}
+	return value
+}
+
+function prune(value: any, opts: PruneOpts, depth = 0): any {
+	if (value === null || value === undefined) return undefined
+	const t = typeof value
+	if (t === 'number' || t === 'boolean') return value
+	if (t === 'string') {
+		return value.length > opts.stringCap ? `${value.slice(0, opts.stringCap)}…` : value
+	}
+	if (Array.isArray(value)) {
+		if (depth >= opts.depth) return undefined
+		const kept = value
+			.slice(0, opts.arrayCap)
+			.map((v) => prune(unwrapEnvelope(v), opts, depth + 1))
+			.filter((v) => v !== undefined)
+		if (!kept.length) return undefined
+		const omitted = value.length - kept.length
+		return omitted > 0 ? [...kept, `…${omitted} more`] : kept
+	}
+	if (t === 'object') {
+		if (depth >= opts.depth) return undefined
+		const out: Record<string, any> = {}
+		for (const [k, v] of Object.entries(value)) {
+			const p = prune(unwrapEnvelope(v), opts, depth + 1)
+			if (p !== undefined) out[k] = p
+		}
+		return Object.keys(out).length ? out : undefined
+	}
+	return undefined
+}
+
+/**
+ * Serialise dashboard state for the model.
+ *
+ * The previous compressor kept only scalar children, which collapsed a 1.4MB
+ * payload to {"sales":{"status":"success"}} — every figure was discarded and
+ * the model correctly reported that it had no data. This keeps real nested
+ * metrics, tightening depth/array limits across passes instead of dropping
+ * content, and always emits valid JSON.
+ */
+function buildAIContext(context: Record<string, any>, maxChars = AI_CONTEXT_MAX_CHARS): string {
+	if (!context) return '{}'
+
+	const root: Record<string, any> = {}
+	for (const [k, v] of Object.entries(context)) root[k] = unwrapEnvelope(v)
+
+	const passes: PruneOpts[] = [
+		{ depth: 5, arrayCap: 10, stringCap: 200 },
+		{ depth: 4, arrayCap: 6, stringCap: 120 },
+		{ depth: 3, arrayCap: 4, stringCap: 80 },
+		{ depth: 2, arrayCap: 3, stringCap: 60 },
+	]
+
+	let pruned: Record<string, any> = {}
+	for (const opts of passes) {
+		pruned = prune(root, opts) ?? {}
+		if (JSON.stringify(pruned).length <= maxChars) return JSON.stringify(pruned)
+	}
+
+	// Still over budget: drop the heaviest branches until it fits, so the model
+	// gets less data rather than truncated (invalid) JSON.
+	const entries = Object.entries(pruned).sort(
+		(a, b) => JSON.stringify(b[1]).length - JSON.stringify(a[1]).length,
+	)
+	while (entries.length > 1 && JSON.stringify(Object.fromEntries(entries)).length > maxChars) {
+		const [key, value] = entries.shift() as [string, any]
+		entries.push([key, `…omitted, ${JSON.stringify(value).length} chars`])
+		entries.sort((a, b) => JSON.stringify(b[1]).length - JSON.stringify(a[1]).length)
+		if (entries.every(([, v]) => typeof v === 'string')) break
+	}
+	return JSON.stringify(Object.fromEntries(entries)).slice(0, maxChars)
 }
 
 async function sendMessage() {
@@ -479,12 +515,9 @@ async function sendMessage() {
       }
     }
     
-    // Compress dashboard context for AI - limit to 4KB
-    const compressed = compressContext(props.dashboardContext || {})
-    const contextStr = JSON.stringify(compressed)
-    const safeContext = contextStr.length > 4000 ? JSON.stringify({summary: 'Context too large'}) : contextStr
-    
-    // Send message with compressed context
+    // Real dashboard figures, bounded by character budget
+    const safeContext = buildAIContext(props.dashboardContext || {})
+
     const response = await call('insights.api.dashboard_chat.send_message', {
       session_id: sessionId.value,
       query: query,
@@ -540,7 +573,7 @@ async function updateSessionContext(context: Record<string, any>) {
   try {
     await call('insights.api.dashboard_chat.update_session_context', {
       session_id: sessionId.value,
-      context: JSON.stringify(compressContext(context))
+      context: buildAIContext(context)
     })
   } catch (e) {
     console.error('Failed to update context:', e)

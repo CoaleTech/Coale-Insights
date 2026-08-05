@@ -35,6 +35,10 @@ class MoonshotClient(BaseAIProvider):
 
     DEFAULT_MODEL = "kimi-k3"
 
+    # Kimi Code models reason before answering and bill those tokens against the
+    # output budget; below this a long prompt yields an empty message.
+    SUBSCRIPTION_MIN_OUTPUT_TOKENS = 8000
+
     def __init__(self, provider: Optional[str] = None):
         self.settings = frappe.get_single("Insights Settings")
         self.auth_mode = getattr(self.settings, "moonshot_auth_mode", None) or "API Key"
@@ -110,10 +114,14 @@ class MoonshotClient(BaseAIProvider):
     def make_request(self, messages: List[Dict], model: str,
                      temperature: float = 0.7, max_tokens: int = 2000) -> Optional[Dict]:
         try:
-            # kimi-for-coding rejects anything but temperature 1
-            # ("invalid temperature: only 1 is allowed for this model").
             if self.is_subscription:
+                # kimi-for-coding rejects anything but temperature 1
+                # ("invalid temperature: only 1 is allowed for this model").
                 temperature = 1
+                # It also spends hidden reasoning tokens out of the same output
+                # budget, so a 2k cap can return an empty message on a long
+                # prompt. Reserve headroom for reasoning plus a real answer.
+                max_tokens = max(max_tokens, self.SUBSCRIPTION_MIN_OUTPUT_TOKENS)
             response = requests.post(
                 f"{self.BASE_URL}/chat/completions",
                 headers=self._get_headers(),

@@ -132,10 +132,19 @@ class BaseIntelligenceAgent(ABC):
         return alerts[:5]
 
     def build_system_prompt(self, context: Optional[Dict] = None) -> str:
-        """Build the system prompt for the AI model."""
+        """Build the system prompt, plus the playbook for the active surface."""
+        from insights.agents.skills import skill_prompt_for
+
+        ctx = context or self.compressed_context
         if self.config:
-            return self.config.get_system_prompt(context or self.compressed_context)
-        return self._get_default_system_prompt(context)
+            prompt = self.config.get_system_prompt(ctx)
+        else:
+            prompt = self._get_default_system_prompt(ctx)
+
+        # The skill tells the model which questions this tab exists to answer,
+        # so it stops describing what a dashboard "usually" shows.
+        skill = skill_prompt_for(self.dashboard_type, ctx)
+        return f"{prompt}\n\n{skill}" if skill else prompt
 
     @abstractmethod
     def _get_default_system_prompt(self, context: Optional[Dict] = None) -> str:
@@ -248,7 +257,14 @@ class BaseIntelligenceAgent(ABC):
                 )
 
                 if result and "choices" in result:
-                    response_text = result["choices"][0]["message"]["content"]
+                    response_text = (result["choices"][0]["message"].get("content") or "").strip()
+                    if not response_text:
+                        # A reasoning model can burn the whole output budget and
+                        # return a blank message. Reporting that as success shows
+                        # the user an empty bubble; try the next model instead.
+                        _last_error = f"{try_model} returned an empty response"
+                        continue
+
                     client.increment_quota()
                     _elapsed = round(_time.time() - _start, 2)
                     _tokens = result.get("usage", {}).get("total_tokens")

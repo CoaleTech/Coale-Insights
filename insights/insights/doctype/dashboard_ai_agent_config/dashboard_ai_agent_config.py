@@ -254,7 +254,11 @@ class DashboardAIAgentConfig(Document):
         prompt = self.system_prompt or DEFAULT_SYSTEM_PROMPTS.get(self.dashboard_type, "")
         
         if context:
-            prompt = prompt.replace("{context}", json.dumps(context, indent=2))
+            # Compact separators: pretty-printing dashboard data added ~30% more
+            # tokens for no gain in model comprehension.
+            prompt = prompt.replace(
+                "{context}", json.dumps(context, separators=(",", ":"), default=str)
+            )
         else:
             prompt = prompt.replace("{context}", "No context available")
         
