@@ -597,11 +597,14 @@ class PresentationModeService:
         }
     
     def generate_powerpoint_export(self, presentation_data: Dict) -> Dict[str, Any]:
-        """Generate PowerPoint export data"""
+        """Generate PowerPoint export data.
+
+        Returns structured slide data, NOT a .pptx binary — no python-pptx
+        generation is implemented. download_ready/message were previously
+        worded as if a file were ready to download, which is misleading.
+        See plan-eng-review D3.10.
+        """
         try:
-            # This would typically use python-pptx or similar library
-            # For now, returning structured data that can be used by frontend
-            
             export_data = {
                 "format": "powerpoint",
                 "slides": presentation_data.get('slides', []),
@@ -613,15 +616,15 @@ class PresentationModeService:
                     "template": "professional"
                 },
                 "generated_at": frappe.utils.now(),
-                "download_ready": True
+                "download_ready": False
             }
-            
+
             return {
                 "status": "success",
                 "data": export_data,
-                "message": "PowerPoint export prepared"
+                "message": "Structured slide data prepared (not a downloadable .pptx file)"
             }
-            
+
         except Exception as e:
             logger.error(f"Error generating PowerPoint export: {e}")
             return {

@@ -460,21 +460,18 @@ class PaymentPrediction(BaseMLModel):
 
 
 # API Functions
-@frappe.whitelist()
 def run_payment_prediction() -> Dict[str, Any]:
     """Train payment prediction model"""
     model = PaymentPrediction()
     return model.train()
 
 
-@frappe.whitelist()
 def get_payment_predictions() -> Dict[str, Any]:
     """Get payment risk predictions for outstanding invoices"""
     model = PaymentPrediction()
     return model.predict()
 
 
-@frappe.whitelist()
 def get_customer_payment_risk(customer: str) -> Dict[str, Any]:
     """Get payment risk for a specific customer"""
     model = PaymentPrediction()

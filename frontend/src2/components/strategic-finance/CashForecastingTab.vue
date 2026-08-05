@@ -21,7 +21,7 @@
 
       <!-- 90-Day Cash Forecast Chart -->
       <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
-        <SectionHeader title="90-Day Cash Flow Forecast" :level="3" />
+        <SectionHeader variant="caption" title="90-Day Cash Flow Forecast" :level="3" />
         <div v-if="data.base_forecast?.length" class="h-56 sm:h-72 lg:h-80 mt-4">
           <CashForecastChart
             :base="chartForecasts.base"
@@ -124,7 +124,7 @@
 
       <!-- Weekly Cash Summary -->
       <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
-        <SectionHeader title="Weekly Cash Summary" :level="3" />
+        <SectionHeader variant="caption" title="Weekly Cash Summary" :level="3" />
         <div v-if="data.weekly_summary?.length" class="overflow-x-auto mt-4">
           <table class="min-w-full divide-y divide-outline-gray-1">
             <thead>

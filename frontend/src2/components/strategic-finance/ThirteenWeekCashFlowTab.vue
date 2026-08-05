@@ -11,7 +11,7 @@
       <!-- Header with Threshold Input -->
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <SectionHeader title="13-Week Rolling Cash Flow Forecast" :level="3"
+          <SectionHeader variant="caption" title="13-Week Rolling Cash Flow Forecast" :level="3"
             hint="Week-by-week cash projections with categorized inflows and outflows" />
         </div>
         <div class="flex items-center gap-4">
@@ -77,7 +77,7 @@
 
       <!-- Chart -->
       <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
-        <SectionHeader title="Cash Flow Visualization" :level="4" />
+        <SectionHeader variant="caption" title="Cash Flow Visualization" :level="4" />
         <div v-if="chartData" class="h-56 sm:h-72 lg:h-80 mt-4">
           <ThirteenWeekChart :data="chartData" :threshold="threshold" :currency="currency" />
         </div>
@@ -99,7 +99,7 @@
       <!-- Weekly Table -->
       <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
         <div class="p-4 border-b border-outline-gray-1">
-          <SectionHeader title="Weekly Cash Flow Detail" :level="4" />
+          <SectionHeader variant="caption" title="Weekly Cash Flow Detail" :level="4" />
         </div>
         <div class="overflow-x-auto">
           <table class="min-w-full divide-y divide-outline-gray-1">

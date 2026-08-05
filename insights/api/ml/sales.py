@@ -15,6 +15,7 @@ from insights.api.response import success, error
 def sales_forecast(periods: int = 30, refresh: bool = False) -> Dict[str, Any]:
     """Get sales forecast"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_forecasting import SalesForecasting
         model = SalesForecasting()
         if not refresh:
@@ -23,6 +24,8 @@ def sales_forecast(periods: int = 30, refresh: bool = False) -> Dict[str, Any]:
                 return success(cached)
         result = model.train(periods=int(periods))
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -31,10 +34,13 @@ def sales_forecast(periods: int = 30, refresh: bool = False) -> Dict[str, Any]:
 def get_forecast_chart_data() -> Dict[str, Any]:
     """Get forecast data formatted for charts"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_forecasting import SalesForecasting
         model = SalesForecasting()
         result = model.predict()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -43,10 +49,13 @@ def get_forecast_chart_data() -> Dict[str, Any]:
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
     """Get comprehensive sales intelligence"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence(date_filter=date_filter)
-        result = model.train()
+        result = model.train() if refresh else model.predict()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -55,11 +64,14 @@ def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[
 def payment_mix() -> Dict[str, Any]:
     """Analyze payment method mix"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence()
-        full_result = model.train()
+        full_result = model.predict()
         result = full_result.get("payment_mix", full_result)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -68,11 +80,14 @@ def payment_mix() -> Dict[str, Any]:
 def sales_rep_performance() -> Dict[str, Any]:
     """Get sales representative performance analysis"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence()
-        full_result = model.train()
+        full_result = model.predict()
         result = full_result.get("sales_reps", full_result)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -81,11 +96,14 @@ def sales_rep_performance() -> Dict[str, Any]:
 def revenue_breakdown() -> Dict[str, Any]:
     """Get revenue breakdown by various dimensions"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence()
-        full_result = model.train()
+        full_result = model.predict()
         result = full_result.get("dimensions", full_result)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -94,11 +112,14 @@ def revenue_breakdown() -> Dict[str, Any]:
 def margin_analysis() -> Dict[str, Any]:
     """Analyze profit margins"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence()
-        full_result = model.train()
+        full_result = model.predict()
         result = full_result.get("margins", full_result)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -107,11 +128,14 @@ def margin_analysis() -> Dict[str, Any]:
 def sales_comparisons() -> Dict[str, Any]:
     """Compare sales across periods and dimensions"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence()
-        full_result = model.train()
+        full_result = model.predict()
         result = full_result.get("comparisons", full_result)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -120,10 +144,13 @@ def sales_comparisons() -> Dict[str, Any]:
 def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
     """Train forecasting models"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_forecasting import SalesForecasting
         model = SalesForecasting()
         result = model.train()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -132,9 +159,12 @@ def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
 def get_historical_and_forecast_by_dimension(dimension: str = 'product_group') -> Dict[str, Any]:
     """Get historical and forecast data by dimension"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_forecasting import get_grouped_forecast
         result = get_grouped_forecast(group_by=dimension)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -143,10 +173,13 @@ def get_historical_and_forecast_by_dimension(dimension: str = 'product_group') -
 def source_attributed_sales(date_filter: str = '12m') -> Dict[str, Any]:
     """Get revenue attributed to lead sources."""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_source_analytics import get_source_attributed_sales
         from insights.api.ml.utils import parse_date_filter
         start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
         return success(get_source_attributed_sales(start, end))
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -155,10 +188,13 @@ def source_attributed_sales(date_filter: str = '12m') -> Dict[str, Any]:
 def quotation_analytics(date_filter: str = '12m') -> Dict[str, Any]:
     """Get quotation funnel analytics."""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_source_analytics import get_quotation_analytics
         from insights.api.ml.utils import parse_date_filter
         start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
         return success(get_quotation_analytics(start, end))
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -167,10 +203,13 @@ def quotation_analytics(date_filter: str = '12m') -> Dict[str, Any]:
 def territory_sales_performance(date_filter: str = '12m') -> Dict[str, Any]:
     """Get sales performance by territory."""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_source_analytics import get_territory_performance
         from insights.api.ml.utils import parse_date_filter
         start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
         return success(get_territory_performance(start, end))
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 

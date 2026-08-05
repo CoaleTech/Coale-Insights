@@ -46,59 +46,70 @@
       @retry="refreshData"
     >
       <!-- Business Health Score -->
-      <div class="p-6">
-        <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
-          <div class="px-6 py-4 border-b border-outline-gray-1 bg-surface-gray-1">
-            <div class="flex items-center justify-between">
-              <h2 class="text-lg font-semibold text-ink-gray-9">Business Health Score</h2>
-              <div class="flex items-center gap-3">
-                <Badge
-                  v-bind="severityBadge(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }))"
-                  :aria-label="severityAria('Health', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
-                  size="sm"
-                />
-                <span class="text-2xl font-bold text-ink-gray-9">{{ businessHealth.overall_score || 0 }}%</span>
-              </div>
+      <div class="px-6 pt-6">
+        <div class="bg-accent-soft rounded-xl p-6 lg:p-8">
+          <!-- Main Score -->
+          <div class="max-w-4xl">
+            <div class="text-sm font-semibold text-ink-gray-6 uppercase tracking-wider">
+              Business Health Score
+            </div>
+            <div class="mt-2 flex items-baseline gap-3">
+              <span class="text-5xl font-bold text-ink-gray-9 tracking-tight">
+                {{ businessHealth.overall_score || 0 }}
+              </span>
+              <span class="text-3xl font-semibold text-ink-gray-6">%</span>
+              <Badge
+                v-bind="severityBadge(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }))"
+                :aria-label="severityAria('Health', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
+                size="sm"
+                class="self-center"
+              />
+            </div>
+            <div
+              class="mt-4 h-3 w-full bg-surface-white rounded-full overflow-hidden"
+              role="img"
+              :aria-label="severityAria('Overall health score', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
+            >
+              <div
+                :class="[severityFill(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
+                :style="`width: ${businessHealth.overall_score || 0}%`"
+              ></div>
             </div>
           </div>
-          <div class="p-6">
-            <!-- AI Narrative -->
-            <div v-if="data.narrative" class="mb-6 p-4 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
-              <div class="flex items-start gap-3">
-                <Brain class="w-5 h-5 text-ink-gray-5 mt-0.5" />
-                <div>
-                  <h3 class="text-sm font-medium text-ink-gray-9">AI Executive Summary</h3>
-                  <p class="text-sm text-ink-gray-7 mt-1">{{ data.narrative }}</p>
-                </div>
-              </div>
-            </div>
 
-            <!-- Department Health Breakdown -->
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+          <!-- AI Narrative -->
+          <div v-if="data.narrative" class="mt-6 flex items-start gap-3 max-w-4xl">
+            <Brain class="w-5 h-5 text-accent mt-0.5" />
+            <div>
+              <h3 class="text-sm font-semibold text-ink-gray-9">AI Executive Summary</h3>
+              <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">{{ data.narrative }}</p>
+            </div>
+          </div>
+
+          <!-- Department Health Breakdown -->
+          <div class="mt-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+            <div
+              v-for="(score, department) in businessHealth.department_scores"
+              :key="department"
+              class="flex flex-col p-3 rounded-lg motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
+              :class="departmentRoutes[department] ? 'cursor-pointer hover:bg-surface-white' : ''"
+              :tabindex="departmentRoutes[department] ? 0 : undefined"
+              :role="departmentRoutes[department] ? 'button' : undefined"
+              :aria-label="departmentRoutes[department] ? `Go to ${department} dashboard` : undefined"
+              @click="departmentRoutes[department] && router.push(departmentRoutes[department])"
+              @keydown.enter="departmentRoutes[department] && router.push(departmentRoutes[department])"
+            >
+              <div class="text-xs font-medium text-ink-gray-6 uppercase tracking-wide truncate">{{ department }}</div>
+              <div class="mt-1 text-2xl font-bold text-ink-gray-9">{{ Math.round(score) }}%</div>
               <div
-                v-for="(score, department) in businessHealth.department_scores"
-                :key="department"
-                class="text-center cursor-pointer hover:bg-surface-gray-1 rounded-lg p-2 motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
-                :tabindex="departmentRoutes[department] ? 0 : undefined"
-                :role="departmentRoutes[department] ? 'button' : undefined"
-                :aria-label="departmentRoutes[department] ? `Go to ${department} dashboard` : undefined"
-                @click="departmentRoutes[department] && router.push(departmentRoutes[department])"
-                @keydown.enter="departmentRoutes[department] && router.push(departmentRoutes[department])"
+                class="mt-2 h-1.5 w-full bg-surface-white rounded-full overflow-hidden"
+                :aria-label="severityAria(String(department), scoreSeverity(score, { good: 80, warn: 60 }), score)"
+                role="img"
               >
-                <div class="text-sm font-medium text-ink-gray-6 capitalize">{{ department }}</div>
-                <div class="mt-1">
-                  <div class="text-lg font-bold text-ink-gray-9">{{ Math.round(score) }}%</div>
-                  <div
-                    class="w-full h-2 bg-surface-gray-3 rounded-full mt-1"
-                    :aria-label="severityAria(String(department), scoreSeverity(score, { good: 80, warn: 60 }), score)"
-                    role="img"
-                  >
-                    <div
-                      :class="[severityFill(scoreSeverity(score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
-                      :style="`width: ${score}%`"
-                    ></div>
-                  </div>
-                </div>
+                <div
+                  :class="[severityFill(scoreSeverity(score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
+                  :style="`width: ${score}%`"
+                ></div>
               </div>
             </div>
           </div>
@@ -107,32 +118,27 @@
 
       <!-- Critical Alerts -->
       <div v-if="alerts && alerts.length > 0" class="px-6 mb-6">
-        <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1">
-          <div class="px-6 py-4 border-b border-outline-gray-1 bg-surface-gray-1">
-            <h2 class="text-lg font-semibold text-ink-gray-9 flex items-center gap-2">
-              <AlertTriangle class="w-5 h-5 text-ink-gray-5" />
-              Critical Alerts
-            </h2>
-          </div>
-          <div class="p-6">
-            <div class="space-y-3">
-              <div
-                v-for="alert in alerts.slice(0, 5)"
-                :key="alert.message"
-                class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white"
-              >
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-3">
-                    <span class="font-medium text-ink-gray-9">{{ alert.department }}</span>
-                    <Badge
-                      v-bind="severityBadge(ragSeverity(alert.rag_status))"
-                      size="sm"
-                    />
-                  </div>
-                </div>
-                <p class="text-sm text-ink-gray-7 mt-2">{{ alert.message }}</p>
+        <h2 class="text-sm font-semibold text-ink-gray-9 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <AlertTriangle class="w-5 h-5 text-neg" />
+          Critical Alerts
+        </h2>
+        <div class="space-y-3">
+          <div
+            v-for="alert in alerts.slice(0, 5)"
+            :key="alert.message"
+            class="flex items-start justify-between gap-4 p-4 rounded-lg border border-outline-gray-1 bg-surface-white"
+          >
+            <div>
+              <div class="flex items-center gap-3">
+                <span class="font-semibold text-ink-gray-9">{{ alert.department }}</span>
               </div>
+              <p class="text-sm text-ink-gray-7 mt-2">{{ alert.message }}</p>
             </div>
+            <Badge
+              v-bind="severityBadge(ragSeverity(alert.rag_status))"
+              size="sm"
+              class="shrink-0"
+            />
           </div>
         </div>
       </div>
@@ -144,17 +150,17 @@
             v-for="dept in departmentColumns"
             :key="dept.key"
             v-show="kpis[dept.key] && !kpis[dept.key].error"
-            class="space-y-4"
+            class="space-y-3"
           >
             <h3
-              class="text-lg font-semibold text-ink-gray-9 flex items-center gap-2 cursor-pointer hover:text-ink-gray-7 motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 rounded"
+              class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wider flex items-center gap-2 cursor-pointer hover:text-accent motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 rounded"
               tabindex="0"
               role="button"
               :aria-label="`Navigate to ${dept.label} dashboard`"
               @click="router.push(departmentRoutes[dept.key])"
               @keydown.enter="router.push(departmentRoutes[dept.key])"
             >
-              <component :is="dept.icon" class="w-5 h-5 text-ink-gray-5" />
+              <component :is="dept.icon" class="w-4 h-4" />
               {{ dept.label }}
             </h3>
             <template
@@ -163,42 +169,44 @@
             >
               <div
                 v-if="kpi && typeof kpi === 'object' && !kpi.error"
-                class="bg-surface-white p-4 rounded-lg shadow-sm border border-outline-gray-1"
-                :class="getExecMetric(kpi.label) ? 'cursor-pointer hover:ring-2 hover:ring-outline-gray-3 motion-reduce:transition-none transition-shadow' : ''"
-                :tabindex="getExecMetric(kpi.label) ? 0 : undefined"
-                :role="getExecMetric(kpi.label) ? 'button' : undefined"
-                :aria-label="getExecMetric(kpi.label) ? `Drill down: ${kpi.label}` : undefined"
-                @click="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) })"
-                @keydown.enter="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) })"
+                class="relative"
               >
-                <div class="flex items-center justify-between mb-2">
-                  <div class="text-sm font-medium text-ink-gray-6">{{ kpi.label }}</div>
-                  <Badge
-                    v-bind="severityBadge(ragSeverity(kpi.rag_status))"
-                    size="sm"
-                    :aria-label="severityAria(kpi.label, ragSeverity(kpi.rag_status))"
-                  />
-                </div>
-                <div class="text-2xl font-bold text-ink-gray-9">
-                  {{ formatKpiValue(kpi.value, kpi.format) }}
-                </div>
-                <div
-                  v-if="getKpiVariance(kpi) !== null"
-                  :class="deltaInk(getKpiVariance(kpi), { higherIsBetter: !dept.reverseVariance })"
-                  class="text-sm mt-1"
+                <KpiCard
+                  :label="kpi.label"
+                  v-bind="kpi.format === 'currency'
+                    ? { amount: kpi.value, currency: companyCurrency }
+                    : kpi.format === 'percentage'
+                      ? { percent: kpi.value }
+                      : { value: formatKpiValue(kpi.value, kpi.format) }"
+                  :severity="ragSeverity(kpi.rag_status)"
+                  :delta="getKpiVariance(kpi)"
+                  :delta-higher-is-better="!dept.reverseVariance"
+                  :clickable="!!getExecMetric(kpi.label)"
+                  @click="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) })"
                 >
-                  {{ deltaGlyph(getKpiVariance(kpi)) }} {{ Math.abs(getKpiVariance(kpi)).toFixed(1) }}% vs target
-                </div>
-                <div v-if="sparklineData(dept, kpiIndex).length > 1" class="mt-2">
-                  <svg class="w-full h-8 text-ink-gray-5" viewBox="0 0 100 20" aria-hidden="true">
-                    <path
-                      :d="generateSparkline(sparklineData(dept, kpiIndex))"
-                      fill="none"
-                      stroke="currentColor"
-                      stroke-width="1"
-                    />
-                  </svg>
-                </div>
+                  <template v-if="sparklineData(dept, kpiIndex).length > 1" #footer>
+                    <svg
+                      class="w-full h-8"
+                      :class="sparklineInk(getKpiVariance(kpi), { higherIsBetter: !dept.reverseVariance })"
+                      viewBox="0 0 100 20"
+                      aria-hidden="true"
+                    >
+                      <path
+                        :d="generateSparkline(sparklineData(dept, kpiIndex))"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  </template>
+                </KpiCard>
+                <ChevronRight
+                  v-if="getExecMetric(kpi.label)"
+                  class="absolute top-3 right-3 w-3.5 h-3.5 text-ink-gray-4 pointer-events-none"
+                  aria-hidden="true"
+                />
               </div>
             </template>
           </div>
@@ -207,61 +215,55 @@
 
       <!-- Quick Actions -->
       <div class="px-6 pb-6">
-        <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1">
-          <div class="px-6 py-4 border-b border-outline-gray-1 bg-surface-gray-1">
-            <h2 class="text-lg font-semibold text-ink-gray-9">Quick Actions</h2>
-          </div>
-          <div class="p-6">
-            <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
-              <Button
-                variant="subtle"
-                class="flex items-center gap-3 p-4 text-left h-auto"
-                @click="generateStrategicReport"
-              >
-                <FileText class="w-5 h-5 text-ink-gray-5" />
-                <div>
-                  <div class="text-sm font-medium text-ink-gray-9">Strategic Report</div>
-                  <div class="text-xs text-ink-gray-6">Generate board-ready summary</div>
-                </div>
-              </Button>
-
-              <Button
-                variant="subtle"
-                class="flex items-center gap-3 p-4 text-left h-auto"
-                @click="exportExecutiveData"
-              >
-                <Download class="w-5 h-5 text-ink-gray-5" />
-                <div>
-                  <div class="text-sm font-medium text-ink-gray-9">Export Data</div>
-                  <div class="text-xs text-ink-gray-6">Download PDF/Excel report</div>
-                </div>
-              </Button>
-
-              <Button
-                variant="subtle"
-                class="flex items-center gap-3 p-4 text-left h-auto"
-                @click="openAIChat"
-              >
-                <Brain class="w-5 h-5 text-ink-gray-5" />
-                <div>
-                  <div class="text-sm font-medium text-ink-gray-9">Ask AI</div>
-                  <div class="text-xs text-ink-gray-6">Get insights &amp; recommendations</div>
-                </div>
-              </Button>
-
-              <Button
-                variant="subtle"
-                class="flex items-center gap-3 p-4 text-left h-auto"
-                @click="scheduleReport"
-              >
-                <Calendar class="w-5 h-5 text-ink-gray-5" />
-                <div>
-                  <div class="text-sm font-medium text-ink-gray-9">Schedule Reports</div>
-                  <div class="text-xs text-ink-gray-6">Setup automated delivery</div>
-                </div>
-              </Button>
+        <h2 class="text-sm font-semibold text-ink-gray-9 uppercase tracking-wider mb-3">Quick Actions</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <Button
+            variant="subtle"
+            class="flex items-center gap-3 p-4 text-left h-auto"
+            @click="generateStrategicReport"
+          >
+            <FileText class="w-5 h-5 text-ink-gray-6" />
+            <div>
+              <div class="text-sm font-medium text-ink-gray-9">Strategic Report</div>
+              <div class="text-xs text-ink-gray-6">Generate board-ready summary</div>
             </div>
-          </div>
+          </Button>
+
+          <Button
+            variant="subtle"
+            class="flex items-center gap-3 p-4 text-left h-auto"
+            @click="exportExecutiveData"
+          >
+            <Download class="w-5 h-5 text-ink-gray-6" />
+            <div>
+              <div class="text-sm font-medium text-ink-gray-9">Export Data</div>
+              <div class="text-xs text-ink-gray-6">Download PDF/Excel report</div>
+            </div>
+          </Button>
+
+          <Button
+            variant="subtle"
+            class="flex items-center gap-3 p-4 text-left h-auto"
+            @click="openAIChat"
+          >
+            <Brain class="w-5 h-5 text-accent" />
+            <div>
+              <div class="text-sm font-medium text-ink-gray-9">Ask AI</div>
+              <div class="text-xs text-ink-gray-6">Get insights &amp; recommendations</div>
+            </div>
+          </Button>
+
+          <Button
+            variant="subtle"
+            class="flex items-center gap-3 p-4 text-left h-auto"
+            @click="scheduleReport"
+          >
+            <Calendar class="w-5 h-5 text-ink-gray-6" />
+            <div>
+              <div class="text-sm font-medium text-ink-gray-9">Schedule Reports</div>
+              <div class="text-xs text-ink-gray-6">Setup automated delivery</div>
+            </div>
+          </Button>
         </div>
       </div>
     </IntelligenceDashboardShell>
@@ -290,6 +292,7 @@ import { ref, computed, onMounted } from 'vue'
 import {
   RefreshCw,
   Download,
+  ChevronRight,
   AlertTriangle,
   Brain,
   DollarSign,
@@ -308,9 +311,10 @@ import { useRouter } from 'vue-router'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
+import KpiCard from './components/KpiCard.vue'
 import {
-  severityBadge, severityFill, severityAria,
-  scoreSeverity, ragSeverity, deltaInk, deltaGlyph,
+  severityBadge, severityFill, severityAria, sparklineInk,
+  scoreSeverity, ragSeverity,
 } from '../utils/status'
 import { formatMoney } from '../utils/format'
 

@@ -91,7 +91,11 @@ class MLAnalyticsEngine:
         
         # Get company default currency
         company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
-        base_currency = frappe.db.get_value("Company", company, "default_currency") or "KES"
+        base_currency = (
+            frappe.db.get_value("Company", company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
         
         return {
             "type": dashboard_type,

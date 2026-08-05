@@ -340,21 +340,18 @@ class ABCXYZClassification(BaseMLModel):
 
 
 # API Functions
-@frappe.whitelist()
 def run_abc_xyz_classification() -> Dict[str, Any]:
     """Run ABC/XYZ classification"""
     model = ABCXYZClassification()
     return model.train()
 
 
-@frappe.whitelist()
 def get_item_classification(item_code: str = None) -> Dict[str, Any]:
     """Get item classification"""
     model = ABCXYZClassification()
     return model.predict(item_code)
 
 
-@frappe.whitelist()
 def get_reorder_recommendations() -> Dict[str, Any]:
     """Get reorder recommendations"""
     model = ABCXYZClassification()

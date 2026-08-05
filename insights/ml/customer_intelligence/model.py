@@ -49,7 +49,11 @@ class CustomerIntelligence(BaseMLModel):
         self.model_name = "CustomerIntelligence"
         self.date_filter = date_filter
         self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
-        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
+        self.base_currency = (
+            frappe.db.get_value("Company", self.company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
         self.DATE_FILTER = get_date_filter_sql(date_filter, "posting_date", "si")
         parsed = parse_date_filter(date_filter)
         if parsed[0] is not None:

@@ -275,6 +275,26 @@ export function deltaInk(
   return good ? 'text-pos' : 'text-neg'
 }
 
+/**
+ * Ink class for a trend sparkline.
+ *
+ * Like `deltaInk` but routes the "good" direction through the app's primary
+ * accent so the tiny graph feels part of the dashboard's identity, while the
+ * "bad" direction still uses the status red. Neutral / flat lines recede with
+ * the muted fill so they do not compete for attention.
+ */
+export function sparklineInk(
+  value: number | null | undefined,
+  opts: { higherIsBetter?: boolean } = {},
+): string {
+  if (value === null || value === undefined || Number.isNaN(value) || value === 0) {
+    return 'text-muted-fill'
+  }
+  const { higherIsBetter = true } = opts
+  const good = higherIsBetter ? value > 0 : value < 0
+  return good ? 'text-accent' : 'text-neg'
+}
+
 /** Direction glyph so a delta is readable without colour. */
 export function deltaGlyph(value: number | null | undefined): string {
   if (value === null || value === undefined || Number.isNaN(value) || value === 0) return ''

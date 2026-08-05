@@ -138,7 +138,7 @@
         <!-- Funnel + bottleneck -->
         <section v-show="tabIndex === 0" class="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
           <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-            <SectionHeader title="Funnel" hint="ERPNext Lead status, then Quotation" />
+            <SectionHeader variant="caption" title="Funnel" hint="ERPNext Lead status, then Quotation" />
             <IntelligenceChart class="mt-2 h-48 sm:h-56 lg:h-64" :config="funnelConfig" />
             <!-- The chart carries the shape; this list carries the numbers and the
                  conversion rates, and is what a screen reader reads. -->
@@ -167,7 +167,7 @@
           </div>
 
           <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-            <SectionHeader title="Where leads are sitting" hint="All open records by status" />
+            <SectionHeader variant="caption" title="Where leads are sitting" hint="All open records by status" />
             <table class="mt-4 w-full text-sm">
               <caption class="sr-only">Lead count by CRM status</caption>
               <thead>
@@ -196,6 +196,7 @@
         <section v-show="tabIndex === 1" class="mt-5">
           <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
             <SectionHeader
+              variant="caption"
               title="Channel performance"
               hint="All time, ordered by revenue won"
             />
@@ -213,8 +214,8 @@
                     <th scope="col" class="pb-2 text-left font-medium text-ink-gray-6">Source</th>
                     <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Leads</th>
                     <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Conv.</th>
-                    <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Quotes</th>
-                    <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Quoted</th>
+                    <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Quotes (#)</th>
+                    <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Quoted Value</th>
                     <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Won</th>
                     <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">
                       Won / lead
@@ -258,7 +259,7 @@
         <!-- What changed -->
         <section v-show="tabIndex === 2" class="mt-5">
           <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-            <SectionHeader title="Lead intake by month" hint="New leads, and how many converted" />
+            <SectionHeader variant="caption" title="Lead intake by month" hint="New leads, and how many converted" />
             <IntelligenceChart v-if="trend.length" class="mt-2 h-52 sm:h-64 lg:h-72" :config="trendConfig" />
             <p v-else class="mt-4 text-sm text-ink-gray-6">No lead activity in this window.</p>
             <!-- Canvas is invisible to assistive tech, so the same series is
@@ -286,7 +287,7 @@
         <!-- Coverage -->
         <section v-show="tabIndex === 3" class="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
           <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-            <SectionHeader title="Territory" hint="All time" />
+            <SectionHeader variant="caption" title="Territory" hint="All time" />
             <table class="mt-4 w-full text-sm">
               <caption class="sr-only">Leads and conversions by territory</caption>
               <thead>
@@ -311,7 +312,7 @@
           </div>
 
           <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-            <SectionHeader title="Lead owner" hint="All time, by conversion" />
+            <SectionHeader variant="caption" title="Lead owner" hint="All time, by conversion" />
             <table class="mt-4 w-full text-sm">
               <caption class="sr-only">Leads and conversion rate by owner</caption>
               <thead>
@@ -331,7 +332,7 @@
                     {{ row.owner }}
                   </th>
                   <td class="tnum py-2 text-right text-ink-gray-9">{{ formatNumber(row.leads) }}</td>
-                  <td class="tnum py-2 text-right" :class="deltaInk(row.conversion_rate - avgOwnerConversion)">
+                  <td class="tnum py-2 text-right" :class="ownerDeltaInk(row.conversion_rate - avgOwnerConversion)">
                     {{ row.conversion_rate }}%
                   </td>
                 </tr>
@@ -499,6 +500,13 @@ const avgOwnerConversion = computed(() => {
   if (!rows.length) return 0
   return rows.reduce((sum, r) => sum + (r.conversion_rate || 0), 0) / rows.length
 })
+
+/** Colour an owner's conversion-rate delta from the team average, but only
+ *  once the gap is wide enough to be a real signal: a sub-2pt deviation is
+ *  noise and gets the same neutral ink `deltaInk` already uses for zero. */
+function ownerDeltaInk(delta: number): string {
+  return Math.abs(delta) >= 2 ? deltaInk(delta) : 'text-ink-gray-6'
+}
 
 const freshnessLabel = computed(() => {
   const stale = data.value?.data_freshness?.days_stale

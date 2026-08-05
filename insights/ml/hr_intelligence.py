@@ -42,10 +42,14 @@ class HRIntelligence:
         )
         self.company = str(company) if company else None
         self.base_currency = (
-            frappe.db.get_value("Company", self.company, "default_currency")
-            if self.company
-            else None
-        ) or "KES"
+            (
+                frappe.db.get_value("Company", self.company, "default_currency")
+                if self.company
+                else None
+            )
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
         
     def _get_quarter_start(self) -> date:
         """Get the start date of current quarter"""
@@ -598,7 +602,6 @@ class HRIntelligence:
 
 
 # API functions for Frappe
-@frappe.whitelist()
 def get_hr_overview(period="YTD"):
     """API endpoint for HR overview"""
     try:
@@ -609,7 +612,6 @@ def get_hr_overview(period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_headcount_analytics(period="YTD"):
     """API endpoint for headcount analytics"""
     try:
@@ -621,7 +623,6 @@ def get_headcount_analytics(period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_attrition_prediction():
     """API endpoint for attrition prediction"""
     try:
@@ -633,7 +634,6 @@ def get_attrition_prediction():
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_hr_recommendations():
     """API endpoint for HR recommendations"""
     try:

@@ -121,6 +121,119 @@ def _period_start(period: str) -> str:
         return now.replace(month=1, day=1).strftime("%Y-%m-%d")
     return add_months(nowdate(), -12)
 
+def _build_marketing_funnel(
+    lead_totals: dict,
+    quote_totals: list,
+    won: dict,
+    open_value: float,
+    decided_value: float,
+    won_value: float,
+    total: int,
+    converted: int,
+) -> list:
+    """Build the 4-stage marketing funnel with conversion-from-prev rates.
+
+    Pure function of already-fetched query results — no I/O, unit-testable
+    without a DB fixture. Extracted from get_marketing_overview per
+    plan-eng-review code-quality finding 1.
+    """
+    funnel = [
+        {"label": _("Leads"), "count": total, "value": None},
+        {
+            "label": _("Reached Opportunity"),
+            "count": int(lead_totals["at_opportunity"] or 0) + int(lead_totals["at_quotation"] or 0) + converted,
+            "value": None,
+        },
+        {
+            "label": _("Quoted"),
+            "count": sum(int(r["count"] or 0) for r in quote_totals),
+            "value": open_value + decided_value,
+        },
+        {
+            "label": _("Ordered"),
+            "count": int(won.get("count") or 0),
+            "value": won_value,
+        },
+    ]
+    # Conversion is only meaningful between stages counted off the SAME base.
+    # Stages 0-1 both come from Lead.status; stages 2-3 both come from
+    # Quotation. Stage 1 -> 2 crosses from leads to quotation records, and a
+    # quotation can exist for a lead that never reached status 'Opportunity',
+    # so that hop is left null rather than reported as a >100% rate.
+    _COMPARABLE_TO_PREV = {1, 3}
+    for i, stage in enumerate(funnel):
+        prev = funnel[i - 1]["count"] if i in _COMPARABLE_TO_PREV else None
+        stage["conversion_from_prev"] = (
+            round(stage["count"] / prev * 100, 1) if prev else None
+        )
+    return funnel
+
+
+def _generate_marketing_alerts(
+    total: int,
+    open_leads: int,
+    expired_value: float,
+    won_value: float,
+    trend: list,
+    source_rows: list,
+    days_stale,
+) -> list:
+    """Threshold-based alert generation. Pure function of already-fetched
+    query results — no I/O, unit-testable without a DB fixture. Extracted
+    from get_marketing_overview per plan-eng-review code-quality finding 1.
+    """
+    alerts = []
+    if total and open_leads / total > 0.5:
+        alerts.append({
+            "severity": "high",
+            "title": _("Funnel is bottlenecked at intake"),
+            "description": _("{0} of {1} leads ({2}%) are still unqualified.").format(
+                open_leads, total, round(open_leads / total * 100)
+            ),
+        })
+    if expired_value > won_value and expired_value > 0:
+        alerts.append({
+            "severity": "critical",
+            "title": _("Quotations are expiring unconverted"),
+            "description": _("{0} expired versus {1} ordered in this period.").format(
+                frappe.format_value(expired_value, {"fieldtype": "Currency"}),
+                frappe.format_value(won_value, {"fieldtype": "Currency"}),
+            ),
+        })
+    if len(trend) >= 4:
+        recent = sum(int(r["leads"] or 0) for r in trend[-3:]) / 3
+        earlier = sum(int(r["leads"] or 0) for r in trend[:3]) / 3
+        if earlier > 0 and recent < earlier * 0.5:
+            alerts.append({
+                "severity": "critical",
+                "title": _("Lead volume has collapsed"),
+                "description": _("Averaging {0} per month, down from {1}.").format(
+                    round(recent, 1), round(earlier, 1)
+                ),
+            })
+    # Concentration is measured against the same all-time base as
+    # `source_performance`, so the percentage on screen matches the panel.
+    source_total = sum(int(r["leads"] or 0) for r in source_rows)
+    concentration = max((int(r["leads"] or 0) for r in source_rows), default=0)
+    if source_total and concentration / source_total > 0.6:
+        top = max(source_rows, key=lambda r: int(r["leads"] or 0))
+        alerts.append({
+            "severity": "medium",
+            "title": _("Lead supply is concentrated in one channel"),
+            "description": _("{0} accounts for {1}% of all leads, so the pipeline depends on a single source.").format(
+                top["source"], round(concentration / source_total * 100)
+            ),
+        })
+    if days_stale is not None and days_stale > 60:
+        alerts.insert(0, {
+            "severity": "critical",
+            "title": _("CRM data is not being maintained"),
+            "description": _("The most recent lead or quotation is {0} days old, so period figures below are empty by definition.").format(
+                days_stale
+            ),
+        })
+    return alerts
+
 
 @frappe.whitelist()
 def get_marketing_overview(period: str = "YTD") -> Dict[str, Any]:
@@ -320,87 +433,12 @@ def get_marketing_overview(period: str = "YTD") -> Dict[str, Any]:
         converted = int(lead_totals["converted"] or 0)
         open_leads = int(lead_totals["open_leads"] or 0)
 
-        funnel = [
-            {"label": _("Leads"), "count": total, "value": None},
-            {
-                "label": _("Reached Opportunity"),
-                "count": int(lead_totals["at_opportunity"] or 0) + int(lead_totals["at_quotation"] or 0) + converted,
-                "value": None,
-            },
-            {
-                "label": _("Quoted"),
-                "count": sum(int(r["count"] or 0) for r in quote_totals),
-                "value": open_value + decided_value,
-            },
-            {
-                "label": _("Ordered"),
-                "count": int(won.get("count") or 0),
-                "value": won_value,
-            },
-        ]
-        # Conversion is only meaningful between stages counted off the SAME base.
-        # Stages 0-1 both come from Lead.status; stages 2-3 both come from
-        # Quotation. Stage 1 -> 2 crosses from leads to quotation records, and a
-        # quotation can exist for a lead that never reached status 'Opportunity',
-        # so that hop is left null rather than reported as a >100% rate.
-        _COMPARABLE_TO_PREV = {1, 3}
-        for i, stage in enumerate(funnel):
-            prev = funnel[i - 1]["count"] if i in _COMPARABLE_TO_PREV else None
-            stage["conversion_from_prev"] = (
-                round(stage["count"] / prev * 100, 1) if prev else None
-            )
-
-        # ── Alerts. The "what should someone do" answer. ──────────────────────
-        alerts = []
-        if total and open_leads / total > 0.5:
-            alerts.append({
-                "severity": "high",
-                "title": _("Funnel is bottlenecked at intake"),
-                "description": _("{0} of {1} leads ({2}%) are still unqualified.").format(
-                    open_leads, total, round(open_leads / total * 100)
-                ),
-            })
-        if expired_value > won_value and expired_value > 0:
-            alerts.append({
-                "severity": "critical",
-                "title": _("Quotations are expiring unconverted"),
-                "description": _("{0} expired versus {1} ordered in this period.").format(
-                    frappe.format_value(expired_value, {"fieldtype": "Currency"}),
-                    frappe.format_value(won_value, {"fieldtype": "Currency"}),
-                ),
-            })
-        if len(trend) >= 4:
-            recent = sum(int(r["leads"] or 0) for r in trend[-3:]) / 3
-            earlier = sum(int(r["leads"] or 0) for r in trend[:3]) / 3
-            if earlier > 0 and recent < earlier * 0.5:
-                alerts.append({
-                    "severity": "critical",
-                    "title": _("Lead volume has collapsed"),
-                    "description": _("Averaging {0} per month, down from {1}.").format(
-                        round(recent, 1), round(earlier, 1)
-                    ),
-                })
-        # Concentration is measured against the same all-time base as
-        # `source_performance`, so the percentage on screen matches the panel.
-        source_total = sum(int(r["leads"] or 0) for r in source_rows)
-        concentration = max((int(r["leads"] or 0) for r in source_rows), default=0)
-        if source_total and concentration / source_total > 0.6:
-            top = max(source_rows, key=lambda r: int(r["leads"] or 0))
-            alerts.append({
-                "severity": "medium",
-                "title": _("Lead supply is concentrated in one channel"),
-                "description": _("{0} accounts for {1}% of all leads, so the pipeline depends on a single source.").format(
-                    top["source"], round(concentration / source_total * 100)
-                ),
-            })
-        if days_stale is not None and days_stale > 60:
-            alerts.insert(0, {
-                "severity": "critical",
-                "title": _("CRM data is not being maintained"),
-                "description": _("The most recent lead or quotation is {0} days old, so period figures below are empty by definition.").format(
-                    days_stale
-                ),
-            })
+        funnel = _build_marketing_funnel(
+            lead_totals, quote_totals, won, open_value, decided_value, won_value, total, converted
+        )
+        alerts = _generate_marketing_alerts(
+            total, open_leads, expired_value, won_value, trend, source_rows, days_stale
+        )
 
         period_leads = int(lead_totals["in_period"] or 0)
 

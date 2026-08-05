@@ -31,9 +31,12 @@ def tax_intelligence(refresh: bool = False, period: str = "fy") -> Dict[str, Any
     the fiscal year every time, appearing to work while ignoring the choice.
     """
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         model = _get_model(period)
         result = model.train() if refresh else model.predict()
         return success(data=result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error("Failed to load tax intelligence", exc=e)
 
@@ -42,11 +45,14 @@ def tax_intelligence(refresh: bool = False, period: str = "fy") -> Dict[str, Any
 def tax_intelligence_status(period: str = "fy") -> Dict[str, Any]:
     """Return cached result if available (called by polling after a refresh)."""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         model = _get_model(period)
         cached = model.get_cached_results(f"india_tax_intelligence:{model.period}")
         if cached:
             return success(data={"status": "completed", "result": cached})
         return success(data={"status": "not_found"})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error("Failed to check status", exc=e)
 
@@ -57,7 +63,10 @@ def tax_intelligence_status(period: str = "fy") -> Dict[str, Any]:
 def gst_summary() -> Dict[str, Any]:
     """Monthly CGST / SGST / IGST output tax summary."""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         return success(data=_get_section("gst_summary", []))
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error("Failed to load GST summary", exc=e)
 
@@ -66,7 +75,10 @@ def gst_summary() -> Dict[str, Any]:
 def itc_health() -> Dict[str, Any]:
     """ITC availability, claims, ineligible credits and utilisation %."""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         return success(data=_get_section("itc_health"))
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error("Failed to load ITC health", exc=e)
 
@@ -75,7 +87,10 @@ def itc_health() -> Dict[str, Any]:
 def tds_summary() -> Dict[str, Any]:
     """TDS payable by section, total payable, receivable, net position."""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         return success(data=_get_section("tds_summary"))
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error("Failed to load TDS summary", exc=e)
 

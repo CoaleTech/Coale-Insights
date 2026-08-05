@@ -9,7 +9,7 @@ import {
   severityBadge, severityFill, severityAria, scoreSeverity, ragSeverity,
   prioritySeverity, type Severity,
 } from '../utils/status'
-import { formatDate, formatDateTime } from '../utils/format'
+import { formatDate, formatDateTime, formatPercent, formatCount } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
@@ -59,11 +59,28 @@ interface EmployeeWellbeing {
   wellness_program_enrollment?: number
 }
 
+interface DiversityInclusion {
+  inclusion_index?: number
+  diverse_hiring_pct?: number
+  diversity_training_completion?: number
+}
+interface CommunityInvolvement {
+  volunteer_participation_pct?: number
+  local_supplier_spend_pct?: number
+  community_partnerships?: number
+}
+interface HealthSafety {
+  safety_culture_index?: number
+  safety_training_completion_pct?: number
+  workplace_inspection_score?: number
+  lost_time_injury_rate?: number
+}
+
 interface SocialMetrics {
   employee_wellbeing?: EmployeeWellbeing
-  diversity_inclusion?: Record<string, unknown>
-  community_involvement?: Record<string, unknown>
-  health_safety?: Record<string, unknown>
+  diversity_inclusion?: DiversityInclusion
+  community_involvement?: CommunityInvolvement
+  health_safety?: HealthSafety
 }
 
 interface GovernanceScoreBlock {
@@ -128,20 +145,20 @@ const carbonFootprint = computed((): CarbonFootprint =>
 const greenInitiatives = computed((): GreenInitiativeRow[] =>
   data.value?.environmental_metrics?.green_initiatives ?? [])
 const environmentalKpis = computed(() => {
-  const env = data.value?.environmental_metrics ?? ({} as EnvironmentalMetrics)
+  const env = data.value?.environmental_metrics
   return {
-    renewable_energy_pct: env.energy_consumption?.renewable_energy_pct ?? 0,
-    water_recycled_pct: env.water_usage?.water_recycled_pct ?? 0,
-    recycled_waste_pct: env.waste_management?.recycled_waste_pct ?? 0,
+    renewable_energy_pct: env?.energy_consumption?.renewable_energy_pct,
+    water_recycled_pct: env?.water_usage?.water_recycled_pct,
+    recycled_waste_pct: env?.waste_management?.recycled_waste_pct,
   }
 })
 const employeeWellbeing = computed((): EmployeeWellbeing =>
   data.value?.social_metrics?.employee_wellbeing ?? ({} as EmployeeWellbeing))
-const diversityMetrics = computed(() =>
+const diversityMetrics = computed((): DiversityInclusion =>
   data.value?.social_metrics?.diversity_inclusion ?? {})
-const communityMetrics = computed(() =>
+const communityMetrics = computed((): CommunityInvolvement =>
   data.value?.social_metrics?.community_involvement ?? {})
-const safetyMetrics = computed(() =>
+const safetyMetrics = computed((): HealthSafety =>
   data.value?.social_metrics?.health_safety ?? {})
 const governanceScore = computed((): GovernanceScoreBlock =>
   data.value?.governance_metrics?.governance_score ?? ({} as GovernanceScoreBlock))
@@ -151,10 +168,11 @@ const recommendations = computed((): EsgRecommendationRow[] =>
 
 /** ESG letter ratings (AAA/AA/A/BBB/BB/B/CCC) mapped to a Severity for Badge. */
 function esgRatingSeverity(rating: string | undefined): Severity {
-  if (['AAA', 'AA', 'A'].includes(rating || '')) return 'low'
-  if (['BBB', 'BB'].includes(rating || '')) return 'medium'
-  if (['B', 'CCC'].includes(rating || '')) return 'high'
-  return 'critical'
+  if (!rating) return 'none'
+  if (['AAA', 'AA', 'A'].includes(rating)) return 'low'
+  if (['BBB', 'BB'].includes(rating)) return 'medium'
+  if (['B', 'CCC'].includes(rating)) return 'high'
+  return 'none'
 }
 
 
@@ -302,15 +320,15 @@ function handleDashboardRedirect(target: string) {
       <div class="flex-1 p-6">
 
         <!-- Overview -->
-        <div v-if="tabIndex === 0">
+        <div v-show="tabIndex === 0">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- ESG Score Breakdown -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="ESG Score Breakdown" :level="3" />
+              <SectionHeader variant="caption" title="ESG Score Breakdown" :level="3" />
               <div class="flex items-center justify-center mt-6 mb-8">
                 <div class="text-center">
                   <div class="text-6xl font-bold mb-2 text-ink-gray-9">
-                    {{ esgScore.overall_score || 0 }}
+                    {{ formatCount(esgScore.overall_score) }}
                   </div>
                   <div class="text-ink-gray-6 mb-2">Overall ESG Score</div>
                   <Badge
@@ -327,7 +345,7 @@ function handleDashboardRedirect(target: string) {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Environmental</span>
-                    <span class="text-ink-gray-8">{{ esgScore.environmental_score || 0 }}</span>
+                    <span class="text-ink-gray-8">{{ formatCount(esgScore.environmental_score) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -342,7 +360,7 @@ function handleDashboardRedirect(target: string) {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Social</span>
-                    <span class="text-ink-gray-8">{{ esgScore.social_score || 0 }}</span>
+                    <span class="text-ink-gray-8">{{ formatCount(esgScore.social_score) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -357,7 +375,7 @@ function handleDashboardRedirect(target: string) {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Governance</span>
-                    <span class="text-ink-gray-8">{{ esgScore.governance_score || 0 }}</span>
+                    <span class="text-ink-gray-8">{{ formatCount(esgScore.governance_score) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -374,31 +392,31 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Key ESG Metrics -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Key ESG Metrics" :level="3" />
+              <SectionHeader variant="caption" title="Key ESG Metrics" :level="3" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Renewable Energy</span>
-                  <span class="font-semibold text-ink-gray-8">{{ environmentalKpis.renewable_energy_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(environmentalKpis.renewable_energy_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Water Recycled</span>
-                  <span class="font-semibold text-ink-gray-8">{{ environmentalKpis.water_recycled_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(environmentalKpis.water_recycled_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Waste Recycled</span>
-                  <span class="font-semibold text-ink-gray-8">{{ environmentalKpis.recycled_waste_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(environmentalKpis.recycled_waste_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Employee Satisfaction</span>
-                  <span class="font-semibold text-ink-gray-8">{{ employeeWellbeing.employee_satisfaction_score || 0 }}/5</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(employeeWellbeing.employee_satisfaction_score) }}/5</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Ethics Score</span>
-                  <span class="font-semibold text-ink-gray-8">{{ governanceScore.ethics_score || 0 }}</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(governanceScore.ethics_score) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Carbon Footprint</span>
-                  <span class="font-semibold text-ink-gray-8">{{ carbonFootprint.total_emissions_tco2 || 0 }} tCO2</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(carbonFootprint.total_emissions_tco2) }} tCO2</span>
                 </div>
               </div>
             </div>
@@ -406,15 +424,15 @@ function handleDashboardRedirect(target: string) {
         </div>
 
         <!-- Environmental -->
-        <div v-if="tabIndex === 1">
+        <div v-show="tabIndex === 1">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Energy & Resources -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Energy &amp; Resources" :level="3" />
+              <SectionHeader variant="caption" title="Energy &amp; Resources" :level="3" />
               <div class="space-y-5 mt-4">
                 <div class="p-4 bg-surface-gray-1 rounded-lg">
                   <div class="text-sm font-medium text-ink-gray-7 mb-1">Renewable Energy</div>
-                  <div class="text-3xl font-bold text-ink-gray-9">{{ environmentalKpis.renewable_energy_pct || 0 }}%</div>
+                  <div class="text-3xl font-bold text-ink-gray-9">{{ formatPercent(environmentalKpis.renewable_energy_pct) }}</div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-3 mt-2">
                     <div
                       class="h-3 rounded-full"
@@ -427,7 +445,7 @@ function handleDashboardRedirect(target: string) {
                 </div>
                 <div class="p-4 bg-surface-gray-1 rounded-lg">
                   <div class="text-sm font-medium text-ink-gray-7 mb-1">Water Recycled</div>
-                  <div class="text-3xl font-bold text-ink-gray-9">{{ environmentalKpis.water_recycled_pct || 0 }}%</div>
+                  <div class="text-3xl font-bold text-ink-gray-9">{{ formatPercent(environmentalKpis.water_recycled_pct) }}</div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-3 mt-2">
                     <div
                       class="h-3 rounded-full"
@@ -440,7 +458,7 @@ function handleDashboardRedirect(target: string) {
                 </div>
                 <div class="p-4 bg-surface-gray-1 rounded-lg">
                   <div class="text-sm font-medium text-ink-gray-7 mb-1">Waste Recycled</div>
-                  <div class="text-3xl font-bold text-ink-gray-9">{{ environmentalKpis.recycled_waste_pct || 0 }}%</div>
+                  <div class="text-3xl font-bold text-ink-gray-9">{{ formatPercent(environmentalKpis.recycled_waste_pct) }}</div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-3 mt-2">
                     <div
                       class="h-3 rounded-full"
@@ -453,7 +471,7 @@ function handleDashboardRedirect(target: string) {
                 </div>
                 <div class="p-4 bg-surface-gray-1 rounded-lg">
                   <div class="text-sm font-medium text-ink-gray-7 mb-1">Total Carbon Footprint</div>
-                  <div class="text-3xl font-bold text-ink-gray-9">{{ carbonFootprint.total_emissions_tco2 || 0 }}</div>
+                  <div class="text-3xl font-bold text-ink-gray-9">{{ formatCount(carbonFootprint.total_emissions_tco2) }}</div>
                   <div class="text-sm text-ink-gray-6">tCO2 equivalent</div>
                 </div>
               </div>
@@ -461,7 +479,7 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Green Initiatives -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Green Initiatives" :level="3" />
+              <SectionHeader variant="caption" title="Green Initiatives" :level="3" />
               <div v-if="greenInitiatives.length > 0" class="space-y-3 max-h-[480px] overflow-y-auto mt-4">
                 <div
                   v-for="initiative in greenInitiatives"
@@ -479,7 +497,7 @@ function handleDashboardRedirect(target: string) {
                   <div class="mb-2">
                     <div class="flex justify-between text-xs text-ink-gray-6 mb-1">
                       <span>Progress</span>
-                      <span>{{ initiative.progress_pct || 0 }}%</span>
+                      <span>{{ formatPercent(initiative.progress_pct) }}</span>
                     </div>
                     <div class="w-full bg-surface-gray-2 rounded-full h-2">
                       <div
@@ -505,42 +523,42 @@ function handleDashboardRedirect(target: string) {
         </div>
 
         <!-- Social -->
-        <div v-if="tabIndex === 2">
+        <div v-show="tabIndex === 2">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Employee Wellbeing + Diversity -->
             <button
               class="bg-surface-white rounded-lg border border-outline-gray-1 p-6 text-left w-full cursor-pointer hover:bg-surface-gray-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none transition-colors"
               @click="drillDown.open(ESG_ENDPOINT, 'Employee & Diversity', { metric: 'employees_diversity' })"
             >
-              <SectionHeader title="Employee Wellbeing" :level="3" />
+              <SectionHeader variant="caption" title="Employee Wellbeing" :level="3" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Satisfaction Score</span>
-                  <span class="font-semibold text-ink-gray-8">{{ employeeWellbeing.employee_satisfaction_score || 0 }}/5</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(employeeWellbeing.employee_satisfaction_score) }}/5</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Work-Life Balance</span>
-                  <span class="font-semibold text-ink-gray-8">{{ employeeWellbeing.work_life_balance_score || 0 }}/5</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(employeeWellbeing.work_life_balance_score) }}/5</span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Wellness Program Enrollment</span>
-                  <span class="font-semibold text-ink-gray-8">{{ employeeWellbeing.wellness_program_enrollment || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(employeeWellbeing.wellness_program_enrollment) }}</span>
                 </div>
               </div>
 
-              <SectionHeader title="Diversity &amp; Inclusion" :level="3" class="mt-6" />
+              <SectionHeader variant="caption" title="Diversity &amp; Inclusion" :level="3" class="mt-6" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Inclusion Index</span>
-                  <span class="font-semibold text-ink-gray-8">{{ diversityMetrics.inclusion_index || 0 }}/10</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(diversityMetrics.inclusion_index) }}/10</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Diverse Hiring</span>
-                  <span class="font-semibold text-ink-gray-8">{{ diversityMetrics.diverse_hiring_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(diversityMetrics.diverse_hiring_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Diversity Training Completion</span>
-                  <span class="font-semibold text-ink-gray-8">{{ diversityMetrics.diversity_training_completion || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(diversityMetrics.diversity_training_completion) }}</span>
                 </div>
               </div>
             </button>
@@ -550,41 +568,41 @@ function handleDashboardRedirect(target: string) {
               class="bg-surface-white rounded-lg border border-outline-gray-1 p-6 text-left w-full cursor-pointer hover:bg-surface-gray-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none transition-colors"
               @click="drillDown.open(ESG_ENDPOINT, 'Supplier Count', { metric: 'supplier_count' })"
             >
-              <SectionHeader title="Community Impact" :level="3" />
+              <SectionHeader variant="caption" title="Community Impact" :level="3" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Volunteer Participation</span>
-                  <span class="font-semibold text-ink-gray-8">{{ communityMetrics.volunteer_participation_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(communityMetrics.volunteer_participation_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Local Supplier Spend</span>
-                  <span class="font-semibold text-ink-gray-8">{{ communityMetrics.local_supplier_spend_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(communityMetrics.local_supplier_spend_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Community Partnerships</span>
-                  <span class="font-semibold text-ink-gray-8">{{ communityMetrics.community_partnerships || 0 }}</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(communityMetrics.community_partnerships) }}</span>
                 </div>
               </div>
 
-              <SectionHeader title="Health &amp; Safety" :level="3" class="mt-6" />
+              <SectionHeader variant="caption" title="Health &amp; Safety" :level="3" class="mt-6" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Safety Culture Index</span>
-                  <span class="font-semibold text-ink-gray-8">{{ safetyMetrics.safety_culture_index || 0 }}/10</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(safetyMetrics.safety_culture_index) }}/10</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Safety Training Completion</span>
-                  <span class="font-semibold text-ink-gray-8">{{ safetyMetrics.safety_training_completion_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(safetyMetrics.safety_training_completion_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Workplace Inspection Score</span>
-                  <span class="font-semibold text-ink-gray-8">{{ safetyMetrics.workplace_inspection_score || 0 }}/10</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(safetyMetrics.workplace_inspection_score) }}/10</span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Lost Time Injuries</span>
                   <Badge
-                    v-bind="severityBadge((safetyMetrics.lost_time_injury_rate || 0) === 0 ? 'low' : 'critical')"
-                    :label="String(safetyMetrics.lost_time_injury_rate || 0)"
+                    v-bind="severityBadge(safetyMetrics.lost_time_injury_rate == null ? 'none' : safetyMetrics.lost_time_injury_rate === 0 ? 'low' : 'critical')"
+                    :label="formatCount(safetyMetrics.lost_time_injury_rate)"
                     size="sm"
                   />
                 </div>
@@ -594,14 +612,14 @@ function handleDashboardRedirect(target: string) {
         </div>
 
         <!-- Governance -->
-        <div v-if="tabIndex === 3">
+        <div v-show="tabIndex === 3">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Governance Score Cards (deliberate flat treatment replacing the broken violet panel) -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Governance Scores" :level="3" />
+              <SectionHeader variant="caption" title="Governance Scores" :level="3" />
               <div class="space-y-6 mt-4">
                 <div class="text-center p-4 bg-surface-gray-1 rounded-lg">
-                  <div class="text-4xl font-bold text-ink-gray-9 mb-1">{{ governanceScore.ethics_score || 0 }}</div>
+                  <div class="text-4xl font-bold text-ink-gray-9 mb-1">{{ formatCount(governanceScore.ethics_score) }}</div>
                   <div class="text-sm text-ink-gray-6">Ethics &amp; Compliance Score</div>
                   <Badge
                     class="mt-2"
@@ -611,7 +629,7 @@ function handleDashboardRedirect(target: string) {
                   />
                 </div>
                 <div class="text-center p-4 bg-surface-gray-1 rounded-lg">
-                  <div class="text-4xl font-bold text-ink-gray-9 mb-1">{{ governanceScore.risk_score || 0 }}</div>
+                  <div class="text-4xl font-bold text-ink-gray-9 mb-1">{{ formatCount(governanceScore.risk_score) }}</div>
                   <div class="text-sm text-ink-gray-6">Risk Management Score</div>
                   <Badge
                     class="mt-2"
@@ -621,7 +639,7 @@ function handleDashboardRedirect(target: string) {
                   />
                 </div>
                 <div class="text-center p-4 bg-surface-gray-1 rounded-lg">
-                  <div class="text-4xl font-bold text-ink-gray-9 mb-1">{{ governanceScore.transparency_score || 0 }}</div>
+                  <div class="text-4xl font-bold text-ink-gray-9 mb-1">{{ formatCount(governanceScore.transparency_score) }}</div>
                   <div class="text-sm text-ink-gray-6">Transparency Score</div>
                 </div>
               </div>
@@ -629,12 +647,12 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Governance Progress Bars -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Governance Overview" :level="3" />
+              <SectionHeader variant="caption" title="Governance Overview" :level="3" />
               <div class="space-y-4 mt-4">
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Ethics &amp; Compliance</span>
-                    <span class="text-ink-gray-8">{{ governanceScore.ethics_score || 0 }}/100</span>
+                    <span class="text-ink-gray-8">{{ formatCount(governanceScore.ethics_score) }}/100</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -649,7 +667,7 @@ function handleDashboardRedirect(target: string) {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Risk Management</span>
-                    <span class="text-ink-gray-8">{{ governanceScore.risk_score || 0 }}/100</span>
+                    <span class="text-ink-gray-8">{{ formatCount(governanceScore.risk_score) }}/100</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -664,7 +682,7 @@ function handleDashboardRedirect(target: string) {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Transparency</span>
-                    <span class="text-ink-gray-8">{{ governanceScore.transparency_score || 0 }}/100</span>
+                    <span class="text-ink-gray-8">{{ formatCount(governanceScore.transparency_score) }}/100</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -681,7 +699,7 @@ function handleDashboardRedirect(target: string) {
         </div>
 
         <!-- Recommendations -->
-        <div v-if="tabIndex === 4">
+        <div v-show="tabIndex === 4">
           <div v-if="recommendations.length > 0" class="space-y-4">
             <div
               v-for="rec in recommendations"
@@ -693,7 +711,7 @@ function handleDashboardRedirect(target: string) {
                   <div class="flex items-center gap-2 mb-2">
                     <Badge
                       v-bind="severityBadge(prioritySeverity(rec.priority))"
-                      :label="(rec.priority || 'Medium').toUpperCase()"
+                      :label="severityBadge(prioritySeverity(rec.priority)).label"
                       size="sm"
                     />
                     <span v-if="rec.category" class="text-sm text-ink-gray-6">{{ rec.category }}</span>

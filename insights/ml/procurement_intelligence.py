@@ -37,7 +37,11 @@ class ProcurementIntelligence(BaseMLModel):
         super().__init__()
         self.model_name = "ProcurementIntelligence"
         self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
-        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
+        self.base_currency = (
+            frappe.db.get_value("Company", self.company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
     
     def train(self) -> Dict[str, Any]:
         """Generate comprehensive procurement intelligence"""
@@ -205,41 +209,56 @@ class ProcurementIntelligence(BaseMLModel):
             ORDER BY total_value DESC
         """, as_dict=True)
         
-        # Calculate on-time delivery rate
+        # Delivery performance, batched: one GROUP BY query instead of one
+        # query per supplier (N suppliers = N extra round-trips previously —
+        # confirmed root cause of insights.api.ml.procurement_intelligence
+        # timing out in production: this single function alone issued 2
+        # sequential queries per supplier on top of the queries in every
+        # other train() sub-step. See plan-eng-review production-diagnosis
+        # notes, 2026-08-04.
+        delivery_by_supplier = frappe.db.sql("""
+            SELECT
+                po.supplier,
+                COUNT(*) as total_orders,
+                SUM(CASE
+                    WHEN pr.posting_date <= po.schedule_date THEN 1
+                    ELSE 0
+                END) as on_time_count
+            FROM `tabPurchase Order` po
+            LEFT JOIN `tabPurchase Receipt` pr ON pr.supplier = po.supplier AND pr.docstatus = 1
+            WHERE po.docstatus = 1
+                AND po.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+                AND po.schedule_date IS NOT NULL
+            GROUP BY po.supplier
+        """, as_dict=True)
+        delivery_by_supplier_map = {row["supplier"]: row for row in delivery_by_supplier}
+
+        # Quality/return rate: this was NOT supplier-scoped even before this
+        # fix (no WHERE on supplier at all) -- it computed one company-wide
+        # return figure and divided it by EACH supplier's own spend, so
+        # every supplier's "quality_rate" was derived from a number that had
+        # nothing to do with that supplier's actual returns. Hoisting it out
+        # of the loop removes the redundant re-query; the score itself
+        # remains a company-wide proxy until Stock Entry is actually linked
+        # back to a specific Purchase Order/supplier (tracked in TODOS.md).
+        rejection_data = frappe.db.sql("""
+            SELECT
+                COALESCE(SUM(CASE WHEN se.stock_entry_type = 'Material Transfer'
+                    AND se.purpose LIKE '%%Return%%' THEN se.total_amount ELSE 0 END), 0) as return_value
+            FROM `tabStock Entry` se
+            WHERE se.docstatus = 1
+                AND se.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+        """, as_dict=True)[0]
+        return_value = float(rejection_data.get('return_value') or 0)
+
         for supplier in suppliers_data:
             supplier_code = supplier['supplier']
-            
-            # On-time deliveries
-            delivery_data = frappe.db.sql("""
-                SELECT 
-                    COUNT(*) as total_orders,
-                    SUM(CASE 
-                        WHEN pr.posting_date <= po.schedule_date THEN 1 
-                        ELSE 0 
-                    END) as on_time_count
-                FROM `tabPurchase Order` po
-                LEFT JOIN `tabPurchase Receipt` pr ON pr.supplier = po.supplier AND pr.docstatus = 1
-                WHERE po.supplier = %s
-                    AND po.docstatus = 1
-                    AND po.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                    AND po.schedule_date IS NOT NULL
-            """, (supplier_code,), as_dict=True)[0]
-            
+
+            delivery_data = delivery_by_supplier_map.get(supplier_code, {"total_orders": 0, "on_time_count": 0})
             total_orders = int(delivery_data.get('total_orders') or 1)
             on_time = int(delivery_data.get('on_time_count') or 0)
             supplier['on_time_rate'] = round((on_time / total_orders * 100), 1) if total_orders > 0 else 0
-            
-            # Quality score (based on returns/rejections)
-            rejection_data = frappe.db.sql("""
-                SELECT 
-                    COALESCE(SUM(CASE WHEN se.stock_entry_type = 'Material Transfer' 
-                        AND se.purpose LIKE '%%Return%%' THEN se.total_amount ELSE 0 END), 0) as return_value
-                FROM `tabStock Entry` se
-                WHERE se.docstatus = 1
-                    AND se.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-            """, as_dict=True)[0]
-            
-            return_value = float(rejection_data.get('return_value') or 0)
+
             total_value = float(supplier.get('total_value') or 1)
             quality_rate = 100 - ((return_value / total_value * 100) if total_value > 0 else 0)
             supplier['quality_rate'] = round(max(0, min(100, quality_rate)), 1)
@@ -323,18 +342,33 @@ class ProcurementIntelligence(BaseMLModel):
             LIMIT 20
         """, as_dict=True)
         
-        # Average cycle times
+        # Average cycle times.
+        #
+        # Fixed 2026-08-04: this previously joined Purchase Receipt/Purchase
+        # Invoice to Purchase Order on `supplier` alone (not on the actual
+        # PO/receipt/invoice relationship), and joined Material Request via
+        # a non-correlated `po.name IN (subquery)` condition unrelated to
+        # `mr`. Every PO was cross-joined against every receipt and every
+        # invoice from the same supplier (and, for POs with a linked
+        # material request, against every material request in the system) --
+        # a combinatorial explosion, not a relational join. Confirmed via
+        # live profiling: this single query alone hung for 5+ minutes on
+        # production-scale data, the direct cause of the
+        # procurement_intelligence 502s. Rewritten to join through the real
+        # FK chain: Purchase Order Item.material_request, Purchase Receipt
+        # Item.purchase_order, Purchase Invoice Item.purchase_receipt.
         cycle_times = frappe.db.sql("""
-            SELECT 
+            SELECT
                 AVG(DATEDIFF(po.transaction_date, mr.transaction_date)) as mr_to_po_days,
                 AVG(DATEDIFF(pr.posting_date, po.transaction_date)) as po_to_grn_days,
                 AVG(DATEDIFF(pi.posting_date, pr.posting_date)) as grn_to_invoice_days
             FROM `tabPurchase Order` po
-            LEFT JOIN `tabMaterial Request` mr ON po.name IN (
-                SELECT parent FROM `tabPurchase Order Item` WHERE material_request IS NOT NULL
-            )
-            LEFT JOIN `tabPurchase Receipt` pr ON pr.supplier = po.supplier AND pr.docstatus = 1
-            LEFT JOIN `tabPurchase Invoice` pi ON pi.supplier = po.supplier AND pi.docstatus = 1
+            LEFT JOIN `tabPurchase Order Item` poi ON poi.parent = po.name
+            LEFT JOIN `tabMaterial Request` mr ON mr.name = poi.material_request
+            LEFT JOIN `tabPurchase Receipt Item` pri ON pri.purchase_order = po.name
+            LEFT JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent AND pr.docstatus = 1
+            LEFT JOIN `tabPurchase Invoice Item` pii ON pii.purchase_receipt = pr.name
+            LEFT JOIN `tabPurchase Invoice` pi ON pi.name = pii.parent AND pi.docstatus = 1
             WHERE po.docstatus = 1
                 AND po.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
         """, as_dict=True)[0]
@@ -353,13 +387,20 @@ class ProcurementIntelligence(BaseMLModel):
             ORDER BY period
         """, as_dict=True)
         
-        # GRN completion rate
+        # GRN completion rate.
+        #
+        # Fixed 2026-08-04: same same-supplier-join bug as cycle_times above
+        # -- joined on pr.supplier = po.supplier instead of the actual
+        # PO<->Receipt relationship, so "received_pos" counted ANY receipt
+        # from a supplier with a recent PO, not receipts actually fulfilling
+        # those POs. Wrong number, not just slow.
         grn_rate = frappe.db.sql("""
-            SELECT 
+            SELECT
                 COUNT(DISTINCT po.name) as total_pos,
-                COUNT(DISTINCT pr.name) as received_pos
+                COUNT(DISTINCT CASE WHEN pr.docstatus = 1 THEN pri.purchase_order END) as received_pos
             FROM `tabPurchase Order` po
-            LEFT JOIN `tabPurchase Receipt` pr ON pr.supplier = po.supplier AND pr.docstatus = 1
+            LEFT JOIN `tabPurchase Receipt Item` pri ON pri.purchase_order = po.name
+            LEFT JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent
             WHERE po.docstatus = 1
                 AND po.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
         """, as_dict=True)[0]

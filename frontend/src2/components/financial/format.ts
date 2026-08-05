@@ -1,26 +1,21 @@
 import { NO_VALUE } from '../../utils/format'
 /**
- * Currency/date formatters for the Financial actuals tabs, preserved
- * verbatim from the pre-merge `FinancialIntelligence.vue` monolith.
+ * Date/period formatters and helpers for the Financial actuals tabs.
  *
- * Deliberately kept separate from `utils/format.ts`'s `formatMoney`: that
- * formatter pins compact `en-US` notation, while this dashboard has always
- * shown exact `en-KE` grouped amounts (KES 1,234,567, not KES 1.2M). Not a
- * gap to close as part of this merge — a locale/notation change is a
- * separate product decision.
+ * The `formatCurrency` this file used to export (en-KE exact grouping,
+ * "Ksh 1,234,567") was a deliberate historical fork from `utils/format.ts`'s
+ * `formatMoney` (en-US, "KES 1,234,567") preserved through a merge. Both
+ * formatted the same figures differently depending which tab you were on
+ * within the same dashboard. Retired: every consumer now imports
+ * `formatMoney` from `../../utils/format` directly (aliased to
+ * `formatCurrency` at the import site where the shorter name reads better),
+ * so one currency vocabulary is used everywhere on this surface.
+ *
+ * `formatForeignCurrency` is unrelated to that fork — it renders a value
+ * that is already in a *different* currency (e.g. USD exposure on an INR
+ * company), so it deliberately keeps its own explicit currency code and
+ * en-US notation, matching `formatMoney`'s locale.
  */
-
-export const formatCurrency = (value: number | undefined, currency: string) => {
-	// Absent is not zero: this returned `${currency} 0`, reporting zero money for
-	// a field the server never sent. Notation is untouched, per the note above.
-	if (value === undefined || value === null) return NO_VALUE
-	return new Intl.NumberFormat('en-KE', {
-		style: 'currency',
-		currency,
-		minimumFractionDigits: 0,
-		maximumFractionDigits: 0,
-	}).format(value)
-}
 
 export const formatForeignCurrency = (value: number | undefined, currency: string) => {
 	if (value === undefined || value === null) return NO_VALUE

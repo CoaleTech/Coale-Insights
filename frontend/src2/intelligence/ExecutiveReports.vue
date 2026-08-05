@@ -77,21 +77,36 @@
               <p class="font-medium text-ink-gray-9">Daily Reports</p>
               <p class="text-sm text-ink-gray-7">{{ schedulingStatus.daily_reports || 'Not scheduled' }}</p>
             </div>
-            <Badge theme="gray" variant="subtle" label="Active" size="sm" />
+            <Badge
+              theme="gray"
+              variant="subtle"
+              :label="schedulingStatus.daily_reports ? 'Active' : 'Not scheduled'"
+              size="sm"
+            />
           </div>
           <div class="flex items-center justify-between p-3 bg-surface-gray-1 rounded-lg">
             <div>
               <p class="font-medium text-ink-gray-9">Weekly Reports</p>
               <p class="text-sm text-ink-gray-7">{{ schedulingStatus.weekly_reports || 'Not scheduled' }}</p>
             </div>
-            <Badge theme="gray" variant="subtle" label="Active" size="sm" />
+            <Badge
+              theme="gray"
+              variant="subtle"
+              :label="schedulingStatus.weekly_reports ? 'Active' : 'Not scheduled'"
+              size="sm"
+            />
           </div>
           <div class="flex items-center justify-between p-3 bg-surface-gray-1 rounded-lg">
             <div>
               <p class="font-medium text-ink-gray-9">Monthly Reports</p>
               <p class="text-sm text-ink-gray-7">{{ schedulingStatus.monthly_reports || 'Not scheduled' }}</p>
             </div>
-            <Badge theme="gray" variant="subtle" label="Active" size="sm" />
+            <Badge
+              theme="gray"
+              variant="subtle"
+              :label="schedulingStatus.monthly_reports ? 'Active' : 'Not scheduled'"
+              size="sm"
+            />
           </div>
         </div>
         <div v-else class="text-center text-ink-gray-6">
@@ -143,7 +158,12 @@
                 <td class="px-4 py-3 text-sm text-ink-gray-6">{{ formatReportDate(report.report_date) }}</td>
                 <td class="px-4 py-3 text-sm text-ink-gray-6">{{ formatDateTime(report.created) }}</td>
                 <td class="px-4 py-3">
-                  <Badge theme="gray" variant="subtle" label="Generated" size="sm" />
+                  <Badge
+                    :theme="report.status === 'Failed' ? 'red' : 'gray'"
+                    variant="subtle"
+                    :label="report.status || 'Generated'"
+                    size="sm"
+                  />
                 </td>
                 <td class="px-4 py-3">
                   <div class="flex items-center space-x-2">
@@ -243,7 +263,7 @@
             <div class="grid grid-cols-2 gap-3">
               <div v-for="(value, key) in previewData.key_metrics" :key="key" class="bg-surface-white p-2 rounded border border-outline-gray-1">
                 <p class="text-sm text-ink-gray-6">{{ formatMetricKey(key) }}</p>
-                <p class="font-semibold text-ink-gray-9">{{ formatMetricValue(value) }}</p>
+                <p class="font-semibold text-ink-gray-9">{{ formatMetricValue(value, key) }}</p>
               </div>
             </div>
           </div>
@@ -283,6 +303,8 @@ import {
 } from 'lucide-vue-next'
 import { Button, Card, Dialog, Badge, Select, LoadingIndicator } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
+import { createToast } from '../helpers/toasts'
+import { formatMoney, formatPercent, formatCount } from '../utils/format'
 
 // Reactive data
 const recentReports = ref([])
@@ -367,15 +389,15 @@ const generateReport = async () => {
     await fetchRecentReports()
     generateReportModal.value = false
 
-    window.frappe.show_alert({
+    createToast({
       message: `${selectedReportType.value.charAt(0).toUpperCase() + selectedReportType.value.slice(1)} executive report generated successfully!`,
-      indicator: 'green'
+      variant: 'success',
     })
   } catch (error) {
     console.error('Error generating report:', error)
-    window.frappe.show_alert({
-      message: 'Error generating report. Please try again.',
-      indicator: 'red'
+    createToast({
+      message: error?.message || 'Error generating report. Please try again.',
+      variant: 'error',
     })
   } finally {
     generatingReport.value = false
@@ -394,6 +416,10 @@ const previewReport = async (report) => {
     previewModal.value = true
   } catch (error) {
     console.error('Error previewing report:', error)
+    createToast({
+      message: error?.message || 'Could not load report preview.',
+      variant: 'error',
+    })
   } finally {
     loadingPreview.value = null
   }
@@ -409,6 +435,10 @@ const downloadReport = async (report) => {
     window.open(result.download_url, '_blank')
   } catch (error) {
     console.error('Error downloading report:', error)
+    createToast({
+      message: error?.message || 'Could not download report.',
+      variant: 'error',
+    })
   } finally {
     loadingDownload.value = null
   }
@@ -421,12 +451,13 @@ const sendReportEmail = async (report) => {
       report_type: report.report_type
     })
 
-    window.frappe.show_alert({
-      message: 'Report sent successfully!',
-      indicator: 'green'
-    })
+    createToast({ message: 'Report sent successfully!', variant: 'success' })
   } catch (error) {
     console.error('Error sending report:', error)
+    createToast({
+      message: error?.message || 'Could not send report.',
+      variant: 'error',
+    })
   } finally {
     loadingSend.value = null
   }
@@ -456,19 +487,23 @@ const formatMetricKey = (key) => {
   return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
-const formatMetricValue = (value) => {
-  if (typeof value === 'number') {
-    if (value > 1000000) {
-      return '$' + (value / 1000000).toFixed(1) + 'M'
-    } else if (value > 1000) {
-      return '$' + (value / 1000).toFixed(1) + 'K'
-    } else if (value % 1 === 0) {
-      return value.toString()
-    } else {
-      return value.toFixed(2)
-    }
-  }
-  return value
+// Metric-name -> shape, so the same numeric field isn't formatted as if it
+// were money for every key. The previous version applied `$`-prefixed
+// M/K-compaction to every numeric value regardless of what it measured
+// (lead counts, headcount, and 0-100 scores all rendered as fake currency),
+// hardcoded `$` on a company that reports in a different currency, and used
+// `>` instead of `>=` so a value of exactly 1,000,000 skipped compaction --
+// the same three bugs `formatMoney` already exists to prevent.
+const MONEY_METRICS = new Set(['revenue', 'cash_flow'])
+const SCORE_METRICS = new Set(['business_health_score'])
+const PERCENT_METRICS = new Set(['oee_score'])
+
+const formatMetricValue = (value, key) => {
+  if (typeof value !== 'number') return value
+  if (MONEY_METRICS.has(key)) return formatMoney(value, previewData.value?.currency, { compact: true })
+  if (PERCENT_METRICS.has(key)) return formatPercent(value)
+  if (SCORE_METRICS.has(key)) return `${formatCount(value)}/100`
+  return formatCount(value)
 }
 
 // Lifecycle

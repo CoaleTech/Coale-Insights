@@ -912,7 +912,6 @@ class SalesIntelligence(BaseMLModel):
 
 # ==================== API FUNCTIONS ====================
 
-@frappe.whitelist()
 def run_sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
     """Run sales intelligence analysis"""
     model = SalesIntelligence(date_filter=date_filter)
@@ -925,7 +924,6 @@ def run_sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> D
     return model.train()
 
 
-@frappe.whitelist()
 def get_sales_intelligence() -> Dict[str, Any]:
     """Get cached sales intelligence or run if not available"""
     model = SalesIntelligence()
@@ -937,7 +935,6 @@ def get_sales_intelligence() -> Dict[str, Any]:
     return model.train()
 
 
-@frappe.whitelist()
 def get_payment_mix() -> Dict[str, Any]:
     """Get cash vs credit payment mix"""
     result = get_sales_intelligence()
@@ -946,7 +943,6 @@ def get_payment_mix() -> Dict[str, Any]:
     return {"status": "success", "payment_mix": result.get('payment_mix', {})}
 
 
-@frappe.whitelist()
 def get_sales_rep_performance() -> Dict[str, Any]:
     """Get individual sales rep performance metrics"""
     result = get_sales_intelligence()
@@ -955,7 +951,6 @@ def get_sales_rep_performance() -> Dict[str, Any]:
     return {"status": "success", "sales_reps": result.get('sales_reps', {})}
 
 
-@frappe.whitelist()
 def get_revenue_breakdown() -> Dict[str, Any]:
     """Get revenue by product group, segment, territory"""
     result = get_sales_intelligence()
@@ -964,7 +959,6 @@ def get_revenue_breakdown() -> Dict[str, Any]:
     return {"status": "success", "dimensions": result.get('dimensions', {})}
 
 
-@frappe.whitelist()
 def get_margin_analysis() -> Dict[str, Any]:
     """Get gross margin analysis by product group"""
     result = get_sales_intelligence()
@@ -973,7 +967,6 @@ def get_margin_analysis() -> Dict[str, Any]:
     return {"status": "success", "margins": result.get('margins', {})}
 
 
-@frappe.whitelist()
 def get_sales_comparisons() -> Dict[str, Any]:
     """Get MoM and YoY comparisons"""
     result = get_sales_intelligence()

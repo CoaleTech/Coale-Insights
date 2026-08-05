@@ -26,6 +26,10 @@ from insights.ml.strategic_finance.analysis import (
     analyze_working_capital,
     calculate_ratio_trends,
 )
+from insights.ml.strategic_finance.cost_ratios import (
+    calculate_cost_structure_ratios,
+    forecast_expenses,
+)
 from insights.ml.strategic_finance.scenarios import (
     generate_scenario_analysis,
     compare_periods,
@@ -75,6 +79,8 @@ class StrategicFinanceIntelligence(BaseMLModel):
             scenario_analysis = generate_scenario_analysis(self)
             period_comparison = compare_periods(self)
             expense_breakdown = get_expense_breakdown(self)
+            cost_structure = calculate_cost_structure_ratios(self)
+            expense_forecast = forecast_expenses(self)
 
             result = {
                 "status": "success",
@@ -91,6 +97,8 @@ class StrategicFinanceIntelligence(BaseMLModel):
                 "scenario_analysis": scenario_analysis,
                 "period_comparison": period_comparison,
                 "expense_breakdown": expense_breakdown,
+                "cost_structure": cost_structure,
+                "expense_forecast": expense_forecast,
             }
 
             self.cache_results("strategic_finance_intelligence", result)

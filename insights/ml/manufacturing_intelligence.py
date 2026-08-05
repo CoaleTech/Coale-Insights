@@ -193,29 +193,30 @@ class ManufacturingIntelligence:
             return {"error": str(e)}
     
     def _analyze_quality(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze quality metrics and defect rates"""
+        """Analyze quality metrics and defect rates.
+
+        first_pass_yield_pct / defect_rate_ppm / quality_trends require QC
+        doctype data that doesn't exist on this site — they are returned as
+        null with a data-source note rather than the previous 3-bucket lookup
+        table dressed up as measured yield/defect figures. See plan-eng-review
+        D3.7. on_time_completion_pct is real (computed from Work Order data).
+        """
         try:
-            # This would be enhanced with actual quality control data
-            # For now, provide basic quality indicators
-            
             work_order_summary = production_data.get("work_order_summary", {})
             completed_orders = work_order_summary.get("completed_orders", 0)
             total_orders = work_order_summary.get("total_orders", 0)
-            
-            # Simplified quality metrics
+
             on_time_completion = (completed_orders / total_orders * 100) if total_orders else 0
-            
-            # Estimate first pass yield (would need QC data)
-            estimated_fpy = 95.0 if on_time_completion > 90 else 90.0 if on_time_completion > 80 else 85.0
-            
+
             return {
-                "first_pass_yield_pct": estimated_fpy,
+                "first_pass_yield_pct": None,
                 "on_time_completion_pct": round(on_time_completion, 2),
-                "defect_rate_ppm": round((100 - estimated_fpy) * 10000, 0),
-                "quality_status": "excellent" if estimated_fpy > 95 else "good" if estimated_fpy > 90 else "needs_improvement",
-                "quality_trends": "stable"  # Would need time series data
+                "defect_rate_ppm": None,
+                "quality_status": None,
+                "quality_trends": None,
+                "quality_data_note": "First pass yield, defect rate, and quality trends require a QC doctype not present on this site",
             }
-            
+
         except Exception as e:
             logger.error(f"Error analyzing quality metrics: {e}")
             return {"error": str(e)}
@@ -536,7 +537,6 @@ class ManufacturingIntelligence:
 
 
 # API functions for Frappe
-@frappe.whitelist()
 def get_manufacturing_overview(period="YTD"):
     """API endpoint for manufacturing overview"""
     try:
@@ -547,7 +547,6 @@ def get_manufacturing_overview(period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_oee_analysis(period="YTD"):
     """API endpoint for OEE analysis"""
     try:
@@ -559,7 +558,6 @@ def get_oee_analysis(period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_capacity_analysis():
     """API endpoint for capacity analysis"""
     try:
@@ -575,7 +573,6 @@ def get_capacity_analysis():
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_production_forecast():
     """API endpoint for production forecasting"""
     try:
@@ -587,7 +584,6 @@ def get_production_forecast():
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_manufacturing_recommendations():
     """API endpoint for manufacturing recommendations"""
     try:

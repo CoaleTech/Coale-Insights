@@ -4,7 +4,7 @@ defineOptions({ name: 'TaxIntelligence' })
 import { Breadcrumbs, Button, Badge, Select, Tabs } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
 import {
-  RefreshCcw, AlertTriangle, CheckCircle, FileText, Settings,
+  RefreshCcw, AlertTriangle, CheckCircle, FileText,
 } from 'lucide-vue-next'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -69,10 +69,9 @@ const tabs = [
   { label: 'Compliance Health' },
   { label: 'TDS' },
   { label: 'Tax Planning' },
-  { label: 'Settings' },
 ]
 
-const TAB_IDS = ['gst', 'compliance', 'tds', 'planning', 'settings'] as const
+const TAB_IDS = ['gst', 'compliance', 'tds', 'planning'] as const
 const activeTab = computed(() => TAB_IDS[activeTabIndex.value] ?? 'gst')
 
 const gstSummary = computed((): GstSummaryRow[] =>
@@ -143,7 +142,6 @@ async function loadData(refresh = false) {
       pollingTimer = setTimeout(checkJobStatus, 5000)
     } else {
       data.value = result
-      createToast({ title: 'Data Loaded', message: 'Tax intelligence updated', variant: 'success' })
     }
   } catch (e: unknown) {
     error.value = (e as Error).message || 'Failed to load tax intelligence'
@@ -406,7 +404,7 @@ function handleDashboardRedirect(target: string) {
           <div v-if="activeTab === 'gst'" class="space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader title="Monthly GST Breakdown (CGST / SGST / IGST)" :level="3" />
+                <SectionHeader variant="caption" title="Monthly GST Breakdown (CGST / SGST / IGST)" :level="3" />
                 <div class="h-52 sm:h-64 lg:h-72 mt-4">
                   <IntelligenceChart v-if="gstStackedBarConfig" :config="gstStackedBarConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No GST data available</div>
@@ -433,19 +431,23 @@ function handleDashboardRedirect(target: string) {
               </div>
 
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader title="ITC Utilisation" :level="3" />
+                <SectionHeader variant="caption" title="ITC Utilisation" :level="3" />
                 <div class="h-52 sm:h-64 lg:h-72 mt-4">
                   <BaseChart :options="itcGaugeOptions" />
                 </div>
                 <div class="grid grid-cols-2 gap-4 mt-4">
-                  <div class="p-3 bg-surface-gray-1 rounded-lg text-center">
-                    <p class="text-xs text-ink-gray-6">Available</p>
-                    <p class="text-lg font-bold text-ink-gray-9">{{ formatCurrency(itcHealth.available) }}</p>
-                  </div>
-                  <div class="p-3 bg-surface-gray-1 rounded-lg text-center">
-                    <p class="text-xs text-ink-gray-6">Claimed</p>
-                    <p class="text-lg font-bold text-ink-gray-9">{{ formatCurrency(itcHealth.claimed) }}</p>
-                  </div>
+                  <KpiCard
+                    label="Available"
+                    :amount="itcHealth.available"
+                    :currency="baseCurrency"
+                    variant="tile"
+                  />
+                  <KpiCard
+                    label="Claimed"
+                    :amount="itcHealth.claimed"
+                    :currency="baseCurrency"
+                    variant="tile"
+                  />
                 </div>
               </div>
             </div>
@@ -490,7 +492,7 @@ function handleDashboardRedirect(target: string) {
 
             <!-- HSN Summary -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="HSN Summary (Top 10 by Revenue)" :level="3" />
+              <SectionHeader variant="caption" title="HSN Summary (Top 10 by Revenue)" :level="3" />
               <div class="overflow-x-auto mt-4">
                 <table class="w-full text-sm">
                   <thead class="bg-surface-gray-1">
@@ -542,6 +544,7 @@ function handleDashboardRedirect(target: string) {
             <section aria-labelledby="exposure-heading">
               <SectionHeader
                 id="exposure-heading"
+                variant="caption"
                 title="Quantified exposure"
                 hint="Amounts at stake, with the provision each one arises under"
                 :level="3"
@@ -806,25 +809,27 @@ function handleDashboardRedirect(target: string) {
           <!-- TDS -->
           <div v-if="activeTab === 'tds'" class="space-y-6">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-                <p class="text-sm text-ink-gray-6">TDS Payable</p>
-                <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(tdsSummary.total_payable) }}</p>
-              </div>
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-                <p class="text-sm text-ink-gray-6">TDS Receivable</p>
-                <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(tdsSummary.receivable) }}</p>
-              </div>
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-                <p class="text-sm text-ink-gray-6">Net Position</p>
-                <p class="text-2xl font-bold" :class="deltaInk(tdsSummary.net_position, { higherIsBetter: true })">
-                  {{ formatCurrency(tdsSummary.net_position) }}
-                </p>
-              </div>
+              <KpiCard
+                label="TDS Payable"
+                :amount="tdsSummary.total_payable"
+                :currency="baseCurrency"
+              />
+              <KpiCard
+                label="TDS Receivable"
+                :amount="tdsSummary.receivable"
+                :currency="baseCurrency"
+              />
+              <KpiCard
+                label="Net Position"
+                :amount="tdsSummary.net_position"
+                :currency="baseCurrency"
+                :severity="(tdsSummary.net_position ?? 0) < 0 ? 'medium' : 'none'"
+              />
             </div>
 
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader title="TDS Payable by Section" :level="3" />
+                <SectionHeader variant="caption" title="TDS Payable by Section" :level="3" />
                 <div class="overflow-x-auto mt-4">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-gray-1">
@@ -865,7 +870,7 @@ function handleDashboardRedirect(target: string) {
               </div>
 
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader title="Top 5 TDS Sections" :level="3" />
+                <SectionHeader variant="caption" title="Top 5 TDS Sections" :level="3" />
                 <div class="h-52 sm:h-64 lg:h-72 mt-4">
                   <IntelligenceChart v-if="tdsBarConfig" :config="tdsBarConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No TDS section data available</div>
@@ -878,7 +883,7 @@ function handleDashboardRedirect(target: string) {
           <div v-if="activeTab === 'planning'" class="space-y-6">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader title="Effective Tax Rate Trend" :level="3" />
+                <SectionHeader variant="caption" title="Effective Tax Rate Trend" :level="3" />
                 <div class="h-52 sm:h-64 lg:h-72 mt-4">
                   <IntelligenceChart v-if="effectiveRateTrendConfig" :config="effectiveRateTrendConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No trend data available</div>
@@ -901,7 +906,7 @@ function handleDashboardRedirect(target: string) {
               </div>
 
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader title="GST Forecast (Next 3 Months)" :level="3" />
+                <SectionHeader variant="caption" title="GST Forecast (Next 3 Months)" :level="3" />
                 <div class="h-52 sm:h-64 lg:h-72 mt-4">
                   <IntelligenceChart v-if="taxForecastConfig" :config="taxForecastConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No forecast data available</div>
@@ -927,24 +932,27 @@ function handleDashboardRedirect(target: string) {
 
             <!-- YTD Summary -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-                <p class="text-sm text-ink-gray-6">Total Revenue (YTD)</p>
-                <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(ytdRevenue) }}</p>
-              </div>
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-                <p class="text-sm text-ink-gray-6">Total Output GST (YTD)</p>
-                <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(ytdOutputGst) }}</p>
-              </div>
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-                <p class="text-sm text-ink-gray-6">ITC Claimed (Tax Saved)</p>
-                <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(itcHealth.claimed || 0) }}</p>
-              </div>
+              <KpiCard
+                label="Total Revenue (YTD)"
+                :amount="ytdRevenue"
+                :currency="baseCurrency"
+              />
+              <KpiCard
+                label="Total Output GST (YTD)"
+                :amount="ytdOutputGst"
+                :currency="baseCurrency"
+              />
+              <KpiCard
+                label="ITC Claimed (Tax Saved)"
+                :amount="itcHealth.claimed"
+                :currency="baseCurrency"
+              />
             </div>
 
             <!-- Advance Tax Schedule -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <div class="flex items-center justify-between mb-4">
-                <SectionHeader title="Advance Tax Schedule" :level="3" />
+                <SectionHeader variant="caption" title="Advance Tax Schedule" :level="3" />
                 <Badge theme="gray" variant="subtle" label="Sec 207/208: Mandatory if liability >= Rs.10,000" size="sm" />
               </div>
               <div class="overflow-x-auto">
@@ -977,31 +985,6 @@ function handleDashboardRedirect(target: string) {
               </p>
             </div>
           </div>
-
-          <!-- Settings -->
-          <div v-if="activeTab === 'settings'" class="space-y-6">
-            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6 max-w-xl">
-              <SectionHeader title="Analysis Settings" :level="3" />
-              <div class="space-y-4 mt-4">
-                <div>
-                  <label class="block text-sm font-medium text-ink-gray-7 mb-1">Analysis Period</label>
-                  <Select v-model="dateFilter" :options="dateRangeOptions" class="w-full text-sm" />
-                </div>
-                <div class="pt-2">
-                  <Button
-                    variant="solid"
-                    theme="gray"
-                    :loading="isRefreshing"
-                    @click="loadData(true)"
-                  >
-                    <RefreshCcw class="w-4 h-4 mr-2" />
-                    {{ isRefreshing ? 'Refreshing...' : 'Refresh Analysis' }}
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-
         </div>
       </div>
       </div>

@@ -124,6 +124,16 @@
       </span>
       <span v-if="sublabel" class="min-w-0 truncate text-sm text-ink-gray-6">{{ sublabel }}</span>
     </div>
+
+    <!--
+      Optional, empty by default: a caller with nothing to add here changes
+      nothing about the card's markup or spacing. Exists for per-metric extras
+      that are not part of the shared vocabulary above (a trend sparkline is
+      the first user) without forking a second card component for one field.
+    -->
+    <div v-if="$slots.footer" class="mt-1">
+      <slot name="footer" />
+    </div>
   </div>
 </template>
 

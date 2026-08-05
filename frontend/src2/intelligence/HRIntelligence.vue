@@ -12,7 +12,7 @@ import {
   severityBadge, deltaInk, deltaGlyph, ragSeverity, scoreSeverity,
   type Severity,
 } from '../utils/status'
-import { formatCount, formatMoney } from '../utils/format'
+import { formatCount, formatMoney, formatPercent } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
@@ -212,8 +212,8 @@ const kpis = computed(() => {
     },
     {
       label: 'Attrition Rate',
-      value: `${(att.attrition_rate_pct || 0).toFixed(1)}%`,
-      sublabel: `${att.total_exits || 0} exits (${att.voluntary_exits || 0} voluntary)`,
+      value: formatPercent(att.attrition_rate_pct),
+      sublabel: `${formatCount(att.total_exits)} exits (${formatCount(att.voluntary_exits)} voluntary)`,
       delta: att.attrition_change || undefined,
       // Higher attrition is worse
       deltaHigherIsBetter: false,
@@ -223,14 +223,14 @@ const kpis = computed(() => {
     },
     {
       label: 'Avg. Salary',
-      value: formatCurrency(pay.average_salary || 0),
-      sublabel: `Total: ${formatCurrency(pay.total_payroll_cost || 0)}`,
+      value: formatCurrency(pay.average_salary),
+      sublabel: `Total: ${formatCurrency(pay.total_payroll_cost)}`,
       drillable: false,
       metric: undefined,
     },
     {
       label: 'Engagement Score',
-      value: `${(eng.engagement_score || 0).toFixed(0)}/100`,
+      value: `${formatCount(eng.engagement_score)}/100`,
       sublabel: eng.engagement_level || undefined,
       severity: scoreSeverity(eng.engagement_score, { good: 75, warn: 50, higherIsBetter: true }) as Severity,
       drillable: false,
@@ -286,6 +286,12 @@ function urgencySeverity(urgency: string | undefined): Severity {
   if (urgency === 'high') return 'critical'
   if (urgency === 'medium') return 'medium'
   return 'low'
+}
+
+/** Map compensation pay-equity status to Severity. Binary because the
+ *  server only reports 'good' vs anything else (e.g. 'needs_review'). */
+function payEquitySeverity(status: string | undefined): Severity {
+  return status === 'good' ? 'low' : 'medium'
 }
 
 /**
@@ -374,7 +380,7 @@ function handleChatNavigation(path: string) {
         <div v-show="tabIndex === 0" class="space-y-6">
           <!-- Workforce Composition -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Workforce Composition" :level="3" />
+            <SectionHeader variant="caption" title="Workforce Composition" :level="3" />
             <div v-if="hasData && composition" class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <!-- By Gender -->
               <div v-if="composition.gender" class="bg-surface-gray-1 rounded-lg p-4">
@@ -425,7 +431,7 @@ function handleChatNavigation(path: string) {
 
           <!-- Headcount Metrics -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Headcount Metrics" :level="3" />
+            <SectionHeader variant="caption" title="Headcount Metrics" :level="3" />
             <div v-if="hasData && data?.headcount_metrics" class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
               <!--
                 `|| 0` previously stood in for every one of these fields, so a
@@ -446,7 +452,7 @@ function handleChatNavigation(path: string) {
         <!-- Attrition & Retention -->
         <div v-show="tabIndex === 1" class="space-y-6">
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Attrition Analysis" :level="3" />
+            <SectionHeader variant="caption" title="Attrition Analysis" :level="3" />
             <div v-if="hasData && data?.attrition_metrics" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <KpiCard
                 variant="tile"
@@ -464,7 +470,7 @@ function handleChatNavigation(path: string) {
                 <Badge
                   class="mt-2"
                   v-bind="severityBadge(riskLevelSeverity(data.attrition_metrics.attrition_risk_level))"
-                  :label="(data.attrition_metrics.attrition_risk_level || 'N/A').toUpperCase()"
+                  :label="severityBadge(riskLevelSeverity(data.attrition_metrics.attrition_risk_level)).label"
                   size="sm"
                 />
               </div>
@@ -473,14 +479,14 @@ function handleChatNavigation(path: string) {
 
           <!-- Attrition Risk Assessment -->
           <div v-if="hasData && attritionRisk" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Attrition Risk Assessment" :level="3" />
+            <SectionHeader variant="caption" title="Attrition Risk Assessment" :level="3" />
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div class="rounded-lg p-4 text-center bg-surface-gray-1">
                 <p class="text-sm font-medium text-ink-gray-6">Overall Risk Level</p>
                 <Badge
                   class="mt-2"
                   v-bind="severityBadge(riskLevelSeverity(attritionRisk.risk_level))"
-                  :label="(attritionRisk.risk_level || 'N/A').toUpperCase()"
+                  :label="severityBadge(riskLevelSeverity(attritionRisk.risk_level)).label"
                   size="sm"
                 />
                 <p class="text-xs text-ink-gray-6 mt-2">Score: {{ attritionRisk.risk_score || 0 }}/100</p>
@@ -508,7 +514,7 @@ function handleChatNavigation(path: string) {
         <!-- Payroll & Compensation -->
         <div v-show="tabIndex === 2" class="space-y-6">
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Payroll Summary" :level="3" />
+            <SectionHeader variant="caption" title="Payroll Summary" :level="3" />
             <div v-if="hasData && data?.payroll_metrics" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <!-- `amount` + `currency` rather than a pre-formatted string, so
                    the tile picks compact notation on a phone and an absent cost
@@ -541,7 +547,7 @@ function handleChatNavigation(path: string) {
 
           <!-- Compensation Analysis -->
           <div v-if="hasData && data?.compensation_analysis" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Compensation Analysis" :level="3" />
+            <SectionHeader variant="caption" title="Compensation Analysis" :level="3" />
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div class="bg-surface-gray-1 rounded-lg p-4">
                 <h4 class="text-sm font-medium text-ink-gray-7 mb-3">Key Metrics</h4>
@@ -565,7 +571,7 @@ function handleChatNavigation(path: string) {
                   <div class="flex justify-between items-center">
                     <span class="text-sm text-ink-gray-6">Pay Equity</span>
                     <Badge
-                      v-bind="severityBadge(data.compensation_analysis.pay_equity_status === 'good' ? 'low' : 'medium')"
+                      v-bind="severityBadge(payEquitySeverity(data.compensation_analysis.pay_equity_status))"
                       :label="(data.compensation_analysis.pay_equity_status || 'N/A').replace('_', ' ')"
                       size="sm"
                     />
@@ -584,7 +590,7 @@ function handleChatNavigation(path: string) {
         <!-- Department Health -->
         <div v-show="tabIndex === 3" class="space-y-6">
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Department Overview" :level="3" />
+            <SectionHeader variant="caption" title="Department Overview" :level="3" />
             <div v-if="hasData && departments.length > 0" class="space-y-3 mt-4">
               <button
                 v-for="dept in departments"
@@ -627,7 +633,7 @@ function handleChatNavigation(path: string) {
         <div v-show="tabIndex === 4" class="space-y-6">
           <!-- Hiring Forecast -->
           <div v-if="hasData && data?.hiring_forecast" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Hiring Forecast" :level="3" />
+            <SectionHeader variant="caption" title="Hiring Forecast" :level="3" />
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
               <KpiCard
                 variant="tile"
@@ -649,7 +655,7 @@ function handleChatNavigation(path: string) {
                 <Badge
                   class="mt-2"
                   v-bind="severityBadge(urgencySeverity(data.hiring_forecast.hiring_urgency))"
-                  :label="(data.hiring_forecast.hiring_urgency || 'Normal').toUpperCase()"
+                  :label="severityBadge(urgencySeverity(data.hiring_forecast.hiring_urgency)).label"
                   size="sm"
                 />
               </div>
@@ -658,13 +664,13 @@ function handleChatNavigation(path: string) {
 
           <!-- Recommendations -->
           <div v-if="hasData && recommendations.length > 0" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader title="Recommendations" :level="3" />
+            <SectionHeader variant="caption" title="Recommendations" :level="3" />
             <div class="space-y-3 mt-4">
               <div v-for="(rec, i) in recommendations" :key="i"
                 class="flex items-start gap-3 p-3 bg-surface-gray-1 rounded-lg">
                 <Zap class="w-5 h-5 text-ink-gray-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <div>
-                  <p class="text-sm font-medium text-ink-gray-8">{{ rec.title || rec }}</p>
+                  <p class="text-sm font-medium text-ink-gray-8">{{ typeof rec === 'string' ? rec : rec.title }}</p>
                   <p v-if="rec.description" class="text-xs text-ink-gray-6 mt-1">{{ rec.description }}</p>
                   <p v-if="rec.impact" class="text-xs text-ink-gray-6 mt-1">Impact: {{ rec.impact }}</p>
                 </div>

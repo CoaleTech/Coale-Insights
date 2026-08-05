@@ -24,27 +24,29 @@ from insights.ml.strategic_finance.data import get_current_fiscal_year
 
 class FinancialIntelligence(BaseMLModel):
     """
-    Comprehensive Financial Intelligence Model (Kenya Edition)
+    Comprehensive Financial Intelligence Model
     
     Features:
     - P&L analysis with trends
     - Cash position and runway
-    - Financial ratios (liquidity, profitability, efficiency)
     - Receivables and payables analytics
-    - Budget variance tracking
-    - KRA Tax analysis (16% VAT, 2% VAT WHT)
     - Forex exposure analysis
+
+    Financial ratios and budget variance analysis live in the Strategic
+    Finance engine (see module docstring above); tax filing/GST analytics
+    live in insights.ml.india_tax_intelligence.
     """
-    
-    VAT_RATE = 16.0  # Kenya standard VAT rate
-    VAT_WHT_RATE = 2.0  # VAT Withholding rate
     
     def __init__(self, date_filter: str = '12m'):
         super().__init__()
         self.model_name = "FinancialIntelligence"
         self.date_filter = date_filter
         self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
-        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
+        self.base_currency = (
+            frappe.db.get_value("Company", self.company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
         # Generate SQL date filter
         self.date_filter_sql = get_date_filter_sql(date_filter, 'posting_date', '')
         # Resolve fiscal year once; used by _calculate_financial_overview for the

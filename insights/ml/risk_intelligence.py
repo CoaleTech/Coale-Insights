@@ -7,7 +7,7 @@ Comprehensive risk assessment with ML-powered insights for:
 - Credit Risk (customer scoring, payment behavior, aging analysis)
 - Cash Flow Risk (DSO trends, working capital, revenue concentration)
 - Operational Risk (inventory stockouts, supplier reliability, process risks)
-- Compliance Risk (KRA filing status, license tracking, audit findings)
+- Compliance Risk (GST filing status, e-Invoice coverage, license tracking)
 - Predictive Analytics (Prophet forecasting, anomaly detection, early warnings)
 """
 
@@ -28,7 +28,7 @@ class RiskIntelligence(BaseMLModel):
     - Prophet-based forecasting for predictive risk modeling
     - Dual scoring system: 0-100 numeric + categorical (Low/Medium/High/Critical)
     - Real-time anomaly detection and early warning system
-    - Kenya-specific compliance monitoring (KRA, VAT, licenses)
+    - India compliance monitoring (GST filing, e-Invoice, GST/PAN registration)
     """
     
     RISK_THRESHOLDS = {
@@ -42,7 +42,11 @@ class RiskIntelligence(BaseMLModel):
         super().__init__()
         self.model_name = "RiskIntelligence"
         self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
-        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
+        self.base_currency = (
+            frappe.db.get_value("Company", self.company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
     
     def train(self) -> Dict[str, Any]:
         """Generate comprehensive risk intelligence analysis"""
@@ -327,9 +331,6 @@ class RiskIntelligence(BaseMLModel):
     
     def _calculate_aggregate_compliance_risk(self) -> float:
         """Calculate overall compliance risk score (0-100)"""
-        # This is a simplified compliance risk calculation
-        # In practice, this would integrate with KRA systems, license databases, etc.
-        
         risk_factors = []
         
         # Document completeness
@@ -345,17 +346,31 @@ class RiskIntelligence(BaseMLModel):
         incomplete_ratio = (incomplete_sales / total_sales * 100) if total_sales > 0 else 0
         risk_factors.append(incomplete_ratio)
         
-        # Tax compliance (simplified - checks for VAT setup)
-        vat_accounts = frappe.db.count("Account", filters={"account_type": "Tax"})
-        if vat_accounts == 0:
-            risk_factors.append(50)  # High risk if no VAT accounts
-        else:
-            risk_factors.append(10)  # Low risk if VAT accounts exist
+        # GST filing compliance — real GSTR-1/GSTR-3B status from GST Return
+        # Log, not a proxy for "does a Tax account exist". `india_compliance`
+        # not installed, or filing status genuinely unavailable, scores as
+        # moderate/unknown rather than fabricating "low risk".
+        try:
+            from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
+            from insights.ml.india_tax_intelligence import data as india_tax_data
+            tax_intel = IndiaTaxIntelligence(period="fy")
+            if tax_intel.india_compliance_installed:
+                fy_start = str(tax_intel.fiscal_year["year_start_date"])
+                today = datetime.now().strftime('%Y-%m-%d')
+                filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today)
+                statuses = [filing.get("gstr1", {}).get("status"), filing.get("gstr3b", {}).get("status")]
+                pending_count = statuses.count("Pending")
+                risk_factors.append(pending_count * 40)  # 0, 40, or 80
+            else:
+                risk_factors.append(30)
+        except Exception:
+            risk_factors.append(30)
         
         # Average compliance risk
         compliance_risk_score = np.mean(risk_factors) if risk_factors else 0
         
         return round(compliance_risk_score, 1)
+    
     
     def _get_current_cash_position(self) -> float:
         """Get current cash position from cash accounts using GL Entry"""
@@ -378,7 +393,7 @@ class RiskIntelligence(BaseMLModel):
             {"name": "Major Customer Default", "probability": 30, "impact": 90, "category": "Credit"},
             {"name": "Cash Flow Shortage", "probability": 40, "impact": 70, "category": "Financial"},
             {"name": "Key Supplier Failure", "probability": 20, "impact": 80, "category": "Operational"},
-            {"name": "KRA Compliance Issue", "probability": 15, "impact": 60, "category": "Compliance"},
+            {"name": "GST Compliance Issue", "probability": 15, "impact": 60, "category": "Compliance"},
             {"name": "Inventory Stockout", "probability": 60, "impact": 40, "category": "Operational"},
             {"name": "Currency Fluctuation", "probability": 70, "impact": 50, "category": "Financial"},
             {"name": "Payment Delays", "probability": 50, "impact": 60, "category": "Credit"},
@@ -615,15 +630,43 @@ class RiskIntelligence(BaseMLModel):
         }
     
     def _analyze_compliance_risk(self) -> Dict[str, Any]:
-        """Analyze compliance risks including KRA, VAT, and regulatory requirements"""
-        # KRA filing status (simplified - would integrate with actual KRA API)
-        kra_status = {
-            "vat_filing_status": "Up to Date",  # Would check actual filing dates
-            "last_filing_date": "2024-11-30",  # Would get from KRA integration
-            "next_filing_due": "2025-01-20",
-            "outstanding_penalties": 0
+        """Analyze compliance risks: GST filing status (GSTR-1/GSTR-3B),
+        e-Invoice coverage, GST/PAN registration, and document completeness
+        for the current fiscal year to date.
+
+        Filing and e-Invoice figures are sourced from the same real data
+        `IndiaTaxIntelligence` uses (`GST Return Log`, Sales Invoice
+        IRN/`gst_category`) rather than tracked separately here, so the two
+        dashboards never disagree. A status the underlying log does not
+        record (no `india_compliance` app, or `filing_status` never
+        populated on this site) is reported as "No Data" / "Not Tracked",
+        never fabricated as compliant — this section previously hardcoded
+        `"vat_filing_status": "Up to Date"` and a fixed past filing date for
+        every company regardless of what was actually filed.
+        """
+        from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
+        from insights.ml.india_tax_intelligence import data as india_tax_data
+
+        tax_intel = IndiaTaxIntelligence(period="fy")
+        fy_start = str(tax_intel.fiscal_year["year_start_date"])
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        if tax_intel.india_compliance_installed:
+            filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today)
+            einvoice = india_tax_data.get_einvoice_status(tax_intel, fy_start, today)
+        else:
+            filing = {"gstr1": {"status": "Not Available"}, "gstr3b": {"status": "Not Available"}}
+            einvoice = {"coverage_pct": None, "pending_value": 0}
+
+        gst_status = {
+            "gstr1_status": filing.get("gstr1", {}).get("status", "No Data"),
+            "gstr1_latest_period": filing.get("gstr1", {}).get("latest_period", ""),
+            "gstr3b_status": filing.get("gstr3b", {}).get("status", "No Data"),
+            "gstr3b_latest_period": filing.get("gstr3b", {}).get("latest_period", ""),
+            "einvoice_coverage_pct": einvoice.get("coverage_pct"),
+            "einvoice_pending_value": einvoice.get("pending_value", 0),
         }
-        
+
         # Document completeness audit
         document_audit = frappe.db.sql("""
             SELECT 
@@ -642,37 +685,28 @@ class RiskIntelligence(BaseMLModel):
             FROM `tabPurchase Invoice`
             WHERE docstatus = 1 AND company = %s
         """, (self.company, self.company), as_dict=True)
-        
-        # Tax compliance checks
-        tax_compliance = frappe.db.sql("""
-            SELECT 
-                account_type,
-                COUNT(*) as account_count,
-                SUM(CASE WHEN is_group = 0 THEN 1 ELSE 0 END) as leaf_accounts
-            FROM `tabAccount`
-            WHERE account_type IN ('Tax', 'Income Tax')
-                AND company = %s
-            GROUP BY account_type
-        """, self.company, as_dict=True)
-        
-        # License and permit tracking (simplified)
+
+        # GST/PAN registration, read from the Company master rather than
+        # invented — GST registration and PAN do not carry an expiry date,
+        # unlike the "Business Permit" placeholder this replaced.
+        company_doc = frappe.get_cached_doc("Company", self.company)
+        gstin = (company_doc.get("gstin") or "").strip()
+        pan = (company_doc.get("pan") or "").strip()
         licenses = [
             {
-                "license_type": "Business Permit",
-                "status": "Active",
-                "expiry_date": "2025-12-31",
-                "days_to_expiry": 376,
-                "risk_level": "Low"
+                "license_type": "GST Registration",
+                "reference": gstin or "Not on file",
+                "status": "Registered" if gstin else "Not Registered",
+                "risk_level": "Low" if gstin else "High",
             },
             {
-                "license_type": "VAT Registration",
-                "status": "Active", 
-                "expiry_date": "Ongoing",
-                "days_to_expiry": 999,
-                "risk_level": "Low"
-            }
+                "license_type": "PAN",
+                "reference": pan or "Not on file",
+                "status": "Registered" if pan else "Not Registered",
+                "risk_level": "Low" if pan else "High",
+            },
         ]
-        
+
         # Calculate compliance risk score
         compliance_issues = []
         for audit in document_audit:
@@ -684,13 +718,18 @@ class RiskIntelligence(BaseMLModel):
                         "severity": "Medium" if incomplete_rate < 20 else "High",
                         "rate": incomplete_rate
                     })
-        
+        if gst_status["gstr1_status"] == "Pending":
+            compliance_issues.append({"issue": "GSTR-1 returns pending for this fiscal year", "severity": "High", "rate": None})
+        if gst_status["gstr3b_status"] == "Pending":
+            compliance_issues.append({"issue": "GSTR-3B returns pending for this fiscal year", "severity": "High", "rate": None})
+        if not gstin:
+            compliance_issues.append({"issue": "No GSTIN on file for this company", "severity": "High", "rate": None})
+
         overall_compliance_score = len(compliance_issues) * 15  # 15 points per issue
-        
+
         return {
-            "kra_status": kra_status,
+            "gst_status": gst_status,
             "document_audit": document_audit,
-            "tax_compliance": tax_compliance,
             "licenses": licenses,
             "compliance_issues": compliance_issues,
             "overall_compliance_score": min(100, overall_compliance_score),
@@ -743,7 +782,7 @@ class RiskIntelligence(BaseMLModel):
             "payment_risk_forecast": payment_risk_forecast,
             "anomalies": anomalies,
             "early_warnings": early_warnings,
-            "forecast_confidence": "Medium",  # Would calculate based on model performance
+            "forecast_confidence": None,  # Not measured — no model-performance tracking exists. See D3.9.
             "last_model_training": datetime.now().isoformat()
         }
     
@@ -972,17 +1011,24 @@ class RiskIntelligence(BaseMLModel):
         
         return (cancelled_invoices / total_invoices * 100) if total_invoices > 0 else 0
     
-    def _calculate_average_approval_time(self) -> float:
-        """Calculate average time for document approvals"""
-        # This would require workflow state tracking
-        # For now, return a placeholder
-        return 24.0  # hours
+    def _calculate_average_approval_time(self) -> Optional[float]:
+        """Calculate average time for document approvals.
+
+        Requires workflow state tracking that doesn't exist on this site.
+        Was previously a hardcoded 24.0 hours for every company — false
+        precision on an unmeasured value. See D3.9.
+        """
+        return None
     
-    def _count_system_incidents(self) -> int:
-        """Count system downtime incidents"""
-        # This would integrate with system monitoring
-        # For now, return a placeholder
-        return 0
+    def _count_system_incidents(self) -> Optional[int]:
+        """Count system downtime incidents.
+
+        Requires system-monitoring integration that doesn't exist. Was
+        previously a hardcoded 0 — reads as "zero incidents" (reassuring)
+        rather than "not measured", which is a worse failure mode than an
+        honest null. See D3.9.
+        """
+        return None
 
 
 def run_risk_intelligence(refresh: bool = False) -> Dict[str, Any]:

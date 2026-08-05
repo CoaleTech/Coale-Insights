@@ -211,10 +211,10 @@ class CrossDashboardSearchService:
             logger.error(f"Error generating search suggestions: {e}")
             return []
     
-    def get_search_history(self, user: str = None, limit: int = 20) -> List[Dict[str, Any]]:
-        """Get user search history"""
+    def get_search_history(self, limit: int = 20) -> List[Dict[str, Any]]:
+        """Get search history for the current session user (never caller-supplied)."""
         try:
-            user = user or frappe.session.user
+            user = frappe.session.user
             
             search_history = frappe.db.get_list(
                 "Search Activity Log",
@@ -230,10 +230,10 @@ class CrossDashboardSearchService:
             logger.error(f"Error getting search history: {e}")
             return []
     
-    def save_search_favorite(self, query: str, title: str = None, user: str = None) -> Dict[str, Any]:
-        """Save search as favorite"""
+    def save_search_favorite(self, query: str, title: str = None) -> Dict[str, Any]:
+        """Save search as favorite for the current session user (never caller-supplied)."""
         try:
-            user = user or frappe.session.user
+            user = frappe.session.user
             
             favorite = frappe.get_doc({
                 "doctype": "Search Favorite",
@@ -465,40 +465,50 @@ class CrossDashboardSearchService:
             return {"domain_id": domain_id, "results": [], "total_matches": 0}
     
     def _get_domain_data(self, domain_id: str, filters: Dict = None) -> Dict[str, Any]:
-        """Get data for a specific domain (simplified simulation)"""
+        """Get data for a specific domain by calling the real intelligence module.
+
+        Previously returned hardcoded constants for "budget"/"hr" and {} for
+        every other domain ("simplified simulation"). Each branch below calls
+        the same class/function its own domain's overview API endpoint uses,
+        so results match what a user sees on that domain's own dashboard.
+        See plan-eng-review D3.5.
+        """
         try:
-            # This would normally call the actual intelligence modules
-            # For now, returning simulated data structure
-            
+            if domain_id == "executive":
+                from insights.ml.executive_intelligence import ExecutiveIntelligence
+                return ExecutiveIntelligence().get_executive_summary("YTD")
+
+            if domain_id == "financial":
+                from insights.ml.financial_intelligence import FinancialIntelligence
+                return FinancialIntelligence().predict()
+
             if domain_id == "budget":
-                return {
-                    "summary": {
-                        "total_variance": -15000,
-                        "variance_percentage": -5.2,
-                        "budget_utilization": 94.8
-                    },
-                    "alerts": [
-                        {"title": "High Variance in Marketing", "severity": "medium"}
-                    ],
-                    "recommendations": [
-                        {"title": "Optimize Budget Allocation", "priority": "high"}
-                    ]
-                }
-            elif domain_id == "hr":
-                return {
-                    "summary": {
-                        "retention_rate": 92.5,
-                        "employee_satisfaction": 4.2,
-                        "headcount": 250
-                    },
-                    "alerts": [
-                        {"title": "Turnover Risk in Sales", "severity": "high"}
-                    ]
-                }
-            
-            # Return empty for unknown domains
+                from insights.ml.budget_variance_intelligence import BudgetVarianceIntelligence
+                return BudgetVarianceIntelligence().get_budget_variance_overview()
+
+            if domain_id == "hr":
+                from insights.ml.hr_intelligence import HRIntelligence
+                return HRIntelligence().get_hr_overview("YTD")
+
+            if domain_id == "manufacturing":
+                from insights.ml.manufacturing_intelligence import get_manufacturing_overview
+                return get_manufacturing_overview(period="YTD")
+
+            if domain_id == "sales":
+                from insights.ml.sales_intelligence import SalesIntelligence
+                return SalesIntelligence().predict()
+
+            if domain_id == "customer":
+                from insights.ml.customer_intelligence import CustomerIntelligence
+                return CustomerIntelligence().predict()
+
+            if domain_id == "esg":
+                # ESG intelligence is disabled — see plan-eng-review D3.1.
+                return {"status": "not_implemented"}
+
+            # Unknown domain
             return {}
-            
+
         except Exception as e:
             logger.error(f"Error getting domain data for {domain_id}: {e}")
             return {}

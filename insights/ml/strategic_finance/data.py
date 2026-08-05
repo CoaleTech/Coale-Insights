@@ -418,12 +418,29 @@ def estimate_operating_expenses(intelligence, week_start: datetime) -> float:
 
 
 def get_scheduled_taxes(intelligence, week_start, week_end) -> float:
-    """Get scheduled tax payments for a specific week"""
-    # In Kenya, typical tax dates:
-    # - VAT: 20th of following month
-    # - PAYE: 9th of following month
-    # - Corporate Tax: Quarterly installments
+    """Get scheduled tax payments for a specific week: GST (GSTR-3B) and TDS.
 
+    Due dates and amounts are the same real ones
+    insights.ml.india_tax_intelligence uses, not a flat percentage guess:
+
+    - GST: GSTR-3B monthly due date (20th) — the actual payment date, since
+      GSTR-1 (11th) carries no tax payment. QRMP (quarterly) filers are due
+      the 22nd/24th depending on state group; that split is not applied here
+      because this codebase has no verified state-to-group source, and on
+      this site GST Return Log shows the company filing GSTR-3B monthly
+      (consecutive month-over-month periods), the more common case above the
+      QRMP turnover threshold. Amount is net GST (output tax − input tax
+      credit) actually posted for the prior calendar month, floored at 0 —
+      a negative position is ITC carried forward, not a cash inflow.
+    - TDS: due the 7th of the following month (Sec 200(1), Income Tax Act,
+      non-government deductors). The March-deducted-TDS exception (due 30
+      April, not 7 April) is not modelled — a single month a year in a
+      rolling forecast. Amount is the real TDS payable-by-section total for
+      the prior calendar month.
+
+    Returns 0 if india_compliance is not installed, rather than falling back
+    to an estimate with no real filing/ledger data behind it.
+    """
     if isinstance(week_start, str):
         week_start = datetime.strptime(week_start, '%Y-%m-%d').date()
     elif hasattr(week_start, 'date') and callable(week_start.date):
@@ -433,35 +450,41 @@ def get_scheduled_taxes(intelligence, week_start, week_end) -> float:
     elif hasattr(week_end, 'date') and callable(week_end.date):
         week_end = week_end.date()
 
-    tax_amount = 0
+    from insights.ml.india_tax_intelligence.data import (
+        check_india_compliance_installed,
+        get_gst_output_tax,
+        get_gst_input_tax,
+        get_tds_summary,
+        GST_DUE_DATES,
+    )
 
-    # Check for VAT due (20th of month)
+    if not check_india_compliance_installed():
+        return 0.0
+
+    gst_due_day = GST_DUE_DATES.get("gstr3b_monthly_day", 20)
+    tds_due_day = 7
+
+    tax_amount = 0.0
+
     for day in range((week_end - week_start).days + 1):
         check_date = week_start + timedelta(days=day)
+        prev_month_end = check_date.replace(day=1) - timedelta(days=1)
+        prev_month_start = prev_month_end.replace(day=1)
 
-        # VAT due on 20th
-        if check_date.day == 20:
-            # Estimate VAT from previous month's sales
-            prev_month_start = (check_date.replace(day=1) - timedelta(days=1)).replace(day=1)
-            prev_month_end = check_date.replace(day=1) - timedelta(days=1)
+        if check_date.day == gst_due_day:
+            output_rows = get_gst_output_tax(intelligence, str(prev_month_start), str(prev_month_end))
+            input_rows = get_gst_input_tax(intelligence, str(prev_month_start), str(prev_month_end))
+            output_total = sum(
+                float(r.get(c, 0) or 0) for r in output_rows for c in ('cgst', 'sgst', 'igst', 'cess')
+            )
+            input_total = sum(
+                float(r.get(c, 0) or 0) for r in input_rows for c in ('cgst', 'sgst', 'igst', 'cess')
+            )
+            tax_amount += max(0.0, output_total - input_total)
 
-            vat_collected = frappe.db.sql("""
-                SELECT COALESCE(SUM(total_taxes_and_charges), 0) as vat
-                FROM `tabSales Invoice`
-                WHERE company = %s
-                    AND docstatus = 1
-                    AND posting_date BETWEEN %s AND %s
-            """, (intelligence.company, prev_month_start, prev_month_end), as_dict=True)[0].vat or 0
-
-            tax_amount += float(vat_collected) * 0.8  # Assume 80% is payable after input VAT offset
-
-        # PAYE due on 9th
-        if check_date.day == 9:
-            # Use payroll pattern to estimate PAYE (roughly 30% of gross payroll)
-            from insights.ml.strategic_finance.analysis import detect_payroll_pattern
-            payroll_pattern = detect_payroll_pattern(intelligence)
-            if payroll_pattern.get('detected'):
-                tax_amount += payroll_pattern.get('typical_amount', 0) * 0.30
+        if check_date.day == tds_due_day:
+            tds = get_tds_summary(intelligence, str(prev_month_start), str(prev_month_end))
+            tax_amount += float(tds.get('total_payable', 0) or 0)
 
     return round(tax_amount, 2)
 

@@ -16,8 +16,11 @@ from insights.ml.base import sanitize_for_json
 def risk_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
     """Get risk intelligence analysis"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.risk_intelligence import run_risk_intelligence
         return sanitize_for_json(run_risk_intelligence(refresh=refresh))
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
 

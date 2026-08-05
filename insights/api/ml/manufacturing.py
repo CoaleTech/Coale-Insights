@@ -15,12 +15,15 @@ from insights.api.response import success, error
 def get_manufacturing_overview(period: str = "YTD") -> Dict[str, Any]:
     """Get manufacturing overview"""
     try:
+        frappe.has_permission("Work Order", "read", throw=True)
         from insights.ml.manufacturing_intelligence import (
             get_manufacturing_overview as _get_manufacturing_overview,
         )
-
+    
         result = _get_manufacturing_overview(period=period)
         return success(result) if isinstance(result, dict) and "status" not in result else result
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -29,12 +32,15 @@ def get_manufacturing_overview(period: str = "YTD") -> Dict[str, Any]:
 def get_oee_analysis(period: str = "YTD") -> Dict[str, Any]:
     """Get OEE analysis"""
     try:
+        frappe.has_permission("Work Order", "read", throw=True)
         from insights.ml.manufacturing_intelligence import (
             get_oee_analysis as _get_oee_analysis,
         )
-
+    
         result = _get_oee_analysis(period=period)
         return success(result) if isinstance(result, dict) and "status" not in result else result
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -43,12 +49,15 @@ def get_oee_analysis(period: str = "YTD") -> Dict[str, Any]:
 def get_capacity_analysis() -> Dict[str, Any]:
     """Get capacity analysis"""
     try:
+        frappe.has_permission("Work Order", "read", throw=True)
         from insights.ml.manufacturing_intelligence import (
             get_capacity_analysis as _get_capacity_analysis,
         )
-
+    
         result = _get_capacity_analysis()
         return success(result) if isinstance(result, dict) and "status" not in result else result
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -57,12 +66,15 @@ def get_capacity_analysis() -> Dict[str, Any]:
 def get_production_forecast() -> Dict[str, Any]:
     """Get production forecast"""
     try:
+        frappe.has_permission("Work Order", "read", throw=True)
         from insights.ml.manufacturing_intelligence import (
             get_production_forecast as _get_production_forecast,
         )
-
+    
         result = _get_production_forecast()
         return success(result) if isinstance(result, dict) and "status" not in result else result
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -71,12 +83,15 @@ def get_production_forecast() -> Dict[str, Any]:
 def get_manufacturing_recommendations() -> Dict[str, Any]:
     """Get manufacturing recommendations"""
     try:
+        frappe.has_permission("Work Order", "read", throw=True)
         from insights.ml.manufacturing_intelligence import (
             get_manufacturing_recommendations as _get_manufacturing_recommendations,
         )
-
+    
         result = _get_manufacturing_recommendations()
         return success(result) if isinstance(result, dict) and "status" not in result else result
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 

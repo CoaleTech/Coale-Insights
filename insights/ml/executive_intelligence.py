@@ -45,9 +45,13 @@ class ExecutiveIntelligence:
 
         # Company default currency
         try:
-            self.company_currency = frappe.db.get_default("currency") or "KES"
+            self.company_currency = (
+                frappe.db.get_default("currency")
+                or frappe.db.get_single_value("System Settings", "default_currency")
+                or "USD"
+            )
         except Exception:
-            self.company_currency = "KES"
+            self.company_currency = "USD"
 
         # Cache for module data to avoid repeated predict() calls
         self._cache = {}
@@ -432,7 +436,10 @@ class ExecutiveIntelligence:
                 total_wo = flt(late_ops.total_wo) or 1
                 operational_risk = min(100, (flt(late_ops.late_wo) / total_wo) * 100)
 
-                # Compliance risk: placeholder based on overdue items
+                # Compliance risk is NOT a measured metric — no compliance
+                # doctype/tracking exists. This is a heuristic proxy (30% of
+                # credit risk) documented as such in the label below. See
+                # plan-eng-review D3.6.
                 compliance_risk = min(100, credit_risk * 0.3)
 
             return {
@@ -457,7 +464,7 @@ class ExecutiveIntelligence:
                     "target": 15,
                     "variance_points": compliance_risk - 15,
                     "rag_status": self._get_rag_status(compliance_risk, thresholds={"green": 15, "amber": 30}, reverse=True),
-                    "label": "Compliance Risk Score",
+                    "label": "Compliance Risk Score (estimated from credit risk)",
                     "format": "risk_score"
                 }
             }
@@ -1019,7 +1026,6 @@ class ExecutiveIntelligence:
 
 
 # API functions for Frappe
-@frappe.whitelist()
 def get_executive_summary(period="YTD"):
     """API endpoint for executive summary"""
     try:
@@ -1030,7 +1036,6 @@ def get_executive_summary(period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_department_deep_dive(department, period="YTD"):
     """API endpoint for department deep dive"""
     try:
@@ -1041,7 +1046,6 @@ def get_department_deep_dive(department, period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_business_health_dashboard():
     """API endpoint for business health dashboard"""
     try:

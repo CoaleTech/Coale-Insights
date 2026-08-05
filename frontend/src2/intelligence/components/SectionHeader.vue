@@ -10,7 +10,14 @@
 -->
 <template>
   <div class="flex items-baseline justify-between gap-4">
-    <component :is="`h${level}`" class="text-base font-semibold text-ink-gray-8">
+    <component
+      :is="`h${level}`"
+      :class="[
+        variant === 'caption'
+          ? 'text-sm font-semibold text-ink-gray-6 uppercase tracking-wider'
+          : 'text-base font-semibold text-ink-gray-8',
+      ]"
+    >
       {{ title }}
       <span v-if="hint" class="ml-2 text-sm font-normal text-ink-gray-6">{{ hint }}</span>
     </component>
@@ -26,7 +33,13 @@ withDefaults(
     hint?: string
     /** Document outline position. Does not change the rendered size. */
     level?: 2 | 3 | 4
+    /**
+     * `caption` shrinks the heading to a small uppercase label so the panel
+     * content dominates the visual hierarchy. `default` keeps the original
+     * text-base semibold heading for legacy callers.
+     */
+    variant?: 'default' | 'caption'
   }>(),
-  { level: 3 },
+  { level: 3, variant: 'default' },
 )
 </script>

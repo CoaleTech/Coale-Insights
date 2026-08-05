@@ -13,13 +13,22 @@
           variant="solid"
           @click="refreshData"
           :loading="loading"
-          icon-left="refresh-cw"
         >
+          <template #prefix><RefreshCcw class="w-4 h-4" /></template>
           Refresh Analysis
         </Button>
       </div>
     </header>
 
+    <IntelligenceDashboardShell
+      :loading="loading && !hasData"
+      :error="dataError ?? undefined"
+      :is-permission-error="isPermissionError"
+      :has-data="hasData"
+      subject="procurement data"
+      :kpi-count="6"
+      @retry="refreshData"
+    >
     <!-- Summary Cards -->
     <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
       <KpiCard
@@ -82,8 +91,8 @@
       <div v-if="activeTab === 'spend'" class="space-y-6">
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Monthly Spend Trend -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Monthly Spend Trend" :level="3" />
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Monthly Spend Trend" :level="3" />
             <IntelligenceChart v-if="spendData.monthly_trend?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="monthlySpendConfig" />
             <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
               No spend data available
@@ -106,8 +115,8 @@
           </div>
 
           <!-- Spend by Category -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Spend by Category" :level="3" />
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Spend by Category" :level="3" />
             <IntelligenceChart v-if="spendData.by_category?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="spendByCategoryConfig" />
             <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
               No category data available
@@ -131,9 +140,9 @@
         </div>
 
         <!-- Top Suppliers by Spend -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader title="Top Suppliers by Spend" :level="3" />
-          <div class="mt-4 overflow-x-auto">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" title="Top Suppliers by Spend" :level="3" />
+          <div class="mt-4 overflow-x-auto" v-if="spendData.top_suppliers?.length">
             <table class="min-w-full">
               <thead>
                 <tr class="bg-surface-gray-1">
@@ -168,6 +177,7 @@
               </tbody>
             </table>
           </div>
+          <div v-else class="text-center py-6 text-sm text-ink-gray-6">No suppliers found</div>
         </div>
       </div>
 
@@ -175,29 +185,39 @@
       <div v-if="activeTab === 'suppliers'" class="space-y-6">
         <!-- Performance Summary -->
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Avg Performance Score</div>
-            <div class="text-xl font-bold text-ink-gray-9">{{ supplierData.avg_score || 0 }}/100</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Avg On-Time Rate</div>
-            <div class="text-xl font-bold text-ink-gray-9">{{ supplierData.avg_on_time_rate || 0 }}%</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Avg Quality Rate</div>
-            <div class="text-xl font-bold text-ink-gray-9">{{ supplierData.avg_quality_rate || 0 }}%</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Avg Lead Time</div>
-            <div class="text-xl font-bold text-ink-gray-9">{{ supplierData.avg_lead_time || 0 }} days</div>
-          </div>
+          <KpiCard
+            label="Avg Performance Score"
+            :value="supplierData.avg_score"
+            unit="/100"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="Avg On-Time Rate"
+            :percent="supplierData.avg_on_time_rate"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="Avg Quality Rate"
+            :percent="supplierData.avg_quality_rate"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="Avg Lead Time"
+            :value="supplierData.avg_lead_time"
+            unit=" days"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Top Performers -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Top Performers" :level="3" />
-            <div class="mt-4 space-y-3">
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Top Performers" :level="3" />
+            <div class="mt-4 space-y-3" v-if="supplierData.top_performers?.length">
               <div v-for="(sup, idx) in supplierData.top_performers?.slice(0, 5)" :key="sup.supplier"
                    class="flex items-center gap-3 p-3 bg-surface-gray-1 rounded-lg cursor-pointer hover:bg-surface-gray-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none"
                    tabindex="0"
@@ -215,12 +235,13 @@
                 <div class="text-lg font-bold text-ink-gray-9">{{ sup.overall_score }}</div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No supplier performance data</div>
           </div>
 
           <!-- Needs Improvement -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Needs Improvement" :level="3" />
-            <div class="mt-4 space-y-3">
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Needs Improvement" :level="3" />
+            <div class="mt-4 space-y-3" v-if="supplierData.bottom_performers?.length">
               <div v-for="sup in supplierData.bottom_performers?.slice(0, 5)" :key="sup.supplier"
                    class="flex items-center gap-3 p-3 bg-surface-gray-1 rounded-lg cursor-pointer hover:bg-surface-gray-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none"
                    tabindex="0"
@@ -235,13 +256,14 @@
                 <div class="text-lg font-bold text-ink-gray-9">{{ sup.overall_score }}</div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No underperforming suppliers</div>
           </div>
         </div>
 
         <!-- All Suppliers Table -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader title="All Supplier Scores" :level="3" />
-          <div class="mt-4 overflow-x-auto">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" title="All Supplier Scores" :level="3" />
+          <div class="mt-4 overflow-x-auto" v-if="supplierData.all_suppliers?.length">
             <table class="min-w-full">
               <thead>
                 <tr class="bg-surface-gray-1">
@@ -282,6 +304,7 @@
               </tbody>
             </table>
           </div>
+          <div v-else class="text-center py-6 text-sm text-ink-gray-6">No supplier data available</div>
         </div>
       </div>
 
@@ -289,27 +312,36 @@
       <div v-if="activeTab === 'analytics'" class="space-y-6">
         <!-- Cycle Times -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">MR to PO</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ purchaseData.avg_mr_to_po_days || 0 }} days</div>
-            <div class="text-sm text-ink-gray-6">Average processing time</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">PO to GRN</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ purchaseData.avg_po_to_grn_days || 0 }} days</div>
-            <div class="text-sm text-ink-gray-6">Average delivery time</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">GRN to Invoice</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ purchaseData.avg_grn_to_invoice_days || 0 }} days</div>
-            <div class="text-sm text-ink-gray-6">Average invoice time</div>
-          </div>
+          <KpiCard
+            label="MR to PO"
+            :value="purchaseData.avg_mr_to_po_days"
+            unit=" days"
+            sublabel="Average processing time"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="PO to GRN"
+            :value="purchaseData.avg_po_to_grn_days"
+            unit=" days"
+            sublabel="Average delivery time"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="GRN to Invoice"
+            :value="purchaseData.avg_grn_to_invoice_days"
+            unit=" days"
+            sublabel="Average invoice time"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
         </div>
 
         <!-- PO Status Summary -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader title="Purchase Order Status" :level="3" />
-          <div class="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" title="Purchase Order Status" :level="3" />
+          <div class="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" v-if="purchaseData.po_status_summary?.length">
             <div v-for="status in purchaseData.po_status_summary" :key="status.status"
                  class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white">
               <Badge v-bind="severityBadge(poStatusSeverity(status.status))"
@@ -318,11 +350,12 @@
               <div class="text-sm text-ink-gray-6">{{ formatCurrency(status.value) }}</div>
             </div>
           </div>
+          <div v-else class="text-center py-6 text-sm text-ink-gray-6">No purchase order status data</div>
         </div>
 
         <!-- Monthly PO Trend -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader title="Monthly Purchase Order Trend" :level="3" />
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" title="Monthly Purchase Order Trend" :level="3" />
           <IntelligenceChart v-if="purchaseData.monthly_trend?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="monthlyPOConfig" />
           <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
             No purchase order data available
@@ -347,9 +380,9 @@
         </div>
 
         <!-- Pending POs -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader :title="`Pending Purchase Orders (${purchaseData.pending_count || 0})`" :level="3" />
-          <div class="mt-4 overflow-x-auto">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" :title="`Pending Purchase Orders (${purchaseData.pending_count || 0})`" :level="3" />
+          <div class="mt-4 overflow-x-auto" v-if="purchaseData.pending_pos?.length">
             <table class="min-w-full">
               <thead>
                 <tr class="bg-surface-gray-1">
@@ -381,6 +414,7 @@
               </tbody>
             </table>
           </div>
+          <div v-else class="text-center py-6 text-sm text-ink-gray-6">No pending purchase orders</div>
         </div>
       </div>
 
@@ -388,25 +422,32 @@
       <div v-if="activeTab === 'pricing'" class="space-y-6">
         <!-- Summary -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Items Analyzed</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ priceData.items_analyzed || 0 }}</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Items with Price Increases</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ priceData.price_increases?.length || 0 }}</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Potential Savings</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(priceData.total_potential_savings) }}</div>
-          </div>
+          <KpiCard
+            label="Items Analyzed"
+            :value="priceData.items_analyzed"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="Items with Price Increases"
+            :value="priceData.price_increases?.length"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="Potential Savings"
+            :amount="priceData.total_potential_savings"
+            :currency="baseCurrency"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Price Increases -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Recent Price Increases" :level="3" />
-            <div class="mt-4 space-y-3">
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Recent Price Increases" :level="3" />
+            <div class="mt-4 space-y-3" v-if="priceData.price_increases?.length">
               <div v-for="item in priceData.price_increases?.slice(0, 8)" :key="item.item_code"
                    class="p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
                 <div class="flex justify-between items-start">
@@ -426,12 +467,13 @@
                 </div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No price increases found</div>
           </div>
 
           <!-- Volatile Items -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="High Price Variance Items" :level="3" />
-            <div class="mt-4 space-y-3">
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="High Price Variance Items" :level="3" />
+            <div class="mt-4 space-y-3" v-if="priceData.volatile_items?.length">
               <div v-for="item in priceData.volatile_items?.slice(0, 8)" :key="item.item_code"
                    class="p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
                 <div class="flex justify-between items-start">
@@ -449,13 +491,14 @@
                 </div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No high-variance items found</div>
           </div>
         </div>
 
         <!-- Price Variance Table -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader title="Item Price Analysis" :level="3" />
-          <div class="mt-4 overflow-x-auto">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" title="Item Price Analysis" :level="3" />
+          <div class="mt-4 overflow-x-auto" v-if="priceData.price_variance_items?.length">
             <table class="min-w-full">
               <thead>
                 <tr class="bg-surface-gray-1">
@@ -489,16 +532,17 @@
               </tbody>
             </table>
           </div>
+          <div v-else class="text-center py-6 text-sm text-ink-gray-6">No price variance data available</div>
         </div>
       </div>
 
       <!-- Tab 5: Risk Analysis -->
       <div v-if="activeTab === 'risks'" class="space-y-6">
         <!-- Risk Score Card -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center justify-between">
             <div>
-              <SectionHeader title="Procurement Risk Score" hint="Lower is better" :level="3" />
+              <SectionHeader variant="caption" title="Procurement Risk Score" hint="Lower is better" :level="3" />
               <p class="text-sm text-ink-gray-6 mt-1">Based on concentration, single-source, and payment risks.</p>
             </div>
             <div class="text-center">
@@ -522,9 +566,9 @@
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Supplier Concentration -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Supplier Concentration Risk" :level="3" />
-            <div class="mt-4 space-y-3">
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Supplier Concentration Risk" :level="3" />
+            <div class="mt-4 space-y-3" v-if="riskData.supplier_concentration?.length">
               <div v-for="sup in riskData.supplier_concentration" :key="sup.supplier"
                    class="flex items-center gap-3 p-3 rounded-lg border border-outline-gray-1">
                 <div class="flex-1">
@@ -533,21 +577,22 @@
                 </div>
                 <div class="text-right">
                   <div class="text-lg font-bold text-ink-gray-9">{{ sup.concentration_pct }}%</div>
-                  <Badge v-bind="severityBadge(sup.risk_level === 'High' ? 'high' : sup.risk_level === 'Medium' ? 'medium' : 'none')"
+                  <Badge v-bind="severityBadge(prioritySeverity(sup.risk_level))"
                          :label="sup.risk_level" size="sm" />
                 </div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No supplier concentration data</div>
           </div>
 
           <!-- Single Source Items -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Single Source Items" :level="3" />
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Single Source Items" :level="3" />
             <p class="text-sm text-ink-gray-6 mt-1 mb-4">
               {{ riskData.single_source_count || 0 }} items with only one supplier
               ({{ formatCurrency(riskData.single_source_value) }} total spend)
             </p>
-            <div class="space-y-2 max-h-64 overflow-auto">
+            <div class="space-y-2 max-h-64 overflow-auto" v-if="riskData.single_source_items?.length">
               <div v-for="item in riskData.single_source_items?.slice(0, 10)" :key="item.item_code"
                    class="flex items-center justify-between p-2 bg-surface-gray-1 rounded">
                 <div>
@@ -557,28 +602,30 @@
                 <div class="text-sm font-medium text-ink-gray-9">{{ formatCurrency(item.total_spend) }}</div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No single-source items found</div>
           </div>
         </div>
 
         <!-- Payment Exposure -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader :title="`Payment Exposure (${formatCurrency(riskData.total_outstanding)} outstanding)`" :level="3" />
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" :title="`Payment Exposure (${formatCurrency(riskData.total_outstanding)} outstanding)`" :level="3" />
           <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <h4 class="font-medium text-ink-gray-7 mb-3">Outstanding by Supplier</h4>
-              <div class="space-y-2">
+              <div class="space-y-2" v-if="riskData.payment_exposure?.length">
                 <div v-for="pay in riskData.payment_exposure?.slice(0, 8)" :key="pay.supplier"
                      class="flex items-center justify-between p-2 bg-surface-gray-1 rounded">
                   <span class="text-sm text-ink-gray-9">{{ pay.supplier_name || pay.supplier }}</span>
                   <span class="text-sm font-medium text-ink-gray-9">{{ formatCurrency(pay.outstanding) }}</span>
                 </div>
               </div>
+              <div v-else class="text-center py-6 text-sm text-ink-gray-6">No outstanding payments</div>
             </div>
             <div>
               <h4 class="font-medium text-ink-gray-7 mb-3">
                 Overdue Invoices ({{ riskData.overdue_count || 0 }})
               </h4>
-              <div class="space-y-2 max-h-48 overflow-auto">
+              <div class="space-y-2 max-h-48 overflow-auto" v-if="riskData.overdue_invoices?.length">
                 <div v-for="inv in riskData.overdue_invoices?.slice(0, 8)" :key="inv.name"
                      class="flex items-center justify-between p-2 bg-surface-gray-1 rounded">
                   <div>
@@ -595,6 +642,7 @@
                   </div>
                 </div>
               </div>
+              <div v-else class="text-center py-6 text-sm text-ink-gray-6">No overdue invoices</div>
             </div>
           </div>
         </div>
@@ -604,21 +652,27 @@
       <div v-if="activeTab === 'forecasts'" class="space-y-6">
         <!-- Forecast Summary -->
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Avg Monthly Spend</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(forecastData.avg_monthly_spend) }}</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Trend Direction</div>
-            <div class="text-2xl font-bold text-ink-gray-9">
-              {{ forecastData.trend_direction === 'up' ? 'Increasing' : 'Decreasing' }}
-            </div>
-            <div class="text-sm text-ink-gray-6">{{ formatCurrency(forecastData.trend_amount) }}/month</div>
-          </div>
-          <div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-            <div class="text-sm text-ink-gray-6">Data Points</div>
-            <div class="text-2xl font-bold text-ink-gray-9">{{ forecastData.historical?.length || 0 }} months</div>
-          </div>
+          <KpiCard
+            label="Avg Monthly Spend"
+            :amount="forecastData.avg_monthly_spend"
+            :currency="baseCurrency"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="Trend Direction"
+            :value="forecastData.trend_direction === 'up' ? 'Increasing' : 'Decreasing'"
+            :sublabel="forecastData.trend_amount ? `${formatCurrency(forecastData.trend_amount)}/month` : undefined"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
+          <KpiCard
+            label="Data Points"
+            :value="forecastData.historical?.length"
+            unit=" months"
+            variant="tile"
+            :loading="loading && !hasData"
+          />
         </div>
 
         <div v-if="forecastData.status === 'insufficient_data'" class="bg-surface-gray-1 border border-outline-gray-2 rounded-lg p-4">
@@ -627,9 +681,9 @@
 
         <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Spend Forecast -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="3-Month Spend Forecast" :level="3" />
-            <div class="mt-4 space-y-4">
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="3-Month Spend Forecast" :level="3" />
+            <div class="mt-4 space-y-4" v-if="forecastData.forecasts?.length">
               <div v-for="forecast in forecastData.forecasts" :key="forecast.period"
                    class="flex items-center gap-4 p-4 bg-surface-gray-1 rounded-lg">
                 <div class="flex-1">
@@ -641,12 +695,13 @@
                 </div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No forecast data available</div>
           </div>
 
           <!-- Category Forecast -->
-          <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-            <SectionHeader title="Category-wise 3M Forecast" :level="3" />
-            <div class="mt-4 space-y-3">
+          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+            <SectionHeader variant="caption" title="Category-wise 3M Forecast" :level="3" />
+            <div class="mt-4 space-y-3" v-if="forecastData.category_forecast?.length">
               <div v-for="cat in forecastData.category_forecast" :key="cat.category"
                    class="flex items-center justify-between p-3 bg-surface-gray-1 rounded-lg">
                 <div>
@@ -658,12 +713,13 @@
                 </div>
               </div>
             </div>
+            <div v-else class="text-center py-6 text-sm text-ink-gray-6">No category forecast data</div>
           </div>
         </div>
 
         <!-- Historical Trend -->
-        <div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-          <SectionHeader title="Historical Spend Pattern" :level="3" />
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" title="Historical Spend Pattern" :level="3" />
           <IntelligenceChart v-if="forecastData.historical?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="historicalSpendConfig" />
           <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
             No historical data available
@@ -686,6 +742,7 @@
         </div>
       </div>
     </div>
+    </IntelligenceDashboardShell>
 
     <!-- AI Chat Button -->
     <DashboardChatButton
@@ -717,19 +774,22 @@ import IntelligenceChart from '../intelligence/components/IntelligenceChart.vue'
 defineOptions({ name: 'ProcurementIntelligence' })
 import { ref, computed, onMounted } from 'vue'
 import { Button, Badge, Tabs, createResource } from 'frappe-ui'
+import { RefreshCcw } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import {
   scoreSeverity, severityBadge, severityFill, severityAria,
-  deltaInk, deltaGlyph, type Severity,
+  deltaInk, deltaGlyph, prioritySeverity, type Severity,
 } from '../utils/status'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
 import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
+import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { themeColor } from '../utils/chartTheme'
-import { formatDate, NO_VALUE } from '../utils/format'
+import { formatDate, formatMoney, NO_VALUE } from '../utils/format'
 import { formatPeriod } from '../components/financial/format'
+import { readFrappeError } from '../helpers/api'
 
 
 /** One month of spend trend from procurement_intelligence. */
@@ -905,6 +965,7 @@ const hasData = computed(() => fetched.value)
  * whole page rendered zeros and empty tables as though they were findings.
  */
 const dataError = ref<string | null>(null)
+const isPermissionError = ref(false)
 
 // Summary computed
 const summary = computed(() => ({
@@ -932,18 +993,22 @@ const procurementResource = createResource({
       forecastData.value = (data.forecasts as ForecastData) || {}
       lastUpdated.value = (data.generated_at as string) || null
       dataError.value = null
+      isPermissionError.value = false
       if (data.base_currency) {
         baseCurrency.value = data.base_currency as string
       }
     } else {
       dataError.value = (data.message as string) || 'Procurement data could not be loaded'
+      isPermissionError.value = false
     }
     fetched.value = true
     loading.value = false
   },
   onError(err: unknown) {
+    const { permission, message } = readFrappeError(err, 'Procurement data could not be loaded')
     console.error('Procurement Intelligence error:', err)
-    dataError.value = 'Procurement data could not be loaded'
+    dataError.value = message
+    isPermissionError.value = permission
     fetched.value = true
     loading.value = false
   },
@@ -960,19 +1025,7 @@ onMounted(() => {
 })
 
 // Formatting helpers
-const formatCurrency = (value: number | undefined) => {
-  // Absent is not zero: this returned `${baseCurrency.value} 0`, reporting zero money
-  // for a field the server never sent. Notation is unchanged -- exact
-  // `en-KE` grouping is a deliberate choice for this surface, and
-  // switching it is a separate product decision.
-  if (value === null || value === undefined) return NO_VALUE
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: baseCurrency.value,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value)
-}
+const formatCurrency = (value: number | undefined) => formatMoney(value, baseCurrency.value)
 
 
 

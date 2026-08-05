@@ -9,7 +9,7 @@
 
       <!-- Sensitivity Matrix -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Net Profit Sensitivity Matrix" :level="3">
+        <SectionHeader variant="caption" title="Net Profit Sensitivity Matrix" :level="3">
           <template #actions>
             <Grid3x3 class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -73,11 +73,11 @@
         <!-- Heatmap legend: swatch + text -->
         <div class="mt-4 flex items-center gap-4 text-xs text-ink-gray-6" aria-hidden="true">
           <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded bg-surface-green-3"></div>
+            <div class="w-4 h-4 rounded bg-pos-fill"></div>
             <span>Positive (Profit)</span>
           </div>
           <div class="flex items-center gap-2">
-            <div class="w-4 h-4 rounded bg-surface-red-5"></div>
+            <div class="w-4 h-4 rounded bg-neg-fill"></div>
             <span>Negative (Loss)</span>
           </div>
         </div>
@@ -85,7 +85,7 @@
 
       <!-- Predefined Scenarios: neutral cards with text labels (identity not severity) -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Predefined Business Scenarios" :level="3">
+        <SectionHeader variant="caption" title="Predefined Business Scenarios" :level="3">
           <template #actions>
             <GitBranch class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -176,36 +176,36 @@
 
       <!-- Break-Even Analysis -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Break-Even Analysis" :level="3">
+        <SectionHeader variant="caption" title="Break-Even Analysis" :level="3">
           <template #actions>
             <Scale class="h-5 w-5 text-ink-gray-5" />
           </template>
         </SectionHeader>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mt-4">
-          <div class="text-center p-4 bg-surface-gray-1 rounded-lg">
-            <p class="text-sm text-ink-gray-6 mb-1">Break-Even Revenue</p>
-            <p class="text-xl font-bold text-ink-gray-9">
-              {{ formatCurrency(data?.break_even?.revenue || 0) }}
-            </p>
-          </div>
-          <div class="text-center p-4 bg-surface-gray-1 rounded-lg">
-            <p class="text-sm text-ink-gray-6 mb-1">Current Revenue</p>
-            <p class="text-xl font-bold text-ink-gray-9">
-              {{ formatCurrency(data?.break_even?.current_revenue || 0) }}
-            </p>
-          </div>
-          <div class="text-center p-4 bg-surface-gray-1 rounded-lg">
-            <p class="text-sm text-ink-gray-6 mb-1">Margin of Safety</p>
-            <p class="text-xl font-bold text-ink-gray-9">
-              {{ data?.break_even?.margin_of_safety?.toFixed(1) || 0 }}%
-            </p>
-          </div>
-          <div class="text-center p-4 bg-surface-gray-1 rounded-lg">
-            <p class="text-sm text-ink-gray-6 mb-1">Contribution Margin</p>
-            <p class="text-xl font-bold text-ink-gray-9">
-              {{ data?.break_even?.contribution_margin?.toFixed(1) || 0 }}%
-            </p>
-          </div>
+          <KpiCard
+            label="Break-Even Revenue"
+            :amount="data?.break_even?.revenue"
+            :currency="getCurrency()"
+            variant="tile"
+          />
+          <KpiCard
+            label="Current Revenue"
+            :amount="data?.break_even?.current_revenue"
+            :currency="getCurrency()"
+            variant="tile"
+          />
+          <KpiCard
+            label="Margin of Safety"
+            :value="data?.break_even?.margin_of_safety?.toFixed(1)"
+            unit="%"
+            variant="tile"
+          />
+          <KpiCard
+            label="Contribution Margin"
+            :value="data?.break_even?.contribution_margin?.toFixed(1)"
+            unit="%"
+            variant="tile"
+          />
         </div>
       </div>
     </div>
@@ -215,7 +215,7 @@
 
       <!-- Simulation Summary -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Monte Carlo Simulation Results" :level="3">
+        <SectionHeader variant="caption" title="Monte Carlo Simulation Results" :level="3">
           <template #actions>
             <Dices class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -224,28 +224,37 @@
           Based on {{ data?.monte_carlo?.simulations || 1000 }} simulations with random revenue (+/-20%) and expense (+/-15%) variations.
         </p>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div class="p-4 bg-surface-gray-1 rounded-lg text-center">
-            <p class="text-sm text-ink-gray-6 mb-1">Mean Net Profit</p>
-            <p class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data?.monte_carlo?.mean || 0) }}</p>
-          </div>
-          <div class="p-4 bg-surface-gray-1 rounded-lg text-center">
-            <p class="text-sm text-ink-gray-6 mb-1">Std Deviation</p>
-            <p class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data?.monte_carlo?.std || 0) }}</p>
-          </div>
-          <div class="p-4 bg-surface-gray-1 rounded-lg text-center">
-            <p class="text-sm text-ink-gray-6 mb-1">Minimum</p>
-            <p class="text-xl font-bold text-ink-red-4">{{ formatCurrency(data?.monte_carlo?.min || 0) }}</p>
-          </div>
-          <div class="p-4 bg-surface-gray-1 rounded-lg text-center">
-            <p class="text-sm text-ink-gray-6 mb-1">Maximum</p>
-            <p class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data?.monte_carlo?.max || 0) }}</p>
-          </div>
+          <KpiCard
+            label="Mean Net Profit"
+            :amount="data?.monte_carlo?.mean"
+            :currency="getCurrency()"
+            variant="tile"
+          />
+          <KpiCard
+            label="Std Deviation"
+            :amount="data?.monte_carlo?.std"
+            :currency="getCurrency()"
+            variant="tile"
+          />
+          <KpiCard
+            label="Minimum"
+            :amount="data?.monte_carlo?.min"
+            :currency="getCurrency()"
+            severity="high"
+            variant="tile"
+          />
+          <KpiCard
+            label="Maximum"
+            :amount="data?.monte_carlo?.max"
+            :currency="getCurrency()"
+            variant="tile"
+          />
         </div>
       </div>
 
       <!-- Percentile Distribution -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Probability Distribution" :level="3">
+        <SectionHeader variant="caption" title="Probability Distribution" :level="3">
           <template #actions>
             <BarChart3 class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -289,7 +298,7 @@
 
       <!-- Risk Probability Analysis -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Risk Probability Analysis" :level="3">
+        <SectionHeader variant="caption" title="Risk Probability Analysis" :level="3">
           <template #actions>
             <AlertTriangle class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -344,7 +353,7 @@
 </template>
 
 <script setup lang="ts">
-import { NO_VALUE } from '../../utils/format'
+import { NO_VALUE, formatMoney } from '../../utils/format'
 import { ref, computed, inject, isRef, type Ref } from 'vue'
 import {
   Sliders,
@@ -361,8 +370,9 @@ import {
   Shield,
 } from 'lucide-vue-next'
 import { Tabs, Badge } from 'frappe-ui'
-import { scoreSeverity, severityBadge, type BadgeSpec } from '../../utils/status'
+import { scoreSeverity, severityBadge, severityFill, type BadgeSpec } from '../../utils/status'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
+import KpiCard from '../../intelligence/components/KpiCard.vue'
 
 interface ScenarioEntry {
   revenue_change: number
@@ -433,19 +443,7 @@ const selectedView = computed(() => viewKeys[selectedViewIndex.value])
 const revenueChanges = [-30, -20, -10, 0, 10, 20, 30]
 const expenseChanges = [-20, -10, 0, 10, 20]
 
-const formatCurrency = (value: number) => {
-  // Absent is not zero: this returned `${getCurrency()} 0`, reporting zero money
-  // for a field the server never sent. Notation is unchanged -- exact
-  // `en-KE` grouping is a deliberate choice for this surface, and
-  // switching it is a separate product decision.
-  if (value === null || value === undefined) return NO_VALUE
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: getCurrency(),
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value)
-}
+const formatCurrency = (value: number | null | undefined) => formatMoney(value, getCurrency())
 
 const formatPercent = (value: number | null | undefined) => {
   if (value === null || value === undefined) return NO_VALUE
@@ -465,9 +463,9 @@ const getScenarioValue = (revenueChange: number, expenseChange: number): number 
 // Non-text surface fills for heatmap cells (>=3:1 on white).
 // Neutral cell for zero. Text inside each cell carries the number.
 const heatmapFill = (value: number): string => {
-  if (value > 0) return 'bg-surface-green-3'
-  if (value < 0) return 'bg-surface-red-5'
-  return 'bg-surface-gray-2'
+  if (value > 0) return severityFill('low')
+  if (value < 0) return severityFill('high')
+  return severityFill('none')
 }
 
 // Percentile bars use non-text fills; text label is always rendered
@@ -475,13 +473,13 @@ const percentiles = computed(() => {
   if (!props.data?.monte_carlo?.percentiles) return []
   const p = props.data.monte_carlo.percentiles
   return [
-    { label: '5th %ile', value: p.p5 || 0, fill: 'bg-surface-red-5' },
-    { label: '10th %ile', value: p.p10 || 0, fill: 'bg-surface-red-5' },
-    { label: '25th %ile', value: p.p25 || 0, fill: 'bg-surface-amber-3' },
-    { label: '50th %ile', value: p.p50 || 0, fill: 'bg-surface-blue-3' },
-    { label: '75th %ile', value: p.p75 || 0, fill: 'bg-surface-green-3' },
-    { label: '90th %ile', value: p.p90 || 0, fill: 'bg-surface-green-3' },
-    { label: '95th %ile', value: p.p95 || 0, fill: 'bg-surface-green-3' },
+    { label: '5th %ile', value: p.p5 || 0, fill: severityFill('high') },
+    { label: '10th %ile', value: p.p10 || 0, fill: severityFill('high') },
+    { label: '25th %ile', value: p.p25 || 0, fill: severityFill('medium') },
+    { label: '50th %ile', value: p.p50 || 0, fill: severityFill('none') },
+    { label: '75th %ile', value: p.p75 || 0, fill: severityFill('low') },
+    { label: '90th %ile', value: p.p90 || 0, fill: severityFill('low') },
+    { label: '95th %ile', value: p.p95 || 0, fill: severityFill('low') },
   ]
 })
 

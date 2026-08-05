@@ -16,10 +16,13 @@ from insights.ml.base import sanitize_for_json
 def get_procurement_insights() -> Dict[str, Any]:
     """Get procurement insights overview"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model.predict()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -28,10 +31,13 @@ def get_procurement_insights() -> Dict[str, Any]:
 def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
     """Get comprehensive procurement intelligence"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model.train() if refresh else model.predict()
         return sanitize_for_json(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -40,10 +46,13 @@ def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
 def train_procurement_intelligence() -> Dict[str, Any]:
     """Train procurement intelligence models"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model.train()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -52,10 +61,13 @@ def train_procurement_intelligence() -> Dict[str, Any]:
 def get_spend_overview() -> Dict[str, Any]:
     """Get procurement spend overview"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model._calculate_spend_overview()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -64,10 +76,13 @@ def get_spend_overview() -> Dict[str, Any]:
 def get_supplier_performance() -> Dict[str, Any]:
     """Get supplier performance analysis"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model._calculate_supplier_performance()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -76,10 +91,13 @@ def get_supplier_performance() -> Dict[str, Any]:
 def get_purchase_analytics() -> Dict[str, Any]:
     """Get purchase analytics"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model._analyze_purchase_cycles()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -88,10 +106,13 @@ def get_purchase_analytics() -> Dict[str, Any]:
 def get_price_intelligence() -> Dict[str, Any]:
     """Get price intelligence analysis"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model._calculate_price_intelligence()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -100,10 +121,13 @@ def get_price_intelligence() -> Dict[str, Any]:
 def get_procurement_risks() -> Dict[str, Any]:
     """Get procurement risk analysis"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model._assess_procurement_risks()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -112,10 +136,13 @@ def get_procurement_risks() -> Dict[str, Any]:
 def get_procurement_forecast() -> Dict[str, Any]:
     """Get procurement forecasting"""
     try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
         model = ProcurementIntelligence()
         result = model._generate_procurement_forecast()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 

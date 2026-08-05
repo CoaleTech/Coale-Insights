@@ -13,9 +13,9 @@ import { useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import {
   scoreSeverity, severityBadge, severityFill, severityAria,
-  ragSeverity, deltaInk, deltaGlyph, type Severity,
+  ragSeverity, deltaInk, deltaGlyph, prioritySeverity, type Severity,
 } from '../utils/status'
-import { formatDate, formatCount, asNumber, NO_VALUE } from '../utils/format'
+import { formatDate, formatDateTime, formatCount, asNumber, NO_VALUE } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
@@ -34,6 +34,7 @@ const isLoading = ref(true)
 const isRefreshing = ref(false)
 const error = ref<string | null>(null)
 const data = ref<Record<string, unknown> | null>(null)
+const lastUpdated = ref('')
 const dateFilter = ref('12m')
 
 // Training state
@@ -79,6 +80,7 @@ async function loadData(refresh = false) {
       date_filter: dateFilter.value,
     })
     data.value = result
+    lastUpdated.value = new Date().toISOString()
   } catch (e: unknown) {
     error.value = (e instanceof Error ? e.message : String(e)) || 'Failed to load inventory intelligence'
   } finally {
@@ -97,6 +99,7 @@ async function trainInventoryIntelligence() {
     trainingStatus.value = 'Analysis complete'
     trainingSuccess.value = true
     data.value = result
+    lastUpdated.value = new Date().toISOString()
     createToast({
       title: 'Analysis Complete',
       message: `Analyzed ${(result.stock_overview as Record<string, unknown>)?.total_skus || 0} SKUs across ${(result.stock_overview as Record<string, unknown>)?.warehouse_count || 0} warehouses`,
@@ -275,6 +278,9 @@ function handleDashboardRedirect(target: string) {
         <h1 class="text-2xl font-bold text-ink-gray-9 mt-1">Inventory Intelligence</h1>
       </div>
       <div class="flex items-center gap-3">
+        <span v-if="lastUpdated" class="text-sm text-ink-gray-6">
+          Updated: {{ formatDateTime(lastUpdated) }}
+        </span>
         <IntelligenceDateFilter v-model="dateFilter" />
         <Button
           variant="subtle"
@@ -282,7 +288,7 @@ function handleDashboardRedirect(target: string) {
           @click="trainInventoryIntelligence"
         >
           <template #prefix><Activity class="w-4 h-4" /></template>
-          {{ isTraining ? 'Analyzing...' : 'Refresh Analysis' }}
+          {{ isTraining ? 'Retraining...' : 'Retrain Model' }}
         </Button>
         <Button
           variant="solid"
@@ -291,7 +297,7 @@ function handleDashboardRedirect(target: string) {
           aria-label="Refresh inventory data"
         >
           <template #prefix><RefreshCcw class="w-4 h-4" /></template>
-          Refresh
+          Refresh Data
         </Button>
       </div>
     </div>
@@ -365,19 +371,18 @@ function handleDashboardRedirect(target: string) {
       </div>
 
       <!-- Tabs -->
-      <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 mb-6">
-        <div class="border-b border-outline-gray-1 px-2">
-          <Tabs v-model="tabIndex" :tabs="tabDefs" />
-        </div>
+      <div class="mx-6">
+        <Tabs v-model="tabIndex" :tabs="tabDefs" />
+      </div>
 
-        <!-- Tab Content -->
-        <div class="p-6">
+      <!-- Tab Content -->
+      <div class="flex-1 p-6">
           <!-- Stock Overview Tab -->
           <div v-if="activeTab === 'overview'">
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Stock by Item Group -->
               <div>
-                <SectionHeader title="Stock Value by Item Group" :level="3" />
+                <SectionHeader variant="caption" title="Stock Value by Item Group" :level="3" />
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-gray-1">
@@ -406,18 +411,19 @@ function handleDashboardRedirect(target: string) {
 
               <!-- Dead Stock Summary -->
               <div>
-                <SectionHeader title="Dead Stock (No Sales 180+ Days)" :level="3" />
-                <div class="mt-4 bg-surface-gray-1 rounded-lg border border-outline-gray-2 p-4 mb-4">
-                  <div class="flex justify-between items-center">
-                    <div>
-                      <p class="text-sm text-ink-gray-6">Total Dead Stock Value</p>
-                      <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(deadStock.total_value as number) }}</p>
-                    </div>
-                    <div class="text-right">
-                      <p class="text-sm text-ink-gray-6">Items</p>
-                      <p class="text-xl font-bold text-ink-gray-9">{{ formatCount(deadStock.total_items as number) }}</p>
-                    </div>
-                  </div>
+                <SectionHeader variant="caption" title="Dead Stock (No Sales 180+ Days)" :level="3" />
+                <div class="mt-4 grid grid-cols-2 gap-4 mb-4">
+                  <KpiCard
+                    label="Total Dead Stock Value"
+                    :value="formatCurrency(deadStock.total_value as number)"
+                    severity="high"
+                    variant="tile"
+                  />
+                  <KpiCard
+                    label="Items"
+                    :value="formatCount(deadStock.total_items as number)"
+                    variant="tile"
+                  />
                 </div>
                 <div class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
@@ -476,7 +482,7 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Turnover by Product Group -->
               <div>
-                <SectionHeader title="Turnover by Product Group" :level="3" />
+                <SectionHeader variant="caption" title="Turnover by Product Group" :level="3" />
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-gray-1">
@@ -507,7 +513,7 @@ function handleDashboardRedirect(target: string) {
               <div class="space-y-6">
                 <!-- Fast Moving -->
                 <div>
-                  <SectionHeader title="Fast Moving Items (90d)" :level="3" />
+                  <SectionHeader variant="caption" title="Fast Moving Items (90d)" :level="3" />
                   <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
                       <thead class="bg-surface-gray-1">
@@ -537,7 +543,7 @@ function handleDashboardRedirect(target: string) {
 
                 <!-- Slow Moving -->
                 <div>
-                  <SectionHeader title="Slow Moving Items (90d)" :level="3" />
+                  <SectionHeader variant="caption" title="Slow Moving Items (90d)" :level="3" />
                   <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
                       <thead class="bg-surface-gray-1">
@@ -590,7 +596,7 @@ function handleDashboardRedirect(target: string) {
               <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <!-- ABC/XYZ Matrix -->
                 <div>
-                  <SectionHeader title="ABC/XYZ Classification Matrix" :level="3"
+                  <SectionHeader variant="caption" title="ABC/XYZ Classification Matrix" :level="3"
                                  :hint="`${formatCount(abcXyz.total_items as number)} items, ${formatDate(abcXyz.classification_date as string)}`" />
                   <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
@@ -623,7 +629,7 @@ function handleDashboardRedirect(target: string) {
                   </div>
 
                   <!-- ABC Summary -->
-                  <SectionHeader title="ABC Summary (by Value)" :level="4" class="mt-6 mb-3" />
+                  <SectionHeader variant="caption" title="ABC Summary (by Value)" :level="4" class="mt-6 mb-3" />
                   <div class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
                       <thead class="bg-surface-gray-1">
@@ -652,7 +658,7 @@ function handleDashboardRedirect(target: string) {
 
                 <!-- Top Items with Strategy -->
                 <div>
-                  <SectionHeader title="Top Items with Strategy Recommendations" :level="3" />
+                  <SectionHeader variant="caption" title="Top Items with Strategy Recommendations" :level="3" />
                   <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden max-h-[600px] overflow-y-auto">
                     <table class="w-full text-sm">
                       <thead class="bg-surface-gray-1 sticky top-0">
@@ -779,7 +785,7 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Age Buckets Visual -->
               <div>
-                <SectionHeader title="Stock Age Distribution (FIFO)" :level="3" />
+                <SectionHeader variant="caption" title="Stock Age Distribution (FIFO)" :level="3" />
                 <div class="mt-4 space-y-3">
                   <div
                     v-for="(bucket, name) in agingAnalysis.age_buckets as Record<string, { value: number; count: number }>"
@@ -812,7 +818,7 @@ function handleDashboardRedirect(target: string) {
 
               <!-- Aging by Product Group -->
               <div>
-                <SectionHeader title="Average Age by Product Group" :level="3" />
+                <SectionHeader variant="caption" title="Average Age by Product Group" :level="3" />
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-gray-1">
@@ -847,7 +853,7 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Oldest Items -->
             <div class="mt-6">
-              <SectionHeader title="Oldest Stock Items" :level="3" />
+              <SectionHeader variant="caption" title="Oldest Stock Items" :level="3" />
               <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                 <table class="w-full text-sm">
                   <thead class="bg-surface-gray-1">
@@ -886,7 +892,7 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Warehouse Stock -->
               <div>
-                <SectionHeader title="Stock by Warehouse" :level="3" />
+                <SectionHeader variant="caption" title="Stock by Warehouse" :level="3" />
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-gray-1">
@@ -927,20 +933,22 @@ function handleDashboardRedirect(target: string) {
 
                 <!-- Summary -->
                 <div class="mt-4 grid grid-cols-2 gap-4">
-                  <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
-                    <p class="text-sm text-ink-gray-6">Total Warehouses</p>
-                    <p class="text-2xl font-bold text-ink-gray-9">{{ warehouseAnalysis.total_warehouses }}</p>
-                  </div>
-                  <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
-                    <p class="text-sm text-ink-gray-6">Total Stock Value</p>
-                    <p class="text-2xl font-bold text-ink-gray-9">{{ formatCurrency(warehouseAnalysis.total_stock_value as number) }}</p>
-                  </div>
+                  <KpiCard
+                    label="Total Warehouses"
+                    :value="asNumber(warehouseAnalysis.total_warehouses)"
+                    variant="tile"
+                  />
+                  <KpiCard
+                    label="Total Stock Value"
+                    :value="formatCurrency(warehouseAnalysis.total_stock_value as number)"
+                    variant="tile"
+                  />
                 </div>
               </div>
 
               <!-- Transfer Recommendations -->
               <div>
-                <SectionHeader title="Transfer Recommendations" :level="3"
+                <SectionHeader variant="caption" title="Transfer Recommendations" :level="3"
                                hint="Suggested transfers to balance inventory" />
                 <div v-if="(transferRecommendations as unknown[]).length > 0" class="mt-4 space-y-3">
                   <div
@@ -953,10 +961,8 @@ function handleDashboardRedirect(target: string) {
                             :title="(rec as Record<string, unknown>).item_name as string">
                         {{ (rec as Record<string, unknown>).item_code }}
                       </span>
-                      <Badge v-bind="severityBadge(
-                        (rec as Record<string, unknown>).priority === 'High' ? 'high' :
-                        (rec as Record<string, unknown>).priority === 'Medium' ? 'medium' : 'none'
-                      )" :label="(rec as Record<string, unknown>).priority as string" size="sm" />
+                      <Badge v-bind="severityBadge(prioritySeverity((rec as Record<string, unknown>).priority as string))"
+                        :label="(rec as Record<string, unknown>).priority as string" size="sm" />
                     </div>
                     <div class="flex items-center gap-2 text-sm text-ink-gray-6">
                       <span class="truncate max-w-[100px]"
@@ -985,7 +991,7 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Multi-Warehouse Items -->
             <div class="mt-6">
-              <SectionHeader title="Items in Multiple Warehouses" :level="3" />
+              <SectionHeader variant="caption" title="Items in Multiple Warehouses" :level="3" />
               <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                 <table class="w-full text-sm">
                   <thead class="bg-surface-gray-1">
@@ -1026,7 +1032,7 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Supplier Performance -->
               <div>
-                <SectionHeader title="Supplier Performance (12m)" :level="3" />
+                <SectionHeader variant="caption" title="Supplier Performance (12m)" :level="3" />
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-gray-1">
@@ -1063,7 +1069,7 @@ function handleDashboardRedirect(target: string) {
 
               <!-- Reorder Needed -->
               <div>
-                <SectionHeader title="Items Needing Reorder" :level="3">
+                <SectionHeader variant="caption" title="Items Needing Reorder" :level="3">
                   <template #actions>
                     <Badge v-bind="severityBadge(scoreSeverity(procurementInsights.reorder_count as number, { good: 0, warn: 5, higherIsBetter: false }))"
                            :label="String(procurementInsights.reorder_count)" size="sm" />
@@ -1103,7 +1109,7 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Pending Orders -->
             <div class="mt-6">
-              <SectionHeader title="Pending Purchase Orders" :level="3">
+              <SectionHeader variant="caption" title="Pending Purchase Orders" :level="3">
                 <template #actions>
                   <Badge v-bind="severityBadge(scoreSeverity(procurementInsights.pending_orders_count as number, { good: 0, warn: 10, higherIsBetter: false }))"
                          :label="String(procurementInsights.pending_orders_count)" size="sm" />
@@ -1148,7 +1154,7 @@ function handleDashboardRedirect(target: string) {
 
             <!-- Demand Planning Integration -->
             <div v-if="demandPlanning" class="mt-6">
-              <SectionHeader title="Demand Planning Summary" :level="3" />
+              <SectionHeader variant="caption" title="Demand Planning Summary" :level="3" />
               <div class="mt-4 grid grid-cols-4 gap-4 mb-4">
                 <KpiCard label="Total Items"
                          :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.total_items)" />
@@ -1164,7 +1170,6 @@ function handleDashboardRedirect(target: string) {
             </div>
           </div>
         </div>
-      </div>
     </div>
     </IntelligenceDashboardShell>
 

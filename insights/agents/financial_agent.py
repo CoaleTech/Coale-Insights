@@ -105,17 +105,17 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
         return ratios
     
     def _extract_tax_status(self, context: Dict) -> Dict:
-        """Extract tax compliance status (KRA focus)"""
+        """Extract tax compliance status (GST/TDS focus)"""
         tax = {}
         
-        if "vat_status" in context:
-            tax["vat"] = context["vat_status"]
+        if "gst_status" in context:
+            tax["gst"] = context["gst_status"]
         if "tax_payable" in context:
             tax["payable"] = context["tax_payable"]
-        if "kra_compliance" in context:
-            tax["kra"] = context["kra_compliance"]
+        if "gst_compliance" in context:
+            tax["gst_compliance"] = context["gst_compliance"]
         if "withholding_tax" in context:
-            tax["withholding"] = context["withholding_tax"]
+            tax["tds"] = context["withholding_tax"]
         
         return tax
     
@@ -133,7 +133,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
 - Cash flow forecasting and management
 - Accounts receivable and payable analysis
 - Financial ratio analysis (liquidity, profitability, efficiency)
-- Tax compliance including KRA VAT (16% in Kenya)
+- Tax compliance including India GST (CGST/SGST/IGST) and TDS
 - Budget variance analysis
 - Working capital management
 
@@ -146,7 +146,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
 - Identify areas of financial concern or opportunity
 - Suggest strategies for improving financial performance
 - Explain financial metrics in business terms
-- Consider tax implications (especially KRA VAT at 16%)
+- Consider tax implications (GST rates, TDS sections, filing deadlines)
 - Highlight cash flow risks and opportunities
 - Use markdown formatting with bullet points for clarity
 
@@ -176,7 +176,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
             },
             {
                 "label": "🧾 Tax Compliance",
-                "prompt_template": "What is our tax compliance status, especially for KRA VAT? Any pending obligations?",
+                "prompt_template": "What is our GST and TDS compliance status? Any pending GSTR-1/GSTR-3B filings or obligations?",
                 "icon": "file-check"
             },
             {
@@ -190,7 +190,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
         """Get default routing keywords for financial queries"""
         return [
             "profit", "loss", "p&l", "cash flow", "receivable", "payable",
-            "liquidity", "margin", "budget", "tax", "vat", "kra",
+            "liquidity", "margin", "budget", "tax", "gst", "tds", "gstr",
             "ratio", "revenue", "expense", "income", "balance sheet",
             "working capital", "forex", "currency"
         ]

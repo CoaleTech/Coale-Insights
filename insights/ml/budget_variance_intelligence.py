@@ -47,7 +47,11 @@ class BudgetVarianceIntelligence:
         self.company = company or frappe.defaults.get_user_default("Company")
         self.fiscal_year = fiscal_year or frappe.defaults.get_user_default("fiscal_year")
         self.budget_period = budget_period
-        self.base_currency = frappe.db.get_value("Company", self.company, "default_currency") or "KES"
+        self.base_currency = (
+            frappe.db.get_value("Company", self.company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
         
         # Get fiscal year dates
         fy_doc = frappe.get_doc("Fiscal Year", self.fiscal_year)

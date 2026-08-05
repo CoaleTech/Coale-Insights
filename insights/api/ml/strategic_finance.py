@@ -15,8 +15,11 @@ from insights.api.response import success, error
 def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
     """Get strategic finance intelligence analysis"""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.strategic_finance_intelligence import run_strategic_finance_intelligence
         return run_strategic_finance_intelligence(refresh=refresh)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -25,11 +28,14 @@ def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12
 def get_budget_variance_overview(company: str = None, fiscal_year: str = None) -> Dict[str, Any]:
     """Get budget variance overview"""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.budget_variance_intelligence import BudgetVarianceIntelligence
-
+    
         model = BudgetVarianceIntelligence()
         result = model.get_budget_variance_overview()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 

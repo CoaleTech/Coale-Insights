@@ -9,7 +9,7 @@ import {
   severityBadge, severityFill, severityAria, scoreSeverity, ragSeverity,
   prioritySeverity, type Severity,
 } from '../utils/status'
-import { formatCount, formatDateTime } from '../utils/format'
+import { formatCount, formatPercent, formatDateTime } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
@@ -74,18 +74,18 @@ interface BottleneckAnalysis {
   total_improvement_hours?: number
 }
 
-/** Workstation row from _analyze_workstations. Python returns utilization_pct; the template
- *  also uses efficiency_pct / total_jobs / completed_jobs which are not in the Python source
- *  and will simply be undefined at runtime (guarded with || 0 in the template). */
+/** Workstation row from `_analyze_workstations` (insights/ml/manufacturing_intelligence.py:298-328).
+ *  Confirmed against source: only these 5 fields are ever returned. The template
+ *  previously also rendered efficiency_pct/total_jobs/completed_jobs, which the
+ *  backend never sends -- every workstation showed a confident 0% efficiency
+ *  badge and "0/0 jobs" regardless of real performance. Fixed to use the real
+ *  utilization_pct/capacity_hours/utilized_hours/status fields instead. */
 interface WorkstationRow {
   workstation?: string
   utilization_pct?: number
   capacity_hours?: number
   utilized_hours?: number
   status?: string
-  efficiency_pct?: number   // [INFERENCE] not in Python source; template falls back to 0
-  total_jobs?: number       // [INFERENCE] not in Python source; template falls back to 0
-  completed_jobs?: number   // [INFERENCE] not in Python source; template falls back to 0
 }
 
 interface WorkstationPerformanceSection {
@@ -184,9 +184,9 @@ function oeeSeverity(score: number | undefined): Severity {
  * 70-89% as medium (operating range), >= 90% as critical (overloaded).
  */
 function utilizationSeverity(pct: number | undefined): Severity {
-  const p = pct ?? 0
-  if (p >= 90) return 'critical'
-  if (p >= 70) return 'medium'
+  if (pct === undefined || pct === null || Number.isNaN(pct)) return 'none'
+  if (pct >= 90) return 'critical'
+  if (pct >= 70) return 'medium'
   return 'low'
 }
 
@@ -329,7 +329,7 @@ onMounted(() => {
           label="Work Orders"
           :value="productionMetrics.completed_orders"
           :loading="!hasData"
-          :sublabel="hasData ? `of ${productionMetrics.total_work_orders || 0} total` : undefined"
+          :sublabel="hasData ? `of ${formatCount(productionMetrics.total_work_orders)} total` : undefined"
           :clickable="true"
           @click="drillDown.open(MFG_ENDPOINT, 'Work Orders', { metric: 'completed_work_orders' })"
         />
@@ -348,15 +348,15 @@ onMounted(() => {
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Production Summary -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Production Summary" :level="3" />
+              <SectionHeader variant="caption" title="Production Summary" :level="3" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Total Work Orders</span>
-                  <span class="font-semibold text-ink-gray-8">{{ productionMetrics.total_work_orders || 0 }}</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(productionMetrics.total_work_orders) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Completed Orders</span>
-                  <span class="font-semibold text-ink-gray-8">{{ productionMetrics.completed_orders || 0 }}</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatCount(productionMetrics.completed_orders) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Total Production Qty</span>
@@ -365,24 +365,24 @@ onMounted(() => {
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Monthly Growth Rate</span>
                   <span class="font-semibold text-ink-gray-8">
-                    {{ (productionMetrics.monthly_growth_rate || 0) >= 0 ? '+' : '' }}{{ productionMetrics.monthly_growth_rate || 0 }}%
+                    {{ productionMetrics.monthly_growth_rate !== undefined && productionMetrics.monthly_growth_rate !== null && productionMetrics.monthly_growth_rate >= 0 ? '+' : '' }}{{ formatPercent(productionMetrics.monthly_growth_rate) }}
                   </span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Completion Rate</span>
-                  <span class="font-semibold text-ink-gray-8">{{ productionMetrics.completion_rate_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(productionMetrics.completion_rate_pct) }}</span>
                 </div>
               </div>
             </div>
 
             <!-- OEE Quick View -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="OEE Quick View" :level="3" />
+              <SectionHeader variant="caption" title="OEE Quick View" :level="3" />
               <div class="space-y-4 mt-4">
                 <div>
                   <div class="flex justify-between text-sm mb-1">
                     <span class="text-ink-gray-6">Availability</span>
-                    <span class="font-medium text-ink-gray-8">{{ oeeAnalysis.availability_pct || 0 }}%</span>
+                    <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.availability_pct) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-2">
                     <div
@@ -397,7 +397,7 @@ onMounted(() => {
                 <div>
                   <div class="flex justify-between text-sm mb-1">
                     <span class="text-ink-gray-6">Performance</span>
-                    <span class="font-medium text-ink-gray-8">{{ oeeAnalysis.performance_pct || 0 }}%</span>
+                    <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.performance_pct) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-2">
                     <div
@@ -412,7 +412,7 @@ onMounted(() => {
                 <div>
                   <div class="flex justify-between text-sm mb-1">
                     <span class="text-ink-gray-6">Quality</span>
-                    <span class="font-medium text-ink-gray-8">{{ oeeAnalysis.quality_pct || 0 }}%</span>
+                    <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.quality_pct) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-2">
                     <div
@@ -427,7 +427,7 @@ onMounted(() => {
                 <div class="pt-2 border-t border-outline-gray-1">
                   <div class="flex justify-between text-sm mb-1">
                     <span class="font-medium text-ink-gray-7">Overall OEE</span>
-                    <span class="font-bold text-ink-gray-9">{{ oeeAnalysis.oee_score_pct || 0 }}%</span>
+                    <span class="font-bold text-ink-gray-9">{{ formatPercent(oeeAnalysis.oee_score_pct) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-3">
                     <div
@@ -444,11 +444,11 @@ onMounted(() => {
 
             <!-- Efficiency Metrics -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Efficiency Metrics" :level="3" />
+              <SectionHeader variant="caption" title="Efficiency Metrics" :level="3" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Average Efficiency</span>
-                  <span class="font-semibold text-ink-gray-8">{{ efficiencyMetrics.average_efficiency_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(efficiencyMetrics.average_efficiency_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Consistency Rating</span>
@@ -459,23 +459,23 @@ onMounted(() => {
 
             <!-- Capacity at a Glance -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Capacity at a Glance" :level="3" />
+              <SectionHeader variant="caption" title="Capacity at a Glance" :level="3" />
               <div class="space-y-3 mt-4">
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Overall Utilization</span>
                   <span class="font-semibold text-ink-gray-8">
-                    {{ capacityUtilization.overall_utilization_pct || 0 }}%
+                    {{ formatPercent(capacityUtilization.overall_utilization_pct) }}
                   </span>
                 </div>
                 <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                   <span class="text-sm text-ink-gray-6">Available Capacity</span>
-                  <span class="font-semibold text-ink-gray-8">{{ capacityUtilization.available_capacity_pct || 0 }}%</span>
+                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(capacityUtilization.available_capacity_pct) }}</span>
                 </div>
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Bottlenecks Identified</span>
                   <Badge
-                    v-bind="severityBadge((bottleneckAnalysis.bottleneck_count || 0) > 0 ? 'critical' : 'low')"
-                    :label="String(bottleneckAnalysis.bottleneck_count || 0)"
+                    v-bind="severityBadge((bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'critical' : bottleneckAnalysis.bottleneck_count === undefined ? 'none' : 'low')"
+                    :label="formatCount(bottleneckAnalysis.bottleneck_count)"
                     size="sm"
                   />
                 </div>
@@ -489,11 +489,11 @@ onMounted(() => {
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- OEE Score Breakdown -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="OEE Score Breakdown" :level="3" />
+              <SectionHeader variant="caption" title="OEE Score Breakdown" :level="3" />
               <div class="flex items-center justify-center mt-4 mb-6">
                 <div class="text-center">
                   <div class="text-6xl font-bold mb-2 text-ink-gray-9">
-                    {{ oeeAnalysis.oee_score_pct || 0 }}%
+                    {{ formatPercent(oeeAnalysis.oee_score_pct) }}
                   </div>
                   <div class="text-lg font-medium text-ink-gray-6">Overall OEE</div>
                   <Badge
@@ -508,7 +508,7 @@ onMounted(() => {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Availability</span>
-                    <span class="text-ink-gray-8">{{ oeeAnalysis.availability_pct || 0 }}%</span>
+                    <span class="text-ink-gray-8">{{ formatPercent(oeeAnalysis.availability_pct) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -524,7 +524,7 @@ onMounted(() => {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Performance</span>
-                    <span class="text-ink-gray-8">{{ oeeAnalysis.performance_pct || 0 }}%</span>
+                    <span class="text-ink-gray-8">{{ formatPercent(oeeAnalysis.performance_pct) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -540,7 +540,7 @@ onMounted(() => {
                 <div>
                   <div class="flex justify-between text-sm font-medium mb-2">
                     <span class="text-ink-gray-7">Quality</span>
-                    <span class="text-ink-gray-8">{{ oeeAnalysis.quality_pct || 0 }}%</span>
+                    <span class="text-ink-gray-8">{{ formatPercent(oeeAnalysis.quality_pct) }}</span>
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-4">
                     <div
@@ -558,7 +558,7 @@ onMounted(() => {
 
             <!-- Workstation Performance -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Workstation Performance" :level="3" />
+              <SectionHeader variant="caption" title="Workstation Performance" :level="3" />
               <div v-if="workstationPerformance.length > 0" class="space-y-3 max-h-96 overflow-y-auto mt-4">
                 <div
                   v-for="ws in workstationPerformance"
@@ -568,23 +568,23 @@ onMounted(() => {
                   <div class="flex justify-between items-center mb-2">
                     <span class="font-medium text-ink-gray-8 text-sm">{{ ws.workstation }}</span>
                     <Badge
-                      v-bind="severityBadge(oeeSeverity(ws.efficiency_pct))"
-                      :label="`${ws.efficiency_pct || 0}%`"
+                      v-bind="severityBadge(utilizationSeverity(ws.utilization_pct))"
+                      :label="`${formatPercent(ws.utilization_pct)} ${ws.status ? `\u00b7 ${ws.status}` : ''}`"
                       size="sm"
                     />
                   </div>
                   <div class="w-full bg-surface-gray-2 rounded-full h-2">
                     <div
                       class="h-2 rounded-full"
-                      :class="severityFill(oeeSeverity(ws.efficiency_pct))"
-                      :style="{ width: (ws.efficiency_pct || 0) + '%' }"
+                      :class="severityFill(utilizationSeverity(ws.utilization_pct))"
+                      :style="{ width: Math.min(ws.utilization_pct ?? 0, 100) + '%' }"
                       role="img"
-                      :aria-label="severityAria('Workstation efficiency', oeeSeverity(ws.efficiency_pct), ws.efficiency_pct + '%')"
+                      :aria-label="severityAria('Workstation utilization', utilizationSeverity(ws.utilization_pct), ws.utilization_pct)"
                     />
                   </div>
                   <div class="flex justify-between text-xs text-ink-gray-6 mt-1">
-                    <span>Jobs: {{ ws.total_jobs || 0 }}</span>
-                    <span>Completed: {{ ws.completed_jobs || 0 }}</span>
+                    <span>Capacity: {{ formatCount(ws.capacity_hours) }}h</span>
+                    <span>Utilized: {{ formatCount(ws.utilized_hours) }}h</span>
                   </div>
                 </div>
               </div>
@@ -600,11 +600,11 @@ onMounted(() => {
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Capacity Utilization -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Capacity Utilization" :level="3" />
+              <SectionHeader variant="caption" title="Capacity Utilization" :level="3" />
               <div class="space-y-6 mt-4">
                 <div class="text-center py-4">
                   <div class="text-5xl font-bold mb-2 text-ink-gray-9">
-                    {{ capacityUtilization.overall_utilization_pct || 0 }}%
+                    {{ formatPercent(capacityUtilization.overall_utilization_pct) }}
                   </div>
                   <div class="text-ink-gray-6">Overall Utilization</div>
                   <Badge
@@ -618,7 +618,7 @@ onMounted(() => {
                   <div>
                     <div class="flex justify-between text-sm font-medium mb-2">
                       <span class="text-ink-gray-7">Used Capacity</span>
-                      <span class="text-ink-gray-8">{{ capacityUtilization.overall_utilization_pct || 0 }}%</span>
+                      <span class="text-ink-gray-8">{{ formatPercent(capacityUtilization.overall_utilization_pct) }}</span>
                     </div>
                     <div class="w-full bg-surface-gray-2 rounded-full h-5">
                       <div
@@ -633,14 +633,14 @@ onMounted(() => {
                   <div>
                     <div class="flex justify-between text-sm font-medium mb-2">
                       <span class="text-ink-gray-7">Available Capacity</span>
-                      <span class="text-ink-gray-8">{{ capacityUtilization.available_capacity_pct || 0 }}%</span>
+                      <span class="text-ink-gray-8">{{ formatPercent(capacityUtilization.available_capacity_pct) }}</span>
                     </div>
                     <div class="w-full bg-surface-gray-2 rounded-full h-5">
                       <div
                         class="bg-surface-gray-4 h-5 rounded-full motion-reduce:transition-none transition-all"
                         :style="{ width: (capacityUtilization.available_capacity_pct || 0) + '%' }"
                         role="img"
-                        :aria-label="`Available capacity: ${capacityUtilization.available_capacity_pct || 0}%`"
+                        :aria-label="`Available capacity: ${formatPercent(capacityUtilization.available_capacity_pct)}`"
                       />
                     </div>
                   </div>
@@ -650,17 +650,17 @@ onMounted(() => {
 
             <!-- Bottleneck Analysis -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Bottleneck Analysis" :level="3" />
+              <SectionHeader variant="caption" title="Bottleneck Analysis" :level="3" />
               <div
                 class="text-center py-6 border border-outline-gray-1 rounded-lg mb-4 mt-4"
-                :class="(bottleneckAnalysis.bottleneck_count || 0) > 0 ? 'bg-surface-gray-2' : 'bg-surface-gray-1'"
+                :class="(bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'bg-surface-gray-2' : 'bg-surface-gray-1'"
               >
                 <div class="text-5xl font-bold mb-2 text-ink-gray-9">
-                  {{ bottleneckAnalysis.bottleneck_count || 0 }}
+                  {{ formatCount(bottleneckAnalysis.bottleneck_count) }}
                 </div>
                 <Badge
-                  v-bind="severityBadge((bottleneckAnalysis.bottleneck_count || 0) > 0 ? 'critical' : 'low')"
-                  :label="(bottleneckAnalysis.bottleneck_count || 0) > 0 ? 'Bottlenecks Identified' : 'No Bottlenecks'"
+                  v-bind="severityBadge((bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'critical' : bottleneckAnalysis.bottleneck_count === undefined ? 'none' : 'low')"
+                  :label="(bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'Bottlenecks Identified' : bottleneckAnalysis.bottleneck_count === undefined ? 'No Data' : 'No Bottlenecks'"
                   size="sm"
                 />
               </div>
@@ -672,7 +672,7 @@ onMounted(() => {
                   class="flex justify-between items-center p-2 bg-surface-gray-2 rounded border border-outline-gray-1"
                 >
                   <span class="text-sm text-ink-gray-8">{{ b.workstation || b.name }}</span>
-                  <span class="text-xs text-ink-gray-6">{{ b.utilization_pct || b.load_pct || 0 }}% load</span>
+                  <span class="text-xs text-ink-gray-6">{{ formatPercent(b.utilization_pct ?? b.load_pct) }} load</span>
                 </div>
               </div>
             </div>
@@ -683,7 +683,7 @@ onMounted(() => {
         <div v-if="tabIndex === 3">
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Production Forecast" :level="3" />
+              <SectionHeader variant="caption" title="Production Forecast" :level="3" />
               <div v-if="productionForecast && Object.keys(productionForecast).length > 0" class="space-y-3 mt-4">
                 <div
                   v-for="(value, key) in productionForecast"
@@ -700,20 +700,19 @@ onMounted(() => {
             </div>
 
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Growth Indicators" :level="3" />
-              <div class="space-y-4 mt-4">
-                <div class="p-4 rounded-lg bg-surface-gray-1">
-                  <div class="text-sm text-ink-gray-6 mb-1">Monthly Growth Rate</div>
-                  <div class="text-3xl font-bold text-ink-gray-9">
-                    {{ (productionMetrics.monthly_growth_rate || 0) >= 0 ? '+' : '' }}{{ productionMetrics.monthly_growth_rate || 0 }}%
-                  </div>
-                </div>
-                <div class="p-4 bg-surface-gray-1 rounded-lg">
-                  <div class="text-sm text-ink-gray-6 mb-1">Total Production Qty</div>
-                  <div class="text-3xl font-bold text-ink-gray-9">
-                    {{ formatCount(productionMetrics.total_production_qty) }}
-                  </div>
-                </div>
+              <SectionHeader variant="caption" title="Growth Indicators" :level="3" />
+              <div class="mt-4 grid grid-cols-1 gap-4">
+                <KpiCard
+                  label="Monthly Growth Rate"
+                  :value="productionMetrics.monthly_growth_rate == null ? undefined : (productionMetrics.monthly_growth_rate >= 0 ? `+${productionMetrics.monthly_growth_rate}` : String(productionMetrics.monthly_growth_rate))"
+                  unit="%"
+                  variant="tile"
+                />
+                <KpiCard
+                  label="Total Production Qty"
+                  :value="formatCount(productionMetrics.total_production_qty)"
+                  variant="tile"
+                />
               </div>
             </div>
           </div>

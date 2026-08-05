@@ -153,6 +153,15 @@
 				<FinancialRatiosTab :data="strategicTyped?.ratio_trends" />
 			</div>
 
+			<!-- Actuals: Cost Structure -->
+			<div v-if="activeTab === 'costratios'">
+				<CostStructureTab
+					:data="strategicTyped?.cost_structure ?? null"
+					:forecast="strategicTyped?.expense_forecast ?? null"
+					:currency="baseCurrency"
+				/>
+			</div>
+
 			<!-- Actuals: Forex Exposure -->
 			<div v-if="activeTab === 'forex'">
 				<ForexExposureTab :data="forexData" :currency="baseCurrency" />
@@ -259,6 +268,7 @@ import ForexExposureTab from '../components/financial/ForexExposureTab.vue'
 import ExecutiveSummaryTab from '../components/strategic-finance/ExecutiveSummaryTab.vue'
 import WorkingCapitalTab from '../components/strategic-finance/WorkingCapitalTab.vue'
 import FinancialRatiosTab from '../components/strategic-finance/FinancialRatiosTab.vue'
+import CostStructureTab from '../components/strategic-finance/CostStructureTab.vue'
 import CashForecastingTab from '../components/strategic-finance/CashForecastingTab.vue'
 import ThirteenWeekCashFlowTab from '../components/strategic-finance/ThirteenWeekCashFlowTab.vue'
 import CapitalPlanningTab from '../components/strategic-finance/CapitalPlanningTab.vue'
@@ -314,6 +324,7 @@ const tabs: { id: string; label: string; group: TabGroup }[] = [
 	{ id: 'payables', label: 'Payables', group: 'actuals' },
 	{ id: 'working', label: 'Working Capital', group: 'actuals' },
 	{ id: 'ratios', label: 'Ratios & Trends', group: 'actuals' },
+	{ id: 'costratios', label: 'Cost Structure', group: 'actuals' },
 	{ id: 'forex', label: 'Forex Exposure', group: 'actuals' },
 	{ id: 'cashforecast', label: 'Cash Forecast', group: 'planning' },
 	{ id: 'cashflow13', label: '13-Week Cash Flow', group: 'planning' },

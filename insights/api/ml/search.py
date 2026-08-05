@@ -35,24 +35,24 @@ def get_search_suggestions(partial_query: str, context: Dict[str, Any] = None) -
 
 
 @frappe.whitelist()
-def get_search_history(user: str = None, limit: int = 20) -> Dict[str, Any]:
+def get_search_history(limit: int = 20) -> Dict[str, Any]:
     """Get search history"""
     try:
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
         service = CrossDashboardSearchService()
-        result = service.get_search_history(user, limit)
+        result = service.get_search_history(limit)
         return success(result)
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
-def save_search_favorite(query: str, title: str = None, user: str = None) -> Dict[str, Any]:
+def save_search_favorite(query: str, title: str = None) -> Dict[str, Any]:
     """Save search favorite"""
     try:
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
         service = CrossDashboardSearchService()
-        result = service.save_search_favorite(query, title, user)
+        result = service.save_search_favorite(query, title)
         return success(result)
     except Exception as e:
         return error(str(e))

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { HEALTH_SCORE_THRESHOLDS, scoreSeverity } from './status'
+import { HEALTH_SCORE_THRESHOLDS, scoreSeverity, sparklineInk } from './status'
 
 /**
  * Regression lock for a self-contradicting card, not coverage.
@@ -77,5 +77,24 @@ describe('HEALTH_SCORE_THRESHOLDS', () => {
 			if (POSITIVE_WORDS.includes(word)) expect(severity).toBe('low')
 			else expect(severity).not.toBe('low')
 		}
+	})
+
+	describe('sparklineInk', () => {
+		it('colours improving trends with the app accent', () => {
+			expect(sparklineInk(5, { higherIsBetter: true })).toBe('text-accent')
+			expect(sparklineInk(-5, { higherIsBetter: false })).toBe('text-accent')
+		})
+
+		it('colours worsening trends with the status negative ink', () => {
+			expect(sparklineInk(-5, { higherIsBetter: true })).toBe('text-neg')
+			expect(sparklineInk(5, { higherIsBetter: false })).toBe('text-neg')
+		})
+
+		it('recedes neutral or missing trends', () => {
+			expect(sparklineInk(0)).toBe('text-muted-fill')
+			expect(sparklineInk(null)).toBe('text-muted-fill')
+			expect(sparklineInk(undefined)).toBe('text-muted-fill')
+			expect(sparklineInk(Number.NaN)).toBe('text-muted-fill')
+		})
 	})
 })

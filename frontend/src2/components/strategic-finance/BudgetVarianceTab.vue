@@ -178,7 +178,7 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Variance Trend Chart -->
         <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-          <h3 class="text-base font-semibold text-ink-gray-9 mb-4">Variance Trends</h3>
+          <SectionHeader variant="caption" title="Variance Trends" :level="3" class="mb-4" />
           <!--
             Was a placeholder that rendered a BarChart icon plus "Variance trend
             visualization" in the has-data branch and a near-identical icon plus
@@ -207,7 +207,7 @@
 
         <!-- Department Performance -->
         <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-          <h3 class="text-base font-semibold text-ink-gray-9 mb-4">Department Variance</h3>
+          <SectionHeader variant="caption" title="Department Variance" :level="3" class="mb-4" />
           <div v-if="budgetData?.departmental_analysis && budgetData.departmental_analysis.length > 0" class="space-y-3">
             <div
               v-for="dept in (budgetData?.departmental_analysis || []).slice(0, 5)"
@@ -497,6 +497,7 @@ import { useIntelligenceDashboard } from '../../intelligence/composables/useInte
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SkeletonBlock from '../../intelligence/components/SkeletonBlock.vue'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
+import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import { themeColor } from '../../utils/chartTheme'
 import { formatMoney, NO_VALUE } from '../../utils/format'
 import { formatPeriod } from '../financial/format'

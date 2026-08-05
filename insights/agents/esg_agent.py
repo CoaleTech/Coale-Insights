@@ -24,11 +24,12 @@ class ESGIntelligenceAgent(BaseIntelligenceAgent):
 
     def __init__(self):
         super().__init__()
-        try:
-            from insights.ml.esg_intelligence import ESGIntelligence
-            self.esg_intel = ESGIntelligence()
-        except Exception:
-            self.esg_intel = None
+        # ESGIntelligence.get_esg_overview() returns fabricated data (hardcoded
+        # scores, synthetic trends) rather than measured metrics — see
+        # plan-eng-review D3.1. Disabled until the module computes real data;
+        # execute() below falls back to empty context, and the base agent
+        # answers from conversation history / general knowledge only.
+        self.esg_intel = None
 
     def execute(self, query, session_id, context=None, conversation_history=None):
         """Gather fresh ESG data if no context provided, then delegate to base."""

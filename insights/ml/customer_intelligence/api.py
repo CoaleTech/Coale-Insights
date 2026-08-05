@@ -11,7 +11,6 @@ import pandas as pd
 from typing import Dict, Any, List
 
 
-@frappe.whitelist()
 def run_customer_intelligence(update_customers: bool = True, async_mode: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
     """Run comprehensive customer intelligence analysis"""
     from insights.ml.customer_intelligence import CustomerIntelligence
@@ -65,7 +64,6 @@ def _run_customer_intelligence_job(update_customers: bool = True, date_filter: s
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist()
 def get_customer_intelligence() -> Dict[str, Any]:
     """Get cached customer intelligence or run if not available"""
     from insights.ml.customer_intelligence import CustomerIntelligence
@@ -79,16 +77,21 @@ def get_customer_intelligence() -> Dict[str, Any]:
     return model.train()
 
 
-@frappe.whitelist()
-def get_customer_intelligence_status() -> Dict[str, Any]:
-    """Check status of async customer intelligence job"""
-    result = frappe.cache.get_value("customer_intelligence_job_result")
+def get_customer_intelligence_status(date_filter: str = '12m') -> Dict[str, Any]:
+    """Check status of async customer intelligence job.
+
+    Fixed 2026-08-04: previously read the fixed key
+    "customer_intelligence_job_result", but _run_customer_intelligence_job
+    (above) writes to "customer_intelligence_job_result_{date_filter}" --
+    the keys never matched, so this always returned not_found even after a
+    job legitimately completed.
+    """
+    result = frappe.cache.get_value(f"customer_intelligence_job_result_{date_filter}")
     if result:
         return result
     return {"status": "not_found", "message": "No recent job found"}
 
 
-@frappe.whitelist()
 def get_customer_360_detail(customer_id: str, include_purchases: bool = True, include_recommendations: bool = True) -> Dict[str, Any]:
     """
     Get comprehensive 360-degree view of a specific customer
@@ -571,7 +574,6 @@ def _get_customer_cross_sell(customer_id: str, clv_tier: str) -> List[Dict[str, 
         return []
 
 
-@frappe.whitelist()
 def get_purchase_patterns(top_percentile: int = 20, tier_filter: str = None) -> Dict[str, Any]:
     """
     Get purchase patterns for top customers by CLV
@@ -699,7 +701,6 @@ def get_purchase_patterns(top_percentile: int = 20, tier_filter: str = None) -> 
         return {"status": "error", "message": str(e)}
 
 
-@frappe.whitelist()
 def get_cross_sell_opportunities(tier_filter: str = "Diamond,Platinum,Gold") -> Dict[str, Any]:
     """
     Get cross-sell opportunities for customers in specified CLV tiers
@@ -741,7 +742,6 @@ def get_cross_sell_opportunities(tier_filter: str = "Diamond,Platinum,Gold") -> 
     }
 
 
-@frappe.whitelist()
 def get_at_risk_customers() -> Dict[str, Any]:
     """Get customers at high churn risk"""
     result = get_customer_intelligence()
@@ -756,7 +756,6 @@ def get_at_risk_customers() -> Dict[str, Any]:
     }
 
 
-@frappe.whitelist()
 def get_geographic_insights() -> Dict[str, Any]:
     """Get geographic analysis"""
     result = get_customer_intelligence()
@@ -770,7 +769,6 @@ def get_geographic_insights() -> Dict[str, Any]:
     }
 
 
-@frappe.whitelist()
 def get_next_actions() -> Dict[str, Any]:
     """Get next best action recommendations"""
     result = get_customer_intelligence()
@@ -785,7 +783,6 @@ def get_next_actions() -> Dict[str, Any]:
     }
 
 
-@frappe.whitelist()
 def get_pareto_analysis() -> Dict[str, Any]:
     """Get 80/20 Pareto analysis"""
     result = get_customer_intelligence()
@@ -799,7 +796,6 @@ def get_pareto_analysis() -> Dict[str, Any]:
     }
 
 
-@frappe.whitelist()
 def get_cohort_analysis() -> Dict[str, Any]:
     """Get cohort retention analysis"""
     result = get_customer_intelligence()
@@ -813,7 +809,6 @@ def get_cohort_analysis() -> Dict[str, Any]:
     }
 
 
-@frappe.whitelist()
 def refresh_customer_scores() -> Dict[str, Any]:
     """Force refresh and update all customer scores"""
     from insights.ml.customer_intelligence import CustomerIntelligence

@@ -12,7 +12,7 @@ import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import {
   severityBadge, severityFill, severityAria, scoreSeverity, type Severity,
 } from '../utils/status'
-import { formatCount, formatDateTime, NO_VALUE } from '../utils/format'
+import { formatDateTime, formatMoney } from '../utils/format'
 
 const router = useRouter()
 const drillDown = useDrillDown()
@@ -37,12 +37,16 @@ interface DSOPeriod { period: string; avg_days_overdue?: number }
 interface InventoryRiskRow { item_group: string; total_items?: number; stockout_items: number; stock_value?: number; risk_category?: string }
 /** Supplier reliability row from operational risk. */
 interface SupplierReliabilityRow { supplier: string; supplier_name?: string; total_orders?: number; total_value?: number; avg_delay_days?: number; risk_category?: string }
-/** KRA compliance status block. */
-interface KraStatus { vat_filing_status?: string; last_filing_date?: string; next_filing_due?: string; outstanding_penalties?: number }
+/** GST compliance status block (GSTR-1/GSTR-3B filing, e-Invoice coverage). */
+interface GstStatus {
+  gstr1_status?: string; gstr1_latest_period?: string
+  gstr3b_status?: string; gstr3b_latest_period?: string
+  einvoice_coverage_pct?: number | null; einvoice_pending_value?: number
+}
 /** Document completeness audit row. */
 interface DocumentAuditRow { document_type: string; total_docs: number; incomplete_docs: number }
-/** License and permit row. */
-interface LicenseRow { license_type: string; expiry_date?: string; status?: string; risk_level?: string }
+/** GST/PAN registration row. */
+interface LicenseRow { license_type: string; reference?: string; status?: string; risk_level?: string }
 /** Financial anomaly row. */
 interface AnomalyRow { type: string; description?: string; date?: string; severity?: string }
 /** Early warning alert row. */
@@ -86,7 +90,7 @@ interface OperationalSection {
 }
 /** Typed compliance risk sub-section. */
 interface ComplianceSection {
-  kra_status?: KraStatus
+  gst_status?: GstStatus
   document_audit?: DocumentAuditRow[]
   licenses?: LicenseRow[]
 }
@@ -174,6 +178,15 @@ function riskScoreSeverity(score: number): Severity {
   return scoreSeverity(score, { good: 20, warn: 40, higherIsBetter: false })
 }
 
+// GST filing status vocabulary from `get_filing_compliance` (server):
+// Compliant | Pending | Not Tracked | No Data | Not Available.
+function gstStatusSeverity(status: string | undefined): Severity {
+  if (status === 'Compliant') return 'none'
+  if (status === 'Pending') return 'high'
+  if (status === 'Not Tracked' || status === 'No Data' || status === 'Not Available') return 'medium'
+  return 'none'
+}
+
 const chatContext = computed(() => ({
   summary: summary.value,
   overview: overviewData.value,
@@ -198,15 +211,7 @@ function handleDashboardRedirect(target: string) {
   if (routes[target]) router.push(routes[target])
 }
 
-const formatCurrency = (value: number | null | undefined) => {
-  if (!value) return NO_VALUE
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: baseCurrency.value,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-}
+const formatCurrency = (value: number | null | undefined) => formatMoney(value, baseCurrency.value)
 
 
 </script>
@@ -301,11 +306,14 @@ const formatCurrency = (value: number | null | undefined) => {
         <!-- Tab 1: Overview -->
         <div v-if="activeTab === 'overview'" class="space-y-6">
           <!-- Active Alerts -->
-          <div v-if="overviewData.alerts?.length" class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Active Risk Alerts" :hint="`${overviewData.alerts?.length} requiring attention`" :level="3" />
-            </div>
-            <div class="p-6">
+          <div v-if="overviewData.alerts?.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader
+              variant="caption"
+              title="Active Risk Alerts"
+              :hint="`${overviewData.alerts?.length} requiring attention`"
+              :level="3"
+            />
+            <div class="mt-4">
               <div class="space-y-3">
                 <div
                   v-for="(alert, index) in overviewData.alerts"
@@ -324,171 +332,167 @@ const formatCurrency = (value: number | null | undefined) => {
           </div>
 
           <!-- Risk Assessment Matrix Table -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Risk Assessment Matrix" hint="Impact vs Probability" :level="3" />
-            </div>
-            <div class="p-6">
-              <div class="overflow-x-auto">
-                <table class="w-full">
-                  <thead>
-                    <tr class="border-b border-outline-gray-1">
-                      <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Risk</th>
-                      <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Category</th>
-                      <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Probability</th>
-                      <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Impact</th>
-                      <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Risk Score</th>
-                      <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Level</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="risk in overviewData.risk_matrix"
-                      :key="risk.name"
-                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
-                    >
-                      <td class="py-3 font-medium text-ink-gray-8">{{ risk.name }}</td>
-                      <td class="py-3 text-ink-gray-6">{{ risk.category }}</td>
-                      <td class="py-3 text-center">
-                        <div class="flex items-center justify-center gap-2">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Risk Assessment Matrix" hint="Impact vs Probability" :level="3" />
+            <div class="mt-4 overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-outline-gray-1">
+                    <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Risk</th>
+                    <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Category</th>
+                    <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Probability</th>
+                    <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Impact</th>
+                    <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Risk Score</th>
+                    <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Level</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="risk in overviewData.risk_matrix"
+                    :key="risk.name"
+                    class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
+                  >
+                    <td class="py-3 font-medium text-ink-gray-8">{{ risk.name }}</td>
+                    <td class="py-3 text-ink-gray-6">{{ risk.category }}</td>
+                    <td class="py-3 text-center">
+                      <div class="flex items-center justify-center gap-2">
+                        <div
+                          class="w-16 bg-surface-gray-3 rounded-full h-2"
+                          :aria-label="severityAria('Probability', riskScoreSeverity(risk.probability), `${risk.probability}%`)"
+                          role="img"
+                        >
                           <div
-                            class="w-16 bg-surface-gray-3 rounded-full h-2"
-                            :aria-label="severityAria('Probability', riskScoreSeverity(risk.probability), `${risk.probability}%`)"
-                            role="img"
-                          >
-                            <div
-                              :class="severityFill(riskScoreSeverity(risk.probability))"
-                              class="h-2 rounded-full motion-reduce:transition-none transition-all"
-                              :style="{ width: risk.probability + '%' }"
-                            />
-                          </div>
-                          <span class="text-sm text-ink-gray-7">{{ risk.probability }}%</span>
+                            :class="severityFill(riskScoreSeverity(risk.probability))"
+                            class="h-2 rounded-full motion-reduce:transition-none transition-all"
+                            :style="{ width: risk.probability + '%' }"
+                          />
                         </div>
-                      </td>
-                      <td class="py-3 text-center">
-                        <div class="flex items-center justify-center gap-2">
+                        <span class="text-sm text-ink-gray-7">{{ risk.probability }}%</span>
+                      </div>
+                    </td>
+                    <td class="py-3 text-center">
+                      <div class="flex items-center justify-center gap-2">
+                        <div
+                          class="w-16 bg-surface-gray-3 rounded-full h-2"
+                          :aria-label="severityAria('Impact', riskScoreSeverity(risk.impact), `${risk.impact}%`)"
+                          role="img"
+                        >
                           <div
-                            class="w-16 bg-surface-gray-3 rounded-full h-2"
-                            :aria-label="severityAria('Impact', riskScoreSeverity(risk.impact), `${risk.impact}%`)"
-                            role="img"
-                          >
-                            <div
-                              :class="severityFill(riskScoreSeverity(risk.impact))"
-                              class="h-2 rounded-full motion-reduce:transition-none transition-all"
-                              :style="{ width: risk.impact + '%' }"
-                            />
-                          </div>
-                          <span class="text-sm text-ink-gray-7">{{ risk.impact }}%</span>
+                            :class="severityFill(riskScoreSeverity(risk.impact))"
+                            class="h-2 rounded-full motion-reduce:transition-none transition-all"
+                            :style="{ width: risk.impact + '%' }"
+                          />
                         </div>
-                      </td>
-                      <td class="py-3 text-center font-bold text-ink-gray-8">{{ risk.risk_score?.toFixed(1) }}</td>
-                      <td class="py-3 text-center">
-                        <Badge v-bind="severityBadge(risk.risk_category)" size="sm" />
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+                        <span class="text-sm text-ink-gray-7">{{ risk.impact }}%</span>
+                      </div>
+                    </td>
+                    <td class="py-3 text-center font-bold text-ink-gray-8">{{ risk.risk_score?.toFixed(1) }}</td>
+                    <td class="py-3 text-center">
+                      <Badge v-bind="severityBadge(risk.risk_category)" size="sm" />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
           <!-- Key Business Metrics -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Key Business Metrics" :level="3" />
-            </div>
-            <div class="p-6">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Key Business Metrics" :level="3" />
+            <div class="mt-4">
               <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div class="text-center p-6 bg-surface-gray-1 rounded-lg">
-                  <div class="text-4xl font-bold text-ink-gray-9">{{ formatCount(overviewData.total_customers as number) }}</div>
-                  <div class="text-sm text-ink-gray-6 mt-2">Total Customers</div>
-                </div>
-                <div class="text-center p-6 bg-surface-gray-1 rounded-lg">
-                  <div class="text-4xl font-bold text-ink-gray-9">{{ formatCount(overviewData.total_suppliers as number) }}</div>
-                  <div class="text-sm text-ink-gray-6 mt-2">Total Suppliers</div>
-                </div>
-                <div class="text-center p-6 bg-surface-gray-1 rounded-lg">
-                  <div class="text-4xl font-bold text-ink-gray-9">{{ formatCount(overviewData.total_items as number) }}</div>
-                  <div class="text-sm text-ink-gray-6 mt-2">Inventory Items</div>
-                </div>
+                <KpiCard
+                  label="Total Customers"
+                  :value="overviewData.total_customers"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
+                <KpiCard
+                  label="Total Suppliers"
+                  :value="overviewData.total_suppliers"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
+                <KpiCard
+                  label="Inventory Items"
+                  :value="overviewData.total_items"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
               </div>
             </div>
           </div>
 
           <!-- Risk Breakdown Chart -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Risk Component Breakdown" hint="Visual breakdown by category" :level="3" />
-            </div>
-            <div class="p-6">
-              <div class="space-y-4">
-                <div class="flex items-center gap-4">
-                  <div class="w-32 text-sm font-medium text-ink-gray-7">Credit Risk</div>
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Risk Component Breakdown" hint="Visual breakdown by category" :level="3" />
+            <div class="mt-4 space-y-4">
+              <div class="flex items-center gap-4">
+                <div class="w-32 text-sm font-medium text-ink-gray-7">Credit Risk</div>
+                <div
+                  class="flex-1 bg-surface-gray-3 rounded-full h-4"
+                  :aria-label="severityAria('Credit Risk', riskScoreSeverity(summary.creditScore), `${summary.creditScore}/100`)"
+                  role="img"
+                >
                   <div
-                    class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                    :aria-label="severityAria('Credit Risk', riskScoreSeverity(summary.creditScore), `${summary.creditScore}/100`)"
-                    role="img"
-                  >
-                    <div
-                      :class="[severityFill(riskScoreSeverity(summary.creditScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
-                      :style="{ width: summary.creditScore + '%' }"
-                    />
-                  </div>
-                  <div class="w-24 text-right flex items-center gap-2 justify-end">
-                    <span class="font-bold text-ink-gray-8">{{ summary.creditScore }}/100</span>
-                    <Badge v-bind="severityBadge(summary.creditRisk)" size="sm" />
-                  </div>
+                    :class="[severityFill(riskScoreSeverity(summary.creditScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :style="{ width: summary.creditScore + '%' }"
+                  />
                 </div>
-                <div class="flex items-center gap-4">
-                  <div class="w-32 text-sm font-medium text-ink-gray-7">Cash Flow Risk</div>
-                  <div
-                    class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                    :aria-label="severityAria('Cash Flow Risk', riskScoreSeverity(summary.cashflowScore), `${summary.cashflowScore}/100`)"
-                    role="img"
-                  >
-                    <div
-                      :class="[severityFill(riskScoreSeverity(summary.cashflowScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
-                      :style="{ width: summary.cashflowScore + '%' }"
-                    />
-                  </div>
-                  <div class="w-24 text-right flex items-center gap-2 justify-end">
-                    <span class="font-bold text-ink-gray-8">{{ summary.cashflowScore }}/100</span>
-                    <Badge v-bind="severityBadge(summary.cashflowRisk)" size="sm" />
-                  </div>
+                <div class="w-24 text-right flex items-center gap-2 justify-end">
+                  <span class="font-bold text-ink-gray-8">{{ summary.creditScore }}/100</span>
+                  <Badge v-bind="severityBadge(summary.creditRisk)" size="sm" />
                 </div>
-                <div class="flex items-center gap-4">
-                  <div class="w-32 text-sm font-medium text-ink-gray-7">Operational Risk</div>
+              </div>
+              <div class="flex items-center gap-4">
+                <div class="w-32 text-sm font-medium text-ink-gray-7">Cash Flow Risk</div>
+                <div
+                  class="flex-1 bg-surface-gray-3 rounded-full h-4"
+                  :aria-label="severityAria('Cash Flow Risk', riskScoreSeverity(summary.cashflowScore), `${summary.cashflowScore}/100`)"
+                  role="img"
+                >
                   <div
-                    class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                    :aria-label="severityAria('Operational Risk', riskScoreSeverity(summary.operationalScore), `${summary.operationalScore}/100`)"
-                    role="img"
-                  >
-                    <div
-                      :class="[severityFill(riskScoreSeverity(summary.operationalScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
-                      :style="{ width: summary.operationalScore + '%' }"
-                    />
-                  </div>
-                  <div class="w-24 text-right flex items-center gap-2 justify-end">
-                    <span class="font-bold text-ink-gray-8">{{ summary.operationalScore }}/100</span>
-                    <Badge v-bind="severityBadge(summary.operationalRisk)" size="sm" />
-                  </div>
+                    :class="[severityFill(riskScoreSeverity(summary.cashflowScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :style="{ width: summary.cashflowScore + '%' }"
+                  />
                 </div>
-                <div class="flex items-center gap-4">
-                  <div class="w-32 text-sm font-medium text-ink-gray-7">Compliance Risk</div>
+                <div class="w-24 text-right flex items-center gap-2 justify-end">
+                  <span class="font-bold text-ink-gray-8">{{ summary.cashflowScore }}/100</span>
+                  <Badge v-bind="severityBadge(summary.cashflowRisk)" size="sm" />
+                </div>
+              </div>
+              <div class="flex items-center gap-4">
+                <div class="w-32 text-sm font-medium text-ink-gray-7">Operational Risk</div>
+                <div
+                  class="flex-1 bg-surface-gray-3 rounded-full h-4"
+                  :aria-label="severityAria('Operational Risk', riskScoreSeverity(summary.operationalScore), `${summary.operationalScore}/100`)"
+                  role="img"
+                >
                   <div
-                    class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                    :aria-label="severityAria('Compliance Risk', riskScoreSeverity(summary.complianceScore), `${summary.complianceScore}/100`)"
-                    role="img"
-                  >
-                    <div
-                      :class="[severityFill(riskScoreSeverity(summary.complianceScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
-                      :style="{ width: summary.complianceScore + '%' }"
-                    />
-                  </div>
-                  <div class="w-24 text-right flex items-center gap-2 justify-end">
-                    <span class="font-bold text-ink-gray-8">{{ summary.complianceScore }}/100</span>
-                    <Badge v-bind="severityBadge(summary.complianceRisk)" size="sm" />
-                  </div>
+                    :class="[severityFill(riskScoreSeverity(summary.operationalScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :style="{ width: summary.operationalScore + '%' }"
+                  />
+                </div>
+                <div class="w-24 text-right flex items-center gap-2 justify-end">
+                  <span class="font-bold text-ink-gray-8">{{ summary.operationalScore }}/100</span>
+                  <Badge v-bind="severityBadge(summary.operationalRisk)" size="sm" />
+                </div>
+              </div>
+              <div class="flex items-center gap-4">
+                <div class="w-32 text-sm font-medium text-ink-gray-7">Compliance Risk</div>
+                <div
+                  class="flex-1 bg-surface-gray-3 rounded-full h-4"
+                  :aria-label="severityAria('Compliance Risk', riskScoreSeverity(summary.complianceScore), `${summary.complianceScore}/100`)"
+                  role="img"
+                >
+                  <div
+                    :class="[severityFill(riskScoreSeverity(summary.complianceScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :style="{ width: summary.complianceScore + '%' }"
+                  />
+                </div>
+                <div class="w-24 text-right flex items-center gap-2 justify-end">
+                  <span class="font-bold text-ink-gray-8">{{ summary.complianceScore }}/100</span>
+                  <Badge v-bind="severityBadge(summary.complianceRisk)" size="sm" />
                 </div>
               </div>
             </div>
@@ -518,37 +522,31 @@ const formatCurrency = (value: number | null | undefined) => {
           </div>
 
           <!-- Aging Analysis -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Receivables Aging Analysis" :level="3" />
-            </div>
-            <div class="p-6">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Receivables Aging Analysis" :level="3" />
+            <div class="mt-4">
               <div class="grid grid-cols-5 gap-4">
-                <div
+                <KpiCard
                   v-for="bucket in creditData.aging_analysis"
                   :key="bucket.aging_bucket"
-                  class="text-center p-4 border border-outline-gray-1 rounded-lg cursor-pointer hover:bg-surface-gray-1 focus-visible:ring-2 focus-visible:ring-outline-gray-3 focus-visible:outline-none"
-                  tabindex="0"
-                  role="button"
-                  :aria-label="`Drill down: ${bucket.aging_bucket} overdue`"
+                  :label="bucket.aging_bucket"
+                  :amount="bucket.outstanding_amount"
+                  :currency="baseCurrency"
+                  :sublabel="`${bucket.invoice_count} invoices`"
+                  variant="tile"
+                  clickable
+                  :loading="loading && !hasData"
                   @click="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket + ' Overdue', { metric: 'overdue_invoices' })"
-                  @keydown.enter="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket + ' Overdue', { metric: 'overdue_invoices' })"
-                >
-                  <div class="text-sm font-medium text-ink-gray-6">{{ bucket.aging_bucket }}</div>
-                  <div class="text-xl font-bold text-ink-gray-9 mt-1">{{ formatCurrency(bucket.outstanding_amount) }}</div>
-                  <div class="text-xs text-ink-gray-6 mt-1">{{ bucket.invoice_count }} invoices</div>
-                </div>
+                />
               </div>
             </div>
           </div>
 
           <!-- Customer Risk Scores -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Customer Risk Scores" hint="Payment behaviour and default probability" :level="3" />
-            </div>
-            <div class="p-6">
-              <div class="overflow-x-auto">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Customer Risk Scores" hint="Payment behaviour and default probability" :level="3" />
+          <div class="mt-4">
+            <div class="overflow-x-auto">
                 <table class="w-full">
                   <thead>
                     <tr class="border-b border-outline-gray-1">
@@ -576,8 +574,8 @@ const formatCurrency = (value: number | null | undefined) => {
                   </tbody>
                 </table>
               </div>
-            </div>
           </div>
+        </div>
         </div>
 
         <!-- Tab 3: Cash Flow Risk -->
@@ -594,12 +592,10 @@ const formatCurrency = (value: number | null | undefined) => {
           </div>
 
           <!-- Revenue Concentration -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Revenue Concentration Analysis" hint="Top customers by revenue share" :level="3" />
-            </div>
-            <div class="p-6">
-              <div class="space-y-3">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Revenue Concentration Analysis" hint="Top customers by revenue share" :level="3" />
+          <div class="mt-4">
+            <div class="space-y-3">
                 <div
                   v-for="customer in cashflowData.customer_concentration"
                   :key="customer.customer"
@@ -619,25 +615,23 @@ const formatCurrency = (value: number | null | undefined) => {
                   </div>
                 </div>
               </div>
-            </div>
           </div>
+        </div>
 
           <!-- Overdue Days Trend -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Overdue Days Trend" :level="3" />
-            </div>
-            <div class="p-6">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Overdue Days Trend" :level="3" />
+            <div class="mt-4">
               <div class="grid grid-cols-5 gap-4">
-                <div
+                <KpiCard
                   v-for="period in cashflowData.overdue_days_trend"
                   :key="period.period"
-                  class="text-center p-4 border border-outline-gray-1 rounded-lg"
-                >
-                  <div class="text-sm font-medium text-ink-gray-6">{{ period.period }}</div>
-                  <div class="text-xl font-bold text-ink-gray-9 mt-1">{{ Math.round(period.avg_days_overdue || 0) }}</div>
-                  <div class="text-xs text-ink-gray-6 mt-1">days overdue</div>
-                </div>
+                  :label="period.period"
+                  :value="period.avg_days_overdue"
+                  unit=" days overdue"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
               </div>
             </div>
           </div>
@@ -656,12 +650,10 @@ const formatCurrency = (value: number | null | undefined) => {
           </div>
 
           <!-- Inventory Risk by Item Group -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Inventory Risk by Item Group" :level="3" />
-            </div>
-            <div class="p-6">
-              <div class="overflow-x-auto">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Inventory Risk by Item Group" :level="3" />
+          <div class="mt-4">
+            <div class="overflow-x-auto">
                 <table class="w-full">
                   <thead>
                     <tr class="border-b border-outline-gray-1">
@@ -681,7 +673,7 @@ const formatCurrency = (value: number | null | undefined) => {
                       <td class="py-2 text-ink-gray-8">{{ risk.item_group }}</td>
                       <td class="py-2 text-right text-ink-gray-8">{{ risk.total_items }}</td>
                       <td class="py-2 text-right">
-                        <span :class="risk.stockout_items > 0 ? 'text-ink-red-4 font-medium' : 'text-ink-gray-8'">
+                        <span :class="risk.stockout_items > 0 ? 'text-neg font-medium' : 'text-ink-gray-8'">
                           {{ risk.stockout_items }}
                         </span>
                       </td>
@@ -693,16 +685,14 @@ const formatCurrency = (value: number | null | undefined) => {
                   </tbody>
                 </table>
               </div>
-            </div>
           </div>
+        </div>
 
           <!-- Supplier Performance -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Supplier Reliability Analysis" :level="3" />
-            </div>
-            <div class="p-6">
-              <div class="overflow-x-auto">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Supplier Reliability Analysis" :level="3" />
+          <div class="mt-4">
+            <div class="overflow-x-auto">
                 <table class="w-full">
                   <thead>
                     <tr class="border-b border-outline-gray-1">
@@ -730,51 +720,57 @@ const formatCurrency = (value: number | null | undefined) => {
                   </tbody>
                 </table>
               </div>
-            </div>
           </div>
+        </div>
         </div>
 
         <!-- Tab 5: Compliance Risk -->
         <div v-if="activeTab === 'compliance'" class="space-y-6">
-          <!-- KRA Status -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="KRA Compliance Status" :level="3" />
-            </div>
-            <div class="p-6">
+          <!-- GST Status -->
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="GST Compliance Status" hint="GSTR-1 / GSTR-3B filing and e-Invoice coverage" :level="3" />
+            <div class="mt-4">
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                <div class="text-center p-4 border border-outline-gray-1 rounded-lg">
-                  <div class="text-2xl font-bold text-ink-gray-9">{{ complianceData.kra_status?.vat_filing_status || 'N/A' }}</div>
-                  <div class="text-sm text-ink-gray-6 mt-1">VAT Filing Status</div>
-                </div>
-                <div class="text-center p-4 border border-outline-gray-1 rounded-lg">
-                  <div class="text-lg font-bold text-ink-gray-8">{{ complianceData.kra_status?.last_filing_date || 'N/A' }}</div>
-                  <div class="text-sm text-ink-gray-6 mt-1">Last Filing Date</div>
-                </div>
-                <div class="text-center p-4 border border-outline-gray-1 rounded-lg">
-                  <div class="text-lg font-bold text-ink-gray-8">{{ complianceData.kra_status?.next_filing_due || 'N/A' }}</div>
-                  <div class="text-sm text-ink-gray-6 mt-1">Next Filing Due</div>
-                </div>
-                <div class="text-center p-4 border border-outline-gray-1 rounded-lg">
-                  <div
-                    class="text-2xl font-bold"
-                    :class="(complianceData.kra_status?.outstanding_penalties || 0) > 0 ? 'text-ink-red-4' : 'text-ink-gray-9'"
-                  >
-                    {{ formatCurrency(complianceData.kra_status?.outstanding_penalties || 0) }}
-                  </div>
-                  <div class="text-sm text-ink-gray-6 mt-1">Outstanding Penalties</div>
-                </div>
+                <KpiCard
+                  label="GSTR-1 Status"
+                  :value="complianceData.gst_status?.gstr1_status"
+                  :sublabel="complianceData.gst_status?.gstr1_latest_period ? `Latest: ${complianceData.gst_status.gstr1_latest_period}` : undefined"
+                  :severity="gstStatusSeverity(complianceData.gst_status?.gstr1_status)"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
+                <KpiCard
+                  label="GSTR-3B Status"
+                  :value="complianceData.gst_status?.gstr3b_status"
+                  :sublabel="complianceData.gst_status?.gstr3b_latest_period ? `Latest: ${complianceData.gst_status.gstr3b_latest_period}` : undefined"
+                  :severity="gstStatusSeverity(complianceData.gst_status?.gstr3b_status)"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
+                <KpiCard
+                  label="e-Invoice Coverage"
+                  :percent="complianceData.gst_status?.einvoice_coverage_pct ?? null"
+                  :severity="scoreSeverity(complianceData.gst_status?.einvoice_coverage_pct as number, { good: 95, warn: 80 })"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
+                <KpiCard
+                  label="e-Invoice Pending Value"
+                  :amount="complianceData.gst_status?.einvoice_pending_value"
+                  :currency="baseCurrency"
+                  :severity="(complianceData.gst_status?.einvoice_pending_value || 0) > 0 ? 'high' : 'none'"
+                  variant="tile"
+                  :loading="loading && !hasData"
+                />
               </div>
             </div>
           </div>
 
           <!-- Document Audit -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Document Completeness Audit" :level="3" />
-            </div>
-            <div class="p-6">
-              <div class="overflow-x-auto">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Document Completeness Audit" :level="3" />
+          <div class="mt-4">
+            <div class="overflow-x-auto">
                 <table class="w-full">
                   <thead>
                     <tr class="border-b border-outline-gray-1">
@@ -793,7 +789,7 @@ const formatCurrency = (value: number | null | undefined) => {
                       <td class="py-2 text-ink-gray-8">{{ doc.document_type }}</td>
                       <td class="py-2 text-right text-ink-gray-8">{{ doc.total_docs }}</td>
                       <td class="py-2 text-right">
-                        <span :class="doc.incomplete_docs > 0 ? 'text-ink-red-4 font-medium' : 'text-ink-gray-8'">
+                        <span :class="doc.incomplete_docs > 0 ? 'text-neg font-medium' : 'text-ink-gray-8'">
                           {{ doc.incomplete_docs }}
                         </span>
                       </td>
@@ -808,15 +804,13 @@ const formatCurrency = (value: number | null | undefined) => {
                   </tbody>
                 </table>
               </div>
-            </div>
           </div>
+        </div>
 
-          <!-- Licenses & Permits -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Licenses & Permits" :level="3" />
-            </div>
-            <div class="p-6">
+          <!-- GST / PAN Registration -->
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="GST / PAN Registration" :level="3" />
+            <div class="mt-4">
               <div class="space-y-3">
                 <div
                   v-for="license in complianceData.licenses"
@@ -825,7 +819,7 @@ const formatCurrency = (value: number | null | undefined) => {
                 >
                   <div>
                     <div class="font-medium text-ink-gray-9">{{ license.license_type }}</div>
-                    <div class="text-sm text-ink-gray-6">Expires: {{ license.expiry_date }}</div>
+                    <div class="text-sm text-ink-gray-6">Reg No: {{ license.reference }}</div>
                   </div>
                   <div class="flex items-center gap-2">
                     <span class="text-sm text-ink-gray-7">{{ license.status }}</span>
@@ -857,12 +851,10 @@ const formatCurrency = (value: number | null | undefined) => {
           </div>
 
           <!-- Anomaly Detection -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Detected Anomalies" hint="Unusual patterns in financial data" :level="3" />
-            </div>
-            <div class="p-6">
-              <div v-if="predictiveData.anomalies?.length" class="space-y-3">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Detected Anomalies" hint="Unusual patterns in financial data" :level="3" />
+          <div class="mt-4">
+            <div v-if="predictiveData.anomalies?.length" class="space-y-3">
                 <div
                   v-for="(anomaly, index) in predictiveData.anomalies"
                   :key="index"
@@ -881,16 +873,14 @@ const formatCurrency = (value: number | null | undefined) => {
               <div v-else class="text-center text-ink-gray-6 py-8">
                 No anomalies detected in recent data
               </div>
-            </div>
           </div>
+        </div>
 
           <!-- Early Warning Alerts -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Early Warning System" :level="3" />
-            </div>
-            <div class="p-6">
-              <div v-if="predictiveData.early_warnings?.length" class="space-y-4">
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Early Warning System" :level="3" />
+          <div class="mt-4">
+            <div v-if="predictiveData.early_warnings?.length" class="space-y-4">
                 <div
                   v-for="(warning, index) in predictiveData.early_warnings"
                   :key="index"
@@ -907,16 +897,14 @@ const formatCurrency = (value: number | null | undefined) => {
               <div v-else class="text-center text-ink-gray-6 py-8">
                 No early warnings at this time
               </div>
-            </div>
           </div>
+        </div>
 
           <!-- Payment Risk Forecast -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1">
-            <div class="p-6 border-b border-outline-gray-1">
-              <SectionHeader title="Payment Delay Risk Forecast" :level="3" />
-            </div>
-            <div class="p-6">
-              <div
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Payment Delay Risk Forecast" :level="3" />
+          <div class="mt-4">
+            <div
                 v-if="predictiveData.payment_risk_forecast?.high_risk_customers?.length"
                 class="overflow-x-auto"
               >
@@ -948,8 +936,8 @@ const formatCurrency = (value: number | null | undefined) => {
               <div v-else class="text-center text-ink-gray-6 py-8">
                 No high-risk payment patterns detected
               </div>
-            </div>
           </div>
+        </div>
         </div>
       </div>
     </template>

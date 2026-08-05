@@ -332,7 +332,7 @@ watch(customerId, () => {
             <!-- Customer Details -->
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-                <SectionHeader title="Customer Information" :level="3">
+                <SectionHeader variant="caption" title="Customer Information" :level="3">
                   <template #actions>
                     <User class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                   </template>
@@ -362,7 +362,7 @@ watch(customerId, () => {
               </div>
 
               <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-                <SectionHeader title="Segmentation" :level="3">
+                <SectionHeader variant="caption" title="Segmentation" :level="3">
                   <template #actions>
                     <BarChart3 class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                   </template>
@@ -392,7 +392,7 @@ watch(customerId, () => {
           <!-- Purchases Section -->
           <div v-if="activeSection === 'purchases'" class="space-y-6">
             <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-              <SectionHeader title="Purchase History" :level="3">
+              <SectionHeader variant="caption" title="Purchase History" :level="3">
                 <template #actions>
                   <ShoppingCart class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                 </template>
@@ -449,27 +449,30 @@ watch(customerId, () => {
 
             <!-- Purchase Patterns -->
             <div v-if="purchasePatterns" class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-              <SectionHeader title="Purchase Patterns" :level="3">
+              <SectionHeader variant="caption" title="Purchase Patterns" :level="3">
                 <template #actions>
                   <BarChart3 class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                 </template>
               </SectionHeader>
               <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="p-4 bg-surface-gray-1 rounded-lg">
-                  <p class="text-sm text-ink-gray-6">Avg Order Frequency</p>
-                  <p class="text-xl font-bold text-ink-gray-9">{{ purchasePatterns.avg_frequency || 'N/A' }}</p>
-                  <p class="text-xs text-ink-gray-6">days between orders</p>
-                </div>
-                <div class="p-4 bg-surface-gray-1 rounded-lg">
-                  <p class="text-sm text-ink-gray-6">Preferred Day</p>
-                  <p class="text-xl font-bold text-ink-gray-9">{{ purchasePatterns.preferred_day || 'N/A' }}</p>
-                  <p class="text-xs text-ink-gray-6">most common purchase day</p>
-                </div>
-                <div class="p-4 bg-surface-gray-1 rounded-lg">
-                  <p class="text-sm text-ink-gray-6">Peak Month</p>
-                  <p class="text-xl font-bold text-ink-gray-9">{{ purchasePatterns.peak_month || 'N/A' }}</p>
-                  <p class="text-xs text-ink-gray-6">highest spending month</p>
-                </div>
+                <KpiCard
+                  label="Avg Order Frequency"
+                  :value="purchasePatterns.avg_frequency as string | number | undefined"
+                  sublabel="days between orders"
+                  variant="tile"
+                />
+                <KpiCard
+                  label="Preferred Day"
+                  :value="purchasePatterns.preferred_day as string | number | undefined"
+                  sublabel="most common purchase day"
+                  variant="tile"
+                />
+                <KpiCard
+                  label="Peak Month"
+                  :value="purchasePatterns.peak_month as string | number | undefined"
+                  sublabel="highest spending month"
+                  variant="tile"
+                />
               </div>
             </div>
           </div>
@@ -478,7 +481,7 @@ watch(customerId, () => {
           <div v-if="activeSection === 'clv'" class="space-y-6">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-                <SectionHeader title="CLV Breakdown" :level="3">
+                <SectionHeader variant="caption" title="CLV Breakdown" :level="3">
                   <template #actions>
                     <TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                   </template>
@@ -504,7 +507,7 @@ watch(customerId, () => {
               </div>
 
               <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-                <SectionHeader title="CLV Components" :level="3">
+                <SectionHeader variant="caption" title="CLV Components" :level="3">
                   <template #actions>
                     <Target class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                   </template>
@@ -575,7 +578,7 @@ watch(customerId, () => {
           <div v-if="activeSection === 'recommendations'" class="space-y-6">
             <!-- Next Best Actions -->
             <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-              <SectionHeader title="Next Best Actions" :level="3">
+              <SectionHeader variant="caption" title="Next Best Actions" :level="3">
                 <template #actions>
                   <Zap class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                 </template>
@@ -608,7 +611,7 @@ watch(customerId, () => {
 
             <!-- Cross-sell Recommendations -->
             <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-              <SectionHeader title="Cross-sell Recommendations" :level="3">
+              <SectionHeader variant="caption" title="Cross-sell Recommendations" :level="3">
                 <template #actions>
                   <Gift class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                 </template>
@@ -634,7 +637,7 @@ watch(customerId, () => {
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               <!-- Churn Risk -->
               <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-                <SectionHeader title="Churn Risk Assessment" :level="3">
+                <SectionHeader variant="caption" title="Churn Risk Assessment" :level="3">
                   <template #actions>
                     <AlertTriangle class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                   </template>
@@ -672,7 +675,7 @@ watch(customerId, () => {
 
               <!-- Health Score -->
               <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-                <SectionHeader title="Health Score" :level="3">
+                <SectionHeader variant="caption" title="Health Score" :level="3">
                   <template #actions>
                     <Heart class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                   </template>
@@ -725,7 +728,7 @@ watch(customerId, () => {
 
             <!-- Payment Behavior -->
             <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-              <SectionHeader title="Payment Behavior" :level="3">
+              <SectionHeader variant="caption" title="Payment Behavior" :level="3">
                 <template #actions>
                   <CreditCard class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                 </template>

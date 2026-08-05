@@ -313,6 +313,80 @@ export interface PeriodComparisonData {
 }
 
 // ---------------------------------------------------------------------------
+// Cost structure ratios
+// ---------------------------------------------------------------------------
+
+export type CostRatioStatus = 'good' | 'moderate' | 'risky' | 'unknown'
+
+/**
+ * One cost-structure benchmark card from `cost_ratios.py:_build_card` —
+ * distinct from `RatioCard` (single `benchmark`) because these carry two
+ * thresholds (ideal/risky), a unit for formatting, and a rule-based action
+ * recommendation rather than a bare status.
+ */
+export interface CostRatioCard {
+	key: string
+	name: string
+	/** `null` when the underlying figure could not be computed (e.g. no COGS
+	 *  accounts posted this period) — never a fabricated estimate. */
+	value: number | null
+	ideal: number
+	risky: number
+	unit: 'x' | '%'
+	higher_is_better: boolean
+	status: CostRatioStatus
+	recommendation: string
+}
+
+export interface CostStructureFigures {
+	revenue: number
+	gross_profit: number | null
+	net_profit: number
+	fixed_cost: number
+	salary_cost: number
+	marketing_cost: number
+	training_cost: number
+	incentive_cost: number
+	rent_cost: number
+	electricity_cost: number
+}
+
+/** Response of `calculate_cost_structure_ratios` (`cost_ratios.py`). */
+export interface CostStructureData {
+	period: { start: string; end: string }
+	figures: CostStructureFigures
+	overall_status: CostRatioStatus
+	ratio_cards: CostRatioCard[]
+}
+
+// ---------------------------------------------------------------------------
+// Expense forecast
+// ---------------------------------------------------------------------------
+
+export interface ExpenseHistoryPoint {
+	month: string
+	amount: number
+}
+
+export interface ExpenseForecastPoint {
+	month: string
+	projected_amount: number
+}
+
+/** Response of `forecast_expenses` (`cost_ratios.py`). */
+export interface ExpenseForecastData {
+	status: 'success' | 'insufficient_data'
+	message?: string
+	method?: string
+	window_months?: number
+	history: ExpenseHistoryPoint[]
+	forecast?: ExpenseForecastPoint[]
+	trend_direction?: 'rising' | 'falling' | 'flat'
+	monthly_change?: number
+	note?: string
+}
+
+// ---------------------------------------------------------------------------
 // Shell payload
 // ---------------------------------------------------------------------------
 
@@ -327,4 +401,6 @@ export interface StrategicFinanceData {
 	ratio_trends?: FinancialRatiosData
 	scenario_analysis?: ScenarioData
 	period_comparison?: PeriodComparisonData
+	cost_structure?: CostStructureData
+	expense_forecast?: ExpenseForecastData
 }

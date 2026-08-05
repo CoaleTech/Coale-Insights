@@ -158,15 +158,29 @@ class AdvancedPredictiveAnalyticsAgent:
     
     def get_insights(self, query: str, context: Dict = None) -> Dict[str, Any]:
         """
-        Process predictive analytics query and return intelligent insights
-        
+        Process predictive analytics query and return intelligent insights.
+
+        Disabled 2026-08-04: this agent's entire analytics_engine
+        (AdvancedPredictiveAnalyticsEngine) generates simulated historical
+        data in _get_domain_historical_data instead of querying it, so every
+        forecast/anomaly/pattern result it produces is fabricated. Returns an
+        honest not_implemented status until the underlying engine is backed
+        by real data. See plan-eng-review D3.2.
+
         Args:
             query: Predictive analytics query string
             context: Query context and parameters
-            
+
         Returns:
             Comprehensive predictive analytics insights
         """
+        return {
+            "status": "not_implemented",
+            "message": "Predictive analytics is not yet backed by real historical data",
+        }
+
+    def _disabled_get_insights(self, query: str, context: Dict = None) -> Dict[str, Any]:
+        """Former get_insights body, retained for when the engine is fixed. Never called."""
         try:
             logger.info(f"Processing predictive analytics query: {query}")
             

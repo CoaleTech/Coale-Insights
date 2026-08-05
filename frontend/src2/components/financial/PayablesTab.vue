@@ -24,7 +24,7 @@
 
 		<!-- Aging Analysis -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader title="Accounts Payable Aging" :level="3" />
+			<SectionHeader variant="caption" title="Accounts Payable Aging" :level="3" />
 			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-44 sm:h-52 lg:h-56" :config="apAgingConfig" />
 			<table v-if="data.aging_buckets?.length" class="sr-only">
 				<caption>Accounts payable by aging bucket</caption>
@@ -47,7 +47,7 @@
 
 		<!-- Top Creditors -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader title="Top Outstanding Suppliers" :level="3" />
+			<SectionHeader variant="caption" title="Top Outstanding Suppliers" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full">
 					<thead>
@@ -83,7 +83,8 @@ import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import { deltaInk } from '../../utils/status'
 import { themeColor } from '../../utils/chartTheme'
 import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
-import { formatCurrency, get90PlusOverdue } from './format'
+import { get90PlusOverdue } from './format'
+import { formatMoney as formatCurrency } from '../../utils/format'
 import type { PayablesData } from './types'
 
 const props = defineProps<{

@@ -101,11 +101,18 @@ class MarketingIntelligence:
         try:
             data = {}
             
-            # Leads data
-            leads_query = """
+            # Leads data. `custom_lead_score` is an optional custom field —
+            # not installed on every site — so it's only selected when present
+            # rather than always assumed, which previously raised
+            # "Unknown column 'custom_lead_score'" and dropped lead data from
+            # every caller (marketing overview, executive reports) on sites
+            # without it. Downstream code already treats a missing score as
+            # "no custom score" via `.get("custom_lead_score", 0)`.
+            has_lead_score = frappe.db.has_column("Lead", "custom_lead_score")
+            leads_query = f"""
                 SELECT 
                     name, lead_name, company_name, status, source, territory,
-                    lead_owner, creation, modified, custom_lead_score
+                    lead_owner, creation, modified{", custom_lead_score" if has_lead_score else ""}
                 FROM `tabLead`
                 WHERE creation BETWEEN %s AND %s
                 ORDER BY creation DESC
@@ -113,12 +120,18 @@ class MarketingIntelligence:
             leads = frappe.db.sql(leads_query, (from_date, to_date), as_dict=True)
             data["leads"] = leads
             
-            # Opportunities data
+            # Opportunities data. `weighted_amount` isn't a stored ERPNext
+            # column (Opportunity only has `opportunity_amount`); computed
+            # here as the standard probability-weighted pipeline value
+            # instead of assumed, which previously raised "Unknown column
+            # 'weighted_amount'" and dropped every opportunity from both the
+            # marketing overview and executive reports.
             opportunities_query = """
                 SELECT 
                     name, opportunity_from, party_name, opportunity_amount,
                     status, sales_stage, source, territory, contact_person,
-                    expected_closing, probability, weighted_amount,
+                    expected_closing, probability,
+                    (opportunity_amount * COALESCE(probability, 0) / 100) AS weighted_amount,
                     creation, modified
                 FROM `tabOpportunity`
                 WHERE creation BETWEEN %s AND %s
@@ -406,9 +419,11 @@ class MarketingIntelligence:
             total_sales_value = sum(order.get("grand_total", 0) for order in sales_orders)
             avg_order_value = total_sales_value / sales_order_count if sales_order_count else 0
             
-            # Customer acquisition cost (simplified)
-            # This would need campaign cost data linked to customers
-            estimated_cac = 150  # Placeholder estimate
+            # Customer acquisition cost requires campaign cost data linked to
+            # customers, which doesn't exist on this site. Was previously a
+            # flat 150 for every customer regardless of actual spend — worse
+            # than no number since it implies uniform cost. See D3.8.
+            estimated_cac = None
             
             # Customer lifetime value (simplified)
             estimated_clv = avg_order_value * 3  # Simplified estimate
@@ -431,7 +446,7 @@ class MarketingIntelligence:
                     "average_order_value": round(avg_order_value, 2),
                     "estimated_cac": estimated_cac,
                     "estimated_clv": round(estimated_clv, 2),
-                    "clv_cac_ratio": round(estimated_clv / estimated_cac, 2)
+                    "clv_cac_ratio": round(estimated_clv / estimated_cac, 2) if estimated_cac else None,
                 },
                 "conversion_health": "excellent" if lead_to_sale > 10 else "good" if lead_to_sale > 5 else "needs_improvement"
             }
@@ -907,7 +922,6 @@ class MarketingIntelligence:
 
 
 # API functions for Frappe
-@frappe.whitelist()
 def get_marketing_overview(period="YTD"):
     """API endpoint for marketing overview"""
     try:
@@ -918,7 +932,6 @@ def get_marketing_overview(period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_pipeline_analysis(period="YTD"):
     """API endpoint for pipeline analysis"""
     try:
@@ -934,7 +947,6 @@ def get_pipeline_analysis(period="YTD"):
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_lead_analytics():
     """API endpoint for lead analytics"""
     try:
@@ -950,7 +962,6 @@ def get_lead_analytics():
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_campaign_performance():
     """API endpoint for campaign performance"""
     try:
@@ -966,7 +977,6 @@ def get_campaign_performance():
         return {"error": str(e)}
 
 
-@frappe.whitelist()
 def get_marketing_recommendations():
     """API endpoint for marketing recommendations"""
     try:
@@ -1006,7 +1016,6 @@ def update_marketing_intelligence():
         frappe.log_error(f"Marketing intelligence update error: {e}")
 
 
-@frappe.whitelist()
 def get_source_metrics(period: str = "YTD"):
     """API endpoint for lead source metrics"""
     try:

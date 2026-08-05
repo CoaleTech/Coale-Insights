@@ -222,7 +222,7 @@ onBeforeUnmount(() => {
     <!-- Error state -->
     <div v-else-if="error" class="flex items-center justify-center flex-1">
       <div class="text-center space-y-3">
-        <AlertTriangle class="w-12 h-12 mx-auto text-ink-gray-5" />
+        <AlertTriangle class="w-12 h-12 mx-auto text-neg" aria-hidden="true" />
         <p class="text-ink-gray-6">{{ error }}</p>
         <Button variant="subtle" @click="loadData()">Try Again</Button>
       </div>

@@ -18,7 +18,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Liquidity Ratios -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Liquidity Ratios" :level="3">
+        <SectionHeader variant="caption" title="Liquidity Ratios" :level="3">
           <template #actions>
             <Droplets class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -45,7 +45,7 @@
 
       <!-- Profitability Ratios -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Profitability Ratios" :level="3">
+        <SectionHeader variant="caption" title="Profitability Ratios" :level="3">
           <template #actions>
             <TrendingUp class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -72,7 +72,7 @@
 
       <!-- Efficiency Ratios -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Efficiency Ratios" :level="3">
+        <SectionHeader variant="caption" title="Efficiency Ratios" :level="3">
           <template #actions>
             <Gauge class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -100,7 +100,7 @@
 
     <!-- Quarterly Ratio Trends -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Quarterly Ratio Trends" :level="3">
+      <SectionHeader variant="caption" title="Quarterly Ratio Trends" :level="3">
         <template #actions>
           <LineChartIcon class="h-5 w-5 text-ink-gray-5" />
         </template>
@@ -188,7 +188,7 @@
 
     <!-- Performance vs Benchmarks -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Performance vs Benchmarks" :level="3">
+      <SectionHeader variant="caption" title="Performance vs Benchmarks" :level="3">
         <template #actions>
           <BarChart3 class="h-5 w-5 text-ink-gray-5" />
         </template>

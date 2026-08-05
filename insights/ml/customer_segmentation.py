@@ -351,21 +351,18 @@ class CustomerSegmentation(BaseMLModel):
 
 
 # API Functions
-@frappe.whitelist()
 def run_customer_segmentation() -> Dict[str, Any]:
     """Run customer segmentation analysis"""
     model = CustomerSegmentation()
     return model.train()
 
 
-@frappe.whitelist()
 def get_customer_segment(customer: str = None) -> Dict[str, Any]:
     """Get customer segment"""
     model = CustomerSegmentation()
     return model.predict(customer)
 
 
-@frappe.whitelist()
 def get_segment_recommendations(segment: str) -> Dict[str, Any]:
     """Get recommendations for a segment"""
     model = CustomerSegmentation()

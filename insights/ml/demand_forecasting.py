@@ -435,14 +435,12 @@ class DemandForecasting(BaseMLModel):
 
 
 # API Functions
-@frappe.whitelist()
 def run_demand_forecast(periods: int = 4, top_items: int = 100) -> Dict[str, Any]:
     """Run demand forecasting"""
     model = DemandForecasting()
     return model.train(periods=int(periods), top_items=int(top_items))
 
 
-@frappe.whitelist()
 def get_demand_forecast() -> Dict[str, Any]:
     """Get cached demand forecast"""
     model = DemandForecasting()
@@ -454,14 +452,12 @@ def get_demand_forecast() -> Dict[str, Any]:
     return model.train()
 
 
-@frappe.whitelist()
 def get_item_demand_forecast(item_code: str, periods: int = 4) -> Dict[str, Any]:
     """Get demand forecast for specific item"""
     model = DemandForecasting()
     return model.predict_item(item_code, int(periods))
 
 
-@frappe.whitelist()
 def get_reorder_alerts() -> Dict[str, Any]:
     """Get items that need to be reordered"""
     model = DemandForecasting()

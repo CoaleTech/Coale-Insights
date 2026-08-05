@@ -562,14 +562,12 @@ class ProductRecommendations(BaseMLModel):
 
 
 # API Functions
-@frappe.whitelist()
 def run_recommendation_training(min_support: float = 0.01, min_confidence: float = 0.3) -> Dict[str, Any]:
     """Train recommendation models"""
     model = ProductRecommendations()
     return model.train(float(min_support), float(min_confidence))
 
 
-@frappe.whitelist()
 def get_item_recommendations(item_code: str, top_n: int = 5) -> Dict[str, Any]:
     """Get recommendations for an item"""
     model = ProductRecommendations()
@@ -584,7 +582,6 @@ def get_item_recommendations(item_code: str, top_n: int = 5) -> Dict[str, Any]:
     return model.get_recommendations_for_item(item_code, int(top_n))
 
 
-@frappe.whitelist()
 def get_customer_recommendations(customer: str, top_n: int = 10) -> Dict[str, Any]:
     """Get recommendations for a customer"""
     model = ProductRecommendations()
@@ -599,7 +596,6 @@ def get_customer_recommendations(customer: str, top_n: int = 10) -> Dict[str, An
     return model.get_recommendations_for_customer(customer, int(top_n))
 
 
-@frappe.whitelist()
 def get_cart_recommendations(cart_items: str, top_n: int = 5) -> Dict[str, Any]:
     """Get recommendations for cart items"""
     import json
@@ -620,7 +616,6 @@ def get_cart_recommendations(cart_items: str, top_n: int = 5) -> Dict[str, Any]:
     return model.get_cart_recommendations(cart_items, int(top_n))
 
 
-@frappe.whitelist()
 def get_frequently_bought_together() -> Dict[str, Any]:
     """Get frequently bought together pairs"""
     model = ProductRecommendations()

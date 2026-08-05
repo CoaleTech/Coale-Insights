@@ -275,7 +275,7 @@ onMounted(() => {
   <!-- ═══ Overview ═══ -->
   <div v-if="activeTab === 'cust-overview'" class="grid gap-6 lg:grid-cols-2">
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader title="CLV Tier Distribution" :level="3" />
+      <SectionHeader variant="caption" title="CLV Tier Distribution" :level="3" />
       <div class="space-y-3 mt-4">
         <div v-for="(count, tier) in (summary.clv_tier_distribution as Record<string, number>)" :key="tier"
           class="flex items-center gap-3">
@@ -289,7 +289,7 @@ onMounted(() => {
     </div>
 
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader title="Churn Risk Distribution" :level="3" />
+      <SectionHeader variant="caption" title="Churn Risk Distribution" :level="3" />
       <div class="space-y-3 mt-4">
         <div v-for="(count, risk) in (summary.churn_risk_distribution as Record<string, number>)" :key="risk"
           class="flex items-center gap-3">
@@ -302,7 +302,7 @@ onMounted(() => {
     </div>
 
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader title="80/20 Analysis" :level="3" />
+      <SectionHeader variant="caption" title="80/20 Analysis" :level="3" />
       <div class="space-y-4 mt-4">
         <div class="flex items-center justify-between p-3 rounded-lg bg-surface-gray-1">
           <span class="text-ink-gray-7">Top 10% contribute</span>
@@ -320,7 +320,7 @@ onMounted(() => {
     </div>
 
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader title="Health Distribution" :level="3" />
+      <SectionHeader variant="caption" title="Health Distribution" :level="3" />
       <div class="space-y-3 mt-4">
         <div v-for="(count, status) in (summary.health_distribution as Record<string, number>)" :key="status"
           class="flex items-center gap-3">
@@ -347,9 +347,9 @@ onMounted(() => {
       </div>
       <div class="flex items-center gap-2">
         <Filter class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
-        <Select v-model="tierFilter" :options="tierFilterOptions" class="text-sm" />
-        <Select v-model="rfmFilter" :options="rfmSegmentFilterOptions" class="text-sm" />
-        <Select v-model="riskFilter" :options="riskFilterOptions" class="text-sm" />
+        <Select v-model="tierFilter" :options="tierFilterOptions" aria-label="Filter by tier" class="text-sm" />
+        <Select v-model="rfmFilter" :options="rfmSegmentFilterOptions" aria-label="Filter by RFM segment" class="text-sm" />
+        <Select v-model="riskFilter" :options="riskFilterOptions" aria-label="Filter by risk level" class="text-sm" />
       </div>
       <span class="self-center text-sm text-ink-gray-6">
         {{ customers.length }} of {{ (props.data.customers as unknown[])?.length || 0 }} customers
@@ -448,7 +448,7 @@ onMounted(() => {
 
     <div class="overflow-hidden bg-surface-white rounded-lg border border-outline-gray-1">
       <div class="px-4 py-3 border-b border-outline-gray-1">
-        <SectionHeader title="Territory Performance" :level="3" />
+        <SectionHeader variant="caption" title="Territory Performance" :level="3" />
       </div>
       <table class="w-full">
         <caption class="sr-only">Territory performance by customer count, revenue, revenue share, and health.</caption>
@@ -488,7 +488,7 @@ onMounted(() => {
   <!-- ═══ Actions ═══ -->
   <div v-if="activeTab === 'cust-actions'" class="space-y-4">
     <div class="flex items-center justify-between">
-      <SectionHeader title="Next Best Actions" :level="3" />
+      <SectionHeader variant="caption" title="Next Best Actions" :level="3" />
       <span class="text-sm text-ink-gray-6">{{ nextActions.length }} action items</span>
     </div>
     <div class="space-y-3">
@@ -524,7 +524,7 @@ onMounted(() => {
   <!-- ═══ Cohorts ═══ -->
   <div v-if="activeTab === 'cust-cohorts'" class="space-y-6">
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader title="Average Retention by Month" :level="3" />
+      <SectionHeader variant="caption" title="Average Retention by Month" :level="3" />
       <div class="flex flex-wrap gap-2 mt-4">
         <div v-for="(retention, month) in (cohortAnalysis.average_retention as Record<string, number>)" :key="month"
           class="px-3 py-2 text-center bg-surface-gray-1 rounded-lg">
@@ -534,7 +534,7 @@ onMounted(() => {
       </div>
     </div>
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader title="Cohort Retention Matrix" :level="3" />
+      <SectionHeader variant="caption" title="Cohort Retention Matrix" :level="3" />
       <div class="overflow-x-auto mt-4">
         <table class="w-full text-sm">
           <caption class="sr-only">Cohort retention by month since first purchase.</caption>
@@ -585,26 +585,30 @@ onMounted(() => {
       </div>
 
       <div class="grid gap-4 lg:grid-cols-4">
-        <div class="p-4 bg-surface-white rounded-lg border border-outline-gray-1">
-          <p class="text-sm text-ink-gray-6">Total Orders</p>
-          <p class="text-2xl font-bold text-ink-gray-9">{{ formatNumber(purchasePatternsData.summary?.total_orders as number) }}</p>
-        </div>
-        <div class="p-4 bg-surface-white rounded-lg border border-outline-gray-1">
-          <p class="text-sm text-ink-gray-6">Total Revenue</p>
-          <p class="text-2xl font-bold text-ink-gray-9">{{ money(purchasePatternsData.summary?.total_revenue as number) }}</p>
-        </div>
-        <div class="p-4 bg-surface-white rounded-lg border border-outline-gray-1">
-          <p class="text-sm text-ink-gray-6">Peak Day</p>
-          <p class="text-2xl font-bold text-ink-gray-9">{{ purchasePatternsData.summary?.peak_day }}</p>
-        </div>
-        <div class="p-4 bg-surface-white rounded-lg border border-outline-gray-1">
-          <p class="text-sm text-ink-gray-6">Peak Month</p>
-          <p class="text-2xl font-bold text-ink-gray-9">{{ purchasePatternsData.summary?.peak_month }}</p>
-        </div>
+        <KpiCard
+          label="Total Orders"
+          :value="formatNumber(purchasePatternsData.summary?.total_orders as number)"
+          variant="tile"
+        />
+        <KpiCard
+          label="Total Revenue"
+          :value="money(purchasePatternsData.summary?.total_revenue as number)"
+          variant="tile"
+        />
+        <KpiCard
+          label="Peak Day"
+          :value="purchasePatternsData.summary?.peak_day as string | undefined"
+          variant="tile"
+        />
+        <KpiCard
+          label="Peak Month"
+          :value="purchasePatternsData.summary?.peak_month as string | undefined"
+          variant="tile"
+        />
       </div>
 
       <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-        <SectionHeader title="Day of Week Analysis" :level="3" />
+        <SectionHeader variant="caption" title="Day of Week Analysis" :level="3" />
         <div class="overflow-x-auto mt-4">
           <table class="w-full text-sm">
             <caption class="sr-only">Order activity by day of week.</caption>
@@ -639,7 +643,7 @@ onMounted(() => {
       </div>
 
       <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-        <SectionHeader title="Monthly Trends" :level="3" />
+        <SectionHeader variant="caption" title="Monthly Trends" :level="3" />
         <div class="overflow-x-auto mt-4">
           <table class="w-full text-sm">
             <caption class="sr-only">Order activity by month.</caption>
@@ -668,7 +672,7 @@ onMounted(() => {
       </div>
 
       <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-        <SectionHeader title="Seasonal Patterns" :level="3" />
+        <SectionHeader variant="caption" title="Seasonal Patterns" :level="3" />
         <div class="grid gap-4 lg:grid-cols-4 mt-4">
           <div v-for="season in (purchasePatternsData.seasonal?.data as Record<string, unknown>[])" :key="season.quarter as string"
             :class="[
@@ -695,7 +699,7 @@ onMounted(() => {
   <!-- ═══ Rankings ═══ -->
   <div v-if="activeTab === 'cust-rankings' && rankings" class="p-6 space-y-6">
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader title="Top Customers by Revenue" :level="3" />
+      <SectionHeader variant="caption" title="Top Customers by Revenue" :level="3" />
       <table class="w-full text-sm mt-3">
         <caption class="sr-only">Top customers by revenue.</caption>
         <thead><tr class="text-left border-b border-outline-gray-1">
@@ -714,7 +718,7 @@ onMounted(() => {
       </table>
     </div>
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader title="Top Customers by Gross Profit" :level="3" />
+      <SectionHeader variant="caption" title="Top Customers by Gross Profit" :level="3" />
       <table class="w-full text-sm mt-3">
         <caption class="sr-only">Top customers by gross profit.</caption>
         <thead><tr class="text-left border-b border-outline-gray-1">
@@ -729,7 +733,7 @@ onMounted(() => {
       </table>
     </div>
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader title="Top Customers by Margin %" :level="3" />
+      <SectionHeader variant="caption" title="Top Customers by Margin %" :level="3" />
       <table class="w-full text-sm mt-3">
         <caption class="sr-only">Top customers by margin percentage.</caption>
         <thead><tr class="text-left border-b border-outline-gray-1">
@@ -745,7 +749,7 @@ onMounted(() => {
       </table>
     </div>
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader title="Most Consistent Customers" :level="3" />
+      <SectionHeader variant="caption" title="Most Consistent Customers" :level="3" />
       <table class="w-full text-sm mt-3">
         <caption class="sr-only">Most consistent customers by score and months active.</caption>
         <thead><tr class="text-left border-b border-outline-gray-1">

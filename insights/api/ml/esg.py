@@ -13,26 +13,22 @@ from insights.api.response import success, error
 
 @frappe.whitelist()
 def get_esg_overview(period: str = "YTD") -> Dict[str, Any]:
-    """Get ESG intelligence overview"""
-    try:
-        from insights.ml.esg_intelligence import ESGIntelligence
-        model = ESGIntelligence()
-        result = model.get_esg_overview()
-        return success(result)
-    except Exception as e:
-        return error(str(e))
+    """Get ESG intelligence overview.
+
+    Removed 2026-08-04: esg_intelligence.py's ESGIntelligence.get_esg_overview
+    returned fabricated data (hardcoded board/ethics/risk/transparency/audit
+    scores weighted into a fake overall score; synthetic trend lines; fake
+    targets and board composition). Returns an explicit not_implemented status
+    until the module computes real metrics from source doctypes. See
+    plan-eng-review D3.1.
+    """
+    return success({"status": "not_implemented", "message": "ESG intelligence is not yet backed by real data"})
 
 
 @frappe.whitelist()
 def export_esg_report(format: str = "pdf") -> Dict[str, Any]:
-    """Export ESG report"""
-    try:
-        from insights.ml.esg_intelligence import ESGIntelligence
-        model = ESGIntelligence()
-        result = model.export_esg_report(report_format=format)
-        return success(result)
-    except Exception as e:
-        return error(str(e))
+    """Export ESG report. Removed 2026-08-04 alongside get_esg_overview — see above."""
+    return success({"status": "not_implemented", "message": "ESG intelligence is not yet backed by real data"})
 
 
 # ─── Drill-Down ───────────────────────────────────────────────────────────────

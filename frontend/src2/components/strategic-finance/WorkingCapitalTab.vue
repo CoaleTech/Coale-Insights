@@ -36,7 +36,7 @@
 
     <!-- Cash Conversion Cycle Visual Breakdown -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Cash Conversion Cycle Breakdown" :level="3" />
+      <SectionHeader variant="caption" title="Cash Conversion Cycle Breakdown" :level="3" />
       <div class="flex flex-col md:flex-row items-center justify-center gap-4 md:gap-8 mt-6">
         <!-- DSO circle -->
         <div class="text-center">
@@ -116,7 +116,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- Current Assets -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Current Assets" :level="3">
+        <SectionHeader variant="caption" title="Current Assets" :level="3">
           <template #actions>
             <ArrowUpCircle class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -144,7 +144,7 @@
 
       <!-- Current Liabilities -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Current Liabilities" :level="3">
+        <SectionHeader variant="caption" title="Current Liabilities" :level="3">
           <template #actions>
             <ArrowDownCircle class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -164,7 +164,7 @@
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <SectionHeader title="Net Working Capital" :level="3" hint="Current Assets - Current Liabilities" />
+          <SectionHeader variant="caption" title="Net Working Capital" :level="3" hint="Current Assets - Current Liabilities" />
         </div>
         <div class="text-center md:text-right">
           <p
@@ -182,7 +182,7 @@
 
     <!-- Trend Analysis (Months as Columns) -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Working Capital Trends" hint="Last 6 months" :level="3">
+      <SectionHeader variant="caption" title="Working Capital Trends" hint="Last 6 months" :level="3">
         <template #actions>
           <TrendingUp class="h-5 w-5 text-ink-gray-5" />
         </template>

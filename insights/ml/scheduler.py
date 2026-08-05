@@ -244,6 +244,7 @@ def run_daily_intelligence():
         ("payment_prediction", train_payment_prediction),
         ("customer_intelligence", train_customer_intelligence),
         ("sales_intelligence", train_sales_intelligence),
+        ("procurement_intelligence", train_procurement_intelligence),
     ]
 
     for name, fn in daily_tasks:
@@ -278,6 +279,7 @@ def run_all_ml_models():
     results['demand_forecast'] = train_demand_forecast()
     results['product_recommendations'] = train_product_recommendations()
     results['customer_intelligence'] = train_customer_intelligence()
+    results['procurement_intelligence'] = train_procurement_intelligence()
 
     frappe.logger().info("All ML models training completed")
 
@@ -441,6 +443,42 @@ def train_sales_intelligence():
         
     except Exception as e:
         frappe.log_error(f"Scheduled sales intelligence failed: {str(e)}", "ML Scheduler")
+        return {"status": "error", "message": str(e)}
+
+
+
+def train_procurement_intelligence():
+    """Daily: Train procurement intelligence model.
+
+    Added 2026-08-04: this function did not exist. procurement_intelligence
+    was never scheduled anywhere (grep of hooks.py scheduler_events and this
+    file confirmed zero references), so ProcurementIntelligence.train() --
+    ~17 sequential frappe.db.sql() queries executed synchronously -- ran
+    cold on every single production request that missed cache, with no
+    warming ever happening. This is the confirmed root cause of the
+    insights.api.ml.procurement_intelligence 502s: a request that cold-runs
+    17 sequential queries synchronously in a web worker is a timeout
+    waiting to happen. See plan-eng-review production-diagnosis notes.
+    """
+    try:
+        from insights.ml.procurement_intelligence import ProcurementIntelligence
+
+        frappe.logger().info("Starting scheduled procurement intelligence training")
+
+        model = ProcurementIntelligence()
+        result = model.train()
+
+        if result.get("status") == "success" or "spend_overview" in result:
+            frappe.logger().info("Procurement intelligence training completed")
+        else:
+            frappe.logger().warning(
+                f"Procurement intelligence failed: {result.get('message', 'Unknown error')}"
+            )
+
+        return result
+
+    except Exception as e:
+        frappe.log_error(f"Scheduled procurement intelligence failed: {str(e)}", "ML Scheduler")
         return {"status": "error", "message": str(e)}
 
 

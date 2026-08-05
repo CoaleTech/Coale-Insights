@@ -43,7 +43,7 @@
 
     <!-- Detailed Comparison Table -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader :title="`Detailed ${selectedPeriodLabel} Comparison`" :level="3">
+      <SectionHeader variant="caption" :title="`Detailed ${selectedPeriodLabel} Comparison`" :level="3">
         <template #actions>
           <BarChart3 class="h-5 w-5 text-ink-gray-5" />
         </template>
@@ -87,7 +87,7 @@
 
     <!-- Period Comparison Summary Table -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Period Comparison Summary" :level="3">
+      <SectionHeader variant="caption" title="Period Comparison Summary" :level="3">
         <template #actions>
           <TrendingUp class="h-5 w-5 text-ink-gray-5" />
         </template>
@@ -139,7 +139,7 @@
       v-if="currentPeriodData?.insights?.length"
       class="rounded-lg border border-outline-gray-1 bg-surface-white p-6"
     >
-      <SectionHeader title="Key Insights" :level="3">
+      <SectionHeader variant="caption" title="Key Insights" :level="3">
         <template #actions>
           <Lightbulb class="h-5 w-5 text-ink-gray-5" />
         </template>

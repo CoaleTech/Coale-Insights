@@ -34,7 +34,7 @@
 
 		<!-- Exposure by Currency -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader title="Forex Exposure by Currency" :level="3" />
+			<SectionHeader variant="caption" title="Forex Exposure by Currency" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full" v-if="data.exposure_summary?.length">
 					<thead>
@@ -81,7 +81,7 @@
 
 		<!-- At-Risk Invoices -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader :title="`At-Risk Foreign Currency Invoices (${data.at_risk_invoices?.length || 0})`" :level="3" />
+			<SectionHeader variant="caption" :title="`At-Risk Foreign Currency Invoices (${data.at_risk_invoices?.length || 0})`" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full" v-if="data.at_risk_invoices?.length">
 					<thead>
@@ -133,7 +133,8 @@
 import { Badge } from 'frappe-ui'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import { deltaInk, severityBadge } from '../../utils/status'
-import { formatCurrency, formatForeignCurrency, formatDate } from './format'
+import { formatForeignCurrency, formatDate } from './format'
+import { formatMoney as formatCurrency } from '../../utils/format'
 import type { ForexData } from './types'
 
 defineProps<{

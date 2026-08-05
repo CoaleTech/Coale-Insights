@@ -138,6 +138,11 @@ _LAZY_MAP = {
     "get_talent_analytics": ("insights.api.ml.hr", "get_talent_analytics"),
     "analyze_hr_query": ("insights.api.ml.hr", "analyze_hr_query"),
     # ------------------------------------------------------------------ esg
+    # get_esg_overview / export_esg_report: esg_intelligence.py previously
+    # returned fabricated scores (hardcoded board/ethics/risk/transparency/audit
+    # values, synthetic trend data). Now honest {"status": "not_implemented"}
+    # stubs (see esg.py) — kept registered so callers get a clean response
+    # instead of a not-found error. See plan-eng-review D3.1.
     "get_esg_overview": ("insights.api.ml.esg", "get_esg_overview"),
     "export_esg_report": ("insights.api.ml.esg", "export_esg_report"),
     # ------------------------------------------------------------------ executive
@@ -158,6 +163,11 @@ _LAZY_MAP = {
     "test_executive_intelligence_data": ("insights.api.ml.executive", "test_executive_intelligence_data"),
     "preview_executive_report_data": ("insights.api.ml.executive", "preview_executive_report_data"),
     # ------------------------------------------------------------------ predictive
+    # All 8 endpoints: AdvancedPredictiveAnalyticsEngine._get_domain_historical_data
+    # generates simulated history instead of querying it. Now honest
+    # {"status": "not_implemented"} stubs (see predictive.py) — kept registered
+    # so callers get a clean response instead of a not-found error. See
+    # plan-eng-review D3.2.
     "generate_comprehensive_forecasts": ("insights.api.ml.predictive", "generate_comprehensive_forecasts"),
     "detect_anomalies_and_risks": ("insights.api.ml.predictive", "detect_anomalies_and_risks"),
     "analyze_predictive_patterns": ("insights.api.ml.predictive", "analyze_predictive_patterns"),

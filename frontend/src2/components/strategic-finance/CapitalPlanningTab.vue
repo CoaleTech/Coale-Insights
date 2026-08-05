@@ -33,7 +33,7 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <!-- Assets by Category -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Assets by Category" :level="3">
+        <SectionHeader variant="caption" title="Assets by Category" :level="3">
           <template #actions>
             <PieChartIcon class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -64,7 +64,7 @@
 
       <!-- Asset Age Distribution -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader title="Asset Age Distribution" :level="3">
+        <SectionHeader variant="caption" title="Asset Age Distribution" :level="3">
           <template #actions>
             <Clock class="h-5 w-5 text-ink-gray-5" />
           </template>
@@ -95,7 +95,7 @@
 
     <!-- Assets Requiring Attention -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Assets Requiring Attention" :level="3">
+      <SectionHeader variant="caption" title="Assets Requiring Attention" :level="3">
         <template #actions>
           <AlertTriangle class="h-5 w-5 text-ink-gray-5" />
         </template>
@@ -136,7 +136,7 @@
 
     <!-- Depreciation Forecast -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Depreciation Forecast (Next 5 Years)" :level="3">
+      <SectionHeader variant="caption" title="Depreciation Forecast (Next 5 Years)" :level="3">
         <template #actions>
           <TrendingDown class="h-5 w-5 text-ink-gray-5" />
         </template>
@@ -170,7 +170,7 @@
 
     <!-- CAPEX Recommendations -->
     <div v-if="data?.recommendations?.length" class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader title="Capital Investment Recommendations" :level="3">
+      <SectionHeader variant="caption" title="Capital Investment Recommendations" :level="3">
         <template #actions>
           <Lightbulb class="h-5 w-5 text-ink-gray-5" />
         </template>

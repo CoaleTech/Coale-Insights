@@ -15,10 +15,13 @@ from insights.api.response import success, error
 def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
     """Get executive summary"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         result = model.get_executive_summary(period)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -27,11 +30,14 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
 def get_business_health_score() -> Dict[str, Any]:
     """Get business health score"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         summary = model.get_executive_summary("YTD")
         health = summary.get("business_health", summary.get("health_score", {}))
         return success(health)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -40,6 +46,7 @@ def get_business_health_score() -> Dict[str, Any]:
 def get_executive_kpis(department: str = None, period: str = "YTD") -> Dict[str, Any]:
     """Get executive KPIs"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         if department:
@@ -48,6 +55,8 @@ def get_executive_kpis(department: str = None, period: str = "YTD") -> Dict[str,
             result = model.get_executive_summary(period)
         kpis = result.get("kpis", result)
         return success(kpis)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -56,10 +65,13 @@ def get_executive_kpis(department: str = None, period: str = "YTD") -> Dict[str,
 def get_executive_alerts() -> Dict[str, Any]:
     """Get executive alerts"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         result = model._get_executive_alerts()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -68,10 +80,13 @@ def get_executive_alerts() -> Dict[str, Any]:
 def get_executive_trends(period: str = "YTD") -> Dict[str, Any]:
     """Get executive trends"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         result = model._get_trend_sparklines(period)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -80,10 +95,13 @@ def get_executive_trends(period: str = "YTD") -> Dict[str, Any]:
 def get_executive_insights(query: str, complexity: str = "Medium") -> Dict[str, Any]:
     """Get executive insights based on query"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         result = model.get_executive_summary("YTD")
         return success({"query": query, "complexity": complexity, "insights": result})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -92,10 +110,27 @@ def get_executive_insights(query: str, complexity: str = "Medium") -> Dict[str, 
 def get_department_insights(department: str, query: str = None) -> Dict[str, Any]:
     """Get department insights"""
     try:
+        # `department` selects which domain's data comes back (see
+        # ExecutiveIntelligence.get_department_deep_dive) — a single fixed
+        # "Sales Invoice" gate let a Sales-only user pass department="hr" and
+        # read payroll data. Gate on the doctype the requested department
+        # actually exposes. See outside-voice finding 2.
+        _DEPARTMENT_DOCTYPE = {
+            "financial": "GL Entry",
+            "sales": "Sales Invoice",
+            "customer": "Customer",
+            "operations": "Purchase Order",
+            "risk": "Sales Invoice",
+            "hr": "Salary Slip",
+            "manufacturing": "Work Order",
+        }
+        frappe.has_permission(_DEPARTMENT_DOCTYPE.get(department, "Sales Invoice"), "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         result = model.get_department_deep_dive(department, "YTD")
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -104,11 +139,14 @@ def get_department_insights(department: str, query: str = None) -> Dict[str, Any
 def get_strategic_recommendations(focus_area: str = "overall") -> Dict[str, Any]:
     """Get strategic recommendations"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         summary = model.get_executive_summary("YTD")
         recs = summary.get("recommendations", summary.get("narrative", ""))
         return success({"focus_area": focus_area, "recommendations": recs})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -117,58 +155,116 @@ def get_strategic_recommendations(focus_area: str = "overall") -> Dict[str, Any]
 def analyze_executive_query(query: str) -> Dict[str, Any]:
     """Analyze executive query"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         result = model.get_executive_summary("YTD")
         return success({"query": query, "analysis": result})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
 def generate_executive_report(report_type: str = "daily") -> Dict[str, Any]:
-    """Generate executive report"""
+    """Generate and persist a real executive report (data + PDF + DB record).
+
+    Previously computed a live summary and returned it without saving
+    anything -- the button showed a success toast but nothing appeared in
+    the reports list, because nothing was ever written to the database.
+    """
     try:
-        from insights.ml.executive_intelligence import ExecutiveIntelligence
-        model = ExecutiveIntelligence()
-        result = model.get_executive_summary("YTD")
-        return success({"report_type": report_type, "report": result})
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.reports.executive_reports import ExecutiveReports
+        reports = ExecutiveReports()
+        if report_type == "daily":
+            result = reports.generate_daily_executive_report()
+        elif report_type == "weekly":
+            result = reports.generate_weekly_executive_report()
+        elif report_type == "monthly":
+            result = reports.generate_monthly_executive_report()
+        else:
+            return error(f"Unknown report type: {report_type}")
+        if not result.get("success"):
+            return error(result.get("error") or "Report generation failed")
+        return success({"report_name": result["report_name"], "report_type": report_type})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
 def send_executive_report(report_type: str = "daily", recipients: List[str] = None) -> Dict[str, Any]:
-    """Send executive report"""
+    """Generate a fresh report and email it.
+
+    Delegates to the real `send_executive_report_email`, which previously
+    was never called -- this endpoint always returned "not yet configured"
+    regardless of whether email was actually set up, and the frontend didn't
+    check the response, so it showed a green success toast either way.
+    """
     try:
-        return success({"status": "not_implemented", "message": "Email report sending not yet configured"})
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.reports.executive_reports import send_executive_report_email
+        if not recipients:
+            # The current user, not a placeholder inbox: the real function's
+            # own default was ["ceo@company.com", "coo@company.com"], which
+            # cannot exist on any real deployment.
+            recipients = [frappe.session.user] if frappe.session.user != "Guest" else []
+        result = send_executive_report_email(report_type=report_type, recipients=recipients)
+        if result.get("error"):
+            return error(result["error"])
+        return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
 def get_executive_reports_status() -> Dict[str, Any]:
-    """Get executive reports status"""
+    """Get executive reports status: the real schedule from `hooks.py`."""
     try:
-        return success({"status": "success", "reports": [], "message": "No scheduled reports configured"})
+        from insights.reports.executive_reports import ExecutiveReports
+        return success(ExecutiveReports().schedule_automated_reports())
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
 def get_recent_executive_reports(limit: int = 10) -> Dict[str, Any]:
-    """Get recent executive reports"""
+    """Get recent executive reports from the real `Executive Report` doctype."""
     try:
-        return success({"reports": [], "count": 0})
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        rows = frappe.get_all(
+            "Executive Report",
+            fields=["name as id", "report_type", "report_date", "status", "creation as created"],
+            order_by="creation desc",
+            limit_page_length=int(limit),
+        )
+        return success({"reports": rows, "count": len(rows)})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
 def download_executive_report(report_id: str) -> Dict[str, Any]:
-    """Download executive report"""
+    """Return the real download URL for a generated report's PDF."""
     try:
-        return success({"status": "not_found", "message": f"Report {report_id} not found"})
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        if not frappe.db.exists("Executive Report", report_id):
+            return error(f"Report {report_id} not found")
+        pdf_file = frappe.db.get_value("Executive Report", report_id, "pdf_file")
+        if not pdf_file:
+            return error("No PDF is attached to this report")
+        return success({"download_url": pdf_file})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -177,22 +273,74 @@ def download_executive_report(report_id: str) -> Dict[str, Any]:
 def test_executive_intelligence_data() -> Dict[str, Any]:
     """Test executive intelligence data"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
         result = model.get_executive_summary("YTD")
         return success({"test": "passed", "data_available": bool(result)})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
 def preview_executive_report_data(report_type: str = "daily") -> Dict[str, Any]:
-    """Preview executive report data"""
+    """Preview the most recent generated report of this type.
+
+    Previously returned `{report_type, preview: <live executive summary>}`,
+    a shape the frontend never read -- it reads `executive_summary`,
+    `key_metrics`, `alerts`, `modules_with_data` directly on the response,
+    so the preview modal always rendered empty. Generates one on demand if
+    none exists yet, rather than re-running the pipeline on every preview.
+    """
     try:
-        from insights.ml.executive_intelligence import ExecutiveIntelligence
-        model = ExecutiveIntelligence()
-        result = model.get_executive_summary("YTD")
-        return success({"report_type": report_type, "preview": result})
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        import json
+        existing = frappe.get_all(
+            "Executive Report",
+            filters={"report_type": report_type, "status": "Generated"},
+            fields=["name"],
+            order_by="creation desc",
+            limit_page_length=1,
+        )
+        if existing:
+            raw = frappe.db.get_value("Executive Report", existing[0].name, "report_data")
+            report_data = json.loads(raw) if raw else {}
+        else:
+            from insights.reports.executive_reports import ExecutiveReports
+            reports = ExecutiveReports()
+            if report_type == "daily":
+                result = reports.generate_daily_executive_report()
+            elif report_type == "weekly":
+                result = reports.generate_weekly_executive_report()
+            elif report_type == "monthly":
+                result = reports.generate_monthly_executive_report()
+            else:
+                return error(f"Unknown report type: {report_type}")
+            if not result.get("success"):
+                return error(result.get("error") or "Could not generate preview")
+            report_data = result["report_data"]
+
+        modules_with_data = [
+            module for module, data in (report_data.get("detailed_data") or {}).items() if data
+        ]
+        from frappe.defaults import get_user_default
+        company = get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
+        currency = (
+            frappe.db.get_value("Company", company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
+        return success({
+            "executive_summary": report_data.get("executive_summary", ""),
+            "key_metrics": report_data.get("key_metrics", {}),
+            "alerts": report_data.get("alerts", []),
+            "modules_with_data": modules_with_data,
+            "currency": currency,
+        })
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 

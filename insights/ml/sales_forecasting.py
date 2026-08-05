@@ -432,21 +432,18 @@ class SalesForecasting(BaseMLModel):
 
 
 # API Functions
-@frappe.whitelist()
 def run_sales_forecast(periods: int = 30, method: str = "auto") -> Dict[str, Any]:
     """Run sales forecasting"""
     model = SalesForecasting(method=method)
     return model.train(periods=int(periods))
 
 
-@frappe.whitelist()
 def get_sales_forecast(periods: int = 30) -> Dict[str, Any]:
     """Get sales forecast"""
     model = SalesForecasting()
     return model.predict(periods=int(periods))
 
 
-@frappe.whitelist()
 def get_grouped_forecast(group_by: str = "item_group", periods: int = 30) -> Dict[str, Any]:
     """Get forecast by group"""
     model = SalesForecasting()

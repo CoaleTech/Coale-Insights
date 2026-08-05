@@ -21,7 +21,7 @@
 
       <!-- Cash Flow Break-Even Banner -->
       <div v-if="cashData" class="bg-surface-white rounded-lg p-5 shadow-sm border border-outline-gray-1">
-        <SectionHeader title="Cash Flow Break-Even" :level="3" />
+        <SectionHeader variant="caption" title="Cash Flow Break-Even" :level="3" />
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
           <div>
             <p class="text-xs text-ink-gray-6">Break-Even Month</p>
@@ -53,7 +53,7 @@
       <!-- Employee Break-Even -->
       <div v-if="departments.length" class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
         <div class="px-5 py-4 border-b border-outline-gray-1">
-          <SectionHeader title="Employee Break-Even by Department" :level="3" />
+          <SectionHeader variant="caption" title="Employee Break-Even by Department" :level="3" />
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
           <div
@@ -95,7 +95,7 @@
       <!-- Capital Efficiency -->
       <div v-if="data.roce || data.irr" class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
         <div class="px-5 py-4 border-b border-outline-gray-1">
-          <SectionHeader title="Capital Efficiency" :level="3" />
+          <SectionHeader variant="caption" title="Capital Efficiency" :level="3" />
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-5">
           <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">

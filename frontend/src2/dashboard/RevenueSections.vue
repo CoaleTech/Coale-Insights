@@ -22,7 +22,7 @@ import { chartPalette, themeColor } from '../utils/chartTheme'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { severityBadge, scoreSeverity, deltaInk, deltaGlyph } from '../utils/status'
-import { formatMoney, formatDateShort } from '../utils/format'
+import { formatMoney, formatDateShort, NO_VALUE } from '../utils/format'
 import type { DrillDownParams } from '../intelligence/composables/useDrillDown'
 
 const props = defineProps<{
@@ -500,7 +500,7 @@ onMounted(() => {
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <!-- Period Comparison -->
       <div class="lg:col-span-1 space-y-4">
-        <SectionHeader title="Period Comparison" :level="3">
+        <SectionHeader variant="caption" title="Period Comparison" :level="3">
           <template #actions><Calendar class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <div class="divide-y divide-outline-gray-1 rounded-lg border border-outline-gray-1 bg-card">
@@ -554,7 +554,7 @@ onMounted(() => {
 
       <!-- Monthly Revenue Trend -->
       <div class="lg:col-span-2">
-        <SectionHeader title="Monthly Revenue Trend" :level="3">
+        <SectionHeader variant="caption" title="Monthly Revenue Trend" :level="3">
           <template #actions><TrendingUp class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <div class="mt-4 bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
@@ -571,66 +571,6 @@ onMounted(() => {
             </tr>
           </tbody>
         </table>
-      </div>
-    </div>
-
-    <!-- Weekly + Monthly tables -->
-    <div class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div>
-        <SectionHeader title="Weekly Performance" :level="3">
-          <template #actions><BarChart3 class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
-        </SectionHeader>
-        <div v-if="transposedWeeklyPerformance.weeks.length" class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-surface-gray-1">
-              <tr>
-                <th scope="col" class="px-3 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[80px] text-ink-gray-7">Metric</th>
-                <th v-for="week in transposedWeeklyPerformance.weeks" :key="week.label" scope="col" class="px-2 py-2 text-right min-w-[70px] text-xs text-ink-gray-7">{{ week.label }}</th>
-                <th scope="col" class="px-3 py-2 text-right bg-surface-gray-2 min-w-[85px] text-ink-gray-7">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in transposedWeeklyPerformance.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
-                <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
-                <td v-for="week in transposedWeeklyPerformance.weeks" :key="week.label" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                  {{ row.isCurrency ? money(row.values[week.label]) : num(row.values[week.label]) }}
-                </td>
-                <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                  {{ row.isCurrency ? money(row.total) : num(row.total) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-else class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No weekly data available</div>
-      </div>
-      <div>
-        <SectionHeader title="Monthly Summary" :level="3">
-          <template #actions><Calendar class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
-        </SectionHeader>
-        <div v-if="transposedMonthlySummary.months.length" class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-surface-gray-1">
-              <tr>
-                <th scope="col" class="px-3 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[80px] text-ink-gray-7">Metric</th>
-                <th v-for="month in transposedMonthlySummary.months" :key="month" scope="col" class="px-2 py-2 text-right min-w-[70px] text-xs text-ink-gray-7">{{ formatPeriod(month) }}</th>
-                <th scope="col" class="px-3 py-2 text-right bg-surface-gray-2 min-w-[85px] text-ink-gray-7">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="row in transposedMonthlySummary.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
-                <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
-                <td v-for="month in transposedMonthlySummary.months" :key="month" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                  {{ row.isCurrency ? money(row.values[month]) : num(row.values[month]) }}
-                </td>
-                <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                  {{ row.isCurrency ? money(row.total) : num(row.total) }}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div v-else class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No monthly data available</div>
       </div>
     </div>
 
@@ -672,13 +612,73 @@ onMounted(() => {
       </div>
       <div v-else-if="showDailySales" class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No daily data available</div>
     </div>
+
+    <!-- Weekly Performance -->
+    <div class="mt-6">
+      <SectionHeader variant="caption" title="Weekly Performance" :level="3">
+        <template #actions><BarChart3 class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
+      </SectionHeader>
+      <div v-if="transposedWeeklyPerformance.weeks.length" class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-surface-gray-1">
+            <tr>
+              <th scope="col" class="px-3 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[80px] text-ink-gray-7">Metric</th>
+              <th v-for="week in transposedWeeklyPerformance.weeks" :key="week.label" scope="col" class="px-2 py-2 text-right min-w-[70px] text-xs text-ink-gray-7">{{ week.label }}</th>
+              <th scope="col" class="px-3 py-2 text-right bg-surface-gray-2 min-w-[85px] text-ink-gray-7">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in transposedWeeklyPerformance.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
+              <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
+              <td v-for="week in transposedWeeklyPerformance.weeks" :key="week.label" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
+                {{ row.isCurrency ? money(row.values[week.label]) : num(row.values[week.label]) }}
+              </td>
+              <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
+                {{ row.isCurrency ? money(row.total) : num(row.total) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No weekly data available</div>
+    </div>
+
+    <!-- Monthly Summary -->
+    <div class="mt-6">
+      <SectionHeader variant="caption" title="Monthly Summary" :level="3">
+        <template #actions><Calendar class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
+      </SectionHeader>
+      <div v-if="transposedMonthlySummary.months.length" class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-surface-gray-1">
+            <tr>
+              <th scope="col" class="px-3 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[80px] text-ink-gray-7">Metric</th>
+              <th v-for="month in transposedMonthlySummary.months" :key="month" scope="col" class="px-2 py-2 text-right min-w-[70px] text-xs text-ink-gray-7">{{ formatPeriod(month) }}</th>
+              <th scope="col" class="px-3 py-2 text-right bg-surface-gray-2 min-w-[85px] text-ink-gray-7">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in transposedMonthlySummary.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
+              <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
+              <td v-for="month in transposedMonthlySummary.months" :key="month" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
+                {{ row.isCurrency ? money(row.values[month]) : num(row.values[month]) }}
+              </td>
+              <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
+                {{ row.isCurrency ? money(row.total) : num(row.total) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No monthly data available</div>
+    </div>
   </div>
 
   <!-- ═══ Cash vs Credit ═══ -->
   <div v-if="activeTab === 'rev-payment'">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div>
-        <SectionHeader title="Overall Payment Mix" :level="3" />
+        <SectionHeader variant="caption" title="Overall Payment Mix" :level="3" />
         <div class="mt-4 flex items-center gap-8">
           <div class="relative w-40 h-40" role="img" :aria-label="`Cash ratio: ${pct(paymentMix.cash_ratio as number)}`">
             <!--
@@ -721,7 +721,7 @@ onMounted(() => {
         </div>
       </div>
       <div>
-        <SectionHeader title="Today's Performance" :level="3" />
+        <SectionHeader variant="caption" title="Today's Performance" :level="3" />
         <div class="mt-4 bg-surface-gray-1 rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center justify-between mb-4">
             <p class="text-lg font-medium text-ink-gray-8">Today's Total</p>
@@ -744,7 +744,7 @@ onMounted(() => {
     </div>
 
     <div class="mt-6">
-      <SectionHeader title="Daily Cash Ratio Trend" :level="3" />
+      <SectionHeader variant="caption" title="Daily Cash Ratio Trend" :level="3" />
       <div v-if="transposedDailyCashRatio.dates.length" class="mt-4 overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-surface-gray-1">
@@ -787,7 +787,7 @@ onMounted(() => {
       </div>
     </div>
 
-    <SectionHeader title="Sales Rep Leaderboard" :level="3" />
+    <SectionHeader variant="caption" title="Sales Rep Leaderboard" :level="3" />
     <div class="mt-4 overflow-x-auto">
       <table class="w-full text-sm">
         <thead class="bg-surface-gray-1">
@@ -836,7 +836,7 @@ onMounted(() => {
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div>
-        <SectionHeader title="Margin by Product Group" :level="3" />
+        <SectionHeader variant="caption" title="Margin by Product Group" :level="3" />
         <div class="mt-4 overflow-x-auto">
           <table class="w-full text-sm">
             <thead class="bg-surface-gray-1">
@@ -863,7 +863,7 @@ onMounted(() => {
       </div>
       <div class="space-y-6">
         <div>
-          <SectionHeader title="Top Margin Items" :level="3" />
+          <SectionHeader variant="caption" title="Top Margin Items" :level="3" />
           <div class="mt-2 space-y-2">
             <div v-for="item in (margins.top_margin_items as Record<string, unknown>[])?.slice(0, 10)" :key="item.item_code as string"
               class="flex justify-between items-center text-sm bg-surface-gray-1 rounded p-2">
@@ -873,7 +873,7 @@ onMounted(() => {
           </div>
         </div>
         <div>
-          <SectionHeader title="Low Margin Items" :level="3" />
+          <SectionHeader variant="caption" title="Low Margin Items" :level="3" />
           <div class="mt-2 space-y-2">
             <div v-for="item in (margins.low_margin_items as Record<string, unknown>[])?.slice(0, 10)" :key="item.item_code as string"
               class="flex justify-between items-center text-sm bg-surface-gray-1 rounded p-2">
@@ -890,7 +890,7 @@ onMounted(() => {
   <div v-if="activeTab === 'rev-forecasts'">
     <div class="mb-6 bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
       <div class="flex flex-wrap items-center justify-between gap-4">
-        <SectionHeader title="ML Forecast Training" hint="Train models to generate sales forecasts" :level="3" />
+        <SectionHeader variant="caption" title="ML Forecast Training" hint="Train models to generate sales forecasts" :level="3" />
         <div class="flex gap-2">
           <Button variant="solid" theme="gray" :loading="isTraining === 'sales'" :disabled="!!isTraining" @click="trainForecasts('sales')">
             Train Sales Forecast
@@ -902,7 +902,7 @@ onMounted(() => {
 
     <div class="mb-6">
       <div v-if="forecasts.sales_forecast">
-        <SectionHeader title="Sales Forecast (Next 90 Days)" :level="3">
+        <SectionHeader variant="caption" title="Sales Forecast (Next 90 Days)" :level="3">
           <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <div class="mt-4 bg-surface-gray-1 rounded-lg p-4 mb-4 border border-outline-gray-1">
@@ -920,24 +920,24 @@ onMounted(() => {
         <div v-if="((forecasts.sales_forecast as Record<string, unknown[]>).forecast)?.length" class="mt-4">
           <h4 class="text-sm font-medium text-ink-gray-7 mb-2">Monthly Breakdown</h4>
           <div class="grid grid-cols-3 gap-2">
-            <div class="bg-surface-white rounded-lg p-3 text-center border border-outline-gray-1">
-              <p class="text-xs text-ink-gray-6">Next 30 Days</p>
-              <p class="font-bold text-ink-gray-9 text-lg">
-                {{ money(((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(0, 30).reduce((a, b) => a + (b.yhat || 0), 0)) || 0) }}
-              </p>
-            </div>
-            <div class="bg-surface-white rounded-lg p-3 text-center border border-outline-gray-1">
-              <p class="text-xs text-ink-gray-6">Days 31-60</p>
-              <p class="font-bold text-ink-gray-9 text-lg">
-                {{ money(((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(30, 60).reduce((a, b) => a + (b.yhat || 0), 0)) || 0) }}
-              </p>
-            </div>
-            <div class="bg-surface-white rounded-lg p-3 text-center border border-outline-gray-1">
-              <p class="text-xs text-ink-gray-6">Days 61-90</p>
-              <p class="font-bold text-ink-gray-9 text-lg">
-                {{ money(((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(60, 90).reduce((a, b) => a + (b.yhat || 0), 0)) || 0) }}
-              </p>
-            </div>
+            <KpiCard
+              label="Next 30 Days"
+              :amount="((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(0, 30).reduce((a, b) => a + (b.yhat || 0), 0)) || 0"
+              :currency="props.currency"
+              variant="tile"
+            />
+            <KpiCard
+              label="Days 31-60"
+              :amount="((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(30, 60).reduce((a, b) => a + (b.yhat || 0), 0)) || 0"
+              :currency="props.currency"
+              variant="tile"
+            />
+            <KpiCard
+              label="Days 61-90"
+              :amount="((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(60, 90).reduce((a, b) => a + (b.yhat || 0), 0)) || 0"
+              :currency="props.currency"
+              variant="tile"
+            />
           </div>
         </div>
       </div>
@@ -951,7 +951,7 @@ onMounted(() => {
     <!-- Dimensional forecast by product group -->
     <div class="mb-6">
       <div class="flex items-center justify-between mb-4">
-        <SectionHeader title="Sales by Product Group (Historical + Forecast)" :level="3">
+        <SectionHeader variant="caption" title="Sales by Product Group (Historical + Forecast)" :level="3">
           <template #actions><BarChart3 class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <Button variant="subtle" theme="gray" :loading="isLoadingDimensional" @click="loadDimensionalForecast">Refresh</Button>
@@ -1004,7 +1004,7 @@ onMounted(() => {
 
     <!-- Dimensional forecast by territory -->
     <div>
-      <SectionHeader title="Sales by Territory (Historical + Forecast)" :level="3">
+      <SectionHeader variant="caption" title="Sales by Territory (Historical + Forecast)" :level="3">
         <template #actions><Target class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
       </SectionHeader>
       <div v-if="transposedTerritoryData.rows.length" class="mt-4 overflow-x-auto bg-surface-white rounded-lg border border-outline-gray-1">
@@ -1057,7 +1057,7 @@ onMounted(() => {
   <!-- ═══ Attribution ═══ -->
   <div v-if="activeTab === 'rev-sources'" class="space-y-6">
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-      <SectionHeader title="Source Attribution" :level="3" />
+      <SectionHeader variant="caption" title="Source Attribution" :level="3" />
       <div v-if="attributionConfig" class="mt-4 h-56 sm:h-72 lg:h-80">
         <IntelligenceChart :config="attributionConfig" class="h-56 sm:h-72 lg:h-80" />
       </div>
@@ -1081,11 +1081,11 @@ onMounted(() => {
 
     <div v-if="sourceAttribution.length" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
       <KpiCard v-for="src in sourceAttribution.slice(0, 8)" :key="src.source as string"
-        :label="src.source as string" :value="money((src.revenue as number) / (src.order_count as number))" sublabel="per order" />
+        :label="src.source as string" :value="(src.order_count as number) > 0 ? money((src.revenue as number) / (src.order_count as number)) : NO_VALUE" sublabel="per order" />
     </div>
 
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-      <SectionHeader title="Quotation Funnel" :level="3" />
+      <SectionHeader variant="caption" title="Quotation Funnel" :level="3" />
       <div v-if="quotationAnalytics" class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         <KpiCard label="Total Quotes" :value="num(quotationAnalytics.total as number)" />
         <KpiCard label="Won" :value="num(quotationAnalytics.won as number)" />

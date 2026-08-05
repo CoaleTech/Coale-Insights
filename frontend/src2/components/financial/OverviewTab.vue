@@ -3,7 +3,7 @@
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 			<!-- P&L Summary -->
 			<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-				<SectionHeader title="Profit & Loss Summary (YTD)" :level="3" />
+				<SectionHeader variant="caption" title="Profit & Loss Summary (YTD)" :level="3" />
 				<div class="mt-4 space-y-3">
 					<div class="flex justify-between items-center">
 						<span class="text-ink-gray-6">Total Revenue</span>
@@ -28,7 +28,7 @@
 
 			<!-- Monthly Revenue Trend -->
 			<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-				<SectionHeader title="Monthly Revenue Trend" :level="3" />
+				<SectionHeader variant="caption" title="Monthly Revenue Trend" :level="3" />
 				<IntelligenceChart v-if="data.monthly_trend?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="revenueTrendConfig" />
 				<div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
 					No revenue data available
@@ -53,7 +53,7 @@
 
 		<!-- Expense Breakdown -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader title="Expense Breakdown" :level="3" />
+			<SectionHeader variant="caption" title="Expense Breakdown" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full">
 					<thead>
@@ -95,7 +95,8 @@ import IntelligenceChart from '../../intelligence/components/IntelligenceChart.v
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import { deltaInk } from '../../utils/status'
 import { themeColor } from '../../utils/chartTheme'
-import { formatCurrency, formatPeriod } from './format'
+import { formatPeriod } from './format'
+import { formatMoney as formatCurrency } from '../../utils/format'
 import type { OverviewData } from './types'
 
 const props = defineProps<{

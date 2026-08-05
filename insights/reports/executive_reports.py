@@ -6,17 +6,12 @@ with PDF export, email scheduling, and customizable report templates.
 """
 
 import frappe
-from frappe import _
-from frappe.utils import nowdate, add_months, add_days, flt, cint, date_diff, today, now_datetime
-from frappe.utils.pdf import get_pdf
-from frappe.core.doctype.communication.email import make
+from frappe.utils import nowdate, now_datetime
+from frappe.defaults import get_user_default
+from weasyprint import HTML
 from datetime import datetime, date, timedelta
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any, Optional
 import logging
-import json
-import os
 from jinja2 import Template
 
 logger = logging.getLogger(__name__)
@@ -33,6 +28,14 @@ class ExecutiveReports:
         self.current_month_start = datetime.now().replace(day=1).date()
         self.current_quarter_start = self._get_quarter_start()
         self.current_year_start = datetime.now().replace(month=1, day=1).date()
+        company = get_user_default("Company") or frappe.db.get_single_value(
+            "Global Defaults", "default_company"
+        )
+        self.currency = (
+            frappe.db.get_value("Company", company, "default_currency")
+            or frappe.db.get_single_value("System Settings", "default_currency")
+            or "USD"
+        )
         
     def _get_quarter_start(self) -> date:
         """Get the start date of current quarter"""
@@ -240,7 +243,7 @@ class ExecutiveReports:
             try:
                 from insights.ml.sales_intelligence import SalesIntelligence
                 sales_intel = SalesIntelligence()
-                data["sales"] = sales_intel.get_sales_overview("MTD")
+                data["sales"] = sales_intel.predict()
             except Exception as e:
                 logger.warning(f"Could not load sales intelligence: {e}")
                 data["sales"] = {}
@@ -249,7 +252,7 @@ class ExecutiveReports:
             try:
                 from insights.ml.financial_intelligence import FinancialIntelligence
                 fin_intel = FinancialIntelligence()
-                data["financial"] = fin_intel.get_financial_overview("MTD")
+                data["financial"] = fin_intel.predict()
             except Exception as e:
                 logger.warning(f"Could not load financial intelligence: {e}")
                 data["financial"] = {}
@@ -314,7 +317,7 @@ class ExecutiveReports:
             try:
                 from insights.ml.sales_intelligence import SalesIntelligence
                 sales_intel = SalesIntelligence()
-                data["sales"] = sales_intel.get_sales_overview(period)
+                data["sales"] = sales_intel.predict()
             except:
                 data["sales"] = {}
             
@@ -322,7 +325,7 @@ class ExecutiveReports:
             try:
                 from insights.ml.financial_intelligence import FinancialIntelligence
                 fin_intel = FinancialIntelligence()
-                data["financial"] = fin_intel.get_financial_overview(period)
+                data["financial"] = fin_intel.predict()
             except:
                 data["financial"] = {}
             
@@ -373,15 +376,15 @@ class ExecutiveReports:
             sales_metrics = sales_data.get("sales_metrics", {})
             if sales_metrics:
                 revenue = sales_metrics.get("total_revenue", 0)
-                summary_points.append(f"Daily revenue: ${revenue:,.0f}")
+                summary_points.append(f"Daily revenue: {self.currency} {revenue:,.0f}")
             
             # Financial status
             fin_data = report_data.get("financial", {})
             if fin_data:
                 cash_flow = fin_data.get("cash_flow", {})
                 if cash_flow:
-                    net_flow = cash_flow.get("net_cash_flow", 0)
-                    summary_points.append(f"Net cash flow: ${net_flow:,.0f}")
+                    net_flow = cash_flow.get("net_burn_rate", 0)
+                    summary_points.append(f"Net cash flow: {self.currency} {net_flow:,.0f}")
             
             # Manufacturing efficiency
             mfg_data = report_data.get("manufacturing", {})
@@ -403,12 +406,86 @@ class ExecutiveReports:
             return "Daily executive summary generated."
     
     def _generate_weekly_executive_summary(self, report_data: Dict[str, Any]) -> str:
-        """Generate executive summary for weekly report"""
-        return "Weekly executive summary covering business performance, trends, and strategic insights."
-    
+        """Generate executive summary for weekly report from real report_data figures."""
+        try:
+            summary_points = []
+
+            exec_data = report_data.get("executive", {})
+            business_health = exec_data.get("business_health_score", {})
+            if business_health:
+                score = business_health.get("overall_score", 0)
+                summary_points.append(f"Business health score: {score}/100")
+
+            sales_data = report_data.get("sales", {})
+            sales_summary = sales_data.get("summary", {})
+            if sales_summary:
+                revenue = sales_summary.get("total_revenue", 0)
+                summary_points.append(f"Period revenue: {self.currency} {revenue:,.0f}")
+
+            fin_data = report_data.get("financial", {})
+            if fin_data:
+                cash_flow = fin_data.get("cash_flow", {})
+                if cash_flow:
+                    net_flow = cash_flow.get("net_burn_rate", 0)
+                    summary_points.append(f"Net cash flow: {self.currency} {net_flow:,.0f}")
+
+            mfg_data = report_data.get("manufacturing", {})
+            oee_data = mfg_data.get("oee_analysis", {})
+            if oee_data and "oee_score_pct" in oee_data:
+                oee_score = oee_data.get("oee_score_pct", 0)
+                summary_points.append(f"Manufacturing OEE: {oee_score}%")
+
+            if summary_points:
+                summary = "Weekly Business Snapshot: " + " | ".join(summary_points)
+            else:
+                summary = "Weekly executive report generated with available business intelligence data."
+
+            return summary
+
+        except Exception as e:
+            logger.error(f"Error generating weekly executive summary: {e}")
+            return "Weekly executive summary covering business performance, trends, and strategic insights."
+
     def _generate_monthly_executive_summary(self, report_data: Dict[str, Any]) -> str:
-        """Generate executive summary for monthly report"""
-        return "Monthly executive summary providing comprehensive business performance analysis and strategic recommendations."
+        """Generate executive summary for monthly report from real report_data figures."""
+        try:
+            summary_points = []
+
+            exec_data = report_data.get("executive", {})
+            business_health = exec_data.get("business_health_score", {})
+            if business_health:
+                score = business_health.get("overall_score", 0)
+                summary_points.append(f"Business health score: {score}/100")
+
+            sales_data = report_data.get("sales", {})
+            sales_summary = sales_data.get("summary", {})
+            if sales_summary:
+                revenue = sales_summary.get("total_revenue", 0)
+                summary_points.append(f"YTD revenue: {self.currency} {revenue:,.0f}")
+
+            fin_data = report_data.get("financial", {})
+            if fin_data:
+                cash_flow = fin_data.get("cash_flow", {})
+                if cash_flow:
+                    net_flow = cash_flow.get("net_burn_rate", 0)
+                    summary_points.append(f"Net cash flow: {self.currency} {net_flow:,.0f}")
+
+            mfg_data = report_data.get("manufacturing", {})
+            oee_data = mfg_data.get("oee_analysis", {})
+            if oee_data and "oee_score_pct" in oee_data:
+                oee_score = oee_data.get("oee_score_pct", 0)
+                summary_points.append(f"Manufacturing OEE: {oee_score}%")
+
+            if summary_points:
+                summary = "Monthly Business Snapshot: " + " | ".join(summary_points)
+            else:
+                summary = "Monthly executive report generated with available business intelligence data."
+
+            return summary
+
+        except Exception as e:
+            logger.error(f"Error generating monthly executive summary: {e}")
+            return "Monthly executive summary providing comprehensive business performance analysis and strategic recommendations."
     
     def _extract_daily_key_metrics(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract key daily metrics across all departments"""
@@ -437,7 +514,7 @@ class ExecutiveReports:
             fin_data = report_data.get("financial", {})
             if fin_data:
                 cash_flow = fin_data.get("cash_flow", {})
-                key_metrics["cash_flow"] = cash_flow.get("net_cash_flow", 0)
+                key_metrics["cash_flow"] = cash_flow.get("net_burn_rate", 0)
             
             mfg_data = report_data.get("manufacturing", {})
             if mfg_data:
@@ -482,12 +559,12 @@ class ExecutiveReports:
             fin_data = report_data.get("financial", {})
             cash_flow = fin_data.get("cash_flow", {})
             if cash_flow:
-                net_flow = cash_flow.get("net_cash_flow", 0)
+                net_flow = cash_flow.get("net_burn_rate", 0)
                 if net_flow < 0:
                     alerts.append({
                         "priority": "high",
-                        "type": "Cash Flow", 
-                        "message": f"Negative cash flow: ${net_flow:,.0f}",
+                        "type": "Cash Flow",
+                        "message": f"Negative cash flow: {self.currency} {net_flow:,.0f}",
                         "action_required": "Review receivables and payables"
                     })
             
@@ -586,144 +663,596 @@ class ExecutiveReports:
             return ["Daily business operations completed"]
     
     def _analyze_weekly_performance(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze weekly performance trends"""
-        return {
-            "revenue_trend": "stable",
-            "efficiency_trend": "improving", 
-            "cost_trend": "controlled",
-            "overall_assessment": "positive"
-        }
-    
+        """Analyze weekly performance trends from real report data."""
+        try:
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue = sales_summary.get("total_revenue", 0) or 0
+            revenue_growth = sales_summary.get("revenue_growth_rate", 0) or 0
+
+            fin = report_data.get("financial", {})
+            fin_overview = fin.get("overview", {})
+            net_margin = fin_overview.get("net_margin")
+            ytd_profit = fin_overview.get("ytd_profit", 0) or 0
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+            prod = mfg.get("production_metrics", {})
+            prod_growth = prod.get("monthly_growth_rate", 0) or 0
+
+            def trend(value: float, good: float = 5, bad: float = -5) -> str:
+                if value > good:
+                    return "positive"
+                if value < bad:
+                    return "negative"
+                return "stable"
+
+            return {
+                "revenue_trend": trend(revenue_growth, 10, -5),
+                "efficiency_trend": trend(prod_growth, 5, -5) if prod else "no_data",
+                "cost_trend": "stable" if net_margin is None else trend(net_margin, 15, 5),
+                "overall_assessment": trend(revenue_growth, 10, -10),
+                "revenue": revenue,
+                "revenue_growth_rate": revenue_growth,
+                "oee_score": oee_score,
+                "net_margin": net_margin,
+                "ytd_profit": ytd_profit,
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing weekly performance: {e}")
+            return {"revenue_trend": "stable", "efficiency_trend": "no_data", "cost_trend": "stable", "overall_assessment": "stable"}
+
     def _analyze_weekly_trends(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze weekly business trends"""
-        return {
-            "key_trends": [
-                "Revenue growth stabilizing",
-                "Operational efficiency improving",
-                "Cost management on track"
-            ],
-            "emerging_opportunities": [
-                "New market segments showing interest",
-                "Production capacity optimization potential"
-            ],
-            "risk_factors": [
-                "Supply chain volatility",
-                "Market competitive pressure"
-            ]
-        }
-    
+        """Analyze weekly business trends from real data."""
+        try:
+            key_trends = []
+            opportunities = []
+            risks = []
+
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue = sales_summary.get("total_revenue", 0) or 0
+            revenue_growth = sales_summary.get("revenue_growth_rate", 0) or 0
+            if revenue:
+                key_trends.append(f"Period revenue: {self.currency} {revenue:,.0f}")
+            if revenue_growth:
+                direction = "up" if revenue_growth > 0 else "down"
+                key_trends.append(f"Revenue growth {direction} {revenue_growth:.1f}%")
+
+            fin = report_data.get("financial", {})
+            fin_overview = fin.get("overview", {})
+            monthly_trend = fin_overview.get("monthly_trend", [])
+            if len(monthly_trend) >= 2:
+                latest = monthly_trend[-1]
+                prior = monthly_trend[-2]
+                latest_revenue = latest.get("revenue", 0) or 0
+                prior_revenue = prior.get("revenue", 0) or 0
+                if prior_revenue:
+                    mom = ((latest_revenue - prior_revenue) / prior_revenue) * 100
+                    key_trends.append(f"Month-over-month revenue {mom:+.1f}%")
+                    if mom > 10:
+                        opportunities.append("Revenue momentum accelerating")
+                    elif mom < -10:
+                        risks.append("Revenue declining month-over-month")
+
+            cash_flow = fin.get("cash_flow", {})
+            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            if net_burn < 0:
+                risks.append(f"Negative cash flow: {self.currency} {net_burn:,.0f}")
+            elif net_burn > 0:
+                opportunities.append("Positive net cash flow")
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+            if oee_score:
+                key_trends.append(f"Manufacturing OEE: {oee_score}%")
+                if oee_score < 60:
+                    risks.append("Manufacturing OEE below target")
+                elif oee_score >= 85:
+                    opportunities.append("World-class manufacturing OEE")
+
+            hr = report_data.get("hr", {})
+            headcount = hr.get("headcount_metrics", {})
+            total_employees = headcount.get("total_employees", 0) or 0
+            turnover = headcount.get("turnover_rate_pct", 0) or 0
+            if total_employees:
+                key_trends.append(f"Headcount: {total_employees} employees")
+            if turnover > 12:
+                risks.append(f"Turnover rate elevated at {turnover:.1f}%")
+
+            if not key_trends:
+                key_trends.append("Insufficient historical data for trend analysis")
+
+            return {
+                "key_trends": key_trends,
+                "emerging_opportunities": opportunities or ["No clear opportunities identified from available data"],
+                "risk_factors": risks or ["No significant risks flagged from available data"],
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing weekly trends: {e}")
+            return {"key_trends": [], "emerging_opportunities": [], "risk_factors": []}
+
     def _generate_weekly_recommendations(self, report_data: Dict[str, Any]) -> List[str]:
-        """Generate weekly strategic recommendations"""
-        return [
-            "Continue focus on operational efficiency",
-            "Expand marketing in high-performing segments", 
-            "Monitor supply chain risks closely",
-            "Prepare quarterly planning initiatives"
-        ]
-    
+        """Generate weekly recommendations from real signals in report_data."""
+        try:
+            recommendations = []
+
+            fin = report_data.get("financial", {})
+            cash_flow = fin.get("cash_flow", {})
+            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            if net_burn < 0:
+                recommendations.append(f"Review receivables and payables: negative cash flow {self.currency} {net_burn:,.0f}")
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+            if oee_score and oee_score < 60:
+                recommendations.append(f"Review production efficiency: OEE at {oee_score}%")
+
+            hr = report_data.get("hr", {})
+            attrition = hr.get("attrition_metrics", {})
+            attrition_rate = attrition.get("attrition_rate_pct", 0) or 0
+            attrition_risk = attrition.get("attrition_risk", "low")
+            if attrition_rate > 12 or attrition_risk in ("medium", "high"):
+                recommendations.append(f"Review HR retention: attrition rate {attrition_rate:.1f}% (risk: {attrition_risk})")
+
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue_growth = sales_summary.get("revenue_growth_rate", 0) or 0
+            if revenue_growth < -10:
+                recommendations.append("Investigate sales decline and pipeline coverage")
+
+            if not recommendations:
+                recommendations.append("Review weekly performance metrics and maintain current operational focus")
+
+            return recommendations
+        except Exception as e:
+            logger.error(f"Error generating weekly recommendations: {e}")
+            return ["Review weekly business performance"]
+
     def _extract_department_highlights(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract highlights from each department"""
-        return {
-            "sales": "Quota achievement on track",
-            "manufacturing": "Production efficiency improved",
-            "hr": "Employee engagement stable",
-            "finance": "Cash flow management effective",
-            "marketing": "Lead generation meeting targets"
-        }
-    
+        """Extract real highlights from each department, or mark data unavailable."""
+        try:
+            highlights = {}
+
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue = sales_summary.get("total_revenue", 0)
+            highlights["sales"] = f"Period revenue: {self.currency} {revenue:,.0f}" if revenue else "No sales data available"
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0)
+            if oee_score:
+                highlights["manufacturing"] = f"OEE: {oee_score}% ({oee.get('oee_rating', 'N/A')})"
+            else:
+                highlights["manufacturing"] = "No manufacturing data available"
+
+            hr = report_data.get("hr", {})
+            headcount = hr.get("headcount_metrics", {})
+            total_employees = headcount.get("total_employees", 0)
+            if total_employees:
+                highlights["hr"] = f"Headcount: {total_employees} (turnover {headcount.get('turnover_rate_pct', 0):.1f}%)"
+            else:
+                highlights["hr"] = "No HR data available"
+
+            fin = report_data.get("financial", {})
+            fin_overview = fin.get("overview", {})
+            ytd_profit = fin_overview.get("ytd_profit", 0)
+            net_margin = fin_overview.get("net_margin")
+            if ytd_profit or net_margin is not None:
+                margin_text = f", net margin {net_margin:.1f}%" if net_margin is not None else ""
+                highlights["finance"] = f"YTD profit: {self.currency} {ytd_profit:,.0f}{margin_text}"
+            else:
+                highlights["finance"] = "No financial data available"
+
+            mkt = report_data.get("marketing", {})
+            lead_metrics = mkt.get("lead_metrics", {})
+            total_leads = lead_metrics.get("total_leads", 0)
+            if total_leads:
+                highlights["marketing"] = f"Leads: {total_leads} (conversion {lead_metrics.get('conversion_rate', 0):.1f}%)"
+            else:
+                highlights["marketing"] = "No marketing data available"
+
+            return highlights
+        except Exception as e:
+            logger.error(f"Error extracting department highlights: {e}")
+            return {k: "No data available" for k in ["sales", "manufacturing", "hr", "finance", "marketing"]}
+
     def _review_weekly_goals(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Review progress against weekly goals"""
-        return {
-            "goals_on_track": 4,
-            "goals_behind": 1,
-            "goals_exceeded": 2,
-            "overall_progress": "85%"
-        }
-    
+        """Review progress against weekly goals. Goal tracking is not configured in this system, so report real metrics honestly."""
+        try:
+            exec_data = report_data.get("executive", {})
+            health = exec_data.get("business_health_score", {})
+            score = health.get("overall_score", 0)
+
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue = sales_summary.get("total_revenue", 0) or 0
+
+            fin = report_data.get("financial", {})
+            fin_overview = fin.get("overview", {})
+            ytd_revenue = fin_overview.get("ytd_revenue", 0) or 0
+
+            return {
+                "goals_on_track": None,
+                "goals_behind": None,
+                "goals_exceeded": None,
+                "overall_progress": "Goal tracking not configured",
+                "available_metrics": {
+                    "business_health_score": score,
+                    "period_revenue": revenue,
+                    "ytd_revenue": ytd_revenue,
+                },
+                "note": "Goal tracking is not yet configured. Use available metrics above for manual review.",
+            }
+        except Exception as e:
+            logger.error(f"Error reviewing weekly goals: {e}")
+            return {"goals_on_track": None, "goals_behind": None, "goals_exceeded": None, "overall_progress": "Not configured", "note": "Goal tracking not available"}
+
+    def _health_category(self, score: float) -> str:
+        if score >= 75:
+            return "strong"
+        if score >= 50:
+            return "moderate"
+        return "needs_attention"
+
     def _assess_monthly_business_health(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Assess monthly business health"""
-        return {
-            "overall_health": "strong",
-            "financial_health": "stable",
-            "operational_health": "improving",
-            "strategic_health": "positive"
-        }
-    
+        """Assess monthly business health from real report data."""
+        try:
+            exec_data = report_data.get("executive", {})
+            health = exec_data.get("business_health_score", {})
+            score = health.get("overall_score", 0) or 0
+
+            fin = report_data.get("financial", {})
+            fin_overview = fin.get("overview", {})
+            net_margin = fin_overview.get("net_margin")
+            ytd_profit = fin_overview.get("ytd_profit", 0) or 0
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+
+            financial_health = self._health_category(net_margin if net_margin is not None else score)
+            operational_health = self._health_category(oee_score) if oee_score else "no_data"
+            strategic_health = self._health_category(score)
+
+            return {
+                "overall_health": self._health_category(score),
+                "financial_health": financial_health,
+                "operational_health": operational_health,
+                "strategic_health": strategic_health,
+                "overall_score": score,
+                "net_margin": net_margin,
+                "oee_score": oee_score,
+                "ytd_profit": ytd_profit,
+            }
+        except Exception as e:
+            logger.error(f"Error assessing monthly business health: {e}")
+            return {"overall_health": "unknown", "financial_health": "unknown", "operational_health": "unknown", "strategic_health": "unknown"}
+
     def _analyze_monthly_financial_performance(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze monthly financial performance"""
-        return {
-            "revenue_growth": "positive",
-            "profitability": "stable",
-            "cash_management": "effective",
-            "cost_control": "on_target"
-        }
-    
+        """Analyze monthly financial performance from real data."""
+        try:
+            fin = report_data.get("financial", {})
+            fin_overview = fin.get("overview", {})
+            ytd_revenue = fin_overview.get("ytd_revenue", 0) or 0
+            ytd_expenses = fin_overview.get("ytd_expenses", 0) or 0
+            ytd_profit = fin_overview.get("ytd_profit", 0) or 0
+            net_margin = fin_overview.get("net_margin")
+            monthly_trend = fin_overview.get("monthly_trend", [])
+
+            revenue_growth = 0
+            if len(monthly_trend) >= 2:
+                latest = monthly_trend[-1].get("revenue", 0) or 0
+                prior = monthly_trend[-2].get("revenue", 0) or 0
+                if prior:
+                    revenue_growth = ((latest - prior) / prior) * 100
+
+            cash_flow = fin.get("cash_flow", {})
+            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+
+            def categorize(growth: float, margin: Optional[float]) -> str:
+                if growth > 10:
+                    return "positive"
+                if growth < -10:
+                    return "negative"
+                return "stable"
+
+            return {
+                "revenue_growth": categorize(revenue_growth, net_margin),
+                "profitability": "positive" if ytd_profit > 0 else "negative" if ytd_profit < 0 else "break_even",
+                "cash_management": "concerning" if net_burn < 0 else "healthy",
+                "cost_control": "on_target" if ytd_expenses <= ytd_revenue * 0.85 else "needs_attention",
+                "ytd_revenue": ytd_revenue,
+                "ytd_profit": ytd_profit,
+                "net_margin": net_margin,
+                "month_over_month_revenue_growth": round(revenue_growth, 2),
+                "net_burn_rate": net_burn,
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing monthly financial performance: {e}")
+            return {"revenue_growth": "stable", "profitability": "stable", "cash_management": "stable", "cost_control": "stable"}
+
     def _analyze_monthly_operations(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze monthly operational performance"""
-        return {
-            "efficiency_metrics": "improving",
-            "quality_metrics": "stable",
-            "capacity_utilization": "optimal",
-            "innovation_progress": "on_track"
-        }
-    
+        """Analyze monthly operational performance from real manufacturing data."""
+        try:
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+            prod = mfg.get("production_metrics", {})
+            completion_rate = prod.get("completion_rate_pct", 0) or 0
+            prod_growth = prod.get("monthly_growth_rate", 0) or 0
+            quality = mfg.get("quality_metrics", {})
+            on_time = quality.get("on_time_completion_pct", 0) or 0
+
+            def efficiency_cat(score: float, growth: float) -> str:
+                if score >= 85 and growth >= 0:
+                    return "improving"
+                if score >= 60:
+                    return "stable"
+                return "needs_improvement"
+
+            return {
+                "efficiency_metrics": efficiency_cat(oee_score, prod_growth),
+                "quality_metrics": "stable" if on_time >= 80 else "needs_improvement" if on_time else "no_data",
+                "capacity_utilization": "optimal" if completion_rate >= 80 else "underutilized" if completion_rate else "no_data",
+                "innovation_progress": "on_track" if prod_growth >= 0 else "declining",
+                "oee_score": oee_score,
+                "completion_rate_pct": completion_rate,
+                "production_growth_rate": prod_growth,
+                "on_time_completion_pct": on_time,
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing monthly operations: {e}")
+            return {"efficiency_metrics": "no_data", "quality_metrics": "no_data", "capacity_utilization": "no_data", "innovation_progress": "no_data"}
+
     def _review_strategic_initiatives(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Review strategic initiatives progress"""
-        return {
-            "initiatives_completed": 2,
-            "initiatives_in_progress": 5,
-            "initiatives_delayed": 1,
-            "overall_progress": "75%"
-        }
-    
+        """Review strategic initiatives progress. Initiative tracking is not configured; report honestly."""
+        try:
+            exec_data = report_data.get("executive", {})
+            health = exec_data.get("business_health_score", {})
+            score = health.get("overall_score", 0) or 0
+
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue_growth = sales_summary.get("revenue_growth_rate", 0) or 0
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+
+            return {
+                "initiatives_completed": None,
+                "initiatives_in_progress": None,
+                "initiatives_delayed": None,
+                "overall_progress": "Strategic initiative tracking not configured",
+                "available_indicators": {
+                    "business_health_score": score,
+                    "revenue_growth_rate": revenue_growth,
+                    "oee_score": oee_score,
+                },
+                "note": "Strategic initiative tracking is not yet configured. Use the indicators above as proxies.",
+            }
+        except Exception as e:
+            logger.error(f"Error reviewing strategic initiatives: {e}")
+            return {"initiatives_completed": None, "initiatives_in_progress": None, "initiatives_delayed": None, "overall_progress": "Not configured", "note": "Strategic tracking not available"}
+
     def _analyze_market_position(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze market position and competitive landscape"""
-        return {
-            "market_share": "stable",
-            "competitive_position": "strong",
-            "market_trends": "favorable",
-            "growth_opportunities": "identified"
-        }
-    
+        """Analyze market position. No external market/competitive data source exists; report internal concentration only."""
+        try:
+            sales = report_data.get("sales", {})
+            dimensions = sales.get("dimensions", {})
+            by_territory = dimensions.get("by_territory", [])
+            by_segment = dimensions.get("by_customer_segment", [])
+
+            def concentration(rows: List[Dict[str, Any]], key: str = "revenue") -> Dict[str, Any]:
+                if not rows:
+                    return {"top_share_pct": None, "top_item": None}
+                total = sum(float(r.get(key, 0) or 0) for r in rows)
+                if not total:
+                    return {"top_share_pct": None, "top_item": None}
+                top = max(rows, key=lambda r: float(r.get(key, 0) or 0))
+                top_value = float(top.get(key, 0) or 0)
+                return {
+                    "top_share_pct": round((top_value / total) * 100, 1),
+                    "top_item": top.get("territory") or top.get("segment") or top.get("customer_group") or "Unknown",
+                }
+
+            territory_concentration = concentration(by_territory, "revenue")
+            segment_concentration = concentration(by_segment, "revenue")
+
+            return {
+                "market_share": "not_available",
+                "competitive_position": "not_available",
+                "market_trends": "not_available",
+                "growth_opportunities": "identified" if territory_concentration.get("top_share_pct", 100) and territory_concentration["top_share_pct"] < 50 else "concentrated",
+                "internal_concentration": {
+                    "territory": territory_concentration,
+                    "customer_segment": segment_concentration,
+                },
+                "note": "External market share and competitor data are not available. Internal concentration metrics are shown instead.",
+            }
+        except Exception as e:
+            logger.error(f"Error analyzing market position: {e}")
+            return {"market_share": "not_available", "competitive_position": "not_available", "market_trends": "not_available", "growth_opportunities": "unknown", "note": "Market data unavailable"}
+
     def _assess_monthly_risks(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Assess monthly risk factors"""
-        return {
-            "financial_risks": "low",
-            "operational_risks": "medium",
-            "market_risks": "medium",
-            "strategic_risks": "low"
-        }
-    
+        """Assess monthly risk factors from real signals in report_data."""
+        try:
+            fin = report_data.get("financial", {})
+            cash_flow = fin.get("cash_flow", {})
+            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            fin_overview = fin.get("overview", {})
+            ytd_profit = fin_overview.get("ytd_profit", 0) or 0
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+            prod = mfg.get("production_metrics", {})
+            completion_rate = prod.get("completion_rate_pct", 0) or 0
+
+            hr = report_data.get("hr", {})
+            attrition = hr.get("attrition_metrics", {})
+            attrition_rate = attrition.get("attrition_rate_pct", 0) or 0
+            attrition_risk = attrition.get("attrition_risk", "low")
+
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue_growth = sales_summary.get("revenue_growth_rate", 0) or 0
+
+            def risk_level(value: float, high: float, medium: float) -> str:
+                if value >= high or value < 0:
+                    return "high" if value < 0 else "medium"
+                if value >= medium:
+                    return "medium"
+                return "low"
+
+            financial_risk = "high" if net_burn < 0 or ytd_profit < 0 else "low"
+            operational_risk = "high" if (oee_score and oee_score < 60) or (completion_rate and completion_rate < 60) else "medium" if (oee_score and oee_score < 80) else "low"
+            people_risk = "high" if attrition_rate > 20 or attrition_risk == "high" else "medium" if attrition_rate > 12 or attrition_risk == "medium" else "low"
+            market_risk = "high" if revenue_growth < -10 else "medium" if revenue_growth < 0 else "low"
+
+            return {
+                "financial_risks": financial_risk,
+                "operational_risks": operational_risk,
+                "market_risks": market_risk,
+                "strategic_risks": people_risk,
+                "net_burn_rate": net_burn,
+                "ytd_profit": ytd_profit,
+                "attrition_rate_pct": attrition_rate,
+                "revenue_growth_rate": revenue_growth,
+            }
+        except Exception as e:
+            logger.error(f"Error assessing monthly risks: {e}")
+            return {"financial_risks": "low", "operational_risks": "low", "market_risks": "low", "strategic_risks": "low"}
+
     def _generate_forward_outlook(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate forward-looking outlook"""
-        return {
-            "next_month_outlook": "positive",
-            "quarterly_forecast": "stable",
-            "key_priorities": [
-                "Maintain operational excellence",
-                "Expand market presence", 
-                "Optimize cost structure"
-            ]
-        }
-    
+        """Generate forward-looking outlook from real trends."""
+        try:
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue_growth = sales_summary.get("revenue_growth_rate", 0) or 0
+
+            mfg = report_data.get("manufacturing", {})
+            prod = mfg.get("production_metrics", {})
+            prod_growth = prod.get("monthly_growth_rate", 0) or 0
+
+            fin = report_data.get("financial", {})
+            cash_flow = fin.get("cash_flow", {})
+            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+
+            if revenue_growth > 10 and prod_growth >= 0 and net_burn >= 0:
+                outlook = "positive"
+            elif revenue_growth < -10 or net_burn < 0:
+                outlook = "caution"
+            else:
+                outlook = "stable"
+
+            priorities = []
+            if net_burn < 0:
+                priorities.append("Improve cash flow: review receivables and payables")
+            if revenue_growth < 0:
+                priorities.append("Stabilize revenue: review pipeline and sales coverage")
+            if prod_growth < 0:
+                priorities.append("Improve production momentum")
+            if not priorities:
+                priorities.append("Maintain operational momentum")
+                priorities.append("Monitor key risk indicators")
+
+            return {
+                "next_month_outlook": outlook,
+                "quarterly_forecast": outlook,
+                "key_priorities": priorities,
+                "revenue_growth_rate": revenue_growth,
+                "production_growth_rate": prod_growth,
+                "net_burn_rate": net_burn,
+            }
+        except Exception as e:
+            logger.error(f"Error generating forward outlook: {e}")
+            return {"next_month_outlook": "stable", "quarterly_forecast": "stable", "key_priorities": ["Maintain business performance"]}
+
     def _generate_board_summary(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate board-ready summary"""
-        return {
-            "executive_summary": "Strong monthly performance with positive outlook",
-            "key_achievements": [
-                "Revenue targets achieved",
-                "Operational efficiency improved",
-                "Strategic initiatives progressing"
-            ],
-            "key_challenges": [
-                "Market volatility monitoring",
-                "Supply chain optimization"
-            ],
-            "board_recommendations": [
-                "Approve strategic initiative funding",
-                "Review quarterly targets"
-            ]
-        }
+        """Generate board-ready summary from real achievements and challenges."""
+        try:
+            exec_data = report_data.get("executive", {})
+            health = exec_data.get("business_health_score", {})
+            score = health.get("overall_score", 0) or 0
+
+            fin = report_data.get("financial", {})
+            fin_overview = fin.get("overview", {})
+            ytd_profit = fin_overview.get("ytd_profit", 0) or 0
+            net_margin = fin_overview.get("net_margin")
+            cash_flow = fin.get("cash_flow", {})
+            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+
+            mfg = report_data.get("manufacturing", {})
+            oee = mfg.get("oee_analysis", {})
+            oee_score = oee.get("oee_score_pct", 0) or 0
+
+            sales = report_data.get("sales", {})
+            sales_summary = sales.get("summary", {}) or sales.get("revenue_metrics", {})
+            revenue = sales_summary.get("total_revenue", 0) or 0
+            revenue_growth = sales_summary.get("revenue_growth_rate", 0) or 0
+
+            achievements = []
+            challenges = []
+            recommendations = []
+
+            if score >= 75:
+                achievements.append(f"Strong business health score: {score}/100")
+            if ytd_profit > 0:
+                achievements.append(f"YTD profit: {self.currency} {ytd_profit:,.0f}")
+            if net_margin is not None and net_margin >= 15:
+                achievements.append(f"Healthy net margin: {net_margin:.1f}%")
+            if oee_score >= 85:
+                achievements.append(f"World-class manufacturing OEE: {oee_score}%")
+            if revenue > 0 and revenue_growth > 0:
+                achievements.append(f"Revenue growth: {revenue_growth:.1f}%")
+            if net_burn >= 0:
+                achievements.append("Positive net cash flow")
+
+            if score and score < 50:
+                challenges.append(f"Business health score low: {score}/100")
+            if net_burn < 0:
+                challenges.append(f"Negative cash flow: {self.currency} {net_burn:,.0f}")
+            if oee_score and oee_score < 60:
+                challenges.append(f"Low OEE: {oee_score}%")
+            if revenue_growth < -10:
+                challenges.append(f"Revenue declining: {revenue_growth:.1f}%")
+
+            if not achievements:
+                achievements.append("Business operations continuing")
+            if not challenges:
+                challenges.append("No major challenges flagged from available data")
+
+            if net_burn < 0:
+                recommendations.append("Approve cash-flow improvement plan")
+            if revenue_growth < -10:
+                recommendations.append("Review sales strategy and pipeline coverage")
+            if not recommendations:
+                recommendations.append("Continue monitoring key performance indicators")
+                recommendations.append("Review quarterly targets against actuals")
+
+            executive_summary = f"Business health {score}/100"
+            if revenue:
+                executive_summary += f" | Revenue: {self.currency} {revenue:,.0f}"
+            if ytd_profit:
+                executive_summary += f" | YTD profit: {self.currency} {ytd_profit:,.0f}"
+            if net_burn < 0:
+                executive_summary += f" | Negative cash flow: {self.currency} {net_burn:,.0f}"
+
+            return {
+                "executive_summary": executive_summary,
+                "key_achievements": achievements,
+                "key_challenges": challenges,
+                "board_recommendations": recommendations,
+            }
+        except Exception as e:
+            logger.error(f"Error generating board summary: {e}")
+            return {"executive_summary": "Monthly business performance review", "key_achievements": [], "key_challenges": [], "board_recommendations": ["Review monthly performance metrics"]}
     
     def _generate_pdf_report(self, report_content: Dict[str, Any], report_type: str) -> str:
         """Generate PDF report from content"""
@@ -736,7 +1265,7 @@ class ExecutiveReports:
             html_content = template.render(**report_content)
             
             # Generate PDF
-            pdf_content = get_pdf(html_content)
+            pdf_content = HTML(string=html_content).write_pdf()
             
             # Save PDF to file system
             report_name = f"executive_report_{report_type}_{report_content['report_date']}"
@@ -964,22 +1493,51 @@ class ExecutiveReports:
         """
     
     def _save_report_record(self, report_content: Dict[str, Any], pdf_path: str, report_type: str):
-        """Save report record to database"""
+        """Save report record to database.
+
+        Creates an `Executive Report` doc holding the full report content
+        (so preview/list never need to re-run the ML pipeline) and attaches
+        the PDF to it via the standard file-manager, which creates the File
+        record with a valid `attached_to_doctype`/`attached_to_name` and
+        needs no pre-existing folder -- the earlier version pointed at a
+        `Home/Executive Reports` folder and an `Executive Report` doctype
+        that did not exist, so every report failed to save.
+        """
         try:
-            # Create a simple document record (could be customized with proper DocType)
+            import json
             report_doc = frappe.get_doc({
-                "doctype": "File",
-                "file_name": f"executive_report_{report_type}_{report_content['report_date']}.pdf",
-                "file_url": pdf_path,
-                "is_private": 1,
-                "folder": "Home/Executive Reports",
-                "attached_to_doctype": "Executive Report",
-                "attached_to_name": f"executive_report_{report_type}_{report_content['report_date']}"
+                "doctype": "Executive Report",
+                "report_type": report_type,
+                "report_date": report_content["report_date"],
+                "period_covered": report_content.get("period_covered", ""),
+                "generated_at": report_content.get("generated_at") or now_datetime(),
+                # `report_content` carries real `datetime`/`date` objects
+                # (`generated_at`, `report_date`, and any date inside
+                # `detailed_data`) that plain `json.dumps` cannot serialize.
+                # Pre-serializing with `default=str` here, rather than letting
+                # the JSON fieldtype's own `json.dumps(value)` run on the raw
+                # dict, is what actually failed on every prior save attempt.
+                "report_data": json.dumps(report_content, default=str),
+                "status": "Generated",
             })
-            report_doc.insert()
-            
+            report_doc.insert(ignore_permissions=True)
+
+            if pdf_path:
+                from frappe.utils.file_manager import save_file
+                with open(pdf_path, "rb") as f:
+                    pdf_bytes = f.read()
+                file_doc = save_file(
+                    fname=f"executive_report_{report_type}_{report_content['report_date']}.pdf",
+                    content=pdf_bytes,
+                    dt="Executive Report",
+                    dn=report_doc.name,
+                    is_private=1,
+                )
+                report_doc.pdf_file = file_doc.file_url
+                report_doc.save(ignore_permissions=True)
+
             return report_doc
-            
+
         except Exception as e:
             logger.error(f"Error saving report record: {e}")
             return None
@@ -1023,21 +1581,24 @@ class ExecutiveReports:
             logger.error(f"Error sending report via email: {e}")
     
     def schedule_automated_reports(self):
-        """Set up automated report scheduling"""
+        """Describe the real automated report schedule.
+
+        Reports are scheduled via `hooks.py`'s `scheduler_events` buckets
+        (`daily`/`weekly`/`monthly`), not a fixed clock time this class
+        configures -- the exact run time depends on Frappe's scheduler tick
+        and site config. Previously returned invented times ("6:00 AM daily",
+        "Monday 7:00 AM", "1st of month 8:00 AM") that did not match
+        `hooks.py` and could not be changed by anything that read them.
+        """
         try:
-            # This would set up the automated scheduling
-            # Reports are actually scheduled via hooks.py
-            
-            logger.info("Automated executive report scheduling configured")
-            
             return {
-                "daily_reports": "Scheduled for 6:00 AM daily",
-                "weekly_reports": "Scheduled for Monday 7:00 AM", 
-                "monthly_reports": "Scheduled for 1st of month 8:00 AM"
+                "daily_reports": "Runs daily via the site scheduler",
+                "weekly_reports": "Runs weekly via the site scheduler (Monday bucket)",
+                "monthly_reports": "Runs monthly via the site scheduler (1st of month bucket)",
             }
-            
+
         except Exception as e:
-            logger.error(f"Error setting up automated reports: {e}")
+            logger.error(f"Error reading automated report schedule: {e}")
             return {"error": str(e)}
 
 

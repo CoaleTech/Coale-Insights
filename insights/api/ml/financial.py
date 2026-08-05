@@ -15,11 +15,14 @@ from insights.api.response import success, error
 def financial_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
     """Get comprehensive financial intelligence"""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence(date_filter=date_filter)
         if refresh:
             return model.train()
         return model.predict()
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -28,10 +31,13 @@ def financial_intelligence(refresh: bool = False, date_filter: str = '12m') -> D
 def train_financial_intelligence() -> Dict[str, Any]:
     """Train financial intelligence models"""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence()
         result = model.train()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -40,10 +46,13 @@ def train_financial_intelligence() -> Dict[str, Any]:
 def get_financial_overview() -> Dict[str, Any]:
     """Get financial overview"""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence()
         result = model._calculate_financial_overview()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -52,10 +61,13 @@ def get_financial_overview() -> Dict[str, Any]:
 def get_cash_flow_analysis() -> Dict[str, Any]:
     """Get cash flow analysis"""
     try:
+        frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence()
         result = model._calculate_cash_flow()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -64,10 +76,13 @@ def get_cash_flow_analysis() -> Dict[str, Any]:
 def get_receivables_analysis() -> Dict[str, Any]:
     """Get receivables analysis"""
     try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence()
         result = model._analyze_receivables()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -76,10 +91,13 @@ def get_receivables_analysis() -> Dict[str, Any]:
 def get_payables_analysis() -> Dict[str, Any]:
     """Get payables analysis"""
     try:
+        frappe.has_permission("Purchase Invoice", "read", throw=True)
         from insights.ml.financial_intelligence import FinancialIntelligence
         model = FinancialIntelligence()
         result = model._analyze_payables()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 

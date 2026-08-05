@@ -15,6 +15,8 @@ from insights.api.response import success, error
 def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
     """Get HR overview"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
+        frappe.has_permission("Salary Slip", "read", throw=True)
         from insights.ml.hr_intelligence import HRIntelligence
         model = HRIntelligence()
         result = model.get_hr_overview(period)
@@ -23,6 +25,8 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
             frappe.db.get_value("Company", company, "default_currency") if company else None
         ) or frappe.db.get_default("currency") or ""
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -31,9 +35,12 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
 def get_headcount_analytics(period: str = "YTD") -> Dict[str, Any]:
     """Get headcount analytics"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
         from insights.ml.hr_intelligence import get_headcount_analytics as _get_headcount
         result = _get_headcount(period)
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -42,9 +49,12 @@ def get_headcount_analytics(period: str = "YTD") -> Dict[str, Any]:
 def get_attrition_analytics(period: str = "YTD") -> Dict[str, Any]:
     """Get attrition analytics"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
         from insights.ml.hr_intelligence import get_attrition_prediction
         result = get_attrition_prediction()
         return success(result)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -53,11 +63,15 @@ def get_attrition_analytics(period: str = "YTD") -> Dict[str, Any]:
 def get_payroll_analytics(period: str = "YTD") -> Dict[str, Any]:
     """Get payroll analytics"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
+        frappe.has_permission("Salary Slip", "read", throw=True)
         from insights.ml.hr_intelligence import HRIntelligence
         model = HRIntelligence()
         overview = model.get_hr_overview(period)
         payroll = overview.get("payroll", overview)
         return success(payroll)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -66,11 +80,15 @@ def get_payroll_analytics(period: str = "YTD") -> Dict[str, Any]:
 def get_workforce_planning() -> Dict[str, Any]:
     """Get workforce planning insights"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
+        frappe.has_permission("Salary Slip", "read", throw=True)
         from insights.ml.hr_intelligence import HRIntelligence
         model = HRIntelligence()
         overview = model.get_hr_overview("YTD")
         planning = overview.get("workforce_planning", overview.get("predictions", {}))
         return success(planning)
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -79,10 +97,14 @@ def get_workforce_planning() -> Dict[str, Any]:
 def get_hr_insights(query: str, complexity: str = "Medium") -> Dict[str, Any]:
     """Get HR insights based on query"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
+        frappe.has_permission("Salary Slip", "read", throw=True)
         from insights.ml.hr_intelligence import HRIntelligence
         model = HRIntelligence()
         result = model.get_hr_overview("YTD")
         return success({"query": query, "complexity": complexity, "insights": result})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -91,9 +113,12 @@ def get_hr_insights(query: str, complexity: str = "Medium") -> Dict[str, Any]:
 def get_talent_analytics(focus_area: str = "retention") -> Dict[str, Any]:
     """Get talent analytics"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
         from insights.ml.hr_intelligence import get_hr_recommendations
         result = get_hr_recommendations()
         return success({"focus_area": focus_area, "analytics": result})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
@@ -102,10 +127,14 @@ def get_talent_analytics(focus_area: str = "retention") -> Dict[str, Any]:
 def analyze_hr_query(query: str) -> Dict[str, Any]:
     """Analyze HR query"""
     try:
+        frappe.has_permission("Employee", "read", throw=True)
+        frappe.has_permission("Salary Slip", "read", throw=True)
         from insights.ml.hr_intelligence import HRIntelligence
         model = HRIntelligence()
         result = model.get_hr_overview("YTD")
         return success({"query": query, "analysis": result})
+    except frappe.PermissionError:
+        raise
     except Exception as e:
         return error(str(e))
 
