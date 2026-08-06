@@ -415,9 +415,18 @@ class SalesIntelligence(BaseMLModel):
         current_month_start = today.replace(day=1)
         current_month_end = today
         
-        # Last month
-        last_month_end = current_month_start - timedelta(days=1)
-        last_month_start = last_month_end.replace(day=1)
+        # Last month, aligned to the same day-of-month.
+        #
+        # Comparing an elapsed-so-far current month against a *complete*
+        # previous month reported -98.3% growth on the 6th of August: 6 days of
+        # trading measured against 31. Month-to-date must be compared with the
+        # same slice of the previous month for the number to mean anything.
+        last_month_final_day = current_month_start - timedelta(days=1)
+        last_month_start = last_month_final_day.replace(day=1)
+        last_month_end = min(
+            last_month_start + timedelta(days=today.day - 1),
+            last_month_final_day,
+        )
         
         # Same month last year
         last_year_month_start = current_month_start.replace(year=current_month_start.year - 1)

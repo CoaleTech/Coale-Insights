@@ -35,6 +35,9 @@ const drillDown = useDrillDown()
 const isLoading = ref(true)
 const isRefreshing = ref(false)
 const error = ref<string | null>(null)
+// Per-group errors: one endpoint failing must not blank the other's tabs.
+const salesError = ref<string | null>(null)
+const custError = ref<string | null>(null)
 const dateFilter = ref('12m')
 
 // Sales payload
@@ -109,53 +112,45 @@ async function loadData(refresh = false) {
     isLoading.value = true
   }
   error.value = null
+  salesError.value = null
+  custError.value = null
 
-  try {
-    const [salesResult, custResult] = await Promise.all([
-      apiCall<Record<string, unknown>>('insights.api.ml.sales_intelligence', {
-        refresh,
-        date_filter: dateFilter.value,
-      }),
-      apiCall<Record<string, unknown>>('insights.api.ml.customer_intelligence', {
-        refresh,
-        date_filter: dateFilter.value,
-      }),
-    ])
-    salesData.value = salesResult
-    // Customer API may return { status: 'queued', message, ... } if async
-    if (custResult?.status === 'queued') {
-      // Sales data is loaded; customer data will poll
-      custData.value = null
-      pollCustomerStatus()
-    } else {
-      custData.value = custResult
-    }
-  } catch (e: unknown) {
-    const { message } = readFrappeError(e, 'Could not load dashboard data')
-    error.value = message
-  } finally {
-    isLoading.value = false
-    isRefreshing.value = false
+  /*
+   * allSettled, not all: the two endpoints are independent and customer
+   * intelligence is by far the heavier of the pair. With Promise.all a customer
+   * failure discarded the revenue half that had already loaded, blanking the
+   * whole page. Each group now fails on its own.
+   */
+  const [salesResult, custResult] = await Promise.allSettled([
+    apiCall<Record<string, unknown>>('insights.api.ml.sales_intelligence', {
+      refresh,
+      date_filter: dateFilter.value,
+    }),
+    apiCall<Record<string, unknown>>('insights.api.ml.customer_intelligence', {
+      refresh,
+      date_filter: dateFilter.value,
+    }),
+  ])
+
+  if (salesResult.status === 'fulfilled') {
+    salesData.value = salesResult.value
+  } else {
+    salesError.value = readFrappeError(salesResult.reason, 'Could not load revenue data').message
   }
-}
 
-let pollTimer: ReturnType<typeof setTimeout> | null = null
-function pollCustomerStatus() {
-  if (pollTimer) clearTimeout(pollTimer)
-  pollTimer = setTimeout(async () => {
-    try {
-      const status = await apiCall<Record<string, unknown>>(
-        'insights.api.ml.customer_intelligence_status',
-      )
-      if (status?.status === 'completed') {
-        custData.value = status.result as Record<string, unknown>
-      } else if (status?.status !== 'not_found') {
-        pollCustomerStatus()
-      }
-    } catch {
-      // Silent: the customer section will show its own error
-    }
-  }, 5000)
+  if (custResult.status === 'fulfilled') {
+    custData.value = custResult.value
+  } else {
+    custError.value = readFrappeError(custResult.reason, 'Could not load customer data').message
+  }
+
+  // Only a total failure is a page-level error; one bad half still renders.
+  if (salesError.value && custError.value) {
+    error.value = salesError.value
+  }
+
+  isLoading.value = false
+  isRefreshing.value = false
 }
 
 // ── Date filter ────────────────────────────────────────────────────────────
@@ -179,7 +174,7 @@ function handleDashboardRedirect(_target: string) {
 onMounted(() => loadData())
 
 onBeforeUnmount(() => {
-  if (pollTimer) clearTimeout(pollTimer)
+  // Queued computations are polled inside apiCall, so there is no timer here.
 })
 
 </script>
@@ -286,6 +281,11 @@ onBeforeUnmount(() => {
           :drill-down-endpoint="'insights.api.ml.sales.get_sales_detail'"
           @drill-down="drillDown.open"
         />
+        <div v-else-if="salesError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
+          <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />
+          <p class="text-sm text-ink-gray-6">{{ salesError }}</p>
+          <Button variant="subtle" @click="loadData()">Try Again</Button>
+        </div>
         <div v-else class="flex items-center justify-center h-64">
           <SkeletonBlock class="h-24 w-96 rounded-lg" />
         </div>
@@ -303,6 +303,11 @@ onBeforeUnmount(() => {
           @drill-down="drillDown.open"
           @view-customer="(id: string) => router.push(`/customer/${id}`)"
         />
+        <div v-else-if="custError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
+          <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />
+          <p class="text-sm text-ink-gray-6">{{ custError }}</p>
+          <Button variant="subtle" @click="loadData()">Try Again</Button>
+        </div>
         <div v-else class="flex items-center justify-center h-64">
           <SkeletonBlock class="h-24 w-96 rounded-lg" />
         </div>
