@@ -18,6 +18,7 @@ re-check it — otherwise polling would be an unauthenticated read of any cached
 dashboard by anyone who can guess a key.
 """
 
+import re
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
@@ -26,6 +27,7 @@ RESULT_KEY = "insights_async:result:{key}"
 STATE_KEY = "insights_async:state:{key}"
 META_KEY = "insights_async:meta:{key}"
 
+QUEUE = "long"
 DEFAULT_TTL = 24 * 3600
 JOB_TIMEOUT = 3600
 # A work-horse that dies (OOM, SIGABRT) never reaches `run`'s finally block, so
@@ -74,9 +76,9 @@ def serve(
 		_cache().set_value(STATE_KEY.format(key=key), "running", expires_in_sec=STATE_TTL)
 		frappe.enqueue(
 			"insights.api.ml.async_compute.run",
-			queue="long",
+			queue=QUEUE,
 			timeout=JOB_TIMEOUT,
-			job_id=f"insights_async_{key}",
+			job_id=_job_name(key),
 			deduplicate=True,
 			key=key,
 			# Not `method`: frappe.enqueue's own first parameter is called that,
@@ -107,6 +109,76 @@ def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int)
 		_cache().delete_value(STATE_KEY.format(key=key))
 
 
+def _job_name(key: str) -> str:
+	"""Job id for `key`.
+
+	Only word characters: rq composes its redis keys with ':' separators, so a
+	colon in the id does not round-trip and `get_job_status` then fails to find
+	the job — which silently disabled failure detection.
+	"""
+	safe = re.sub(r"\W+", "_", key)
+	return f"insights_async_{safe}"
+
+
+def worker_health() -> Dict[str, Any]:
+	"""Are there workers listening on our queue, and how deep is it?"""
+	info: Dict[str, Any] = {"queue": QUEUE, "workers": None, "pending": None}
+	try:
+		from rq import Worker
+
+		from frappe.utils.background_jobs import get_queue
+
+		queue = get_queue(QUEUE)
+		info["pending"] = queue.count
+		info["workers"] = Worker.count(queue=queue)
+	except Exception as e:
+		info["error"] = str(e)[:200]
+	return info
+
+
+def _diagnose(key: str) -> Optional[Dict[str, Any]]:
+	"""Explain a missing result, or None when it is legitimately still running.
+
+	A work-horse killed by OOM or a signal never reaches `run`'s handler, so no
+	error is ever cached and the client would poll until it times out. rq still
+	knows the job failed, so ask it rather than leaving the user guessing.
+	"""
+	try:
+		from frappe.utils.background_jobs import create_job_id, get_job_status
+
+		status = get_job_status(create_job_id(_job_name(key)))
+	except Exception:
+		return None
+
+	if status == "failed":
+		reason = "the background job failed"
+		try:
+			from frappe.utils.background_jobs import get_queue
+
+			job = get_queue(QUEUE).fetch_job(create_job_id(_job_name(key)))
+			if job is not None and job.exc_info:
+				reason = str(job.exc_info).strip().splitlines()[-1][:300]
+		except Exception:
+			pass
+		# Let the next request re-queue instead of waiting out the flag.
+		_cache().delete_value(STATE_KEY.format(key=key))
+		return {"status": "error", "message": f"Computation failed on the server: {reason}"}
+
+	if status is None:
+		health = worker_health()
+		if health.get("workers") == 0:
+			_cache().delete_value(STATE_KEY.format(key=key))
+			return {
+				"status": "error",
+				"message": (
+					f"No background worker is consuming the '{QUEUE}' queue, so this "
+					"dashboard cannot be computed. Start the workers (bench worker / supervisor)."
+				),
+			}
+
+	return None
+
+
 @frappe.whitelist()
 def async_status(key: str) -> Dict[str, Any]:
 	"""Poll a queued computation. Re-checks the permission recorded at queue time."""
@@ -124,7 +196,19 @@ def async_status(key: str) -> Dict[str, Any]:
 	cached = _cache().get_value(RESULT_KEY.format(key=key))
 	if cached is not None:
 		return cached
+
+	problem = _diagnose(key)
+	if problem:
+		return problem
+
 	return {"status": "queued", "key": key}
+
+
+@frappe.whitelist()
+def queue_health() -> Dict[str, Any]:
+	"""Operator diagnostic: is the background queue actually being served?"""
+	frappe.has_permission("Insights Settings", "read", throw=True)
+	return {"status": "success", "data": worker_health()}
 
 
 def invalidate(key: str):
