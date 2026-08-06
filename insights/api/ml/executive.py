@@ -11,15 +11,29 @@ from typing import Dict, Any, List
 from insights.api.response import success, error
 
 
-@frappe.whitelist()
-def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
-    """Get executive summary"""
+def _compute_executive_summary(period: str = "YTD") -> Dict[str, Any]:
+    """Worker-side computation. Measured at ~23s, so never run in a request."""
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.executive_intelligence import ExecutiveIntelligence
         model = ExecutiveIntelligence()
-        result = model.get_executive_summary(period)
-        return success(result)
+        return success(model.get_executive_summary(period))
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
+    """Get executive summary, computing on a worker when the cache is cold."""
+    try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.api.ml import async_compute
+
+        return async_compute.serve(
+            key=f"executive_summary:{period}",
+            method="insights.api.ml.executive._compute_executive_summary",
+            kwargs={"period": period},
+            permission=("Sales Invoice", "read"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

@@ -61,17 +61,35 @@ def get_segment_summary() -> Dict[str, Any]:
         return error(str(e))
 
 
+def _compute_customer_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
+    """Worker-side computation; produces a multi-megabyte payload."""
+    try:
+        from insights.ml.customer_intelligence import CustomerIntelligence
+
+        model = CustomerIntelligence(date_filter=date_filter)
+        return success(model.train() if refresh else model.predict())
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "customer_intelligence error")
+        return error(str(e))
+
+
 @frappe.whitelist()
 def customer_intelligence(refresh: bool = False, async_mode: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive customer intelligence"""
+    """Get comprehensive customer intelligence, computing on a worker when cold."""
     try:
         frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import CustomerIntelligence
-    
-        model = CustomerIntelligence(date_filter=date_filter)
+        from insights.api.ml import async_compute
+
+        key = f"customer_intelligence:{date_filter}"
         if refresh:
-            return success(model.train())
-        return success(model.predict())
+            async_compute.invalidate(key)
+
+        return async_compute.serve(
+            key=key,
+            method="insights.api.ml.customer._compute_customer_intelligence",
+            kwargs={"refresh": refresh, "date_filter": date_filter},
+            permission=("Customer", "read"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

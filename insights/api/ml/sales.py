@@ -45,15 +45,33 @@ def get_forecast_chart_data() -> Dict[str, Any]:
         return error(str(e))
 
 
-@frappe.whitelist()
-def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive sales intelligence"""
+def _compute_sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
+    """Worker-side computation; too slow for the request path on a cold cache."""
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence(date_filter=date_filter)
-        result = model.train() if refresh else model.predict()
-        return success(result)
+        return success(model.train() if refresh else model.predict())
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
+    """Get comprehensive sales intelligence, computing on a worker when cold."""
+    try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.api.ml import async_compute
+
+        key = f"sales_intelligence:{date_filter}"
+        if refresh:
+            async_compute.invalidate(key)
+
+        return async_compute.serve(
+            key=key,
+            method="insights.api.ml.sales._compute_sales_intelligence",
+            kwargs={"refresh": refresh, "date_filter": date_filter},
+            permission=("Sales Invoice", "read"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:
