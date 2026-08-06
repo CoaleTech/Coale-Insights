@@ -47,13 +47,55 @@ export function readInsightsEnvelope(payload: unknown): {
 	return { data: payload, error: null }
 }
 
+/**
+ * A gateway failure (502/504) answers with an HTML error page, not JSON, so
+ * frappe-ui's `transformResponse` reads `exc_type` off `undefined` and throws
+ * `TypeError: Cannot read properties of undefined`. That buried the real cause
+ * and, on paths without a catch, surfaced as an unhandled rejection.
+ *
+ * Translate it once, here, into something a user can act on.
+ */
+export function normalizeTransportError(e: unknown, method: string): Error {
+	if (e instanceof TypeError) {
+		const detail = e.message.includes('exc_type')
+			? 'the server returned a gateway error instead of a response'
+			: e.message
+		return new Error(
+			`${method} did not complete — ${detail}. ` +
+				'This usually means the dashboard is still being computed on the server; retry shortly.',
+		)
+	}
+	return e instanceof Error ? e : new Error(String(e))
+}
+
 export async function apiCall<T>(
 	method: string,
 	params?: Record<string, unknown>,
 ): Promise<T> {
-	const { data, error } = readInsightsEnvelope(await call(method, params))
+	let raw: unknown
+	try {
+		raw = await call(method, params)
+	} catch (e) {
+		throw normalizeTransportError(e, method)
+	}
+	const { data, error } = readInsightsEnvelope(raw)
 	if (error) throw new Error(error)
 	return data as T
+}
+
+/**
+ * `createResource.submit()` / `.reload()` report failure through `onError` *and*
+ * reject the promise they return. A call site that relies on `onError` therefore
+ * still leaks an unhandled rejection, which reaches the console as
+ * "Uncaught (in promise) TypeError" with no app frame to trace it to.
+ *
+ * Wrap those fire-and-forget calls so the rejection is explicitly accounted for.
+ * The resource's own `onError` stays the single place that sets UI state.
+ */
+export function ignoreRejection(result: unknown): void {
+	if (result && typeof (result as Promise<unknown>).catch === 'function') {
+		void (result as Promise<unknown>).catch(() => {})
+	}
 }
 
 /**
@@ -73,6 +115,17 @@ export function readFrappeError(
 ): { permission: boolean; message: string } {
 	if (typeof e !== 'object' || e === null) {
 		return { permission: false, message: typeof e === 'string' && e ? e : fallback }
+	}
+	// A gateway failure arrives as a TypeError from frappe-ui's response parser.
+	// Report it as a server problem rather than the fallback, which reads like a
+	// bug in the dashboard.
+	if (e instanceof TypeError) {
+		return {
+			permission: false,
+			message:
+				'The server did not return a response (gateway error). ' +
+				'The dashboard may still be computing — retry in a moment.',
+		}
 	}
 	const excType = 'exc_type' in e ? e.exc_type : undefined
 	const status = 'status' in e ? e.status : undefined

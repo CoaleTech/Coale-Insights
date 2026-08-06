@@ -1,6 +1,6 @@
 import { createResource } from 'frappe-ui'
 import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
-import { readFrappeError, readInsightsEnvelope } from '../../helpers/api'
+import { readFrappeError, readInsightsEnvelope, ignoreRejection } from '../../helpers/api'
 
 /**
  * One data-loading contract for every intelligence dashboard.
@@ -96,7 +96,7 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     watch(
       params,
       () => {
-        resource.reload()
+        ignoreRejection(resource.reload())
       },
       { deep: true },
     )
@@ -123,7 +123,7 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     hasData: computed(() => fetched.value && !error.value && payload.value !== null),
     reload: () => {
       refreshing.value = true
-      resource.reload()
+      ignoreRejection(resource.reload())
     },
     retry: () => {
       error.value = null
@@ -132,7 +132,7 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
       // sits in a state that is neither loading, errored, nor populated, and the
       // page reads as empty until the response lands.
       refreshing.value = true
-      resource.reload()
+      ignoreRejection(resource.reload())
     },
   }
 }

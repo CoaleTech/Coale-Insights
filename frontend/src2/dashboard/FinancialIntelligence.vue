@@ -276,6 +276,7 @@ import ScenarioAnalysisTab from '../components/strategic-finance/ScenarioAnalysi
 import PeriodComparisonTab from '../components/strategic-finance/PeriodComparisonTab.vue'
 import BudgetVarianceTab from '../components/strategic-finance/BudgetVarianceTab.vue'
 import BreakEvenOverviewTab from '../components/strategic-finance/BreakEvenOverviewTab.vue'
+import { ignoreRejection } from '../helpers/api'
 
 interface FrappeResponse { status: string; message?: string; [key: string]: unknown }
 
@@ -520,24 +521,24 @@ const strategicResource = createResource({
 
 const fetchStrategicData = (refresh = false) => {
 	strategicLoading.value = true
-	strategicResource.submit({ refresh })
+	ignoreRejection(strategicResource.submit({ refresh }))
 }
 
 const refreshData = () => {
 	loading.value = true
-	financialResource.submit({ refresh: true, date_filter: dateFilter.value })
+	ignoreRejection(financialResource.submit({ refresh: true, date_filter: dateFilter.value }))
 	fetchStrategicData(true)
 }
 
 onMounted(() => {
 	loading.value = true
-	financialResource.submit({ refresh: false, date_filter: dateFilter.value })
+	ignoreRejection(financialResource.submit({ refresh: false, date_filter: dateFilter.value }))
 	fetchStrategicData(false)
 })
 
 watch(dateFilter, () => {
 	loading.value = true
-	financialResource.submit({ refresh: false, date_filter: dateFilter.value })
+	ignoreRejection(financialResource.submit({ refresh: false, date_filter: dateFilter.value }))
 })
 
 // Break-even state — lazy-loaded on first visit to that tab, same as the
@@ -568,7 +569,7 @@ const beSummaryResource = createResource({
 const fetchBreakEvenData = () => {
 	beLoading.value = true
 	beError.value = null
-	beSummaryResource.submit({})
+	ignoreRejection(beSummaryResource.submit({}))
 }
 
 // Watches the id, not the index: the index is group-relative now, so

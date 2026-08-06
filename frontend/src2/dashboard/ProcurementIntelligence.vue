@@ -789,7 +789,7 @@ import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { themeColor } from '../utils/chartTheme'
 import { formatDate, formatMoney, NO_VALUE } from '../utils/format'
 import { formatPeriod } from '../components/financial/format'
-import { readFrappeError } from '../helpers/api'
+import { readFrappeError, ignoreRejection } from '../helpers/api'
 
 
 /** One month of spend trend from procurement_intelligence. */
@@ -1016,12 +1016,12 @@ const procurementResource = createResource({
 
 const refreshData = () => {
   loading.value = true
-  procurementResource.submit({ refresh: true })
+  ignoreRejection(procurementResource.submit({ refresh: true }))
 }
 
 onMounted(() => {
   loading.value = true
-  procurementResource.submit({ refresh: false })
+  ignoreRejection(procurementResource.submit({ refresh: false }))
 })
 
 // Formatting helpers
