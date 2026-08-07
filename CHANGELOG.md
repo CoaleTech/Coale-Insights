@@ -4,6 +4,40 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07f
+
+### Added — a crashing computation no longer loops forever
+
+A work-horse killed by a signal (`waitpid returned 139`, SIGSEGV) never reaches `run`'s
+`except` or `finally`, so **no error is ever cached**. The client's retry therefore
+re-queues the same computation, which kills another work-horse, indefinitely — each
+"Try Again" costs a worker process.
+
+- `serve()` now counts enqueues per key (`insights_async:attempts:*`, 15 min window) and
+  parks a terminal error after **3** deaths, holding it for `ERROR_TTL` so the page stops
+  thrashing the worker pool. `run()` clears the counter on completion — success *or*
+  Python-level failure — so only a genuinely process-killing computation reaches the
+  ceiling. Under normal operation a key goes `1 → cleared`.
+- The message names the real situation: *"crashed the background worker N times (no
+  Python error — the process was killed). Check the worker log for a segfault or
+  out-of-memory kill."*
+
+Verified: three simulated work-horse deaths trip the breaker on the 4th call, the error
+is sticky and re-queues nothing, and a healthy key resolves with `attempts` back to `0`.
+
+### Note — the segfault itself is environmental, not fixed here
+
+`numpy 2.4.4` on this bench links **Accelerate**, which is not fork-safe, and rq runs
+every job in a forked work-horse. That is a plausible cause but is *unconfirmed against
+production*: a full scan of this bench's 15.6 MB `worker.error.log` finds **0**
+work-horse deaths, so the crash does not reproduce here and is likely data-volume or
+environment dependent. The standard mitigation is to pin BLAS/OpenMP threads for
+background workers, which is bench configuration rather than app code:
+
+```
+VECLIB_MAXIMUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
+```
+
 ## [Unreleased] — 2026-08-07e
 
 ### Added — dashboards warm themselves on install and migrate

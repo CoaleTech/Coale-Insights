@@ -27,6 +27,13 @@ from frappe import _
 RESULT_KEY = "insights_async:result:{key}"
 STATE_KEY = "insights_async:state:{key}"
 META_KEY = "insights_async:meta:{key}"
+ATTEMPT_KEY = "insights_async:attempts:{key}"
+# A work-horse killed by a signal never reaches `run`'s except/finally, so no error
+# is ever cached and the client's retry queues another one. Count enqueues instead,
+# and clear the count on the first success: under normal operation a key goes 1 ->
+# cleared, so only a genuinely crashing computation ever reaches the ceiling.
+MAX_ATTEMPTS = 3
+ATTEMPT_TTL = 900
 
 # Queue selection follows Frappe's own contract rather than hardcoding a name.
 #
@@ -108,6 +115,23 @@ def _require(permission: Optional[Tuple[str, str]]):
 	frappe.has_permission(doctype, ptype, throw=True)
 
 
+def _attempts(key: str) -> int:
+	try:
+		return int(_cache().get_value(ATTEMPT_KEY.format(key=key)) or 0)
+	except (TypeError, ValueError):
+		return 0
+
+
+def _bump_attempts(key: str) -> int:
+	count = _attempts(key) + 1
+	_cache().set_value(ATTEMPT_KEY.format(key=key), count, expires_in_sec=ATTEMPT_TTL)
+	return count
+
+
+def clear_attempts(key: str):
+	_cache().delete_value(ATTEMPT_KEY.format(key=key))
+
+
 def serve(
 	key: str,
 	method: str,
@@ -131,11 +155,30 @@ def serve(
 			expires_in_sec=ttl,
 		)
 
+	deaths = _attempts(key)
+	if deaths >= MAX_ATTEMPTS:
+		# The work-horse keeps dying without ever reaching `run`'s handler -- a
+		# native crash (SIGSEGV/OOM) rather than a Python exception, so nothing
+		# was cached and every retry queues another one. Park a terminal error so
+		# the page stops thrashing the worker pool.
+		terminal = {
+			"status": "error",
+			"message": _(
+				"This dashboard's computation crashed the background worker {0} times "
+				"(no Python error -- the process was killed). It will not be retried for "
+				"a few minutes. Check the worker log for a segfault or out-of-memory kill."
+			).format(deaths),
+		}
+		_cache().set_value(RESULT_KEY.format(key=key), terminal, expires_in_sec=ERROR_TTL)
+		_cache().delete_value(STATE_KEY.format(key=key))
+		return terminal
+
 	if _cache().get_value(STATE_KEY.format(key=key)) != "running":
 		# A job wedged in STARTED/QUEUED makes `deduplicate=True` return without
 		# enqueueing anything, silently. Clear the corpse first.
 		_reap_dead_job(key)
 
+		_bump_attempts(key)
 		_cache().set_value(STATE_KEY.format(key=key), "running", expires_in_sec=STATE_TTL)
 		frappe.enqueue(
 			"insights.api.ml.async_compute.run",
@@ -236,6 +279,9 @@ def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int)
 	try:
 		result = frappe.get_attr(compute_method)(**(compute_kwargs or {}))
 		_cache().set_value(RESULT_KEY.format(key=key), result, expires_in_sec=ttl)
+		# Reached the end without the process being killed: the key is healthy, so
+		# the crash counter must not carry over into the next cold cache.
+		clear_attempts(key)
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), f"insights async compute: {key}")
 		# Cache the failure briefly so the client stops polling and sees why,
@@ -245,6 +291,9 @@ def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int)
 			{"status": "error", "message": str(e)[:500]},
 			expires_in_sec=ERROR_TTL,
 		)
+		# A Python-level failure is reported and self-limiting via ERROR_TTL; it is
+		# not a work-horse death, so it should not count toward the crash ceiling.
+		clear_attempts(key)
 	finally:
 		_cache().delete_value(STATE_KEY.format(key=key))
 
