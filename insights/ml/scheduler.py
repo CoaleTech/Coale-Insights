@@ -254,18 +254,53 @@ def run_daily_intelligence():
             frappe.log_error(f"Daily intelligence {name} failed: {str(e)}", "ML Scheduler")
             results[name] = {"status": "error", "message": str(e)}
 
-    # Warm executive intelligence cache after all modules are trained
+    # Warm the caches the dashboards actually read.
+    #
+    # This previously called `ExecutiveIntelligence().get_executive_summary(period)`
+    # directly, which fills the model-level key `executive_summary:<period>` on a
+    # 1-hour TTL. The dashboards read `insights_async:result:executive_summary:YTD`
+    # on a 24-hour TTL, written only by `async_compute.run`. The warm-up therefore
+    # populated a different key than the page reads, and its own entry expired an
+    # hour later regardless. Driving `async_compute.run` fills the served key.
     try:
-        from insights.ml.executive_intelligence import ExecutiveIntelligence
-        executive = ExecutiveIntelligence()
-        for period in ["MTD", "QTD", "YTD", "TTM"]:
-            executive.get_executive_summary(period)
-        frappe.logger().info("Executive intelligence cache warmed for all periods")
+        warm_dashboard_caches()
     except Exception as e:
-        frappe.log_error(f"Executive cache warmup failed: {str(e)}", "ML Scheduler")
+        frappe.log_error(f"Dashboard cache warmup failed: {str(e)}", "ML Scheduler")
 
     frappe.logger().info(f"Daily intelligence completed: {len(results)} models trained")
     return results
+
+
+# (key, dotted compute path, kwargs) for every payload a dashboard blocks on.
+# Keys must match the ones the API layer passes to `async_compute.serve`.
+DASHBOARD_CACHE_TARGETS = (
+    ("sales_intelligence:12m", "insights.api.ml.sales._compute_sales_intelligence", {"date_filter": "12m"}),
+    ("customer_intelligence:12m", "insights.api.ml.customer._compute_customer_intelligence", {"date_filter": "12m"}),
+    ("executive_summary:YTD", "insights.api.ml.executive._compute_executive_summary", {"period": "YTD"}),
+    ("executive_summary:MTD", "insights.api.ml.executive._compute_executive_summary", {"period": "MTD"}),
+    ("executive_summary:QTD", "insights.api.ml.executive._compute_executive_summary", {"period": "QTD"}),
+    ("executive_summary:TTM", "insights.api.ml.executive._compute_executive_summary", {"period": "TTM"}),
+)
+
+
+def warm_dashboard_caches():
+    """Populate `insights_async:result:*` so no visitor pays a cold compute.
+
+    Runs inside the daily worker job, where long runtimes are expected. Each
+    target is independent: one failure must not deny the rest their warm cache.
+    """
+    from insights.api.ml import async_compute
+
+    warmed = []
+    for key, method, kwargs in DASHBOARD_CACHE_TARGETS:
+        try:
+            async_compute.invalidate(key)
+            async_compute.run(key=key, compute_method=method, compute_kwargs=kwargs, ttl=async_compute.DEFAULT_TTL)
+            warmed.append(key)
+        except Exception as e:
+            frappe.log_error(f"Dashboard cache warm failed for {key}: {str(e)}", "ML Scheduler")
+    frappe.logger().info(f"Dashboard caches warmed: {', '.join(warmed) or 'none'}")
+    return warmed
 
 
 def run_all_ml_models():

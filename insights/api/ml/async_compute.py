@@ -27,9 +27,17 @@ RESULT_KEY = "insights_async:result:{key}"
 STATE_KEY = "insights_async:state:{key}"
 META_KEY = "insights_async:meta:{key}"
 
-QUEUE = "long"
+# NOT "long": `insights.ml.scheduler.run_daily_intelligence` is enqueued on the
+# long queue with a 3600s timeout, and production runs one worker per queue. A
+# dashboard compute landing behind the nightly trainer waited out the whole
+# training pass and blew the frontend's 5-minute poll ceiling. Interactive work
+# belongs on `default`; batch training keeps `long` to itself.
+QUEUE = "default"
 DEFAULT_TTL = 24 * 3600
-JOB_TIMEOUT = 3600
+# Deliberately below the old 3600s: the client stops polling at 300s, and a
+# dashboard payload that needs more than 15 minutes is a bug, not a slow query.
+# Capping it stops a runaway job from pinning a default worker for an hour.
+JOB_TIMEOUT = 900
 # A work-horse that dies (OOM, SIGABRT) never reaches `run`'s finally block, so
 # the running flag would otherwise wedge the key until it expired. rq's own
 # job_id + deduplicate already prevents genuine double-queueing, so this flag is

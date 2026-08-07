@@ -8,6 +8,7 @@ dimensional analysis, and margin tracking
 """
 
 import frappe
+from frappe import _
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -907,15 +908,28 @@ class SalesIntelligence(BaseMLModel):
         
         return results
     
-    def predict(self, metric: str = None) -> Dict[str, Any]:
-        """Get cached or fresh analysis"""
+    def predict(self, metric: str = None, allow_train: bool = False) -> Dict[str, Any]:
+        """Get cached analysis.
+
+        `allow_train` is off by default so a cache miss can never turn a web
+        request into a full training pass — that fallback is what made cold
+        dashboards take 20-60s instead of failing fast. Worker-side callers
+        (`insights.api.ml.sales._compute_sales_intelligence`) opt in explicitly;
+        request-path callers get a `warming` envelope and the queued job fills
+        the cache behind them.
+        """
         cached = self.get_cached_results("sales_intelligence")
         if not cached:
+            if not allow_train:
+                return {
+                    "status": "warming",
+                    "message": _("Sales intelligence is being computed. Refresh shortly."),
+                }
             cached = self.train()
-        
+
         if metric and metric in cached:
             return {"status": "success", metric: cached[metric]}
-        
+
         return cached
 
 

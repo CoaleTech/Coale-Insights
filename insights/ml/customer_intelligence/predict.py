@@ -6,13 +6,25 @@ Customer Intelligence - Predict
 Get cached or fresh predictions for customer intelligence.
 """
 
-from typing import Dict, Any
+from typing import Any, Dict, Optional
+
+from frappe import _
 
 
-def predict(intelligence, customer: str = None) -> Dict[str, Any]:
-    """Get cached or fresh predictions"""
+def predict(intelligence, customer: Optional[str] = None, allow_train: bool = False) -> Dict[str, Any]:
+    """Get cached predictions.
+
+    `allow_train` is off by default so a cache miss cannot turn a web request
+    into a full training pass. Worker-side callers
+    (`insights.api.ml.customer._compute_customer_intelligence`) opt in.
+    """
     cached = intelligence.get_cached_results("customer_intelligence")
     if not cached:
+        if not allow_train:
+            return {
+                "status": "warming",
+                "message": _("Customer intelligence is being computed. Refresh shortly."),
+            }
         cached = intelligence.train()
 
     if customer:

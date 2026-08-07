@@ -119,8 +119,8 @@ class CustomerIntelligence(BaseMLModel):
 
     # ==================== PREDICT ====================
 
-    def predict(self, customer: str = None) -> Dict[str, Any]:
-        return _predict.predict(self, customer)
+    def predict(self, customer: str = None, allow_train: bool = False) -> Dict[str, Any]:
+        return _predict.predict(self, customer, allow_train=allow_train)
 
     # ==================== COUNTS & RANKINGS ====================
 

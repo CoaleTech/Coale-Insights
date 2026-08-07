@@ -4,6 +4,56 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07
+
+Overview and Revenue & Customers took minutes to load, or timed out. Neither page ever
+blocked a web worker — both queue and poll — so the wait was entirely background work
+that should not have been happening at all. Three independent defects stacked into one
+symptom.
+
+### Fixed — dashboard latency
+
+- **`predict()` silently retrained on a cache miss.** `SalesIntelligence.predict` and the
+  customer equivalent fell through to `self.train()` whenever `get_cached_results` missed
+  its 24h window, so a "prediction" became a full training pass. Measured cold:
+  `get_business_health_score` **42.6s**, `strategic_finance_intelligence` **59.6s**,
+  `at_risk_customers` **21.5s** — against **0.8s / 0.0s / 0.1s** warm. Training is now
+  opt-in via `allow_train`, which only the worker-side `_compute_*` entry points pass;
+  request-path callers get a `warming` envelope instead: **60s block → 0.00s**.
+- **Interactive computes shared the nightly trainer's queue.**
+  `insights.ml.scheduler.run_daily_intelligence` is enqueued on `long` with a 3600s
+  timeout, and production runs one worker per queue, so a dashboard request landing
+  behind it waited out the entire training pass and blew the frontend's 5-minute poll
+  ceiling. `async_compute.QUEUE` is now `default`; `JOB_TIMEOUT` **3600 → 900s**, since
+  the client stops polling at 300s and a payload needing longer is a bug, not a slow
+  query.
+- **The daily warm-up populated a cache nothing reads.** It called
+  `ExecutiveIntelligence().get_executive_summary(period)` directly, filling the
+  model-level key `executive_summary:<period>` on a **1-hour** TTL. The dashboards read
+  `insights_async:result:executive_summary:YTD` on a **24-hour** TTL, written only by
+  `async_compute.run`. Two caches, different keys, different lifetimes — the warm step
+  missed the served key and expired an hour later regardless. New
+  `warm_dashboard_caches()` drives `async_compute.run` over all six keys the pages
+  actually read: **6/6 warmed in 9.98s**, each target isolated so one failure cannot deny
+  the rest their cache.
+
+### Fixed — data correctness
+
+- **`get_business_health_score` returned `{}` on every call.** It read
+  `summary.get("business_health", summary.get("health_score", {}))`; the summary emits
+  **`business_health_score`**, so neither name ever matched: **`{}` → `overall_score:
+  57.0, overall_rag: "red"`** with the seven department scores. It also rebuilt the whole
+  executive summary inline just to pluck that one field, and now shares the cached
+  `executive_summary:YTD` payload that Overview already loads.
+
+### Operational note
+
+These changes remove the cold-compute cliff but do not substitute for the scheduler. If
+`frappe.utils.scheduler.is_scheduler_inactive` reports `True`, `run_daily_intelligence`
+never fires and no cache is ever warmed ahead of a visitor. The queue change also assumes
+a `default` worker is running — confirm with
+`insights.api.ml.async_compute.worker_health` after deploying.
+
 ## [Unreleased] — 2026-08-02
 
 A correctness and consolidation pass over the 11 domain dashboards. The theme running

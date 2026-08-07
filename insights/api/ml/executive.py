@@ -42,13 +42,37 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_business_health_score() -> Dict[str, Any]:
-    """Get business health score"""
+    """Get business health score.
+
+    Reads the same cached executive summary `get_executive_summary` serves
+    rather than instantiating `ExecutiveIntelligence` and recomputing it
+    inline. The old direct call measured 42.6s on a cold model cache — the whole
+    summary rebuilt just to pluck one key out of it. Sharing the key means this
+    is free once Overview has loaded, and queues instead of blocking when cold.
+    """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.executive_intelligence import ExecutiveIntelligence
-        model = ExecutiveIntelligence()
-        summary = model.get_executive_summary("YTD")
-        health = summary.get("business_health", summary.get("health_score", {}))
+        from insights.api.ml import async_compute
+
+        served = async_compute.serve(
+            key="executive_summary:YTD",
+            method="insights.api.ml.executive._compute_executive_summary",
+            kwargs={"period": "YTD"},
+            permission=("Sales Invoice", "read"),
+        )
+        if served.get("status") != "success":
+            # queued or error — hand the envelope back so the client polls.
+            return served
+
+        summary = served.get("data") or {}
+        # The summary emits `business_health_score`; the two older names were
+        # never present, so this endpoint had been returning {} on every call.
+        health = (
+            summary.get("business_health_score")
+            or summary.get("business_health")
+            or summary.get("health_score")
+            or {}
+        )
         return success(health)
     except frappe.PermissionError:
         raise

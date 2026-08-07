@@ -67,7 +67,9 @@ def _compute_customer_intelligence(refresh: bool = False, date_filter: str = '12
         from insights.ml.customer_intelligence import CustomerIntelligence
 
         model = CustomerIntelligence(date_filter=date_filter)
-        return success(model.train() if refresh else model.predict())
+        # allow_train: this runs on a worker, which is exactly where a cold-cache
+        # training pass belongs.
+        return success(model.train() if refresh else model.predict(allow_train=True))
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "customer_intelligence error")
         return error(str(e))

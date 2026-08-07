@@ -50,7 +50,8 @@ def _compute_sales_intelligence(refresh: bool = False, date_filter: str = '12m')
     try:
         from insights.ml.sales_intelligence import SalesIntelligence
         model = SalesIntelligence(date_filter=date_filter)
-        return success(model.train() if refresh else model.predict())
+        # allow_train: worker-side, so paying the training cost here is correct.
+        return success(model.train() if refresh else model.predict(allow_train=True))
     except Exception as e:
         return error(str(e))
 
