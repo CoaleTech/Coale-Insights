@@ -27,22 +27,52 @@ RESULT_KEY = "insights_async:result:{key}"
 STATE_KEY = "insights_async:state:{key}"
 META_KEY = "insights_async:meta:{key}"
 
-# NOT "long": `insights.ml.scheduler.run_daily_intelligence` is enqueued on the
-# long queue with a 3600s timeout, and production runs one worker per queue. A
-# dashboard compute landing behind the nightly trainer waited out the whole
-# training pass and blew the frontend's 5-minute poll ceiling. Interactive work
-# belongs on `default`; batch training keeps `long` to itself.
-QUEUE = "default"
+# Queue selection follows Frappe's own contract rather than hardcoding a name.
+#
+# `frappe.utils.background_jobs.get_queues_timeout()` budgets short=300, default=300,
+# long=1500, and merges any custom queues declared in common_site_config.json under
+# `workers`. Two constraints follow from that:
+#
+#   * `default` is wrong. Its workers are provisioned for <=300s work; parking a
+#     multi-minute dashboard compute there starves Frappe's own default-queue jobs
+#     (emails, notifications, doc events).
+#   * bare `long` is wrong too. `insights.ml.scheduler.run_daily_intelligence` lives
+#     there, and with one worker per queue a dashboard request lands behind the whole
+#     nightly training pass.
+#
+# So: prefer a dedicated `insights` queue when the operator has declared one, and fall
+# back to `long` when they have not. Resolving against the live registry means an
+# undeclared queue can never silently swallow jobs — the failure mode that would take
+# every dashboard down at once.
+PREFERRED_QUEUE = "insights"
+FALLBACK_QUEUE = "long"
 DEFAULT_TTL = 24 * 3600
-# Deliberately below the old 3600s: the client stops polling at 300s, and a
-# dashboard payload that needs more than 15 minutes is a bug, not a slow query.
-# Capping it stops a runaway job from pinning a default worker for an hour.
-JOB_TIMEOUT = 900
 # A work-horse that dies (OOM, SIGABRT) never reaches `run`'s finally block, so
 # the running flag would otherwise wedge the key until it expired. rq's own
 # job_id + deduplicate already prevents genuine double-queueing, so this flag is
 # only a cheap short-circuit and can expire well before the job timeout.
 STATE_TTL = 900
+ERROR_TTL = 300
+
+
+def resolve_queue() -> str:
+	"""The queue to run dashboard computes on, per Frappe's configured registry."""
+	from frappe.utils.background_jobs import get_queues_timeout
+
+	try:
+		return PREFERRED_QUEUE if PREFERRED_QUEUE in get_queues_timeout() else FALLBACK_QUEUE
+	except Exception:
+		return FALLBACK_QUEUE
+
+
+def resolve_timeout() -> int:
+	"""Honour the queue's configured budget instead of inventing one."""
+	from frappe.utils.background_jobs import get_queues_timeout
+
+	try:
+		return int(get_queues_timeout().get(resolve_queue()) or 1500)
+	except Exception:
+		return 1500
 ERROR_TTL = 300
 
 
@@ -84,8 +114,8 @@ def serve(
 		_cache().set_value(STATE_KEY.format(key=key), "running", expires_in_sec=STATE_TTL)
 		frappe.enqueue(
 			"insights.api.ml.async_compute.run",
-			queue=QUEUE,
-			timeout=JOB_TIMEOUT,
+			queue=resolve_queue(),
+			timeout=resolve_timeout(),
 			job_id=_job_name(key),
 			deduplicate=True,
 			key=key,
@@ -130,13 +160,21 @@ def _job_name(key: str) -> str:
 
 def worker_health() -> Dict[str, Any]:
 	"""Are there workers listening on our queue, and how deep is it?"""
-	info: Dict[str, Any] = {"queue": QUEUE, "workers": None, "pending": None}
+	qname = resolve_queue()
+	info: Dict[str, Any] = {
+		"queue": qname,
+		"workers": None,
+		"pending": None,
+		# Surface whether the operator declared a dedicated queue or we fell back,
+		# so `queue_health` answers "is this configured?" and not just "is it busy?".
+		"dedicated": qname == PREFERRED_QUEUE,
+	}
 	try:
 		from rq import Worker
 
 		from frappe.utils.background_jobs import get_queue
 
-		queue = get_queue(QUEUE)
+		queue = get_queue(qname)
 		info["pending"] = queue.count
 		info["workers"] = Worker.count(queue=queue)
 	except Exception as e:
@@ -163,7 +201,7 @@ def _diagnose(key: str) -> Optional[Dict[str, Any]]:
 		try:
 			from frappe.utils.background_jobs import get_queue
 
-			job = get_queue(QUEUE).fetch_job(create_job_id(_job_name(key)))
+			job = get_queue(resolve_queue()).fetch_job(create_job_id(_job_name(key)))
 			if job is not None and job.exc_info:
 				reason = str(job.exc_info).strip().splitlines()[-1][:300]
 		except Exception:
@@ -179,7 +217,7 @@ def _diagnose(key: str) -> Optional[Dict[str, Any]]:
 			return {
 				"status": "error",
 				"message": (
-					f"No background worker is consuming the '{QUEUE}' queue, so this "
+					f"No background worker is consuming the '{resolve_queue()}' queue, so this "
 					"dashboard cannot be computed. Start the workers (bench worker / supervisor)."
 				),
 			}

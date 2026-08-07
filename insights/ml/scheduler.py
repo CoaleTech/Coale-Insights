@@ -280,6 +280,7 @@ DASHBOARD_CACHE_TARGETS = (
     ("executive_summary:MTD", "insights.api.ml.executive._compute_executive_summary", {"period": "MTD"}),
     ("executive_summary:QTD", "insights.api.ml.executive._compute_executive_summary", {"period": "QTD"}),
     ("executive_summary:TTM", "insights.api.ml.executive._compute_executive_summary", {"period": "TTM"}),
+    ("procurement_intelligence", "insights.api.ml.procurement._compute_procurement_intelligence", {}),
 )
 
 

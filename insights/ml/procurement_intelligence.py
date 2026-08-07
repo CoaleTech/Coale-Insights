@@ -13,6 +13,7 @@ Comprehensive procurement analytics with ML-powered insights for:
 """
 
 import frappe
+from frappe import _
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -73,11 +74,21 @@ class ProcurementIntelligence(BaseMLModel):
             frappe.log_error(f"Procurement Intelligence failed: {str(e)}", "ML Procurement")
             return {"status": "error", "message": str(e)}
     
-    def predict(self) -> Dict[str, Any]:
-        """Return cached results or generate new ones"""
+    def predict(self, allow_train: bool = False) -> Dict[str, Any]:
+        """Return cached results.
+
+        `allow_train` is off by default so a cache miss cannot turn a web request
+        into a full training pass. The worker-side
+        `insights.api.ml.procurement._compute_procurement_intelligence` opts in.
+        """
         cached = self.get_cached_results("procurement_intelligence")
         if cached:
             return cached
+        if not allow_train:
+            return {
+                "status": "warming",
+                "message": _("Procurement intelligence is being computed. Refresh shortly."),
+            }
         return self.train()
     
     def _calculate_spend_overview(self) -> Dict[str, Any]:

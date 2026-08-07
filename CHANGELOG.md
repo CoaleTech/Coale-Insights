@@ -4,6 +4,60 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07b
+
+Follow-up to the entry below, after Revenue & Customers still timed out at 300s and
+Procurement returned a gateway error. Both surfaces are now aligned to the same Frappe
+background-job contract instead of each improvising.
+
+### Changed — queue selection now follows Frappe's contract
+
+- **`default` was the wrong queue, and the previous entry chose it.**
+  `frappe.utils.background_jobs.get_queues_timeout()` budgets `short=300`, `default=300`,
+  `long=1500`, and merges custom queues declared in `common_site_config.json` under
+  `workers`. Parking a multi-minute dashboard compute on `default` with a 900s timeout
+  starves the framework's own default-queue work — emails, notifications, doc events —
+  which is the same head-of-line problem as before with a different victim.
+- `async_compute` now resolves its queue at runtime: a dedicated **`insights`** queue
+  when the operator has declared one, otherwise **`long`**, with the timeout read from
+  the queue's own configured budget rather than a hardcoded number. Resolving against
+  the live registry means an undeclared queue can never silently swallow jobs.
+- To get real isolation from the nightly trainer, declare the queue in
+  `common_site_config.json` and re-run `bench setup supervisor`:
+
+  ```json
+  { "workers": { "insights": { "timeout": 1500, "background_workers": 2 } } }
+  ```
+
+  Without it the fallback is `long`, which is correct but shares a worker with
+  `run_daily_intelligence`. `worker_health()` now reports `dedicated: true|false` so
+  `queue_health` answers "is this configured?", not just "is it busy?".
+
+### Fixed — Procurement returned a gateway error
+
+- **`procurement_intelligence` was the last heavy dashboard still computing inline.**
+  It ran `model.predict()` on the request path, so a cold cache outlived the gateway
+  timeout and reached the browser as a 502 — reported as *"The server did not return a
+  response (gateway error)"*. It now queues through `async_compute.serve` like every
+  other heavy dashboard, keeping its flat `{status, spend_overview, …}` envelope so the
+  decoder path is unchanged.
+- **The Procurement page could not have consumed a queued answer anyway.** It used
+  `createResource`, which has no poll loop, so a `{status: "queued"}` envelope would have
+  rendered as data. Switched to `apiCall`, which owns polling and transport-error
+  translation for every other dashboard. **`502 → resolves in 10.0s`**.
+- `ProcurementIntelligence.predict()` gained the same `allow_train` guard as sales and
+  customer, and `procurement_intelligence` joined `DASHBOARD_CACHE_TARGETS` so the daily
+  job warms it too.
+
+### Note on the previous entry's verification
+
+The 2026-08-07 reproduction called `warm_dashboard_caches()` directly and never exercised
+enqueue → worker → cache. A follow-up test that did appeared to hang for the full 300s,
+which looked like the reported bug; it was an artefact of the harness. `frappe.cache()`
+memoises reads into `frappe.local.cache`, so a single long-lived process never observes a
+worker's write. Real browser polls are separate requests and are unaffected. With the
+cache dropped per poll, both surfaces resolve in **10.0s** end to end.
+
 ## [Unreleased] — 2026-08-07
 
 Overview and Revenue & Customers took minutes to load, or timed out. Neither page ever

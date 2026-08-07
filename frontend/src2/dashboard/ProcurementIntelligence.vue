@@ -773,7 +773,7 @@
 import IntelligenceChart from '../intelligence/components/IntelligenceChart.vue'
 defineOptions({ name: 'ProcurementIntelligence' })
 import { ref, computed, onMounted } from 'vue'
-import { Button, Badge, Tabs, createResource } from 'frappe-ui'
+import { Button, Badge, Tabs } from 'frappe-ui'
 import { RefreshCcw } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
 import {
@@ -789,7 +789,7 @@ import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { themeColor } from '../utils/chartTheme'
 import { formatDate, formatMoney, NO_VALUE } from '../utils/format'
 import { formatPeriod } from '../components/financial/format'
-import { readFrappeError, ignoreRejection } from '../helpers/api'
+import { apiCall, readFrappeError, ignoreRejection } from '../helpers/api'
 
 
 /** One month of spend trend from procurement_intelligence. */
@@ -980,48 +980,57 @@ const summary = computed(() => ({
 }))
 
 // API Resource
-const procurementResource = createResource({
-  url: 'insights.api.ml.procurement_intelligence',
-  auto: false,
-  onSuccess(data: Record<string, unknown>) {
-    if (data.status === 'success') {
-      spendData.value = (data.spend_overview as SpendData) || {}
-      supplierData.value = (data.supplier_performance as SupplierData) || {}
-      purchaseData.value = (data.purchase_analytics as PurchaseData) || {}
-      priceData.value = (data.price_intelligence as PriceData) || {}
-      riskData.value = (data.risk_analysis as ProcurementRiskData) || {}
-      forecastData.value = (data.forecasts as ForecastData) || {}
-      lastUpdated.value = (data.generated_at as string) || null
-      dataError.value = null
+/*
+ * `apiCall`, not `createResource`: this endpoint now queues on a worker and
+ * answers `{status: "queued", key}` until the payload lands. `createResource`
+ * has no polling, so it rendered the queued envelope as data — and before that,
+ * the synchronous version outlived the gateway timeout and surfaced as
+ * "The server did not return a response (gateway error)". `apiCall` owns the
+ * poll loop and the transport-error translation for every dashboard.
+ */
+async function loadProcurement(refresh = false) {
+  loading.value = true
+  try {
+    const data = (await apiCall<Record<string, unknown>>(
+      'insights.api.ml.procurement_intelligence',
+      { refresh },
+    )) as Record<string, unknown> | null
+
+    if (!data) {
+      dataError.value = 'Procurement data could not be loaded'
       isPermissionError.value = false
-      if (data.base_currency) {
-        baseCurrency.value = data.base_currency as string
-      }
-    } else {
-      dataError.value = (data.message as string) || 'Procurement data could not be loaded'
-      isPermissionError.value = false
+      return
     }
-    fetched.value = true
-    loading.value = false
-  },
-  onError(err: unknown) {
+
+    spendData.value = (data.spend_overview as SpendData) || {}
+    supplierData.value = (data.supplier_performance as SupplierData) || {}
+    purchaseData.value = (data.purchase_analytics as PurchaseData) || {}
+    priceData.value = (data.price_intelligence as PriceData) || {}
+    riskData.value = (data.risk_analysis as ProcurementRiskData) || {}
+    forecastData.value = (data.forecasts as ForecastData) || {}
+    lastUpdated.value = (data.generated_at as string) || null
+    dataError.value = null
+    isPermissionError.value = false
+    if (data.base_currency) {
+      baseCurrency.value = data.base_currency as string
+    }
+  } catch (err: unknown) {
     const { permission, message } = readFrappeError(err, 'Procurement data could not be loaded')
     console.error('Procurement Intelligence error:', err)
     dataError.value = message
     isPermissionError.value = permission
+  } finally {
     fetched.value = true
     loading.value = false
-  },
-})
+  }
+}
 
 const refreshData = () => {
-  loading.value = true
-  ignoreRejection(procurementResource.submit({ refresh: true }))
+  ignoreRejection(loadProcurement(true))
 }
 
 onMounted(() => {
-  loading.value = true
-  ignoreRejection(procurementResource.submit({ refresh: false }))
+  ignoreRejection(loadProcurement(false))
 })
 
 // Formatting helpers
