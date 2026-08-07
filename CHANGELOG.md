@@ -4,6 +4,24 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07c
+
+### Fixed — "Unknown or expired job key."
+
+- **A warm cache could be refused to the client holding its key.** `async_status`
+  resolved a key's required permission *only* from a Redis `META` entry written by
+  `serve()`, and checked it **before** looking at the result. Any path that filled
+  `RESULT` without going through `serve()` — notably `warm_dashboard_caches`, which
+  calls `run()` directly — left a valid payload with no META, and the poll was rejected
+  with `PermissionError: Unknown or expired job key.` The same happened once META's 24h
+  TTL lapsed while the daily warm kept `RESULT` fresh indefinitely. Reproduced with
+  `RESULT present / META absent` on all four dashboard keys.
+- Which doctype guards a dashboard is a **static property of that dashboard, not cache
+  state**, so it now lives in code as `KEY_PERMISSIONS` (keyed on the prefix before the
+  first `:`). META remains a fallback for keys an extension registers at runtime, and
+  `warm_dashboard_caches` records it as well. An unrecognised key is still refused, so
+  the endpoint cannot be used to read arbitrary cache entries — verified both ways.
+
 ## [Unreleased] — 2026-08-07b
 
 Follow-up to the entry below, after Revenue & Customers still timed out at 300s and

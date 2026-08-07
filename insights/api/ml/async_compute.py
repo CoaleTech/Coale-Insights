@@ -46,6 +46,26 @@ META_KEY = "insights_async:meta:{key}"
 # every dashboard down at once.
 PREFERRED_QUEUE = "insights"
 FALLBACK_QUEUE = "long"
+
+# Permission required to read each cached payload, keyed by the prefix before the
+# first ':' in the cache key.
+#
+# This used to live *only* in a Redis META entry written by `serve()`. That made a
+# key's permission ephemeral: any path that filled RESULT without going through
+# `serve()` -- notably the scheduler's `warm_dashboard_caches`, which calls `run()`
+# directly -- left a perfectly good payload that `async_status` then refused with
+# "Unknown or expired job key". The same happened once META's TTL lapsed while the
+# daily warm kept RESULT fresh indefinitely.
+#
+# Which doctype guards a dashboard is a static property of that dashboard, not
+# cache state, so it belongs in code. META is still honoured as a fallback for keys
+# an extension may register at runtime.
+KEY_PERMISSIONS = {
+	"sales_intelligence": ("Sales Invoice", "read"),
+	"customer_intelligence": ("Customer", "read"),
+	"executive_summary": ("Sales Invoice", "read"),
+	"procurement_intelligence": ("Purchase Order", "read"),
+}
 DEFAULT_TTL = 24 * 3600
 # A work-horse that dies (OOM, SIGABRT) never reaches `run`'s finally block, so
 # the running flag would otherwise wedge the key until it expired. rq's own
@@ -225,19 +245,30 @@ def _diagnose(key: str) -> Optional[Dict[str, Any]]:
 	return None
 
 
-@frappe.whitelist()
-def async_status(key: str) -> Dict[str, Any]:
-	"""Poll a queued computation. Re-checks the permission recorded at queue time."""
-	if not key or not str(key).strip():
-		frappe.throw(frappe._("A key is required."))
+def permission_for(key: str) -> Optional[Tuple[str, str]]:
+	"""Permission guarding `key`: the static registry first, cached META as fallback."""
+	prefix = str(key).split(":", 1)[0]
+	static = KEY_PERMISSIONS.get(prefix)
+	if static:
+		return static
 
 	meta = _cache().get_value(META_KEY.format(key=key))
 	if isinstance(meta, dict) and meta.get("doctype"):
-		_require((meta["doctype"], meta.get("ptype") or "read"))
-	else:
-		# No recorded permission means the key was never queued through serve();
-		# refuse rather than reading arbitrary cache entries.
+		return (meta["doctype"], meta.get("ptype") or "read")
+	return None
+
+
+@frappe.whitelist()
+def async_status(key: str) -> Dict[str, Any]:
+	"""Poll a queued computation. Re-checks the permission guarding that key."""
+	if not key or not str(key).strip():
+		frappe.throw(frappe._("A key is required."))
+
+	permission = permission_for(key)
+	if not permission:
+		# Genuinely unknown key — refuse rather than reading arbitrary cache entries.
 		frappe.throw(frappe._("Unknown or expired job key."), frappe.PermissionError)
+	_require(permission)
 
 	cached = _cache().get_value(RESULT_KEY.format(key=key))
 	if cached is not None:

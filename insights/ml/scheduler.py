@@ -297,6 +297,17 @@ def warm_dashboard_caches():
         try:
             async_compute.invalidate(key)
             async_compute.run(key=key, compute_method=method, compute_kwargs=kwargs, ttl=async_compute.DEFAULT_TTL)
+            # `run` fills RESULT but never META, and `async_status` refuses a key it
+            # cannot attach a permission to. The static KEY_PERMISSIONS registry
+            # covers the dashboards; record META too so any key added here later,
+            # but not to that registry, still polls cleanly.
+            permission = async_compute.permission_for(key)
+            if permission:
+                async_compute._cache().set_value(
+                    async_compute.META_KEY.format(key=key),
+                    {"doctype": permission[0], "ptype": permission[1]},
+                    expires_in_sec=async_compute.DEFAULT_TTL,
+                )
             warmed.append(key)
         except Exception as e:
             frappe.log_error(f"Dashboard cache warm failed for {key}: {str(e)}", "ML Scheduler")
