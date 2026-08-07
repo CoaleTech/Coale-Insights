@@ -4,6 +4,31 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07e
+
+### Added — dashboards warm themselves on install and migrate
+
+- `after_install` / `after_migrate` now enqueue
+  `insights.ml.scheduler.warm_dashboard_caches` directly — the hook equivalent of
+  `bench --site <site> execute insights.ml.scheduler.warm_dashboard_caches`, so no
+  operator has to remember it after a deploy. It runs on a worker, so a migration never
+  blocks on it.
+- **It is queued ahead of the full training pass.** `after_migrate` previously enqueued
+  only `run_daily_intelligence`, which trains six models before it warms anything, so
+  dashboards stayed cold for the length of that job. The short targeted warm now goes
+  first; the full pass still follows on `long`.
+- **Both migrate jobs are now reaped before enqueueing.** They use fixed job ids with
+  `deduplicate=True`, which meant a job left `STARTED` by an OOM kill or a deploy would
+  silence every later migration — `frappe.enqueue` returns without queueing and the
+  migration still reports success. `reap_dead_job` was generalised to take a raw job id
+  so the migrate hook gets the same protection as the dashboard keys.
+
+Verified with a real `bench --site jkm migrate`: both ids absent beforehand; afterwards
+`insights_warm_dashboard_caches` **STARTED** with `insights_warm_intelligence` **QUEUED**
+behind it, and on completion (`FINISHED`) all five keys — `sales_intelligence:12m`,
+`customer_intelligence:12m`, `executive_summary:YTD`, `executive_summary:MTD`,
+`procurement_intelligence` — **PRESENT**.
+
 ## [Unreleased] — 2026-08-07d
 
 The reason "still being computed after 300s" survived three rounds of fixes: the code

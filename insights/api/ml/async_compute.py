@@ -188,29 +188,32 @@ def _live_worker_names() -> set:
 		return set()
 
 
-def _reap_dead_job(key: str) -> bool:
+def reap_dead_job(job_id: str, queue_name: Optional[str] = None) -> bool:
 	"""Delete a job whose worker is gone so a fresh one can be enqueued.
 
 	rq keeps a STARTED job in redis when its work-horse dies without unwinding
 	(OOM kill, supervisor restart, deploy). `frappe.enqueue(deduplicate=True)`
-	then refuses to queue a replacement -- it returns silently -- so the key can
-	never be computed again until the job's own TTL lapses. Ask rq to run its
-	own registry maintenance first, then delete anything still claiming to run
-	on a worker that no longer exists.
+	then refuses to queue a replacement -- it returns silently -- so that job id
+	can never run again until the job's own TTL lapses. Ask rq to run its own
+	registry maintenance first, then delete anything still claiming to run on a
+	worker that no longer exists.
+
+	Takes a raw job id so callers outside this module (the migrate hook) can
+	protect their own long-lived, deduplicated jobs the same way.
 	"""
 	try:
 		from rq.job import JobStatus
 
 		from frappe.utils.background_jobs import get_job, get_queue
 
-		queue = get_queue(resolve_queue())
+		queue = get_queue(queue_name or resolve_queue())
 		# rq's own reaper: moves started jobs past their heartbeat into failed.
 		try:
 			queue.started_job_registry.cleanup()
 		except Exception:
 			pass
 
-		job = get_job(_job_name(key))
+		job = get_job(job_id)
 		if job is None:
 			return False
 
@@ -221,6 +224,11 @@ def _reap_dead_job(key: str) -> bool:
 	except Exception:
 		return False
 	return False
+
+
+def _reap_dead_job(key: str) -> bool:
+	"""Reap the job backing a cache key."""
+	return reap_dead_job(_job_name(key))
 
 
 def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int):
