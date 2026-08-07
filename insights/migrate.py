@@ -55,7 +55,7 @@ def enqueue_dashboard_warm():
     from insights.api.ml import async_compute
 
     _enqueue_once(
-        "insights.ml.scheduler.warm_dashboard_caches",
+        "insights.ml.scheduler.enqueue_dashboard_warm_jobs",
         job_id="insights_warm_dashboard_caches",
         queue=async_compute.resolve_queue(),
         timeout=async_compute.resolve_timeout(),

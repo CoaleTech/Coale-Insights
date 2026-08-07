@@ -6,6 +6,8 @@ ML Scheduler Tasks
 Automated training of ML models on scheduled intervals
 """
 
+import re
+
 import frappe
 from datetime import datetime
 
@@ -262,8 +264,11 @@ def run_daily_intelligence():
     # on a 24-hour TTL, written only by `async_compute.run`. The warm-up therefore
     # populated a different key than the page reads, and its own entry expired an
     # hour later regardless. Driving `async_compute.run` fills the served key.
+    # Fan out rather than warming inline: a work-horse killed by a signal takes
+    # the whole process with it, so warming six payloads in this one job meant a
+    # single crashing dashboard denied all of them their cache.
     try:
-        warm_dashboard_caches()
+        enqueue_dashboard_warm_jobs()
     except Exception as e:
         frappe.log_error(f"Dashboard cache warmup failed: {str(e)}", "ML Scheduler")
 
@@ -284,31 +289,82 @@ DASHBOARD_CACHE_TARGETS = (
 )
 
 
-def warm_dashboard_caches():
-    """Populate `insights_async:result:*` so no visitor pays a cold compute.
+def warm_one_dashboard_cache(key: str):
+    """Compute and cache exactly one dashboard payload.
 
-    Runs inside the daily worker job, where long runtimes are expected. Each
-    target is independent: one failure must not deny the rest their warm cache.
+    Isolated deliberately. A work-horse killed by a signal (SIGSEGV, OOM) takes
+    its whole process down, so batching every dashboard into one job meant a
+    single crashing computation denied all six their cache and stacked their
+    peak memory into one process. One key per job contains the blast radius and
+    makes the failure attributable.
     """
     from insights.api.ml import async_compute
 
-    warmed = []
-    for key, method, kwargs in DASHBOARD_CACHE_TARGETS:
+    target = next((t for t in DASHBOARD_CACHE_TARGETS if t[0] == key), None)
+    if target is None:
+        frappe.log_error(f"Unknown dashboard cache key: {key}", "ML Scheduler")
+        return None
+
+    _, method, kwargs = target
+    async_compute.invalidate(key)
+    async_compute.run(key=key, compute_method=method, compute_kwargs=kwargs, ttl=async_compute.DEFAULT_TTL)
+    # `run` fills RESULT but never META, and `async_status` refuses a key it
+    # cannot attach a permission to. The static KEY_PERMISSIONS registry covers
+    # the dashboards; record META too so any key added here later, but not to
+    # that registry, still polls cleanly.
+    permission = async_compute.permission_for(key)
+    if permission:
+        async_compute._cache().set_value(
+            async_compute.META_KEY.format(key=key),
+            {"doctype": permission[0], "ptype": permission[1]},
+            expires_in_sec=async_compute.DEFAULT_TTL,
+        )
+    frappe.logger().info(f"Dashboard cache warmed: {key}")
+    return key
+
+
+def enqueue_dashboard_warm_jobs():
+    """Fan the warm out to one background job per dashboard key."""
+    from insights.api.ml import async_compute
+
+    queue = async_compute.resolve_queue()
+    timeout = async_compute.resolve_timeout()
+    queued = []
+    for key, _method, _kwargs in DASHBOARD_CACHE_TARGETS:
+        safe = re.sub(r"\W+", "_", key)
+        job_id = f"insights_warm_{safe}"
         try:
-            async_compute.invalidate(key)
-            async_compute.run(key=key, compute_method=method, compute_kwargs=kwargs, ttl=async_compute.DEFAULT_TTL)
-            # `run` fills RESULT but never META, and `async_status` refuses a key it
-            # cannot attach a permission to. The static KEY_PERMISSIONS registry
-            # covers the dashboards; record META too so any key added here later,
-            # but not to that registry, still polls cleanly.
-            permission = async_compute.permission_for(key)
-            if permission:
-                async_compute._cache().set_value(
-                    async_compute.META_KEY.format(key=key),
-                    {"doctype": permission[0], "ptype": permission[1]},
-                    expires_in_sec=async_compute.DEFAULT_TTL,
-                )
-            warmed.append(key)
+            # Same corpse problem as the dashboard keys: a job left STARTED by a
+            # crash makes `deduplicate=True` skip the replacement silently.
+            async_compute.reap_dead_job(job_id, queue_name=queue)
+            frappe.enqueue(
+                "insights.ml.scheduler.warm_one_dashboard_cache",
+                queue=queue,
+                timeout=timeout,
+                job_id=job_id,
+                deduplicate=True,
+                key=key,
+            )
+            queued.append(key)
+        except Exception as e:
+            frappe.log_error(f"Could not queue dashboard warm for {key}: {str(e)}", "ML Scheduler")
+    frappe.logger().info(f"Dashboard warm jobs queued: {', '.join(queued) or 'none'}")
+    return queued
+
+
+def warm_dashboard_caches():
+    """Warm every dashboard payload in this process.
+
+    The `bench --site <site> execute insights.ml.scheduler.warm_dashboard_caches`
+    entry point. Each target is independent: one failure must not deny the rest
+    their warm cache. Background callers should prefer
+    `enqueue_dashboard_warm_jobs`, which isolates each key in its own work-horse.
+    """
+    warmed = []
+    for key, _method, _kwargs in DASHBOARD_CACHE_TARGETS:
+        try:
+            if warm_one_dashboard_cache(key):
+                warmed.append(key)
         except Exception as e:
             frappe.log_error(f"Dashboard cache warm failed for {key}: {str(e)}", "ML Scheduler")
     frappe.logger().info(f"Dashboard caches warmed: {', '.join(warmed) or 'none'}")

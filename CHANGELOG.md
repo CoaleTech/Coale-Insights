@@ -4,6 +4,44 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07g
+
+### Changed — one crashing dashboard no longer takes the other six down
+
+`warm_dashboard_caches` computed all seven payloads inside a **single** background job,
+so one work-horse. A process killed by a signal takes everything in it, which meant a
+single crashing computation denied every dashboard its cache *and* stacked all seven
+working sets into one process's peak memory. `customer_intelligence` alone builds a
+1.55 MB payload from 1,243 × 27-field rows.
+
+- New `warm_one_dashboard_cache(key)` warms exactly one key; `enqueue_dashboard_warm_jobs()`
+  fans out one job per key with its own deduplicated id and corpse reaping. The daily
+  scheduler and the migrate hook both use the fan-out. `warm_dashboard_caches()` is kept
+  as the in-process `bench execute` entry point.
+- Blast radius per crash: **7 dashboards → 1**. Peak memory per work-horse drops to a
+  single computation. Failures become attributable to a named key.
+
+Verified: 7 distinct job ids queued, **7/7 keys PRESENT** after the fan-out completed.
+
+### Reviewed — the segfault does not reproduce on this bench
+
+Asked to align the ML behind the crash, the honest finding is that nothing here
+reproduces it, so no ML computation was changed on speculation:
+
+- **Procurement is not numpy-bound.** `procurement_intelligence.py` makes **zero** `np.*`
+  calls and one `groupby`; it is SQL-heavy. The Accelerate/fork theory from the previous
+  entry does not fit this dashboard.
+- **The data is small.** 5,289 Purchase Invoices / 5,827 item rows / 970 suppliers / 641
+  items / 3,704 Sales Invoices / 1,250 customers. Nothing at this scale explains an
+  out-of-memory kill.
+- **It does not crash.** Five consecutive cold trains driven through the real forked
+  work-horse (model cache cleared each round) returned `success` in ~30s, with **0**
+  work-horse deaths in rq's failed registry.
+
+The crash is therefore environment- or data-shape-specific to production. The fan-out
+above and the circuit breaker below contain it; identifying it needs the 30 lines before
+`Work-horse terminated` in that server's `worker.error.log`.
+
 ## [Unreleased] — 2026-08-07f
 
 ### Added — a crashing computation no longer loops forever
