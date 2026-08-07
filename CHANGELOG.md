@@ -4,6 +4,42 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07d
+
+The reason "still being computed after 300s" survived three rounds of fixes: the code
+that was supposed to explain the failure could never run.
+
+### Fixed — the failure diagnosis was dead code
+
+- **`_diagnose` double-namespaced the job id.** It called
+  `get_job_status(create_job_id(_job_name(key)))`, but `get_job_status` → `get_job` →
+  `Job.fetch(create_job_id(job_id))` already namespaces. The lookup asked redis for
+  `jkm||jkm||insights_async_sales_intelligence_12m`, which never exists, so the helper
+  **always returned `None`** and every `failed` branch below it was unreachable. Whatever
+  went wrong on the server, the client got the generic 5-minute timeout. Measured:
+  single-namespaced → `JobStatus.QUEUED`, double-namespaced → `None`.
+
+### Fixed — a dead worker wedged a key permanently
+
+- **`deduplicate=True` refuses to re-queue behind a corpse.** `frappe.enqueue` returns
+  *silently* when a job with the same id is `QUEUED` or `STARTED`
+  (`background_jobs.py:120-129`). A work-horse killed by OOM, a supervisor restart, or a
+  deploy leaves its job `STARTED` in redis forever, so every later request enqueued
+  nothing, answered `queued` anyway, and polled out at 300s — permanently, for that key.
+- `serve()` now reaps first: it runs rq's own `started_job_registry.cleanup()`, then
+  deletes any job still claiming a `worker_name` that is not in `Worker.all()`. It also
+  checks whether a job actually exists after enqueueing, and reports an error rather than
+  answering `queued` when deduplication silently skipped it.
+- `_diagnose` now covers the states it previously fell through: **failed** (with the real
+  exception line), **started with a dead worker**, and **queued with zero workers** — each
+  clearing the `running` flag so the next poll re-queues instead of waiting out the 15
+  minute `STATE_TTL`.
+
+Verified against a job forced into each state: dead-worker wedge → *"The worker computing
+this dashboard stopped unexpectedly. Retry to recompute it."* with the flag cleared, and
+the next `serve()` re-queues. A genuinely live job is still left alone. Happy path
+unchanged: `sales_intelligence` **6.0s**, `procurement_intelligence` **8.0s** end to end.
+
 ## [Unreleased] — 2026-08-07c
 
 ### Fixed — "Unknown or expired job key."

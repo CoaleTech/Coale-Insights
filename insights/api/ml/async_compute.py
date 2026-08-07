@@ -22,6 +22,7 @@ import re
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
+from frappe import _
 
 RESULT_KEY = "insights_async:result:{key}"
 STATE_KEY = "insights_async:state:{key}"
@@ -131,6 +132,10 @@ def serve(
 		)
 
 	if _cache().get_value(STATE_KEY.format(key=key)) != "running":
+		# A job wedged in STARTED/QUEUED makes `deduplicate=True` return without
+		# enqueueing anything, silently. Clear the corpse first.
+		_reap_dead_job(key)
+
 		_cache().set_value(STATE_KEY.format(key=key), "running", expires_in_sec=STATE_TTL)
 		frappe.enqueue(
 			"insights.api.ml.async_compute.run",
@@ -146,7 +151,76 @@ def serve(
 			ttl=ttl,
 		)
 
+		# `frappe.enqueue` returns None when deduplication skipped it. If no job
+		# exists afterwards, nothing is going to compute this key and the client
+		# would poll into the void for the full 5 minutes. Say so instead.
+		if _job_status(key) is None:
+			_cache().delete_value(STATE_KEY.format(key=key))
+			return {
+				"status": "error",
+				"message": _(
+					"Could not queue the computation for this dashboard. "
+					"Check that background workers are running and the queue is reachable."
+				),
+			}
+
 	return {"status": "queued", "key": key}
+
+
+def _job_status(key: str):
+	"""rq status for this key's job, or None when no job exists."""
+	try:
+		from frappe.utils.background_jobs import get_job_status
+
+		return get_job_status(_job_name(key))
+	except Exception:
+		return None
+
+
+def _live_worker_names() -> set:
+	try:
+		from rq import Worker
+
+		from frappe.utils.background_jobs import get_redis_conn
+
+		return {w.name for w in Worker.all(connection=get_redis_conn())}
+	except Exception:
+		return set()
+
+
+def _reap_dead_job(key: str) -> bool:
+	"""Delete a job whose worker is gone so a fresh one can be enqueued.
+
+	rq keeps a STARTED job in redis when its work-horse dies without unwinding
+	(OOM kill, supervisor restart, deploy). `frappe.enqueue(deduplicate=True)`
+	then refuses to queue a replacement -- it returns silently -- so the key can
+	never be computed again until the job's own TTL lapses. Ask rq to run its
+	own registry maintenance first, then delete anything still claiming to run
+	on a worker that no longer exists.
+	"""
+	try:
+		from rq.job import JobStatus
+
+		from frappe.utils.background_jobs import get_job, get_queue
+
+		queue = get_queue(resolve_queue())
+		# rq's own reaper: moves started jobs past their heartbeat into failed.
+		try:
+			queue.started_job_registry.cleanup()
+		except Exception:
+			pass
+
+		job = get_job(_job_name(key))
+		if job is None:
+			return False
+
+		status = job.get_status(refresh=True)
+		if status == JobStatus.STARTED and job.worker_name not in _live_worker_names():
+			job.delete()
+			return True
+	except Exception:
+		return False
+	return False
 
 
 def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int):
@@ -207,40 +281,63 @@ def _diagnose(key: str) -> Optional[Dict[str, Any]]:
 
 	A work-horse killed by OOM or a signal never reaches `run`'s handler, so no
 	error is ever cached and the client would poll until it times out. rq still
-	knows the job failed, so ask it rather than leaving the user guessing.
+	knows what happened, so ask it rather than leaving the user guessing.
 	"""
 	try:
-		from frappe.utils.background_jobs import create_job_id, get_job_status
+		from frappe.utils.background_jobs import get_job
 
-		status = get_job_status(create_job_id(_job_name(key)))
+		job = get_job(_job_name(key))
+	except Exception:
+		return None
+
+	def give_up(message: str) -> Dict[str, Any]:
+		# Let the next request re-queue instead of waiting out the flag.
+		_cache().delete_value(STATE_KEY.format(key=key))
+		return {"status": "error", "message": message}
+
+	if job is None:
+		health = worker_health()
+		if health.get("workers") == 0:
+			return give_up(
+				_(
+					"No background worker is consuming the '{0}' queue, so this dashboard "
+					"cannot be computed. Start the workers (bench worker / supervisor)."
+				).format(resolve_queue())
+			)
+		# Nothing queued and workers exist: the enqueue was lost. Re-queue next poll.
+		_cache().delete_value(STATE_KEY.format(key=key))
+		return None
+
+	try:
+		status = job.get_status(refresh=True)
 	except Exception:
 		return None
 
 	if status == "failed":
-		reason = "the background job failed"
-		try:
-			from frappe.utils.background_jobs import get_queue
+		reason = _("the background job failed")
+		if job.exc_info:
+			reason = str(job.exc_info).strip().splitlines()[-1][:300]
+		return give_up(_("Computation failed on the server: {0}").format(reason))
 
-			job = get_queue(resolve_queue()).fetch_job(create_job_id(_job_name(key)))
-			if job is not None and job.exc_info:
-				reason = str(job.exc_info).strip().splitlines()[-1][:300]
+	if status == "started" and job.worker_name not in _live_worker_names():
+		# The work-horse died without unwinding. rq keeps the job STARTED forever,
+		# and `deduplicate=True` then refuses to queue a replacement, so this key
+		# could never recover on its own.
+		try:
+			job.delete()
 		except Exception:
 			pass
-		# Let the next request re-queue instead of waiting out the flag.
-		_cache().delete_value(STATE_KEY.format(key=key))
-		return {"status": "error", "message": f"Computation failed on the server: {reason}"}
+		return give_up(
+			_("The worker computing this dashboard stopped unexpectedly. Retry to recompute it.")
+		)
 
-	if status is None:
-		health = worker_health()
-		if health.get("workers") == 0:
-			_cache().delete_value(STATE_KEY.format(key=key))
-			return {
-				"status": "error",
-				"message": (
-					f"No background worker is consuming the '{resolve_queue()}' queue, so this "
-					"dashboard cannot be computed. Start the workers (bench worker / supervisor)."
-				),
-			}
+	if status == "queued" and worker_health().get("workers") == 0:
+		return give_up(
+			_(
+				"The computation is queued on '{0}' but no worker is consuming it. "
+				"Start the workers (bench worker / supervisor)."
+			).format(resolve_queue())
+		)
 
 	return None
 
