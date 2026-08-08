@@ -291,7 +291,7 @@ class ESGIntelligence:
             energy_intensity = frappe.db.sql(f"""
                 SELECT 
                     COUNT(*) as total_operations,
-                    SUM(COALESCE(qty_completed, 0)) as total_production,
+                    SUM(COALESCE(produced_qty, 0)) as total_production,
                     AVG(COALESCE(actual_operating_cost, 0)) as avg_cost
                 FROM `tabWork Order` 
                 WHERE docstatus = 1 {date_condition}
@@ -323,7 +323,7 @@ class ESGIntelligence:
             # Calculate waste metrics from operational data
             production_data = frappe.db.sql(f"""
                 SELECT 
-                    SUM(COALESCE(qty_completed, 0)) as total_production,
+                    SUM(COALESCE(produced_qty, 0)) as total_production,
                     AVG(COALESCE(actual_operating_cost, 0)) as avg_cost
                 FROM `tabWork Order` 
                 WHERE docstatus = 1 {date_condition}
@@ -382,7 +382,7 @@ class ESGIntelligence:
             
             # Production emissions
             production_data = frappe.db.sql(f"""
-                SELECT SUM(COALESCE(qty_completed, 0)) as total_production
+                SELECT SUM(COALESCE(produced_qty, 0)) as total_production
                 FROM `tabWork Order`
                 WHERE docstatus = 1 {date_condition}
             """, as_dict=1)
@@ -411,7 +411,7 @@ class ESGIntelligence:
             # Resource utilization from manufacturing
             efficiency_data = frappe.db.sql(f"""
                 SELECT 
-                    AVG(COALESCE(qty_completed, 0) / NULLIF(qty_to_manufacture, 0)) as production_efficiency,
+                    AVG(COALESCE(produced_qty, 0) / NULLIF(qty, 0)) as production_efficiency,
                     COUNT(*) as total_orders
                 FROM `tabWork Order`
                 WHERE docstatus = 1 {date_condition}

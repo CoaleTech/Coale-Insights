@@ -4,6 +4,46 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07i
+
+### Fixed — two ML queries referenced columns that do not exist
+
+`ml/esg_intelligence.py` read **`Work Order.qty_completed`** (four queries) and
+**`Work Order.qty_to_manufacture`** (one). Neither column exists in ERPNext v16 — the
+real names are **`produced_qty`** and **`qty`**. The queries did not error loudly; they
+would fail inside a background job and surface as a zero on a dashboard.
+
+### Added — the schema contract is now enforced by a test
+
+The ML layer runs ~250 hand-written aggregate queries instead of `frappe.qb`. That is
+defensible — these are multi-join aggregates the ORM cannot express, and rewriting them
+would be large and risky for no behavioural gain. What it forfeits is the query builder's
+one free guarantee: a column renamed upstream fails at *runtime*, in a worker, as a wrong
+number rather than an error.
+
+`insights/tests/test_sql_schema_contract.py` closes that gap without touching a single
+query. It extracts every `frappe.db.sql` string under `ml/` and `api/ml/` via AST,
+normalises interpolated fragments to position-appropriate stand-ins, and hands each query
+to the database's own parser with **`PREPARE`** — which resolves every table and column
+but executes nothing. An ERPNext upgrade that moves a column now fails a test naming the
+file and line.
+
+- **251 SELECTs validated, 251 pass**, in 0.88s under `bench run-tests`.
+- Proven to catch drift, not merely to pass: renaming one column to
+  `qty_completed_RENAMED_UPSTREAM` produced
+  `FAIL … 1 of 251 ML queries no longer match the schema: ml/esg_intelligence.py:291
+  (1054, "Unknown column …")`, then reverted clean.
+
+### Not changed — the `str(date)` deviation was overstated
+
+A previous review claimed "several sites pass `str(date)`, forfeiting `%s` type
+coercion". Re-measured: an AST scan finds **0** `str(...)` values passed directly as SQL
+parameters, and of 11 date-like `str()` coercions in files that run raw SQL, most are
+dict keys or already-string fields. The genuine cases resolve `Fiscal Year.year_start_date`,
+which is already a `datetime.date` whose `str()` is `'2026-04-01'` — byte-identical to
+what the driver emits for the date object. There is no behavioural difference, so no
+change was made.
+
 ## [Unreleased] — 2026-08-07h
 
 ### Added — a work-horse death now records its own forensics
