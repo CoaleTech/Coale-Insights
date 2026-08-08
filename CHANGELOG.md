@@ -4,6 +4,56 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-08e
+
+### Changed — dashboards compute inline again, in the gunicorn web worker
+
+Reverted to the pre-async execution model on request, matching `master` and
+`restaurant`. The forked work-horse is the only mechanism those branches avoid and the
+only one that segfaults on the production host, so the dashboards no longer use it.
+
+`async_compute.serve()` is gone from every dashboard endpoint; each now computes in the
+web worker that received the request:
+
+| endpoint | inline, cold | fields |
+|---|---|---|
+| `sales_intelligence` | 2.9s | 12 |
+| `customer_intelligence` | 3.6s | 14 |
+| `procurement_intelligence` | 1.8s | 10 |
+| `get_executive_summary` | 1.6s | 8 |
+| `get_business_health_score` | 0.0s | 4 (shares the executive model cache) |
+
+Deliberate differences from `master`, which would otherwise be regressions:
+
+- **The cache read is kept.** `master`'s `sales_intelligence` calls `model.train()`
+  unconditionally, retraining on every page load. These call `predict(allow_train=True)` —
+  cached-or-compute — so only a cold 24h window pays full cost. `refresh=true` still
+  forces a retrain.
+- **`get_business_health_score` keeps the key fix.** It reads `business_health_score` and
+  shares the executive summary rather than rebuilding it; on `master` it returns `{}` on
+  every call.
+- **Cache warming follows the endpoints.** `warm_dashboard_caches` now trains the three
+  models and the executive summary — the model-level cache the endpoints actually read.
+  Filling `insights_async:result:*` would repeat the exact bug that warm-up was written to
+  fix: populating a key nothing serves. The migrate hook and daily scheduler both point at
+  the new function.
+
+`async_compute.py` is retained but no longer on any dashboard path: `async_status`,
+`queue_health` and `environment_report` remain callable, and the crash forensics, circuit
+breaker and memory telemetry stay available if the queue is ever reinstated.
+
+**Accepted risk, stated plainly.** This reinstates the failure mode originally reported:
+a cold compute holds the connection, and anything exceeding the gateway read timeout
+returns 502 — which is how "Could not load procurement data … gateway error" arose in the
+first place. Measured worst cases on this bench were `strategic_finance_intelligence`
+59.6s and `get_business_health_score` 42.6s on a fully cold model cache. Each concurrent
+cold dashboard also occupies a gunicorn worker for its duration. Keeping the scheduler and
+the migrate-time warm running is what holds that risk down.
+
+The non-forking worker (`FRAPPE_BACKGROUND_WORKERS_NOFORK=1 bench worker-pool`) remains
+the alternative that avoids both the fork and the timeout; it was verified working on this
+bench but not adopted.
+
 ## [Unreleased] — 2026-08-08d
 
 ### Explained — why master and restaurant never crash, and jkm does

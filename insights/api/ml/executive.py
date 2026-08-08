@@ -11,29 +11,24 @@ from typing import Dict, Any, List
 from insights.api.response import success, error
 
 
-def _compute_executive_summary(period: str = "YTD") -> Dict[str, Any]:
-    """Worker-side computation. Measured at ~23s, so never run in a request."""
-    try:
-        from insights.ml.executive_intelligence import ExecutiveIntelligence
-        model = ExecutiveIntelligence()
-        return success(model.get_executive_summary(period))
-    except Exception as e:
-        return error(str(e))
+def _executive_summary(period: str = "YTD") -> Dict[str, Any]:
+    """Compute the executive summary. Model-level cache is 1h; a miss is ~23s."""
+    from insights.ml.executive_intelligence import ExecutiveIntelligence
+
+    return ExecutiveIntelligence().get_executive_summary(period)
 
 
 @frappe.whitelist()
 def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
-    """Get executive summary, computing on a worker when the cache is cold."""
+    """Get executive summary, computed inline on this request.
+
+    Runs in the gunicorn web worker. `ExecutiveIntelligence` keeps its own 1-hour
+    cache, so a warm call is sub-second; a cold one measured ~23s and holds the
+    connection for its duration.
+    """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.api.ml import async_compute
-
-        return async_compute.serve(
-            key=f"executive_summary:{period}",
-            method="insights.api.ml.executive._compute_executive_summary",
-            kwargs={"period": period},
-            permission=("Sales Invoice", "read"),
-        )
+        return success(_executive_summary(period))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -44,29 +39,14 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
 def get_business_health_score() -> Dict[str, Any]:
     """Get business health score.
 
-    Reads the same cached executive summary `get_executive_summary` serves
-    rather than instantiating `ExecutiveIntelligence` and recomputing it
-    inline. The old direct call measured 42.6s on a cold model cache — the whole
-    summary rebuilt just to pluck one key out of it. Sharing the key means this
-    is free once Overview has loaded, and queues instead of blocking when cold.
+    Plucks one key out of the executive summary, so it shares that model's 1-hour
+    cache rather than building its own. The summary emits `business_health_score`;
+    the two older names this used to read were never present, so it returned `{}`
+    on every call.
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.api.ml import async_compute
-
-        served = async_compute.serve(
-            key="executive_summary:YTD",
-            method="insights.api.ml.executive._compute_executive_summary",
-            kwargs={"period": "YTD"},
-            permission=("Sales Invoice", "read"),
-        )
-        if served.get("status") != "success":
-            # queued or error — hand the envelope back so the client polls.
-            return served
-
-        summary = served.get("data") or {}
-        # The summary emits `business_health_score`; the two older names were
-        # never present, so this endpoint had been returning {} on every call.
+        summary = _executive_summary("YTD") or {}
         health = (
             summary.get("business_health_score")
             or summary.get("business_health")
