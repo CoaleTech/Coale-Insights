@@ -285,14 +285,74 @@ def _reap_dead_job(key: str) -> bool:
 	return reap_dead_job(_job_name(key))
 
 
+MEMORY_KEY = "insights_async:memory:{key}"
+
+
+def _sample_memory(conn, redis_key: bytes, stop):
+	"""Record this process's RSS every second until told to stop.
+
+	The work-horse is the process that dies, but a signal leaves nothing behind
+	to inspect. Writing its own RSS to redis as it runs means a later crash can
+	report how far memory had climbed -- the one measurement that separates an
+	out-of-memory death from a native fork/BLAS fault. `_record_crash_forensics`
+	previously reported `RUSAGE_SELF` from the *web* process handling the poll,
+	which describes an entirely different process.
+
+	Takes an already-resolved connection and key: `frappe.local` is thread-local,
+	so calling `frappe.cache()` in here silently fails to find a site and the
+	thread dies on its first tick.
+	"""
+	import resource
+	import sys
+
+	divisor = 1024 * 1024 if sys.platform == "darwin" else 1024  # macOS bytes, Linux KB
+	peak = 0.0
+	while not stop.wait(1.0):
+		try:
+			rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / divisor
+			peak = max(peak, rss)
+			conn.setex(redis_key, 900, str(round(peak, 1)))
+		except Exception:
+			return
+
+
+def _read_memory_sample(key: str):
+	"""Last RSS the work-horse reported, in MB, or None if it never ticked.
+
+	Read with the raw connection because the sampler writes a bare string via
+	`setex`; `get_value` would try to deserialize it.
+	"""
+	try:
+		cache = _cache()
+		raw = cache.get(cache.make_key(MEMORY_KEY.format(key=key)))
+		if raw is None:
+			return None
+		return float(raw.decode() if isinstance(raw, bytes) else raw)
+	except Exception:
+		return None
+
+
 def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int):
 	"""Worker entrypoint: compute and cache, then clear the running flag."""
+	import threading
+
+	cache = _cache()
+	stop = threading.Event()
+	sampler = None
+	try:
+		# Resolve the namespaced key on this thread, where the site context exists.
+		redis_key = cache.make_key(MEMORY_KEY.format(key=key))
+		sampler = threading.Thread(target=_sample_memory, args=(cache, redis_key, stop), daemon=True)
+		sampler.start()
+	except Exception:
+		pass
 	try:
 		result = frappe.get_attr(compute_method)(**(compute_kwargs or {}))
 		_cache().set_value(RESULT_KEY.format(key=key), result, expires_in_sec=ttl)
 		# Reached the end without the process being killed: the key is healthy, so
 		# the crash counter must not carry over into the next cold cache.
 		clear_attempts(key)
+		_cache().delete_value(MEMORY_KEY.format(key=key))
 	except Exception as e:
 		frappe.log_error(frappe.get_traceback(), f"insights async compute: {key}")
 		# Cache the failure briefly so the client stops polling and sees why,
@@ -306,6 +366,7 @@ def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int)
 		# not a work-horse death, so it should not count toward the crash ceiling.
 		clear_attempts(key)
 	finally:
+		stop.set()
 		_cache().delete_value(STATE_KEY.format(key=key))
 
 
@@ -372,14 +433,19 @@ def _record_crash_forensics(key: str, job, reason: str):
 			"worker_health": worker_health(),
 			"reason": reason,
 		}
-		try:
-			import resource
-
-			# Peak RSS of *this* process is not the work-horse's, but it bounds the
-			# site's baseline and distinguishes a fat process from a fat payload.
-			details["web_peak_rss_kb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-		except Exception:
-			pass
+		# The work-horse samples its own RSS into redis while it runs. That is the
+		# process that died; `RUSAGE_SELF` here would describe the web process
+		# handling this poll, which is a different process entirely and was
+		# previously reported as if it were relevant.
+		horse_mb = _read_memory_sample(key)
+		details["workhorse_peak_rss_mb"] = horse_mb if horse_mb is not None else "not sampled"
+		details["verdict_hint"] = (
+			"memory exhaustion likely — RSS was still climbing"
+			if isinstance(horse_mb, (int, float)) and horse_mb > 1500
+			else "not memory-bound at last sample; suspect a native fault (BLAS/fork)"
+			if isinstance(horse_mb, (int, float))
+			else "no sample — the horse died before the first 1s tick"
+		)
 
 		body = "\n".join(f"{k}: {v}" for k, v in details.items())
 		if job.exc_info:

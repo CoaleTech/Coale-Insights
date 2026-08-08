@@ -4,6 +4,46 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-08b
+
+### Corrected — the Accelerate diagnosis below does not apply to production
+
+The previous entry blamed Apple's Accelerate BLAS. New forensics carry
+`referrer: https://jkmchem.coale.tech/insights/inventory-intelligence` — production is a
+hosted **Linux** host, where Accelerate does not exist. `VECLIB_MAXIMUM_THREADS` is inert
+there. Of the four variables that entry added, only `OPENBLAS_NUM_THREADS` is meaningful
+on Linux. The change is retained (OpenBLAS has its own fork-safety issues and pinning
+threads is harmless), but it was **not** demonstrated to fix anything: this bench never
+reproduced the crash, so "it passes now" proved nothing.
+
+Two further facts from the new forensics narrow it:
+
+- `ran_as_user` is now `dhaval@jkmchemtrade.com`, not just `Administrator`. Not
+  user-specific, and not a permission-path artefact.
+- A **fourth** surface fails: `insights.api.ml.inventory_intelligence`, logged under
+  `ML Inventory` with full request context. That row is a *Python exception* with a
+  traceback, not a work-horse death — the single most informative artefact available, and
+  it has not been shared yet.
+
+### Added — the work-horse now reports its own memory
+
+`web_peak_rss_kb` in the forensics measured **the wrong process**: `RUSAGE_SELF` evaluated
+in the gunicorn worker handling the poll, not the work-horse that died. Its 230–375 MB
+readings described an unrelated process and should not have been presented as evidence.
+
+`run()` now starts a sampler thread that writes the work-horse's own RSS to redis every
+second, and `_record_crash_forensics` reports the last value with a verdict hint. A crash
+that dies at 3 GB and one that dies at 200 MB are different bugs; until now the forensics
+could not tell them apart.
+
+The sampler resolves its redis key and connection **on the calling thread** — `frappe.local`
+is thread-local, so `frappe.cache()` inside the sampler silently found no site and the
+thread died on its first tick. Verified live: RSS climbing `151.4 → 223.5 → 223.6 MB` peak
+across a real `customer_intelligence` compute.
+
+Peak RSS measured on this bench (3,704 sales invoices) for scale:
+`sales 371.6 MB`, `customer 262.3 MB`, `procurement 245.4 MB`.
+
 ## [Unreleased] — 2026-08-08
 
 ### Fixed — the SIGSEGV was Accelerate in a forked work-horse
