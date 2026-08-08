@@ -4,6 +4,55 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-08c
+
+### Ruled out — the crash is not memory exhaustion
+
+The work-horse memory telemetry added in the previous entry answered the question it was
+built for. Four consecutive crashes on production:
+
+| compute | attempt | peak RSS at death |
+|---|---|---|
+| `sales_intelligence:12m` | 1 | **135.0 MB** |
+| `customer_intelligence:12m` | 1 | **139.5 MB** |
+| `sales_intelligence:12m` | 2 | **135.6 MB** |
+| `customer_intelligence:12m` | 2 | **140.0 MB** |
+
+The same computes peak at **371.6 MB** and **262.3 MB** on this bench and succeed. Dying
+at ~137 MB — *below* the working set, at a near-identical point every time, roughly 1–2s
+in — is a deterministic native fault during data load or first pandas interop, not an
+allocation failure. An OOM kill would also arrive as SIGKILL (9), not SIGSEGV (11).
+
+It also shows the env-var pinning from `2026-08-08` did **not** fix it: production is
+running that code (the `workhorse_peak_rss_mb` field only exists in it) and still crashes.
+
+### Added — `environment_report`, a one-command diagnostic for the crashing host
+
+Five rounds of this have been inference from a bench that behaves correctly. This runs the
+discriminating checks *on the host that actually crashes*:
+
+```
+bench --site <site> execute insights.api.ml.async_compute.environment_report
+```
+
+It reports platform, Python, numpy/pandas versions, the BLAS backend, and whether the
+thread-pinning variables are actually set in that process — then runs the decisive test:
+a **subprocess that initialises BLAS, forks, and does real numpy + pandas work in the
+child**, exactly as rq does. Out-of-process, so a segfault is reported rather than taking
+the caller down.
+
+- child killed by a signal → generic fork-unsafety is reproduced; the verdict names the
+  worker-environment fix and the pandas/numpy ABI rebuild.
+- child exits 0 → fork is healthy and the fault belongs to a specific computation, so the
+  verdict points at running that compute inline, outside a work-horse.
+
+On this bench: `fork_probe: survived`, thread vars all `1`, numpy 2.4.4 / pandas 2.2.3.
+
+Leading hypothesis for production, still unconfirmed: a **numpy/pandas C-ABI mismatch**.
+numpy 2.x changed the ABI, and a pandas built against numpy 1.x segfaults on first
+interop — deterministic, early, affects every pandas-using compute, and would not
+reproduce on a host with a matched pair.
+
 ## [Unreleased] — 2026-08-08b
 
 ### Corrected — the Accelerate diagnosis below does not apply to production

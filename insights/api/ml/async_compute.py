@@ -570,3 +570,109 @@ def invalidate(key: str):
 	"""Drop a cached payload so the next request recomputes it."""
 	_cache().delete_value(RESULT_KEY.format(key=key))
 	_cache().delete_value(STATE_KEY.format(key=key))
+
+
+
+def environment_report() -> Dict[str, Any]:
+	"""Diagnose a work-horse that dies by signal, from inside the affected host.
+
+	A SIGSEGV leaves no traceback, so the cause has to be inferred from the
+	environment. This runs the checks that discriminate between the plausible
+	causes -- ABI mismatch, BLAS fork-safety, thread pinning -- and, critically,
+	reproduces the fork the way rq does so a crash can be observed directly
+	rather than deduced.
+
+	Run it on the host that crashes:
+	    bench --site <site> execute insights.api.ml.async_compute.environment_report
+	"""
+	import os
+	import platform
+	import subprocess
+	import sys
+
+	report: Dict[str, Any] = {
+		"platform": platform.platform(),
+		"python": sys.version.split()[0],
+		"thread_env": {
+			v: os.environ.get(v, "<unset>")
+			for v in (
+				"OPENBLAS_NUM_THREADS",
+				"OMP_NUM_THREADS",
+				"MKL_NUM_THREADS",
+				"VECLIB_MAXIMUM_THREADS",
+			)
+		},
+	}
+
+	try:
+		import numpy
+		import pandas
+
+		report["numpy"] = numpy.__version__
+		report["pandas"] = pandas.__version__
+		# pandas carries the numpy version it was *compiled* against. A major-version
+		# disagreement here is a segfault waiting for the first interop call, because
+		# numpy 2.x changed the C ABI.
+		built = getattr(getattr(pandas, "compat", None), "_optional", None)
+		report["numpy_major_matches_pandas_build"] = (
+			"check manually: pip show pandas | grep -i requires" if built is None else "see below"
+		)
+		blas = numpy.show_config("dicts").get("Build Dependencies", {}).get("blas", {})
+		report["blas"] = {"name": blas.get("name"), "version": blas.get("version")}
+	except Exception as e:
+		report["import_error"] = f"{type(e).__name__}: {e}"
+		return {"status": "success", "data": report}
+
+	# The decisive test: does a *forked* child survive a real numpy/pandas
+	# workload? This is exactly what rq does to run a job. Run it out-of-process
+	# so a segfault is reported rather than taking this process down too.
+	probe = """
+import os, sys
+import numpy as np, pandas as pd
+np.dot(np.random.rand(200,200), np.random.rand(200,200))   # initialise BLAS in the parent
+pid = os.fork()
+if pid == 0:
+    try:
+        np.dot(np.random.rand(200,200), np.random.rand(200,200))
+        df = pd.DataFrame({"a": np.random.rand(5000), "b": np.random.rand(5000)})
+        df.groupby((df.a * 10).astype(int)).agg({"b": ["mean", "sum", "std"]})
+        os._exit(0)
+    except Exception:
+        os._exit(2)
+else:
+    _, status = os.waitpid(pid, 0)
+    if os.WIFSIGNALED(status):
+        print("FORK_CHILD_KILLED_BY_SIGNAL", os.WTERMSIG(status))
+    else:
+        print("FORK_CHILD_EXIT", os.WEXITSTATUS(status))
+"""
+	try:
+		out = subprocess.run(
+			[sys.executable, "-c", probe], capture_output=True, text=True, timeout=120
+		)
+		verdict = (out.stdout or "").strip().splitlines()[-1] if out.stdout.strip() else ""
+		if "KILLED_BY_SIGNAL" in verdict:
+			sig = verdict.rsplit(" ", 1)[-1]
+			report["fork_probe"] = f"CRASHED: child killed by signal {sig}"
+			report["verdict"] = (
+				"Reproduced. numpy/pandas cannot survive fork() on this host. "
+				"Set OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1 in the "
+				"WORKER's environment (Procfile / supervisor), which must be set before "
+				"the worker imports numpy. If that does not help, rebuild pandas against "
+				"the installed numpy: pip install --force-reinstall --no-binary pandas pandas"
+			)
+		elif verdict.startswith("FORK_CHILD_EXIT 0"):
+			report["fork_probe"] = "survived"
+			report["verdict"] = (
+				"fork+numpy is healthy here, so the crash is not generic fork-unsafety. "
+				"Suspect the specific computation: run it inline with "
+				"`bench --site <site> execute "
+				"insights.api.ml.sales._compute_sales_intelligence` and see whether it "
+				"segfaults outside a work-horse."
+			)
+		else:
+			report["fork_probe"] = f"inconclusive: {verdict or out.stderr[-300:]}"
+	except Exception as e:
+		report["fork_probe"] = f"probe failed: {type(e).__name__}: {e}"
+
+	return {"status": "success", "data": report}
