@@ -4,6 +4,63 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-08d
+
+### Explained — why master and restaurant never crash, and jkm does
+
+The decisive clue came from the question "the other branches work, why?". They work
+because **they never fork.**
+
+| | where the compute runs |
+|---|---|
+| `master` / `restaurant` | inline `model.train()` inside the **gunicorn web worker** |
+| `jkm` | `async_compute.serve()` → `frappe.enqueue` → **rq forks a work-horse per job** |
+
+Same code, same data, same host: it survives in a web process and takes `SIGSEGV` in a
+forked child. That is fork-unsafety, and the ordering is what makes gunicorn immune —
+gunicorn forks its workers at startup *before* numpy exists, so each initialises its
+native stack cleanly, while rq forks *per job*.
+
+Every earlier symptom now fits: deterministic, ~1–2s in, at ~137 MB (below the real
+working set), across every pandas-using compute, independent of user and data volume,
+and invisible on any host whose native stack happens to tolerate fork.
+
+### Fixed — run the queue without forking
+
+Frappe already ships a non-forking worker for exactly this, and its own comment on the
+forking path reads *"TODO: switch to multiprocessing.Process() after further investigating
+of fork -> forkserver"* (`frappe/utils/background_jobs.py`):
+
+```python
+if sbool(os.environ.get("FRAPPE_BACKGROUND_WORKERS_NOFORK", False)):
+    worker_klass = FrappeWorkerNoFork      # "Execute job in same thread/process, do not fork()"
+```
+
+Run the workers as:
+
+```bash
+FRAPPE_BACKGROUND_WORKERS_NOFORK=1 bench worker-pool --queue long --num-workers 2
+```
+
+Verified on this bench — all three previously-crashing computes succeed, and materially
+faster, because the per-job fork and re-initialisation disappear:
+
+| compute | forking worker | non-forking | peak RSS |
+|---|---|---|---|
+| `sales_intelligence:12m` | 40s | **8s** | 254.7 MB |
+| `customer_intelligence:12m` | 58s | **4s** | 357.2 MB |
+| `procurement_intelligence` | 84s | **2s** | — |
+
+This keeps the whole async architecture — queue, 24h payload cache, client polling, no
+blocked web worker — while removing the one mechanism the working branches never used.
+
+`environment_report` now reports `workers_nofork` as its first-line answer, so a host that
+is still forking says so plainly.
+
+**Caveat:** a non-forking worker executes jobs in its own process, so a job that crashes
+takes the worker with it rather than one child. The circuit breaker and per-key job
+isolation added earlier both still apply; run at least two workers in the pool.
+
 ## [Unreleased] — 2026-08-08c
 
 ### Ruled out — the crash is not memory exhaustion

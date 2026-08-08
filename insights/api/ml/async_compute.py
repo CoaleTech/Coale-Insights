@@ -602,6 +602,11 @@ def environment_report() -> Dict[str, Any]:
 				"VECLIB_MAXIMUM_THREADS",
 			)
 		},
+		# The single most important line for a work-horse that dies by signal.
+		# Frappe forks a child per job unless this is set, and a fork-unsafe native
+		# stack (numpy/BLAS, or an ABI-mismatched pandas) crashes only in the child
+		# — which is exactly why the pre-async branches of this app never saw it.
+		"workers_nofork": os.environ.get("FRAPPE_BACKGROUND_WORKERS_NOFORK", "<unset — workers FORK per job>"),
 	}
 
 	try:
