@@ -4,6 +4,45 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-08
+
+### Fixed — the SIGSEGV was Accelerate in a forked work-horse
+
+All three dashboards (sales, customer, procurement) crashed the rq work-horse with
+`waitpid returned 139 (signal 11)`. Confirmed by the forensics recorder deployed in the
+previous entry: every crash was `signal 11` (SIGSEGV), `started_at` was set (the job began
+executing), `web_peak_rss_kb ~230–260 MB` (not an OOM kill — that would be signal 9), and
+the worker process had **Accelerate loaded** (verified via `vmmap`).
+
+The root cause: **Apple's Accelerate BLAS is not fork-safe.** numpy 2.4.4 on macOS links
+Accelerate, and rq forks a work-horse for every job. The worker parent process loads
+numpy (which initialises Accelerate's BLAS thread pools), then `os.fork()` creates a child
+that inherits those initialised thread pools. The first BLAS call in the child corrupts
+the shared state and segfaults. This did not reproduce on a direct `python -c` call
+(no fork) or with small test matrices (BLAS may not engage), which is why it took so long
+to identify.
+
+Fix: pin every BLAS backend to a single thread **before numpy is imported**, so no thread
+pools exist for fork to inherit.
+
+- **Procfile**: `VECLIB_MAXIMUM_THREADS=1 OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+  MKL_NUM_THREADS=1` added to the worker line, alongside the existing
+  `OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES`.
+- **`async_compute.py`**: the same env vars are set via `os.environ.setdefault` at module
+  import time, before any `import numpy` can run. This covers paths that don't inherit the
+  Procfile (supervisor configs, `bench execute`, direct imports).
+
+Verified: worker restarted with the env vars, all three dashboards driven through the real
+forked work-horse with cold caches:
+
+```
+sales_intelligence:12m     queued -> success (40s)
+customer_intelligence:12m  queued -> success (58s)
+procurement_intelligence   queued -> success (84s)
+```
+
+Zero work-horse deaths. semgrep p/python: 0 findings.
+
 ## [Unreleased] — 2026-08-07i
 
 ### Fixed — two ML queries referenced columns that do not exist

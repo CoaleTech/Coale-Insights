@@ -17,6 +17,17 @@ queueing, and the key's required permission is recorded so `async_status` can
 re-check it — otherwise polling would be an unauthenticated read of any cached
 dashboard by anyone who can guess a key.
 """
+import os
+
+# BLAS fork-safety: rq forks a work-horse for every job, and Apple's Accelerate
+# (numpy's BLAS on macOS) is not fork-safe — its thread pools corrupt in the child,
+# causing SIGSEGV on the first BLAS call. Pin every BLAS backend to a single thread
+# before numpy is imported, so no thread pools are created for fork to inherit.
+# On Linux with OpenBLAS/MKL the same env vars prevent the same class of crash.
+# This is belt-and-braces with the Procfile; the Procfile covers `bench worker`
+# and supervisor, this covers any path that imports this module first.
+for _v in ("VECLIB_MAXIMUM_THREADS", "OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+	os.environ.setdefault(_v, "1")
 
 import re
 from typing import Any, Dict, Optional, Tuple
