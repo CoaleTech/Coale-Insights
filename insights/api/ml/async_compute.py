@@ -333,6 +333,52 @@ def worker_health() -> Dict[str, Any]:
 	return info
 
 
+
+def _record_crash_forensics(key: str, job, reason: str):
+	"""Write everything needed to diagnose a work-horse death to the Error Log.
+
+	A process killed by a signal leaves no Python traceback, so the usual
+	`frappe.log_error(frappe.get_traceback())` records nothing useful. rq still
+	holds the job's identity and arguments, and the site can report its own
+	resource state -- capture both while they exist, because rq expires the job
+	shortly after. Without this the only evidence is a line in worker.error.log
+	on a machine the developer may not have shell access to.
+	"""
+	try:
+		kwargs = dict(job.kwargs or {})
+		inner = dict(kwargs.get("kwargs") or {})
+		details = {
+			"cache_key": key,
+			"compute_method": inner.get("compute_method"),
+			"compute_kwargs": inner.get("compute_kwargs"),
+			"ran_as_user": kwargs.get("user"),
+			"queue": resolve_queue(),
+			"timeout": resolve_timeout(),
+			"attempts": _attempts(key),
+			"enqueued_at": str(getattr(job, "enqueued_at", None)),
+			"started_at": str(getattr(job, "started_at", None)),
+			"worker_name": getattr(job, "worker_name", None),
+			"worker_health": worker_health(),
+			"reason": reason,
+		}
+		try:
+			import resource
+
+			# Peak RSS of *this* process is not the work-horse's, but it bounds the
+			# site's baseline and distinguishes a fat process from a fat payload.
+			details["web_peak_rss_kb"] = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+		except Exception:
+			pass
+
+		body = "\n".join(f"{k}: {v}" for k, v in details.items())
+		if job.exc_info:
+			body += "\n\n--- rq exc_info ---\n" + str(job.exc_info)[-2000:]
+		frappe.log_error(body, f"insights work-horse died: {key}")
+	except Exception:
+		# Forensics must never mask the failure it is describing.
+		pass
+
+
 def _diagnose(key: str) -> Optional[Dict[str, Any]]:
 	"""Explain a missing result, or None when it is legitimately still running.
 
@@ -374,6 +420,7 @@ def _diagnose(key: str) -> Optional[Dict[str, Any]]:
 		reason = _("the background job failed")
 		if job.exc_info:
 			reason = str(job.exc_info).strip().splitlines()[-1][:300]
+		_record_crash_forensics(key, job, reason)
 		return give_up(_("Computation failed on the server: {0}").format(reason))
 
 	if status == "started" and job.worker_name not in _live_worker_names():

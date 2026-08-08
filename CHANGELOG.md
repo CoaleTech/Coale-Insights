@@ -4,6 +4,44 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-07h
+
+### Added — a work-horse death now records its own forensics
+
+A process killed by a signal leaves no Python traceback, so the usual
+`frappe.log_error(frappe.get_traceback())` captures nothing and the only evidence is one
+line in `worker.error.log` — on a machine the developer may have no shell access to. rq
+still holds the job's identity and arguments for a short window after the death.
+
+`_diagnose` now harvests that window into an **Error Log** row titled
+`insights work-horse died: <key>`, recording the cache key, the exact
+`compute_method` and `compute_kwargs`, **the user the job ran as** (jobs inherit
+`frappe.session.user`, so a restricted user can take a different code path than an admin
+test), queue, timeout, attempt count, enqueue/start timestamps, worker name, live worker
+health, and the tail of rq's `exc_info`. Forensics are fully guarded — they can never
+mask the failure they describe.
+
+Verified against a job forced into exactly the reported state
+(`waitpid returned 139 (signal 11)`): the client still receives
+`Computation failed on the server: …` and one Error Log row is written:
+
+```
+cache_key: procurement_intelligence
+compute_method: insights.api.ml.procurement._compute_procurement_intelligence
+compute_kwargs: {'refresh': False}
+ran_as_user: Administrator
+queue: long   timeout: 1500   attempts: 1
+```
+
+### Note — still not reproducible on this bench
+
+Re-checked after the report: **0** real work-horse deaths in this bench's
+`worker.error.log`, and all seven dashboard keys currently cache `success` with
+`attempts=0`. An earlier claim of "195 crashes" in this file was a bad grep — all 195
+lines were `customer_segmentation.py` pandas `FutureWarning`s matching the word
+*segmentation*. The 18 genuine work-horse lines in `worker.log` are `scheduled_job`
+entries from June with `waitpid returned None`, unrelated to Insights.
+
 ## [Unreleased] — 2026-08-07g
 
 ### Changed — one crashing dashboard no longer takes the other six down
