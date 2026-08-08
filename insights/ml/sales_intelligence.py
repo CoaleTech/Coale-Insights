@@ -911,12 +911,12 @@ class SalesIntelligence(BaseMLModel):
     def predict(self, metric: str = None, allow_train: bool = False) -> Dict[str, Any]:
         """Get cached analysis.
 
-        `allow_train` is off by default so a cache miss can never turn a web
-        request into a full training pass — that fallback is what made cold
-        dashboards take 20-60s instead of failing fast. Worker-side callers
-        (`insights.api.ml.sales._compute_sales_intelligence`) opt in explicitly;
-        request-path callers get a `warming` envelope and the queued job fills
-        the cache behind them.
+        `allow_train` is off by default so an incidental caller cannot trigger a
+        full training pass. The dashboard endpoint
+        (`insights.api.ml.sales.sales_intelligence`) opts in, because it computes
+        inline and must produce a payload; the slice endpoints in the same module
+        do not, and get a `warming` envelope until the dashboard or the scheduler
+        has populated the cache.
         """
         cached = self.get_cached_results("sales_intelligence")
         if not cached:

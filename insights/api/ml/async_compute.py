@@ -672,8 +672,8 @@ else:
 				"fork+numpy is healthy here, so the crash is not generic fork-unsafety. "
 				"Suspect the specific computation: run it inline with "
 				"`bench --site <site> execute "
-				"insights.api.ml.sales._compute_sales_intelligence` and see whether it "
-				"segfaults outside a work-horse."
+				"insights.api.ml.sales.sales_intelligence` and see whether it segfaults "
+				"outside a background job."
 			)
 		else:
 			report["fork_probe"] = f"inconclusive: {verdict or out.stderr[-300:]}"

@@ -77,9 +77,10 @@ class ProcurementIntelligence(BaseMLModel):
     def predict(self, allow_train: bool = False) -> Dict[str, Any]:
         """Return cached results.
 
-        `allow_train` is off by default so a cache miss cannot turn a web request
-        into a full training pass. The worker-side
-        `insights.api.ml.procurement._compute_procurement_intelligence` opts in.
+        `allow_train` is off by default so an incidental caller cannot trigger a
+        full training pass. The dashboard endpoint
+        (`insights.api.ml.procurement.procurement_intelligence`) opts in, because
+        it computes inline and must produce a payload.
         """
         cached = self.get_cached_results("procurement_intelligence")
         if cached:

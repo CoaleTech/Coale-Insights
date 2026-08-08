@@ -14,9 +14,10 @@ from frappe import _
 def predict(intelligence, customer: Optional[str] = None, allow_train: bool = False) -> Dict[str, Any]:
     """Get cached predictions.
 
-    `allow_train` is off by default so a cache miss cannot turn a web request
-    into a full training pass. Worker-side callers
-    (`insights.api.ml.customer._compute_customer_intelligence`) opt in.
+    `allow_train` is off by default so an incidental caller cannot trigger a full
+    training pass. The dashboard endpoint
+    (`insights.api.ml.customer.customer_intelligence`) opts in, because it computes
+    inline and must produce a payload.
     """
     cached = intelligence.get_cached_results("customer_intelligence")
     if not cached:
