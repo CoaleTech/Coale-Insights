@@ -1,4 +1,5 @@
 import {
+	BrainCircuit,
 	DollarSign,
 	Factory,
 	LayoutDashboard,
@@ -57,6 +58,15 @@ export interface IntelligenceDashboard {
 	 * broken chat rather than a visible failure.
 	 */
 	chatType: string | null
+	/**
+	 * Whether cross-dashboard search can filter to this surface.
+	 *
+	 * Defaults to true. Set false only where the backend has no branch for the
+	 * id: `CrossDashboardSearchService._get_domain_data` returns `{}` for an
+	 * unknown domain (`ml/cross_dashboard_search.py:510`), so listing such an id
+	 * as a filter offers the user a choice that silently finds nothing.
+	 */
+	searchable?: boolean
 }
 
 /**
@@ -162,13 +172,33 @@ export const INTELLIGENCE_DASHBOARDS: IntelligenceDashboard[] = [
 		icon: ShieldAlert,
 		chatType: 'Risk',
 	},
+	{
+		id: 'machine_learning',
+		route: 'MachineLearning',
+		label: 'Machine Learning',
+		searchName: 'Machine Learning',
+		icon: BrainCircuit,
+		// No agent server-side: `get_agent_for_dashboard` throws on anything
+		// outside its map (`api/dashboard_chat.py:103`) and the frontend swallows
+		// it with console.error, so a value here would be a silently dead button.
+		chatType: null,
+		// Model metadata, not domain data -- nothing for search to match on.
+		searchable: false,
+	},
 ]
 
 /** Everything except the executive roll-up, which is not a domain. */
 export const DOMAIN_DASHBOARDS = INTELLIGENCE_DASHBOARDS.filter((d) => d.id !== 'executive')
 
-/** Filter options for cross-dashboard search. */
-export const SEARCH_DASHBOARD_OPTIONS = INTELLIGENCE_DASHBOARDS.map((d) => ({
+/**
+ * Filter options for cross-dashboard search.
+ *
+ * Skips rows marked `searchable: false` -- the backend has no branch for them
+ * and would return an empty result set for the filter.
+ */
+export const SEARCH_DASHBOARD_OPTIONS = INTELLIGENCE_DASHBOARDS.filter(
+	(d) => d.searchable !== false,
+).map((d) => ({
 	id: d.id,
 	name: d.searchName,
 }))

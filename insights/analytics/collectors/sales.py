@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import flt
 from typing import Dict, Any, List
 
-from . import BaseCollector
+from insights.analytics.collectors.base import BaseCollector
 
 
 class SalesDataCollector(BaseCollector):

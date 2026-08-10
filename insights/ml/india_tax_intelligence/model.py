@@ -12,8 +12,8 @@ from datetime import date, datetime
 from typing import Dict, Any, List
 
 from insights.ml.base import BaseMLModel
-from insights.ml.india_tax_intelligence import data as _data
-from insights.ml.india_tax_intelligence import analytics as _analytics
+import insights.ml.india_tax_intelligence.analytics as _analytics
+import insights.ml.india_tax_intelligence.data as _data
 from insights.ml.india_tax_intelligence.data import EINVOICE_COMPLIANCE
 
 

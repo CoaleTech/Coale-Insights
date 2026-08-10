@@ -15,14 +15,18 @@ from typing import Dict, Any, List
 from insights.ml.base import BaseMLModel
 from insights.api.ml.utils import get_date_filter_sql, parse_date_filter
 
-# Import submodules via package-relative references
-from insights.ml.customer_intelligence import data as _data
-from insights.ml.customer_intelligence import analytics as _analytics
-from insights.ml.customer_intelligence import predict as _predict
-from insights.ml.customer_intelligence import actions as _actions
-from insights.ml.customer_intelligence import counts as _counts
-from insights.ml.customer_intelligence import rankings as _rankings
-from insights.ml.customer_intelligence import variance as _variance
+# Sibling submodules by direct module path, never
+# `from <package> import <submodule>`: that form has to wait for the package's
+# own __init__ to finish, so it deadlocks against a concurrent request that is
+# initialising the package. Importing the submodule by path only needs the
+# parent present in sys.modules, not completed.
+import insights.ml.customer_intelligence.actions as _actions
+import insights.ml.customer_intelligence.analytics as _analytics
+import insights.ml.customer_intelligence.counts as _counts
+import insights.ml.customer_intelligence.data as _data
+import insights.ml.customer_intelligence.predict as _predict
+import insights.ml.customer_intelligence.rankings as _rankings
+import insights.ml.customer_intelligence.variance as _variance
 
 
 class CustomerIntelligence(BaseMLModel):

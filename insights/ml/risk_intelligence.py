@@ -352,7 +352,7 @@ class RiskIntelligence(BaseMLModel):
         # moderate/unknown rather than fabricating "low risk".
         try:
             from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-            from insights.ml.india_tax_intelligence import data as india_tax_data
+            import insights.ml.india_tax_intelligence.data as india_tax_data
             tax_intel = IndiaTaxIntelligence(period="fy")
             if tax_intel.india_compliance_installed:
                 fy_start = str(tax_intel.fiscal_year["year_start_date"])
@@ -645,7 +645,7 @@ class RiskIntelligence(BaseMLModel):
         every company regardless of what was actually filed.
         """
         from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-        from insights.ml.india_tax_intelligence import data as india_tax_data
+        import insights.ml.india_tax_intelligence.data as india_tax_data
 
         tax_intel = IndiaTaxIntelligence(period="fy")
         fy_start = str(tax_intel.fiscal_year["year_start_date"])

@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import add_days, nowdate, flt, cint
 from typing import Dict, Any, List
 
-from . import BaseCollector
+from insights.analytics.collectors.base import BaseCollector
 
 
 class InventoryDataCollector(BaseCollector):

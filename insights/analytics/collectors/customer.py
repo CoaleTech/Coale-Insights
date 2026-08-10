@@ -7,7 +7,7 @@ import frappe
 from frappe.utils import add_months, flt, cint
 from typing import Dict, Any, List
 
-from . import BaseCollector
+from insights.analytics.collectors.base import BaseCollector
 
 
 class CustomerDataCollector(BaseCollector):
