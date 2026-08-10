@@ -234,10 +234,22 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
           <!-- Libraries -->
           <div class="bg-surface-white border border-outline-gray-1 rounded-lg p-4">
             <SectionHeader title="ML libraries" variant="caption" :level="3" />
-            <p v-if="librariesMissing.length" class="text-sm text-ink-red-6 mt-2">
-              Not importable on this host: {{ librariesMissing.join(', ') }}. Models needing
-              them cannot train — run <span class="font-mono">bench setup requirements</span>.
-            </p>
+            <div v-if="librariesMissing.length" class="text-sm text-ink-red-6 mt-2">
+              <p>
+                Not importable on this host: {{ librariesMissing.join(', ') }}. Models needing
+                them cannot train.
+              </p>
+              <!-- Deliberately not a button. Installing packages is a deploy-time
+                   action: it writes to the bench virtualenv, takes minutes, and
+                   on an image-based host like Frappe Cloud a runtime install is
+                   discarded on the next container start. The page reports; the
+                   operator deploys. -->
+              <p class="mt-1 text-ink-gray-6">
+                Managed host (Frappe Cloud): redeploy the bench group — the image build
+                installs them. Self-hosted:
+                <span class="font-mono">bench setup requirements</span>, then restart.
+              </p>
+            </div>
             <p v-else class="text-sm text-ink-gray-6 mt-2">
               All five present. Versions are what the models actually ran against.
             </p>
