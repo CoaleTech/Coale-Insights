@@ -46,6 +46,20 @@ def sanitize_for_json(obj):
         return _finite(obj.item())
     if isinstance(obj, float):
         return _finite(obj)
+
+    # Array-likes: numpy.ndarray, pandas Series/Index. Not dict/list/tuple, so
+    # the recursion above skips them, and they are not numpy scalars either.
+    # Frappe's `json_handler` does catch them -- as plain Iterables, via
+    # `list(obj)` -- but that yields a list of numpy.int64/float64, and orjson
+    # will not call `default=` a second time on the contents. The result is
+    # "Type is not JSON serializable: numpy.int64" from inside as_json, which is
+    # the bare-HTML-500 path again. `tolist()` converts the scalars too, and is
+    # the one method ndarray, Series and Index all share -- so this needs no
+    # pandas import to cover pandas.
+    tolist = getattr(obj, "tolist", None)
+    if callable(tolist):
+        return sanitize_for_json(tolist())
+
     return obj
 
 
