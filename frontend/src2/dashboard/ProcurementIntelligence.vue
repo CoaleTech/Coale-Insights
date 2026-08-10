@@ -25,6 +25,7 @@
       :error="dataError ?? undefined"
       :is-permission-error="isPermissionError"
       :has-data="hasData"
+      :warming="warming"
       subject="procurement data"
       :kpi-count="6"
       @retry="refreshData"
@@ -955,7 +956,13 @@ const riskData = ref<ProcurementRiskData>({})
 const forecastData = ref<ForecastData>({})
 
 const fetched = ref(false)
-const hasData = computed(() => fetched.value)
+/**
+ * A cold cache answers `{status: "warming"}` while a background job fits the
+ * models. It is not `hasData`: the Shell shows a "computing" state instead of
+ * the zero-filled KPI strip a normal render would produce.
+ */
+const warming = ref(false)
+const hasData = computed(() => fetched.value && !warming.value)
 
 /**
  * Set when the fetch did not yield usable data.
@@ -995,8 +1002,20 @@ async function loadProcurement(refresh = false) {
     if (!data) {
       dataError.value = 'Procurement data could not be loaded'
       isPermissionError.value = false
+      warming.value = false
       return
     }
+
+    // A cold cache answers {status:"warming"} while a background job fits the
+    // models. Show the Shell's "computing" state rather than a zero-filled
+    // strip; the scheduler (and this call) have kicked the worker-side trainer.
+    if (data.status === 'warming') {
+      warming.value = true
+      dataError.value = null
+      isPermissionError.value = false
+      return
+    }
+    warming.value = false
 
     spendData.value = (data.spend_overview as SpendData) || {}
     supplierData.value = (data.supplier_performance as SupplierData) || {}
@@ -1015,6 +1034,7 @@ async function loadProcurement(refresh = false) {
     console.error('Procurement Intelligence error:', err)
     dataError.value = message
     isPermissionError.value = permission
+    warming.value = false
   } finally {
     fetched.value = true
     loading.value = false

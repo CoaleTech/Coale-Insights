@@ -57,31 +57,32 @@ def get_forecast_chart_data() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive sales intelligence, computed inline on this request.
+    """Get comprehensive sales intelligence without training on the request.
 
-    `refresh_forecasts=False` on both branches: everything else here is SQL and
-    pandas aggregation, but `aggregate_forecasts(refresh=True)` fits a Prophet
-    model and up to 100 Holt-Winters models when their caches are cold. That is
-    the only unbounded work in the endpoint, and it drags prophet, cmdstanpy and
-    matplotlib into the web worker — which on a memory-capped host is enough to
-    get the worker killed, and whichever way it ends (timeout, a hung cmdstanpy
-    subprocess, or an OOM kill) the browser sees a non-JSON 502.
+    A cold cache used to be healed inline with `predict(allow_train=True)`, but
+    the full analysis fits a Prophet model and up to 100 Holt-Winters models and
+    drags prophet, cmdstanpy and matplotlib into the gunicorn worker. On a
+    memory-capped host that pass outlives the gateway read timeout and reaches
+    the browser as a non-JSON 502.
 
-    Those two models have their own scheduled trainers
-    (`scheduler.train_sales_forecast`, `scheduler.train_demand_forecast`) and an
-    explicit "ML Forecast Training" button on the dashboard, which already warns
-    that training "may take several minutes". Until one of those has run,
-    `aggregate_forecasts` leaves the forecast keys null and the section hides
-    itself (`RevenueSections.vue:904`).
+    `predict(allow_train=False)` now returns a warm cache hit, a stale on-disk
+    snapshot, or a `{"status": "warming"}` placeholder, and `serve_or_warm`
+    kicks the worker-side trainer for a cold cache or a forced refresh. The
+    scheduler also trains this nightly.
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
+        from insights.api.ml.utils import serve_or_warm
 
         model = SalesIntelligence(date_filter=date_filter)
-        if refresh:
-            return success(model.train(refresh_forecasts=False))
-        return success(model.predict(allow_train=True))
+        return success(serve_or_warm(
+            model.predict(allow_train=False),
+            trainer="insights.ml.scheduler.train_sales_intelligence",
+            job_id="insights_train_sales_intelligence",
+            label=_("Sales intelligence"),
+            force=refresh,
+        ))
     except frappe.PermissionError:
         raise
     except Exception as e:

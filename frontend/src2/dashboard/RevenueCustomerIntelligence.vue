@@ -15,7 +15,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
 import { useRouter } from 'vue-router'
 import { apiCall, readFrappeError } from '../helpers/api'
-import { AlertTriangle, RefreshCcw } from 'lucide-vue-next'
+import { AlertTriangle, RefreshCcw, Loader2 } from 'lucide-vue-next'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
@@ -97,6 +97,18 @@ const atRiskCount = computed(() => {
   const arc = (custData.value?.at_risk_customers as unknown[]) ?? []
   return arc.length
 })
+
+/**
+ * A cold cache answers `{status: "warming"}` while a background job fits the
+ * models. Either half warming would render the KPI strip all-zeros, so the
+ * page shows a "computing" state until both are ready. A group that errored is
+ * not warming -- that is the error branch's job.
+ */
+const warming = computed(
+  () =>
+    !error.value &&
+    (salesData.value?.status === 'warming' || custData.value?.status === 'warming'),
+)
 
 function money(value: number | undefined | null): string {
   return formatMoney(value, baseCurrency.value)
@@ -220,6 +232,22 @@ onBeforeUnmount(() => {
         <AlertTriangle class="w-12 h-12 mx-auto text-neg" aria-hidden="true" />
         <p class="text-ink-gray-6">{{ error }}</p>
         <Button variant="subtle" @click="loadData()">Try Again</Button>
+      </div>
+    </div>
+
+    <!-- Warming state: a cold cache is being computed by a background job.
+         Distinct from loading (first paint) and error. Shown when either
+         payload returns {status:"warming"} so the strip is not rendered
+         all-zeros while the numbers are still being built. -->
+    <div v-else-if="warming" class="flex items-center justify-center flex-1">
+      <div class="text-center space-y-3 max-w-sm">
+        <Loader2 class="w-12 h-12 mx-auto text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+        <p class="font-medium text-ink-gray-8">Preparing your dashboard</p>
+        <p class="text-sm text-ink-gray-6">
+          Revenue and customer intelligence is being computed in the background.
+          It can take a few minutes the first time.
+        </p>
+        <Button variant="subtle" @click="loadData()">Check again</Button>
       </div>
     </div>
 

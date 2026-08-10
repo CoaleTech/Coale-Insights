@@ -59,6 +59,27 @@
 	</div>
 
 	<!--
+		A cold cache answers `{status: "warming"}` while a background job fits the
+		models. Distinct from `loading` (first paint, a skeleton) and from the
+		empty state (a successful response with no rows): the numbers are coming,
+		so say so and offer a manual re-check rather than a spinner with no end or
+		a dead "no data" page.
+	-->
+	<div v-else-if="warming" class="flex flex-1 items-center justify-center p-6">
+		<div class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
+			<Loader2 class="mx-auto mb-3 h-8 w-8 text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+			<p class="font-medium text-ink-gray-8">Preparing {{ subject }}</p>
+			<p class="mt-1 text-sm text-ink-gray-6">
+				This dashboard is being computed in the background. It can take a few
+				minutes the first time.
+			</p>
+			<Button variant="subtle" class="mt-4" :loading="refreshing" @click="$emit('retry')">
+				Check again
+			</Button>
+		</div>
+	</div>
+
+	<!--
 		`hasData` requires a payload, not just the absence of an error, so this
 		branch cannot render over empty refs during a retry.
 	-->
@@ -75,7 +96,7 @@
 
 <script setup lang="ts">
 import { Button } from 'frappe-ui'
-import { Lock, TriangleAlert } from 'lucide-vue-next'
+import { Lock, TriangleAlert, Loader2 } from 'lucide-vue-next'
 import KpiCard from './KpiCard.vue'
 import SkeletonBlock from './SkeletonBlock.vue'
 
@@ -86,6 +107,12 @@ withDefaults(
 		error?: string | null
 		isPermissionError?: boolean
 		hasData?: boolean
+		/**
+		 * A cold cache answers `{status: "warming"}` while a background job fits
+		 * the models. Distinct from `loading` (first paint) and the empty state
+		 * (a success with no rows), so it gets its own branch and copy.
+		 */
+		warming?: boolean
 		/**
 		 * Lower-case noun phrase completing "permission to view ..." and
 		 * "Could not load ...", e.g. `manufacturing data`. One string rather than
@@ -104,6 +131,7 @@ withDefaults(
 		error: null,
 		isPermissionError: false,
 		hasData: false,
+		warming: false,
 		permissionHint: '',
 		kpiCount: 6,
 	},

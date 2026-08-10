@@ -54,6 +54,33 @@ def enqueue_training(method: str, job_id: str, label: str, **kwargs) -> Dict[str
     )
 
 
+def serve_or_warm(
+    result: Dict[str, Any],
+    trainer: str,
+    job_id: str,
+    label: str,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Return a dashboard payload, healing a cold cache on a worker.
+
+    `result` comes from `predict(allow_train=False)`, so it is one of: a warm
+    cache hit, a stale on-disk snapshot, or a `{"status": "warming"}`
+    placeholder -- never a fresh inline training pass. Fitting Prophet or
+    Holt-Winters, or running the heavy analytics SQL, inside the gunicorn
+    worker outlives the gateway read timeout and reaches the browser as an
+    HTML 502; that is the bug this avoids.
+
+    Enqueue the worker-side trainer when the caller forced a refresh or when
+    nothing warm exists yet, so opening the dashboard on a cold cache kicks the
+    background fit instead of blocking the request. `deduplicate=True` in
+    `enqueue_training` collapses concurrent opens onto one job.
+    """
+    is_warming = isinstance(result, dict) and result.get("status") == "warming"
+    if force or is_warming:
+        enqueue_training(trainer, job_id=job_id, label=label)
+    return result
+
+
 def parse_date_filter(date_filter: str = "12m") -> Tuple[Optional[datetime], Optional[datetime]]:
     """
     Parse a date filter string into start_date and end_date.
