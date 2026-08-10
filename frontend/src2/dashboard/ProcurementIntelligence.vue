@@ -979,14 +979,10 @@ const summary = computed(() => ({
   riskScore: (riskData.value.risk_score as number) || 0,
 }))
 
-// API Resource
 /*
- * `apiCall`, not `createResource`: this endpoint now queues on a worker and
- * answers `{status: "queued", key}` until the payload lands. `createResource`
- * has no polling, so it rendered the queued envelope as data — and before that,
- * the synchronous version outlived the gateway timeout and surfaced as
- * "The server did not return a response (gateway error)". `apiCall` owns the
- * poll loop and the transport-error translation for every dashboard.
+ * `apiCall`, not `createResource`: it owns the one envelope decoder and the
+ * transport-error translation, so every dashboard reads the payload at the same
+ * level and reports a non-JSON response the same way.
  */
 async function loadProcurement(refresh = false) {
   loading.value = true

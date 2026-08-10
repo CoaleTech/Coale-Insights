@@ -17,20 +17,9 @@ import { call } from 'frappe-ui'
 export function readInsightsEnvelope(payload: unknown): {
 	data: unknown
 	error: string | null
-	queuedKey?: string
 } {
 	if (typeof payload !== 'object' || payload === null || !('status' in payload)) {
 		return { data: payload, error: null }
-	}
-	/*
-	 * Expensive dashboards are computed on a worker (see
-	 * insights/api/ml/async_compute.py) and answer `{status: "queued", key}`
-	 * until the result lands. Surface the key so `apiCall` can poll; without
-	 * this the queued envelope fell through and dashboards rendered it as data.
-	 */
-	if (payload.status === 'queued') {
-		const key = 'key' in payload && typeof payload.key === 'string' ? payload.key : ''
-		return { data: null, error: null, queuedKey: key }
 	}
 	if (payload.status === 'error') {
 		const message =
@@ -60,7 +49,7 @@ export function readInsightsEnvelope(payload: unknown): {
 
 /**
  * A gateway failure (502/504) answers with an HTML error page, not JSON, so
- * frappe-ui's `transformResponse` reads `exc_type` off `undefined` and throws
+ * frappe-ui's `call()` reads `exc_type` off `undefined` and throws
  * `TypeError: Cannot read properties of undefined`. That buried the real cause
  * and, on paths without a catch, surfaced as an unhandled rejection.
  *
@@ -73,65 +62,27 @@ export function normalizeTransportError(e: unknown, method: string): Error {
 			: e.message
 		return new Error(
 			`${method} did not complete — ${detail}. ` +
-				'This usually means the dashboard is still being computed on the server; retry shortly.',
+				'The server answered with something other than JSON; check the Error Log ' +
+				'and the gunicorn log for that request.',
 		)
 	}
 	return e instanceof Error ? e : new Error(String(e))
 }
 
-/** How long to keep polling a queued dashboard before giving up. */
-const QUEUE_POLL_TIMEOUT_MS = 5 * 60 * 1000
-const QUEUE_POLL_INTERVAL_MS = 2000
-
-/*
- * `Promise.withResolvers()` would read better here, but it is ES2024 and this
- * project targets ES2020 (see tsconfig `target`/`lib`). It is a runtime
- * feature, not just a type, so adopting it would drop support for browsers
- * below Chrome 119 / Safari 17.4. Keep the executor form until the baseline
- * moves.
- */
-const sleep = (ms: number): Promise<void> =>
-	new Promise((resolve) => {
-		setTimeout(resolve, ms)
-	})
-
-/**
- * Call an Insights endpoint, transparently waiting out a queued computation.
- *
- * Heavy dashboards no longer block a web worker; they queue and return
- * `{status: "queued"}`. Polling lives here so every caller benefits without
- * each dashboard growing its own retry loop.
- */
+/** Call an Insights endpoint and hand back the decoded payload. */
 export async function apiCall<T>(
 	method: string,
 	params?: Record<string, unknown>,
 ): Promise<T> {
-	const invoke = async (m: string, p?: Record<string, unknown>) => {
-		try {
-			return await call(m, p)
-		} catch (e) {
-			throw normalizeTransportError(e, m)
-		}
+	let raw: unknown
+	try {
+		raw = await call(method, params)
+	} catch (e) {
+		throw normalizeTransportError(e, method)
 	}
 
-	let { data, error, queuedKey } = readInsightsEnvelope(await invoke(method, params))
+	const { data, error } = readInsightsEnvelope(raw)
 	if (error) throw new Error(error)
-
-	const deadline = Date.now() + QUEUE_POLL_TIMEOUT_MS
-	while (queuedKey !== undefined) {
-		if (Date.now() > deadline) {
-			throw new Error(
-				`${method} is still being computed after ${QUEUE_POLL_TIMEOUT_MS / 1000}s. ` +
-					'If this persists, check that background workers are running on the server.',
-			)
-		}
-		await sleep(QUEUE_POLL_INTERVAL_MS)
-		;({ data, error, queuedKey } = readInsightsEnvelope(
-			await invoke('insights.api.ml.async_compute.async_status', { key: queuedKey }),
-		))
-		if (error) throw new Error(error)
-	}
-
 	return data as T
 }
 

@@ -40,6 +40,12 @@ read timeout here. Measured through `frappe.app.application` on a cold cache:
 | `get_executive_summary` | 0.10s | 4,662 B |
 | `get_business_health_score` | 0.03s | 274 B |
 
+The client followed: `apiCall` no longer polls
+`insights.api.ml.async_compute.async_status`, and `readInsightsEnvelope` no
+longer recognises a `queued` envelope. Left in, they were a loaded gun — any
+payload reporting `queued` would have sent the browser to a method that no
+longer exists, producing the same non-JSON response the whole fix is about.
+
 ### Fixed — `numpy.float64` in a response body was a bare HTML 500
 
 Reproduced on `get_executive_summary`: orjson raises
