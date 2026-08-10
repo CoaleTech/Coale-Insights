@@ -46,6 +46,41 @@ longer recognises a `queued` envelope. Left in, they were a loaded gun — any
 payload reporting `queued` would have sent the browser to a method that no
 longer exists, producing the same non-JSON response the whole fix is about.
 
+### Fixed — a page load no longer fits forecasting models
+
+With the dashboards inline, `sales_intelligence` was the last endpoint that
+could run for an unbounded time: `aggregate_forecasts(refresh=True)` fits a
+Prophet model and up to 100 Holt-Winters models whenever their caches are cold.
+Everything else in that endpoint is SQL and pandas aggregation. It was also the
+only endpoint still failing after the queue came out, and the only one that did
+this.
+
+The request path now passes `refresh_forecasts=False` — in the endpoint and in
+`SalesIntelligence.predict`, so no caller can reach it by another route. Those
+two models keep their own scheduled trainers (`train_sales_forecast` daily,
+`train_demand_forecast` weekly) and the dashboard's own "ML Forecast Training"
+button, which already warns that training "may take several minutes". Until one
+of them runs, `aggregate_forecasts` leaves the keys null and the section hides
+itself (`RevenueSections.vue:904`).
+
+`aggregate_forecasts` also stopped constructing the forecasting models to read
+their caches. `SalesForecasting.__init__` calls `_check_prophet()`, so building
+one to reach a method it inherits from `BaseMLModel` imported prophet and
+matplotlib — 126 MB and 1.4s — into a web worker that was only ever going to
+read a cache key. Both caches are now read through `self`; the models are
+constructed only to train.
+
+Measured on a fully cold cache, through `frappe.app.application`:
+
+| | before | after |
+|---|---|---|
+| `sales_intelligence` | 2.71s, 54,871 B | 2.22s, 39,017 B |
+| prophet in web worker | loaded | **not loaded** |
+| cmdstanpy / matplotlib / statsmodels | loaded | **not loaded** |
+
+The scheduler path is unchanged: `SalesIntelligence().train()` still defaults to
+`refresh_forecasts=True` and still populates both forecasts.
+
 ### Fixed — `numpy.float64` in a response body was a bare HTML 500
 
 Reproduced on `get_executive_summary`: orjson raises

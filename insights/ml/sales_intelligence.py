@@ -760,26 +760,32 @@ class SalesIntelligence(BaseMLModel):
 
     def aggregate_forecasts(self, refresh: bool = False) -> Dict[str, Any]:
         """Pull forecasts from existing ML models: Sales Forecasting and Demand Forecasting
-        
+
         Args:
             refresh: If True, retrain forecasts if cache is empty or stale
+
+        Both caches are read through `self`. `SalesForecasting.__init__` calls
+        `_check_prophet()`, so merely constructing it to reach a method it
+        inherits from `BaseMLModel` pulled prophet and matplotlib — 126 MB and
+        1.4s — into whichever process asked, including a web worker that was only
+        ever going to read a cache key. Construct them only to train.
         """
         forecasts = {
             'sales_forecast': None,
             'demand_forecast': None
         }
-        
+
         try:
             # Sales Forecast (90 days)
-            from insights.ml.sales_forecasting import SalesForecasting
-            sf_model = SalesForecasting()
-            sf_cached = sf_model.get_cached_results("sales_forecast")
-            
+            sf_cached = self.get_cached_results("sales_forecast")
+
             # Auto-train if refresh requested and no cache
             if not sf_cached and refresh:
+                from insights.ml.sales_forecasting import SalesForecasting
+
                 frappe.logger().info("Auto-training sales forecast...")
-                sf_cached = sf_model.train()
-            
+                sf_cached = SalesForecasting().train()
+
             if sf_cached:
                 forecast_data = sf_cached.get('forecast', [])[:90]  # Next 90 days
                 # Calculate 90-day total
@@ -798,14 +804,14 @@ class SalesIntelligence(BaseMLModel):
         
         try:
             # Demand Forecast
-            from insights.ml.demand_forecasting import DemandForecasting
-            df_model = DemandForecasting()
-            df_cached = df_model.get_cached_results("demand_forecast")
-            
+            df_cached = self.get_cached_results("demand_forecast")
+
             # Auto-train if refresh requested and no cache
             if not df_cached and refresh:
+                from insights.ml.demand_forecasting import DemandForecasting
+
                 frappe.logger().info("Auto-training demand forecast...")
-                df_cached = df_model.train()
+                df_cached = DemandForecasting().train()
             
             if df_cached:
                 # Get reorder alerts
@@ -912,13 +918,17 @@ class SalesIntelligence(BaseMLModel):
         """Get cached analysis.
 
         `allow_train` is off by default so an incidental caller cannot trigger a
-        full training pass. `insights.api.ml.sales._compute_sales_intelligence`
-        opts in, because it runs on a worker and must produce a payload; the slice
-        endpoints in the same module do not.
+        full training pass. The dashboard endpoint
+        (`insights.api.ml.sales.sales_intelligence`) opts in; the slice endpoints
+        in the same module do not.
 
         Without it, prefer the last payload that computed successfully over a
         placeholder: redis is wiped by every deploy and by `bench clear-cache`,
         which leaves perfectly usable numbers on disk and an empty cache.
+
+        `refresh_forecasts=False`: every caller of `predict` is serving a request,
+        and fitting Prophet or 100 Holt-Winters models is not something a page
+        load should do. The scheduler trains them.
         """
         cached = self.get_cached_results("sales_intelligence")
         if not cached:
@@ -928,7 +938,7 @@ class SalesIntelligence(BaseMLModel):
                     "message": _("Sales intelligence is being computed. Refresh shortly."),
                 }
             else:
-                cached = self.train()
+                cached = self.train(refresh_forecasts=False)
 
         if metric and metric in cached:
             return {"status": "success", metric: cached[metric]}

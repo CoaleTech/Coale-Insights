@@ -49,21 +49,29 @@ def get_forecast_chart_data() -> Dict[str, Any]:
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
     """Get comprehensive sales intelligence, computed inline on this request.
 
-    Runs in the gunicorn web worker rather than a background job. rq forks a
-    work-horse per job and this app's numpy/pandas stack segfaults in a forked
-    child on some hosts, which the pre-async branches never hit because they
-    compute here. The cache read is kept (master retrains unconditionally), so
-    only a cold 24h window pays the full cost.
+    `refresh_forecasts=False` on both branches: everything else here is SQL and
+    pandas aggregation, but `aggregate_forecasts(refresh=True)` fits a Prophet
+    model and up to 100 Holt-Winters models when their caches are cold. That is
+    the only unbounded work in the endpoint, and it drags prophet, cmdstanpy and
+    matplotlib into the web worker — which on a memory-capped host is enough to
+    get the worker killed, and whichever way it ends (timeout, a hung cmdstanpy
+    subprocess, or an OOM kill) the browser sees a non-JSON 502.
 
-    The caller holds the connection for the duration: a cold compute can exceed
-    a gateway's read timeout and surface as a 502.
+    Those two models have their own scheduled trainers
+    (`scheduler.train_sales_forecast`, `scheduler.train_demand_forecast`) and an
+    explicit "ML Forecast Training" button on the dashboard, which already warns
+    that training "may take several minutes". Until one of those has run,
+    `aggregate_forecasts` leaves the forecast keys null and the section hides
+    itself (`RevenueSections.vue:904`).
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
 
         model = SalesIntelligence(date_filter=date_filter)
-        return success(model.train() if refresh else model.predict(allow_train=True))
+        if refresh:
+            return success(model.train(refresh_forecasts=False))
+        return success(model.predict(allow_train=True))
     except frappe.PermissionError:
         raise
     except Exception as e:
