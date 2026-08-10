@@ -7,6 +7,7 @@ Provides common utilities and base classes for ML models
 """
 
 import frappe
+import importlib
 import json
 import os
 import re
@@ -169,47 +170,41 @@ class BaseMLModel(ABC):
             frappe.logger().warning(f"Could not write ML snapshot for {cache_key}: {e}")
 
 
-def ensure_dependencies():
-    """Check and report on ML dependencies"""
-    dependencies = {
-        "pandas": False,
-        "numpy": False,
-        "scikit-learn": False,
-        "prophet": False,
-        "xgboost": False
-    }
-    
-    try:
-        import pandas
-        dependencies["pandas"] = True
-    except ImportError:
-        pass
-    
-    try:
-        import numpy
-        dependencies["numpy"] = True
-    except ImportError:
-        pass
-    
-    try:
-        import sklearn
-        dependencies["scikit-learn"] = True
-    except ImportError:
-        pass
-    
-    try:
-        from prophet import Prophet
-        dependencies["prophet"] = True
-    except ImportError:
-        pass
-    
-    try:
-        import xgboost
-        dependencies["xgboost"] = True
-    except ImportError:
-        pass
-    
-    return dependencies
+def ensure_dependencies() -> Dict[str, Optional[str]]:
+    """Which ML libraries this interpreter can import, and at what version.
+
+    Previously returned bare booleans for a list that had drifted from reality:
+    it probed `xgboost`, which the app no longer installs, and never mentioned
+    `statsmodels`, which is what the sales forecast actually fits on. It also
+    had no callers -- the only way to see its answer was to run it by hand over
+    a bench shell, which is why "check the dependencies on production" kept
+    living on a task list instead of being knowable.
+
+    Now it reports versions rather than True/False, because "installed" was
+    never the interesting question -- two benches disagreeing about which
+    version is installed is what silently changes a model's behaviour. The
+    `model_health` endpoint reads this, so the answer shows on the Machine
+    Learning page for whatever site you are looking at.
+
+    Returns a mapping of import name to version string, or None when the
+    library cannot be imported.
+    """
+    found: Dict[str, Optional[str]] = {}
+    for label, module_name in (
+        ("pandas", "pandas"),
+        ("numpy", "numpy"),
+        ("scikit-learn", "sklearn"),
+        ("statsmodels", "statsmodels"),
+        ("prophet", "prophet"),
+    ):
+        try:
+            module = importlib.import_module(module_name)
+            found[label] = getattr(module, "__version__", "unknown")
+        except Exception:
+            # ImportError for a missing package, but a broken native build
+            # raises other things -- and for this report they mean the same.
+            found[label] = None
+    return found
 
 
 def get_date_range(months_back: int = 12) -> Tuple[str, str]:

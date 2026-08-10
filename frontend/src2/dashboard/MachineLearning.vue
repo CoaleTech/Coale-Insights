@@ -58,7 +58,21 @@ interface AnomalyRow {
   score: number
 }
 
-const health = useIntelligenceDashboard<{ models: ModelRow[]; trained: number; total: number }>({
+type DataRow = {
+  doctype: string
+  used_by: string
+  rows: number | null
+  state: 'populated' | 'empty' | 'absent'
+}
+
+const health = useIntelligenceDashboard<{
+  models: ModelRow[]
+  trained: number
+  total: number
+  libraries: Record<string, string | null>
+  libraries_missing: string[]
+  data: DataRow[]
+}>({
   url: 'insights.api.ml.model_health',
   cache: 'ml-model-health',
 })
@@ -74,6 +88,23 @@ const anomalies = useIntelligenceDashboard<Record<string, unknown>>({
 const models = computed<ModelRow[]>(() => health.data.value?.models ?? [])
 const trainedCount = computed(() => health.data.value?.trained ?? 0)
 const totalCount = computed(() => health.data.value?.total ?? 0)
+
+/** The runtime the models actually got, rather than the one requirements-ml.txt
+ * asks for. A version mismatch between two benches is what silently changes a
+ * model's behaviour, so the version is the value worth showing, not a tick. */
+const libraries = computed(() =>
+  Object.entries(health.data.value?.libraries ?? {}).map(([name, version]) => ({
+    name,
+    version,
+  })),
+)
+const librariesMissing = computed(() => health.data.value?.libraries_missing ?? [])
+
+/** Row counts behind each module. An empty table and an uninstalled app look
+ * the same on a chart of zeros and call for opposite responses, so `absent` is
+ * kept distinct from `empty`. */
+const dataRows = computed<DataRow[]>(() => health.data.value?.data ?? [])
+const emptySources = computed(() => dataRows.value.filter((row) => row.state !== 'populated'))
 
 const leadMetrics = computed(() => (leads.data.value?.metrics ?? {}) as Record<string, number>)
 const leadTraining = computed(() => (leads.data.value?.training ?? {}) as Record<string, number>)
@@ -236,6 +267,65 @@ const BAND_THEME: Record<ScoredLead['band'], BadgeTheme> = {
               </tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <!-- ── Environment ──────────────────────────────────────────────── -->
+      <section>
+        <SectionHeader
+          title="Environment"
+          hint="What this site can run, and what it has to run on"
+          :level="2"
+        />
+
+        <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <!-- Libraries -->
+          <div class="bg-surface-white border border-outline-gray-1 rounded-lg p-4">
+            <SectionHeader title="ML libraries" variant="caption" :level="3" />
+            <p v-if="librariesMissing.length" class="text-sm text-ink-red-6 mt-2">
+              Not importable on this host: {{ librariesMissing.join(', ') }}. Models needing
+              them cannot train — run <span class="font-mono">bench setup requirements</span>.
+            </p>
+            <p v-else class="text-sm text-ink-gray-6 mt-2">
+              All five present. Versions are what the models actually ran against.
+            </p>
+            <dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1.5">
+              <template v-for="lib in libraries" :key="lib.name">
+                <dt class="text-sm text-ink-gray-7">{{ lib.name }}</dt>
+                <dd
+                  class="text-sm text-right tabular-nums"
+                  :class="lib.version ? 'text-ink-gray-9' : 'text-ink-red-6 font-medium'"
+                >
+                  {{ lib.version ?? 'missing' }}
+                </dd>
+              </template>
+            </dl>
+          </div>
+
+          <!-- Source data -->
+          <div class="bg-surface-white border border-outline-gray-1 rounded-lg p-4">
+            <SectionHeader title="Source data" variant="caption" :level="3" />
+            <p class="text-sm mt-2 text-ink-gray-6">
+              <template v-if="emptySources.length">
+                {{ emptySources.length }} of {{ dataRows.length }} tables have nothing to
+                analyse. Dashboards over them report zeros, not findings.
+              </template>
+              <template v-else>Every module has data behind it.</template>
+            </p>
+            <dl class="mt-3 grid grid-cols-[1fr_auto] gap-x-4 gap-y-1.5">
+              <template v-for="row in dataRows" :key="row.doctype">
+                <dt class="text-sm text-ink-gray-7 truncate" :title="row.used_by">
+                  {{ row.doctype }}
+                </dt>
+                <dd
+                  class="text-sm text-right tabular-nums"
+                  :class="row.state === 'populated' ? 'text-ink-gray-9' : 'text-ink-gray-5'"
+                >
+                  {{ row.state === 'absent' ? 'no doctype' : formatCount(row.rows ?? 0) }}
+                </dd>
+              </template>
+            </dl>
+          </div>
         </div>
       </section>
 

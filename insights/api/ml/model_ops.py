@@ -181,17 +181,76 @@ def _describe(spec: Dict[str, str]) -> Dict[str, Any]:
     return row
 
 
+# The tables every model reads, and which module depends on each. Row counts
+# against this list are what "profile the data volumes on production" was
+# asking for: whether the four modules that compute over empty tables here are
+# empty on the site you are actually looking at. Answering it in the page beats
+# answering it once, by hand, over a bench shell.
+SOURCE_TABLES: List[Dict[str, str]] = [
+    {"doctype": "Sales Invoice", "used_by": "Sales, revenue, forecasts"},
+    {"doctype": "Sales Invoice Item", "used_by": "Demand forecast, product mix"},
+    {"doctype": "Purchase Invoice", "used_by": "Procurement spend"},
+    {"doctype": "Purchase Order", "used_by": "Procurement cycle times"},
+    {"doctype": "Lead", "used_by": "Lead conversion"},
+    {"doctype": "GL Entry", "used_by": "Ledger anomalies, financials"},
+    {"doctype": "Work Order", "used_by": "Manufacturing intelligence"},
+    {"doctype": "Employee", "used_by": "HR intelligence"},
+    {"doctype": "Salary Slip", "used_by": "HR payroll analytics"},
+    {"doctype": "Budget", "used_by": "Budget variance"},
+    {"doctype": "Delivery Note", "used_by": "ESG intelligence"},
+]
+
+
+def _data_volumes() -> List[Dict[str, Any]]:
+    """Row count per source table, so an empty module is visibly empty.
+
+    A missing DocType is reported as such rather than as zero: an app that is
+    not installed and a table with no rows look identical on a dashboard, and
+    they call for opposite responses.
+    """
+    volumes = []
+    for spec in SOURCE_TABLES:
+        doctype = spec["doctype"]
+        if not frappe.db.exists("DocType", doctype):
+            rows, state = None, "absent"
+        else:
+            try:
+                rows = frappe.db.count(doctype)
+                state = "populated" if rows else "empty"
+            except Exception:
+                rows, state = None, "absent"
+        volumes.append(
+            {"doctype": doctype, "used_by": spec["used_by"], "rows": rows, "state": state}
+        )
+    return volumes
+
+
 @frappe.whitelist()
 def model_health() -> Dict[str, Any]:
-    """State of every model the app trains."""
+    """State of every model the app trains, and the two things that decide it.
+
+    A model is only as good as the library that fits it and the table it reads,
+    so both ship in the same payload: `libraries` reports what this interpreter
+    can import and at what version, `data` reports the row count behind each
+    module. Between them they answer, from inside whichever site is asking,
+    the two questions that otherwise need a bench shell -- did the ML packages
+    land on this host, and does this site actually hold the data its dashboards
+    claim to analyse.
+    """
     try:
         frappe.has_permission("Insights Settings", "read", throw=True)
+        from insights.ml.base import ensure_dependencies
+
         rows = [_describe(spec) for spec in MODELS]
+        libraries = ensure_dependencies()
         return success(
             {
                 "models": rows,
                 "trained": sum(1 for row in rows if row["state"] == "trained"),
                 "total": len(rows),
+                "libraries": libraries,
+                "libraries_missing": sorted(k for k, v in libraries.items() if v is None),
+                "data": _data_volumes(),
             }
         )
     except frappe.PermissionError:
