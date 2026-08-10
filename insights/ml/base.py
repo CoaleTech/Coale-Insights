@@ -13,7 +13,7 @@ import re
 import tempfile
 import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple
 from abc import ABC, abstractmethod
 
 
@@ -49,21 +49,6 @@ class BaseMLModel(ABC):
         if result:
             result = [dict(row) for row in result]
         return pd.DataFrame(result)
-    
-    def save_results(self, doctype: str, results: List[Dict]):
-        """Save ML results to database"""
-        for result in results:
-            try:
-                if frappe.db.exists(doctype, result.get("name")):
-                    doc = frappe.get_doc(doctype, result.get("name"))
-                    doc.update(result)
-                    doc.save(ignore_permissions=True)
-                else:
-                    doc = frappe.get_doc({"doctype": doctype, **result})
-                    doc.insert(ignore_permissions=True)
-            except Exception as e:
-                frappe.log_error(f"Error saving ML result: {str(e)}", self.model_name)
-        frappe.db.commit()
     
     def log_training(self, metrics: Dict[str, Any]):
         """Log training run - logs to frappe error log if ML Training Log doctype doesn't exist"""
@@ -119,6 +104,11 @@ class BaseMLModel(ABC):
             path = self._snapshot_path(cache_key)
             if not os.path.exists(path):
                 return None
+            # `path` never contains caller input: `_snapshot_path` roots it at
+            # `frappe.get_site_path` and reduces the key with
+            # `re.sub(r"\W+", "_", ...)`, so no separator or traversal sequence
+            # can survive into the filename.
+            # nosemgrep: frappe-security-file-traversal
             with open(path, encoding="utf-8") as f:
                 snapshot = json.load(f)
         except Exception as e:

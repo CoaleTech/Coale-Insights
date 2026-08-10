@@ -162,20 +162,10 @@ _LAZY_MAP = {
     "download_executive_report": ("insights.api.ml.executive", "download_executive_report"),
     "test_executive_intelligence_data": ("insights.api.ml.executive", "test_executive_intelligence_data"),
     "preview_executive_report_data": ("insights.api.ml.executive", "preview_executive_report_data"),
-    # ------------------------------------------------------------------ predictive
-    # All 8 endpoints: AdvancedPredictiveAnalyticsEngine._get_domain_historical_data
-    # generates simulated history instead of querying it. Now honest
-    # {"status": "not_implemented"} stubs (see predictive.py) — kept registered
-    # so callers get a clean response instead of a not-found error. See
-    # plan-eng-review D3.2.
-    "generate_comprehensive_forecasts": ("insights.api.ml.predictive", "generate_comprehensive_forecasts"),
-    "detect_anomalies_and_risks": ("insights.api.ml.predictive", "detect_anomalies_and_risks"),
-    "analyze_predictive_patterns": ("insights.api.ml.predictive", "analyze_predictive_patterns"),
-    "get_real_time_predictions": ("insights.api.ml.predictive", "get_real_time_predictions"),
-    "optimize_prediction_models": ("insights.api.ml.predictive", "optimize_prediction_models"),
-    "get_predictive_insights": ("insights.api.ml.predictive", "get_predictive_insights"),
-    "get_risk_assessment": ("insights.api.ml.predictive", "get_risk_assessment"),
-    "get_domain_comparison": ("insights.api.ml.predictive", "get_domain_comparison"),
+    # `predictive` removed 2026-08-10: AdvancedPredictiveAnalyticsEngine trained on
+    # simulated history, all 8 endpoints had already been reduced to
+    # {"status": "not_implemented"} stubs, and nothing in the frontend called any
+    # of them. Engine, endpoints and agent deleted (~2,740 lines).
 }
 
 # Cache resolved functions to avoid repeated importlib calls

@@ -21,14 +21,30 @@ dependencies = [
     "ibis-framework[postgres]",
     # "ibis-framework[mssql]",
     # "ibis-framework[bigquery]",
+
+    # --- ML runtime -------------------------------------------------------
+    # Not optional, and not an extra. These lived in an `ml` extra, but
+    # `bench get-app` runs `pip install -e apps/insights` and never requests
+    # extras -- so on every normal install none of them existed. statsmodels
+    # was not declared anywhere at all, which is why `_forecast_holt_winters`
+    # ImportError'd on every call and every forecast silently degraded to a
+    # weighted moving average nobody could see.
+    #
+    # Installing the app installs the ML layer. Whether a given model may *run*
+    # is decided at runtime against the data (see PROPHET_MIN_DAYS in
+    # sales_forecasting.py) -- never by leaving a library out.
+    "scikit-learn>=1.3.0",   # payment default, product similarity, tax trend
+    "statsmodels>=0.14.0",   # Holt-Winters -- fits the history this site has
+    "prophet>=1.1.4",        # + cmdstanpy, matplotlib; gated on >=2yr history
+    "xgboost>=2.0.0",        # reported by insights.ml.base.ensure_dependencies
+    "lightgbm>=4.1.0",       # ditto; kept so the ML install is complete
 ]
 
 [project.optional-dependencies]
-ml = ["scikit-learn>=1.3.0", "xgboost>=2.0.0", "lightgbm>=4.1.0", "prophet>=1.1.4"]
 nlp = ["transformers>=4.36.0", "spacy>=3.7.0", "langchain>=0.0.350"]
 vectordb = ["chromadb>=0.4.0", "faiss-cpu>=1.7.4", "elasticsearch>=8.11.0"]
 export = ["plotly>=5.17.0", "weasyprint>=60.0", "python-pptx>=0.6.23", "reportlab>=4.0.0"]
-all = ["insights[ml,nlp,vectordb,export]"]
+all = ["insights[nlp,vectordb,export]"]
 
 [build-system]
 requires = ["flit_core >=3.4,<4"]

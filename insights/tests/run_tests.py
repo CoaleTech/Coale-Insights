@@ -37,7 +37,6 @@ TEST_CONFIG = {
             'insights.api.ml.hr',
             'insights.api.ml.executive',
             'insights.api.ml.search',
-            'insights.api.ml.predictive',
             'insights.api.ml.general',
             'insights.ml.base',
             'insights.ml.customer_intelligence',

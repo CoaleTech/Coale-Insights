@@ -7,11 +7,19 @@ Supports Prophet, ARIMA, and Exponential Smoothing methods
 """
 
 import frappe
+from frappe import _
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from insights.ml.base import BaseMLModel, get_date_range
+
+# Prophet estimates a yearly seasonal component. Fitting one from a single
+# observed year is interpolation dressed as inference, so it stays off until
+# there are two cycles of daily history. Frappe Cloud installs the library
+# either way (pyproject `dependencies`) -- availability is an install concern,
+# applicability is a data one, and they are decided separately.
+PROPHET_MIN_DAYS = 730
 
 
 class SalesForecasting(BaseMLModel):
@@ -290,21 +298,29 @@ class SalesForecasting(BaseMLModel):
         forecast_result = None
         
         if self.method == "auto":
-            # Try Prophet first, then fallback
-            if self.prophet_available and len(df) >= 30:
+            # Prophet first, but only once the history can support it.
+            if self.prophet_available and len(df) >= PROPHET_MIN_DAYS:
                 forecast_result = self._forecast_prophet(df, periods)
-            
+
             if not forecast_result:
                 forecast_result = self._forecast_exponential_smoothing(df, periods)
-            
+
             if not forecast_result:
                 forecast_result = self._forecast_moving_average(df, periods)
-        
+
         elif self.method == "prophet":
             if not self.prophet_available:
                 return {
                     "status": "error",
-                    "message": "Prophet not installed. Run: pip install insights[ml]"
+                    "message": _("Prophet is not installed on this bench."),
+                }
+            if len(df) < PROPHET_MIN_DAYS:
+                return {
+                    "status": "error",
+                    "message": _(
+                        "Prophet needs at least {0} days of history to estimate yearly "
+                        "seasonality; this site has {1}. Use exponential smoothing until then."
+                    ).format(PROPHET_MIN_DAYS, len(df)),
                 }
             forecast_result = self._forecast_prophet(df, periods)
         

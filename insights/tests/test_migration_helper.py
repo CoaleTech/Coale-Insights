@@ -197,7 +197,6 @@ class TestMigrationMapping(unittest.TestCase):
             'insights.api.ml.hr',
             'insights.api.ml.executive',
             'insights.api.ml.search',
-            'insights.api.ml.predictive',
             'insights.api.ml.general'
         ]
 

@@ -22,6 +22,13 @@ try:
 except ImportError:
     HAS_SKLEARN = False
 
+# Minimum examples of *each* outcome before a classifier is worth fitting.
+# At the time of writing this site has 127 overdue invoices against 3,704
+# total: a forest trained on that memorises the minority class and reports an
+# accuracy driven entirely by the majority one. Below the floor, the
+# rule-based scorer is the honest answer.
+MIN_CLASS_EXAMPLES = 50
+
 
 class PaymentPrediction(BaseMLModel):
     """
@@ -227,23 +234,37 @@ class PaymentPrediction(BaseMLModel):
         
         X = paid_df[self.feature_columns].values
         y = paid_df['is_late'].values
-        
+
         # Train model
         try:
             from sklearn.ensemble import RandomForestClassifier
             from sklearn.model_selection import train_test_split
             from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-            
-            # Split data
+
+            # A forest fitted on a handful of late payments memorises them and
+            # reports a flattering accuracy driven entirely by the majority
+            # class. Below the floor the rule-based scorer is the honest answer.
+            late_count = int((y == 1).sum())
+            on_time_count = int((y == 0).sum())
+            if min(late_count, on_time_count) < MIN_CLASS_EXAMPLES:
+                frappe.logger().info(
+                    f"Payment prediction: {late_count} late / {on_time_count} on-time "
+                    f"is below the {MIN_CLASS_EXAMPLES} minimum per class; using the "
+                    "rule-based scorer instead of RandomForest."
+                )
+                raise ImportError("insufficient minority-class examples")
+
+            # Split data, preserving the class balance in both halves.
             X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42
+                X, y, test_size=0.2, random_state=42, stratify=y
             )
-            
+
             # Train Random Forest
             self.model = RandomForestClassifier(
                 n_estimators=100,
                 max_depth=10,
-                random_state=42
+                random_state=42,
+                class_weight="balanced",
             )
             self.model.fit(X_train, y_train)
             
