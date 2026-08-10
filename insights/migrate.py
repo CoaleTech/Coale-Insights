@@ -27,38 +27,44 @@ def after_migrate():
 
 
 def _enqueue_once(method: str, job_id: str, queue: str, timeout: int):
-    """Enqueue a deduplicated job, clearing a dead one first.
+    """Enqueue a job, replacing one wedged by a dead work-horse.
 
-    `frappe.enqueue(deduplicate=True)` returns silently when a job with this id
-    is QUEUED or STARTED. A work-horse killed by OOM or a deploy leaves its job
-    STARTED in redis forever, so without reaping, every later migration would
-    enqueue nothing and still report success.
+    `deduplicate=True` returns silently when a job with this id is QUEUED or
+    STARTED, and a work-horse killed by a signal or a deploy leaves its job
+    STARTED in redis forever — so without clearing the corpse every later
+    migration would enqueue nothing and still report success.
     """
-    from insights.api.ml import async_compute
+    try:
+        from frappe.utils.background_jobs import get_job
 
-    async_compute.reap_dead_job(job_id, queue_name=queue)
+        job = get_job(job_id)
+        if job and job.get_status(refresh=True) in ("started", "queued"):
+            job.delete()
+    except Exception:
+        pass
+
     frappe.enqueue(method, queue=queue, timeout=timeout, job_id=job_id, deduplicate=True)
 
 
 def enqueue_dashboard_warm():
-    """Populate the dashboard payload caches after install or migrate.
+    """Train the dashboard models after install or migrate.
 
     The direct equivalent of
     `bench --site <site> execute insights.ml.scheduler.warm_dashboard_caches`,
-    run on a worker so a migration never blocks on it. Fills the
-    `insights_async:result:*` keys the dashboards actually read, training any
-    model whose own cache is cold on the way through.
+    run on a worker so a migration never blocks on it.
+
+    The dashboards now compute inline and read the model-level cache, so this
+    trains the three models they depend on plus the executive summary. It is
+    queued ahead of the full daily pass so those surfaces become usable first.
     """
     if frappe.flags.in_test:
         return
 
-    from insights.api.ml import async_compute
-
     _enqueue_once(
-        "insights.ml.scheduler.enqueue_dashboard_warm_jobs",
+        "insights.ml.scheduler.warm_dashboard_caches",
         job_id="insights_warm_dashboard_caches",
-        queue=async_compute.resolve_queue(),
-        timeout=async_compute.resolve_timeout(),
+        queue="long",
+        timeout=1500,
     )
 
 
