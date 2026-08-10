@@ -162,6 +162,13 @@ _LAZY_MAP = {
     "download_executive_report": ("insights.api.ml.executive", "download_executive_report"),
     "test_executive_intelligence_data": ("insights.api.ml.executive", "test_executive_intelligence_data"),
     "preview_executive_report_data": ("insights.api.ml.executive", "preview_executive_report_data"),
+    # ------------------------------------------------------------------ model ops
+    # Backs the Machine Learning dashboard: health of every model the app
+    # trains, plus the two models with no domain dashboard of their own.
+    "model_health": ("insights.api.ml.model_ops", "model_health"),
+    "retrain": ("insights.api.ml.model_ops", "retrain"),
+    "lead_conversion": ("insights.api.ml.model_ops", "lead_conversion"),
+    "gl_anomalies": ("insights.api.ml.model_ops", "gl_anomalies"),
     # `predictive` removed 2026-08-10: AdvancedPredictiveAnalyticsEngine trained on
     # simulated history, all 8 endpoints had already been reduced to
     # {"status": "not_implemented"} stubs, and nothing in the frontend called any

@@ -170,6 +170,10 @@ scheduler_events = {
         "insights.reports.executive_reports.generate_daily_executive_report",
         # India Tax Intelligence - Daily refresh
         "insights.ml.scheduler.train_india_tax_intelligence",
+        # Lead → win classifier and the ledger anomaly scan. Both fit a model,
+        # so both belong on a worker and nowhere else.
+        "insights.ml.scheduler.train_lead_conversion",
+        "insights.ml.scheduler.train_gl_anomaly",
     ],
     "hourly": [
         "insights.api.data_store.update_failed_sync_status",

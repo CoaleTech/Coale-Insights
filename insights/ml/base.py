@@ -42,9 +42,25 @@ class BaseMLModel(ABC):
         """Make predictions"""
         pass
     
-    def get_training_data(self, query: str) -> pd.DataFrame:
-        """Execute SQL and return as DataFrame"""
-        result = frappe.db.sql(query, as_dict=True)
+    def get_training_data(self, query: str, params=None) -> pd.DataFrame:
+        """Execute SQL and return as DataFrame.
+
+        `params` binds values the Frappe way. Without it callers reach for
+        f-strings or `%`-formatting to get a value into the query, which is the
+        `frappe-sql-format-injection` shape the standards forbid.
+
+        `frappe.db.sql` defaults `values` to the `EmptyQueryValues` sentinel, not
+        to None. Passing None explicitly is not the same thing: it switches
+        parameter interpolation on, and every existing query containing a literal
+        `%` -- `DATE_FORMAT(posting_date, '%Y-%m')` appears throughout this
+        layer -- then fails with "not all arguments converted during bytes
+        formatting". So omit the argument entirely when there is nothing to bind.
+        """
+        result = (
+            frappe.db.sql(query, params, as_dict=True)
+            if params is not None
+            else frappe.db.sql(query, as_dict=True)
+        )
         # Convert frappe._dict objects to regular dicts for pandas compatibility
         if result:
             result = [dict(row) for row in result]

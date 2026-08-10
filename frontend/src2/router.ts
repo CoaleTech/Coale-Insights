@@ -78,6 +78,11 @@ const routes = [
 		component: () => import('./dashboard/RiskIntelligence.vue'),
 	},
 	{
+		path: '/machine-learning',
+		name: 'MachineLearning',
+		component: () => import('./dashboard/MachineLearning.vue'),
+	},
+	{
 		path: '/tax-intelligence',
 		name: 'TaxIntelligence',
 		component: () => import('./intelligence/TaxIntelligence.vue'),

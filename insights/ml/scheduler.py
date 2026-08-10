@@ -554,3 +554,31 @@ def train_india_tax_intelligence():
     except Exception as e:
         frappe.log_error(f"Scheduled India tax intelligence failed: {str(e)}", "ML Scheduler")
         return {"status": "error", "message": str(e)}
+
+
+def train_lead_conversion():
+    """Daily: fit the lead → win classifier on closed leads and score open ones."""
+    try:
+        from insights.ml.lead_conversion import LeadConversion
+
+        frappe.logger().info("Starting scheduled lead conversion training")
+        result = LeadConversion().train()
+        frappe.logger().info(f"Lead conversion training: {result.get('status')}")
+        return result
+    except Exception as e:
+        frappe.log_error(f"Scheduled lead conversion training failed: {str(e)}", "ML Scheduler")
+        return {"status": "error", "message": str(e)}
+
+
+def train_gl_anomaly():
+    """Daily: rank ledger entries by how unlike the rest of the ledger they are."""
+    try:
+        from insights.ml.gl_anomaly import GLAnomalyDetection
+
+        frappe.logger().info("Starting scheduled ledger anomaly scan")
+        result = GLAnomalyDetection().train()
+        frappe.logger().info(f"Ledger anomaly scan: {result.get('status')}")
+        return result
+    except Exception as e:
+        frappe.log_error(f"Scheduled ledger anomaly scan failed: {str(e)}", "ML Scheduler")
+        return {"status": "error", "message": str(e)}
