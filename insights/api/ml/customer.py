@@ -61,20 +61,37 @@ def get_segment_summary() -> Dict[str, Any]:
         return error(str(e))
 
 
-@frappe.whitelist()
-def customer_intelligence(refresh: bool = False, async_mode: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive customer intelligence, computed inline on this request.
-
-    The heaviest dashboard payload in the app (~1.55 MB, 1,243 x 27-field rows),
-    now built in the gunicorn web worker rather than a forked background job.
-    `async_mode` is accepted for call-signature compatibility and ignored.
-    """
+def _compute_customer_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
+    """Worker-side computation; produces a multi-megabyte payload."""
     try:
-        frappe.has_permission("Customer", "read", throw=True)
         from insights.ml.customer_intelligence import CustomerIntelligence
 
         model = CustomerIntelligence(date_filter=date_filter)
+        # allow_train: this runs on a worker, which is exactly where a cold-cache
+        # training pass belongs.
         return success(model.train() if refresh else model.predict(allow_train=True))
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "customer_intelligence error")
+        return error(str(e))
+
+
+@frappe.whitelist()
+def customer_intelligence(refresh: bool = False, async_mode: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
+    """Get comprehensive customer intelligence, computing on a worker when cold."""
+    try:
+        frappe.has_permission("Customer", "read", throw=True)
+        from insights.api.ml import async_compute
+
+        key = f"customer_intelligence:{date_filter}"
+        if refresh:
+            async_compute.invalidate(key)
+
+        return async_compute.serve(
+            key=key,
+            method="insights.api.ml.customer._compute_customer_intelligence",
+            kwargs={"refresh": refresh, "date_filter": date_filter},
+            permission=("Customer", "read"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

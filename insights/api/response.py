@@ -1,6 +1,6 @@
 import frappe
 from datetime import datetime
-from insights.ml.base import sanitize_for_json
+from insights.api.serialization import sanitize_for_json
 
 
 def success(data=None, message=None):

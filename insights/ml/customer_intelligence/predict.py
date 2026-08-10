@@ -14,15 +14,17 @@ from frappe import _
 def predict(intelligence, customer: Optional[str] = None, allow_train: bool = False) -> Dict[str, Any]:
     """Get cached predictions.
 
-    `allow_train` is off by default so an incidental caller cannot trigger a full
-    training pass. The dashboard endpoint
-    (`insights.api.ml.customer.customer_intelligence`) opts in, because it computes
-    inline and must produce a payload.
+    `allow_train` is off by default so a cache miss cannot turn a web request into
+    a full training pass. Worker-side callers
+    (`insights.api.ml.customer._compute_customer_intelligence`) opt in.
     """
     cached = intelligence.get_cached_results("customer_intelligence")
     if not cached:
         if not allow_train:
-            return {
+            # Redis is wiped by every deploy and by `bench clear-cache`, which
+            # leaves usable numbers on disk and an empty cache. Serve those
+            # rather than a placeholder.
+            return intelligence.get_last_good_results("customer_intelligence") or {
                 "status": "warming",
                 "message": _("Customer intelligence is being computed. Refresh shortly."),
             }

@@ -78,15 +78,18 @@ class ProcurementIntelligence(BaseMLModel):
         """Return cached results.
 
         `allow_train` is off by default so an incidental caller cannot trigger a
-        full training pass. The dashboard endpoint
-        (`insights.api.ml.procurement.procurement_intelligence`) opts in, because
-        it computes inline and must produce a payload.
+        full training pass. `insights.api.ml.procurement._compute_procurement_intelligence`
+        opts in, because it runs on a worker and must produce a payload.
+
+        Without it, prefer the last payload that computed successfully over a
+        placeholder: redis is wiped by every deploy and by `bench clear-cache`,
+        which leaves perfectly usable numbers on disk and an empty cache.
         """
         cached = self.get_cached_results("procurement_intelligence")
         if cached:
             return cached
         if not allow_train:
-            return {
+            return self.get_last_good_results("procurement_intelligence") or {
                 "status": "warming",
                 "message": _("Procurement intelligence is being computed. Refresh shortly."),
             }

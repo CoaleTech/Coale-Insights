@@ -4,6 +4,114 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-10
+
+### Fixed — "gateway error" on Revenue & Customer and Procurement Intelligence
+
+Both boards failed on Frappe Cloud with
+`insights.api.ml.sales_intelligence did not complete — the server returned a gateway
+error instead of a response`, while `master` and `restaurant` served the same site.
+
+**That message is a mislabel.** `frappe-ui`'s `call()` reads `error.exc_type` off the
+parsed body (`node_modules/frappe-ui/src/utils/call.js:54`); when `JSON.parse` fails the
+body was never JSON, so `error` is `undefined` and it throws `TypeError`.
+`normalizeTransportError` maps *any* such `TypeError` to "gateway error". The condition it
+actually proves is narrower: **a non-2xx response with a non-JSON body**. Two mechanisms
+produced one, and both were live.
+
+#### 1. The request held the connection for a full training pass
+
+The 2026-08-08e revert removed `async_compute.serve()` from every dashboard endpoint and
+stated the risk it was accepting. That risk is what shipped: a cold compute outlives the
+gateway read timeout, nginx answers 502 with an HTML page, and because the compute never
+finished the cache was never written — so the next load is cold too. Self-sustaining.
+
+The revert was justified by a macOS-only finding (2026-08-08b/c: Apple Accelerate is not
+fork-safe, so rq's forked work-horse took SIGSEGV). Frappe Cloud is Linux on OpenBLAS. The
+revert traded a development-machine crash for a production outage.
+
+`serve()` is back on `sales_intelligence`, `customer_intelligence`,
+`procurement_intelligence` and `get_executive_summary`, and now degrades instead of
+failing:
+
+| condition | behaviour |
+|---|---|
+| payload cached | returned directly |
+| queue has a live worker | enqueue, answer `{status: "queued"}`, client polls |
+| no worker consuming the queue | compute inline in this process |
+| `enqueue` left no job | compute inline in this process |
+| work-horse died `MAX_ATTEMPTS` times | compute inline in this process |
+
+The last row replaces a terminal error the operator could not act on. A forked child dying
+does not mean the computation cannot run: 2026-08-08c established that the web process
+forks once at startup, before numpy exists, and survives exactly what the work-horse
+cannot. Every path now answers JSON; none can poll into the void for five minutes.
+
+Cache warming follows the endpoints back to the payload keys — one background job per key,
+so a crash in one cannot deny the rest their cache.
+
+#### 2. A numpy scalar in the response body
+
+Reproduced live on `get_executive_summary`:
+`TypeError: Type is not JSON serializable: numpy.float64` raised inside
+`frappe/utils/response.py:155`, past every `except` in the endpoint. Frappe's
+`handle_exception` → `report_error` re-encodes the same `frappe.local.response`, fails
+again, and the request escapes the WSGI app — gunicorn answers with a bare HTML 500. No
+Error Log entry, no traceback, identical browser symptom.
+
+`sanitize_for_json` now also folds `±Infinity` to 0 (pandas produces infinity, not NaN, on
+division by zero, so ratio and growth-rate fields hit this routinely), and
+`async_compute` sanitises at the single chokepoint every dashboard payload passes through,
+so a compute function that forgets makes a rendering bug rather than a 500.
+
+`numpy.float64` is a genuine subclass of `float`, so the JSON-safe fast path matches by
+exact type; an `isinstance` check there would hand orjson a numpy scalar unchanged.
+
+#### 3. 143 MB of pandas in every web worker
+
+`insights.api.response` imported `sanitize_for_json` from `insights.ml.base`, which
+imports pandas and numpy at module level. Since every API module imports `response`, the
+first call to *any* Insights endpoint pulled the whole ML stack into that gunicorn worker —
+measured at **143 MB resident**, for a function that needs neither. On a memory-capped host
+that is a killed worker, and a killed worker is answered by the gateway with an HTML 502.
+
+The sanitiser moved to `insights/api/serialization.py` with no ML imports; it detects numpy
+scalars via `sys.modules` (a numpy scalar cannot exist unless numpy is already loaded, so
+the check is exact). `insights.ml.base` re-exports it, so every existing importer is
+unchanged. Web-worker import path: **143 MB → 2 MB**.
+
+#### Also
+
+`predict(allow_train=False)` now serves the durable on-disk snapshot before falling back to
+a `warming` placeholder. Redis is wiped by every deploy and by `bench clear-cache`, which
+left usable numbers on disk and a blank dashboard. Worker-side callers still train.
+
+#### Verified
+
+Through `frappe.app.application` with a real rq worker and cold caches:
+
+| endpoint | first response | settles | payload |
+|---|---|---|---|
+| `sales_intelligence` | 200 JSON 0.03s | `success` | 51,669 B |
+| `procurement_intelligence` | 200 JSON 0.03s | `success` | 49,417 B |
+| `customer_intelligence` | 200 JSON 0.01s | `success` | 1,475,103 B |
+| `get_executive_summary` | 200 JSON 0.02s | `success` | 4,675 B |
+| `get_business_health_score` | 200 JSON 0.01s | `success` | 274 B |
+
+Fallbacks, driven through the same stack: no worker → inline `success` in 5.48s; crash
+ceiling → inline `success` in 2.97s; healthy queue → `queued` in 0.05s. No request holds a
+web worker for longer than a payload read.
+
+Test suite unchanged against a stashed baseline: 116 run, 6 failures, 79 errors both
+before and after — all pre-existing, a mandatory `custom_lut_no` custom field on Company
+blocking ERPNext test-record creation on this bench.
+
+#### Known, unchanged
+
+`sales_intelligence` writes its model cache with a 6h expiry while `get_cached_results`
+reads a 24h window, so that cache is cold for roughly 18 hours a day. Harmless now that a
+worker absorbs the miss, and left alone in case intraday freshness was the intent.
+
 ## [Unreleased] — 2026-08-08e
 
 ### Changed — dashboards compute inline again, in the gunicorn web worker

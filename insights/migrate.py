@@ -41,24 +41,24 @@ def _enqueue_once(method: str, job_id: str, queue: str, timeout: int):
 
 
 def enqueue_dashboard_warm():
-    """Train the dashboard models after install or migrate.
+    """Populate the dashboard payload caches after install or migrate.
 
     The direct equivalent of
     `bench --site <site> execute insights.ml.scheduler.warm_dashboard_caches`,
-    run on a worker so a migration never blocks on it.
-
-    The dashboards now compute inline and read the model-level cache, so this
-    trains the three models they depend on plus the executive summary. It is
-    queued ahead of the full daily pass so those surfaces become usable first.
+    run on a worker so a migration never blocks on it. Fills the
+    `insights_async:result:*` keys the dashboards actually read, training any
+    model whose own cache is cold on the way through.
     """
     if frappe.flags.in_test:
         return
 
+    from insights.api.ml import async_compute
+
     _enqueue_once(
-        "insights.ml.scheduler.warm_dashboard_caches",
+        "insights.ml.scheduler.enqueue_dashboard_warm_jobs",
         job_id="insights_warm_dashboard_caches",
-        queue="long",
-        timeout=1500,
+        queue=async_compute.resolve_queue(),
+        timeout=async_compute.resolve_timeout(),
     )
 
 

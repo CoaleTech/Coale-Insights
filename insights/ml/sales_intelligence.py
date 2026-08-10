@@ -912,20 +912,23 @@ class SalesIntelligence(BaseMLModel):
         """Get cached analysis.
 
         `allow_train` is off by default so an incidental caller cannot trigger a
-        full training pass. The dashboard endpoint
-        (`insights.api.ml.sales.sales_intelligence`) opts in, because it computes
-        inline and must produce a payload; the slice endpoints in the same module
-        do not, and get a `warming` envelope until the dashboard or the scheduler
-        has populated the cache.
+        full training pass. `insights.api.ml.sales._compute_sales_intelligence`
+        opts in, because it runs on a worker and must produce a payload; the slice
+        endpoints in the same module do not.
+
+        Without it, prefer the last payload that computed successfully over a
+        placeholder: redis is wiped by every deploy and by `bench clear-cache`,
+        which leaves perfectly usable numbers on disk and an empty cache.
         """
         cached = self.get_cached_results("sales_intelligence")
         if not cached:
             if not allow_train:
-                return {
+                cached = self.get_last_good_results("sales_intelligence") or {
                     "status": "warming",
                     "message": _("Sales intelligence is being computed. Refresh shortly."),
                 }
-            cached = self.train()
+            else:
+                cached = self.train()
 
         if metric and metric in cached:
             return {"status": "success", metric: cached[metric]}

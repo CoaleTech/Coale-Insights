@@ -112,7 +112,6 @@ def resolve_timeout() -> int:
 		return int(get_queues_timeout().get(resolve_queue()) or 1500)
 	except Exception:
 		return 1500
-ERROR_TTL = 300
 
 
 def _cache():
@@ -143,6 +142,60 @@ def clear_attempts(key: str):
 	_cache().delete_value(ATTEMPT_KEY.format(key=key))
 
 
+def _queue_can_run_jobs() -> bool:
+	"""Is there a live rq worker consuming our queue?
+
+	Unknown counts as yes: if rq itself is unreachable we would rather hand the
+	job to the queue and let `_diagnose` report the truth on the first poll than
+	tie up a web worker on a guess.
+	"""
+	workers = worker_health().get("workers")
+	return workers is None or workers > 0
+
+
+def _compute_inline(key: str, method: str, kwargs: Optional[Dict[str, Any]], ttl: int) -> Any:
+	"""Last resort: compute in this process and cache the result.
+
+	Only reached when the queue demonstrably cannot produce the payload — no
+	worker is consuming it, or the work-horse has died `MAX_ATTEMPTS` times
+	without ever raising a Python error. Both leave the caller with nothing, and
+	a slow answer beats none.
+
+	This is the pre-async execution model, and it carries its original risk: the
+	connection is held for the whole computation, so a cold cache can outlive a
+	gateway read timeout and reach the browser as a 502. That is why it is the
+	fallback and not the default.
+	"""
+	try:
+		result = _json_safe(frappe.get_attr(method)(**(kwargs or {})))
+	except Exception as e:
+		frappe.log_error(frappe.get_traceback(), f"insights inline compute: {key}")
+		return {"status": "error", "message": str(e)[:500]}
+
+	_cache().set_value(RESULT_KEY.format(key=key), result, expires_in_sec=ttl)
+	clear_attempts(key)
+	return result
+
+
+def _json_safe(result):
+	"""Strip numpy scalars and non-finite floats from a payload before it is cached.
+
+	Every dashboard payload passes through here, so this is the one place that can
+	guarantee the property. It matters because the failure is invisible to the
+	endpoint: orjson raises inside `frappe.utils.response.as_json`, after the
+	endpoint returned, and Frappe's error handler then re-encodes the same
+	payload and fails again — so the request escapes the WSGI app and gunicorn
+	answers with a bare HTML 500. The browser reports that as a gateway error
+	with no server-side traceback to find.
+
+	The compute functions already sanitise; this makes a future one that forgets
+	a rendering bug rather than a 500.
+	"""
+	from insights.api.serialization import sanitize_for_json
+
+	return sanitize_for_json(result)
+
+
 def serve(
 	key: str,
 	method: str,
@@ -150,10 +203,17 @@ def serve(
 	permission: Optional[Tuple[str, str]] = None,
 	ttl: int = DEFAULT_TTL,
 ) -> Dict[str, Any]:
-	"""Return the cached payload, or queue the work and report `queued`.
+	"""Return the cached payload, queue the work, or — only when the queue cannot
+	run it — compute here.
 
 	`method` is a dotted path called on a worker; whatever it returns is cached
 	verbatim, so it should produce the same envelope the endpoint used to return.
+
+	The queue is the default because a training pass held inside a gunicorn worker
+	outlives a gateway read timeout and reaches the browser as a 502 with an HTML
+	body — which frappe-ui reports as "the server returned a gateway error". The
+	two inline fallbacks below exist so that a host whose queue cannot deliver
+	still gets an answer instead of polling into the void.
 	"""
 	cached = _cache().get_value(RESULT_KEY.format(key=key))
 	if cached is not None:
@@ -170,19 +230,24 @@ def serve(
 	if deaths >= MAX_ATTEMPTS:
 		# The work-horse keeps dying without ever reaching `run`'s handler -- a
 		# native crash (SIGSEGV/OOM) rather than a Python exception, so nothing
-		# was cached and every retry queues another one. Park a terminal error so
-		# the page stops thrashing the worker pool.
-		terminal = {
-			"status": "error",
-			"message": _(
-				"This dashboard's computation crashed the background worker {0} times "
-				"(no Python error -- the process was killed). It will not be retried for "
-				"a few minutes. Check the worker log for a segfault or out-of-memory kill."
-			).format(deaths),
-		}
-		_cache().set_value(RESULT_KEY.format(key=key), terminal, expires_in_sec=ERROR_TTL)
-		_cache().delete_value(STATE_KEY.format(key=key))
-		return terminal
+		# was cached and every retry queues another one.
+		#
+		# A forked child dying does not mean this computation cannot run: the web
+		# process forks once at startup, before numpy exists, so its native stack
+		# initialises cleanly, while rq forks per job and inherits BLAS thread
+		# pools that are not fork-safe on every host. Compute here rather than
+		# parking a terminal error the operator can do nothing about.
+		frappe.log_error(
+			f"{key}: background work-horse died {deaths} times without a Python error; "
+			"computing inline instead. Check the worker log for a segfault or OOM kill.",
+			"insights async compute",
+		)
+		return _compute_inline(key, method, kwargs, ttl)
+
+	if not _queue_can_run_jobs():
+		# No worker is consuming the queue. Enqueuing would leave the client
+		# polling a job nothing will ever pick up for the full five minutes.
+		return _compute_inline(key, method, kwargs, ttl)
 
 	if _cache().get_value(STATE_KEY.format(key=key)) != "running":
 		# A job wedged in STARTED/QUEUED makes `deduplicate=True` return without
@@ -207,16 +272,14 @@ def serve(
 
 		# `frappe.enqueue` returns None when deduplication skipped it. If no job
 		# exists afterwards, nothing is going to compute this key and the client
-		# would poll into the void for the full 5 minutes. Say so instead.
+		# would poll into the void for the full 5 minutes. Compute here instead.
 		if _job_status(key) is None:
 			_cache().delete_value(STATE_KEY.format(key=key))
-			return {
-				"status": "error",
-				"message": _(
-					"Could not queue the computation for this dashboard. "
-					"Check that background workers are running and the queue is reachable."
-				),
-			}
+			frappe.log_error(
+				f"{key}: enqueue left no job on '{resolve_queue()}'; computing inline instead.",
+				"insights async compute",
+			)
+			return _compute_inline(key, method, kwargs, ttl)
 
 	return {"status": "queued", "key": key}
 
@@ -347,7 +410,7 @@ def run(key: str, compute_method: str, compute_kwargs: Dict[str, Any], ttl: int)
 	except Exception:
 		pass
 	try:
-		result = frappe.get_attr(compute_method)(**(compute_kwargs or {}))
+		result = _json_safe(frappe.get_attr(compute_method)(**(compute_kwargs or {})))
 		_cache().set_value(RESULT_KEY.format(key=key), result, expires_in_sec=ttl)
 		# Reached the end without the process being killed: the key is healthy, so
 		# the crash counter must not carry over into the next cold cache.
@@ -672,8 +735,8 @@ else:
 				"fork+numpy is healthy here, so the crash is not generic fork-unsafety. "
 				"Suspect the specific computation: run it inline with "
 				"`bench --site <site> execute "
-				"insights.api.ml.sales.sales_intelligence` and see whether it segfaults "
-				"outside a background job."
+				"insights.api.ml.sales._compute_sales_intelligence` and see whether it "
+				"segfaults outside a work-horse."
 			)
 		else:
 			report["fork_probe"] = f"inconclusive: {verdict or out.stderr[-300:]}"

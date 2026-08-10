@@ -9,7 +9,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
-from insights.ml.base import sanitize_for_json
+from insights.api.serialization import sanitize_for_json
 
 
 @frappe.whitelist()
@@ -27,21 +27,48 @@ def get_procurement_insights() -> Dict[str, Any]:
         return error(str(e))
 
 
-@frappe.whitelist()
-def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
-    """Get comprehensive procurement intelligence, computed inline on this request.
+def _compute_procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
+    """Worker-side computation.
 
-    Returns the flat `{status, spend_overview, supplier_performance, ...}` envelope
-    the frontend decoder expects. Runs in the gunicorn web worker; a cold cache can
-    outlive a gateway read timeout and reach the browser as a 502.
+    Returns the same flat `{status, spend_overview, supplier_performance, ...}`
+    envelope the endpoint always returned, so the cached payload and the live one
+    are indistinguishable to the frontend decoder.
     """
     try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
 
         model = ProcurementIntelligence()
+        # allow_train: worker-side, so paying the training cost here is correct.
         result = model.train() if refresh else model.predict(allow_train=True)
         return sanitize_for_json(result)
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "procurement_intelligence error")
+        return {"status": "error", "message": str(e)}
+
+
+@frappe.whitelist()
+def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
+    """Get comprehensive procurement intelligence, computing on a worker when cold.
+
+    Previously ran `model.predict()` inline. On a cold cache that outlived the
+    gateway timeout and reached the browser as a 502, which the dashboard reported
+    as "The server did not return a response (gateway error)". It now queues like
+    every other heavy dashboard.
+    """
+    try:
+        frappe.has_permission("Purchase Order", "read", throw=True)
+        from insights.api.ml import async_compute
+
+        key = "procurement_intelligence"
+        if refresh:
+            async_compute.invalidate(key)
+
+        return async_compute.serve(
+            key=key,
+            method="insights.api.ml.procurement._compute_procurement_intelligence",
+            kwargs={"refresh": refresh},
+            permission=("Purchase Order", "read"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

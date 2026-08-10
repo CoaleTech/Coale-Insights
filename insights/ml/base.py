@@ -8,36 +8,20 @@ Provides common utilities and base classes for ML models
 
 import frappe
 import json
+import os
+import re
+import tempfile
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Tuple
 from abc import ABC, abstractmethod
 
 
-def sanitize_for_json(obj):
-    """
-    Recursively convert numpy/pandas scalars to JSON-serializable Python types.
-
-    Frappe uses orjson for response serialization, which does not handle
-    numpy scalar types (numpy.float64, numpy.int64, etc.) without the
-    OPT_NUMPY flag.  Applying this function to any dict/list before
-    returning it from an API endpoint prevents the resulting
-    ``TypeError: Type is not JSON serializable: numpy.float64`` 500 error.
-    """
-    if isinstance(obj, dict):
-        return {k: sanitize_for_json(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [sanitize_for_json(v) for v in obj]
-    if isinstance(obj, np.generic):
-        # numpy scalars: float64, int64, bool_, etc.
-        val = obj.item()
-        if isinstance(val, float) and (val != val):  # NaN
-            return 0
-        return val
-    if isinstance(obj, float) and (obj != obj or pd.isna(obj)):  # Python NaN
-        return 0
-    return obj
+# Kept importable from here: every ML module already reaches for
+# `insights.ml.base.sanitize_for_json`. The implementation moved to
+# `insights.api.serialization` so `insights.api.response` can use it without
+# dragging pandas and numpy into every web worker.
+from insights.api.serialization import sanitize_for_json
 
 
 class BaseMLModel(ABC):
@@ -102,6 +86,13 @@ class BaseMLModel(ABC):
             # Don't fail training if logging fails
             frappe.logger().warning(f"Failed to log ML training: {str(e)}")
     
+    def _snapshot_path(self, cache_key: str) -> str:
+        """Durable on-disk location for the last good payload of `cache_key`."""
+        directory = frappe.get_site_path("private", "files", "insights_ml_snapshots")
+        os.makedirs(directory, exist_ok=True)
+        safe_name = re.sub(r"\W+", "_", cache_key)
+        return os.path.join(directory, safe_name + ".json")
+
     def get_cached_results(self, cache_key: str, max_age_hours: int = 24) -> Optional[Dict]:
         """Get cached results if still valid"""
         cached = frappe.cache.get_value(cache_key)
@@ -112,17 +103,64 @@ class BaseMLModel(ABC):
                 if age.total_seconds() < max_age_hours * 3600:
                     return cached.get("data")
         return None
-    
+
+    def get_last_good_results(self, cache_key: str) -> Optional[Dict]:
+        """The last payload that computed successfully, however old.
+
+        Redis holds the fresh copy, but it is wiped by `bench clear-cache`, by
+        `bench migrate`, and by any Redis restart, and it expires regardless.
+        Without this, every one of those events downgrades a dashboard to a
+        "warming" placeholder until the next scheduler tick, even though the
+        last computed numbers are still on disk and still useful.
+
+        Stale numbers with a visible `stale_since` beat no dashboard at all.
+        """
+        try:
+            path = self._snapshot_path(cache_key)
+            if not os.path.exists(path):
+                return None
+            with open(path, encoding="utf-8") as f:
+                snapshot = json.load(f)
+        except Exception as e:
+            frappe.logger().warning(f"Could not read ML snapshot for {cache_key}: {e}")
+            return None
+
+        data = snapshot.get("data")
+        if isinstance(data, dict) and snapshot.get("cached_at"):
+            data = dict(data)
+            data["stale_since"] = snapshot["cached_at"]
+        return data
+
     def cache_results(self, cache_key: str, data: Dict, expires_in_hours: int = 24):
         """Cache results (sanitizes numpy/pandas scalars before storing)"""
-        frappe.cache.set_value(
-            cache_key,
-            {
-                "data": sanitize_for_json(data),
-                "cached_at": datetime.now().isoformat()
-            },
-            expires_in_sec=expires_in_hours * 3600
-        )
+        payload = {
+            "data": sanitize_for_json(data),
+            "cached_at": datetime.now().isoformat(),
+        }
+        frappe.cache.set_value(cache_key, payload, expires_in_sec=expires_in_hours * 3600)
+        self._write_snapshot(cache_key, payload)
+
+    def _write_snapshot(self, cache_key: str, payload: Dict):
+        """Persist the last good payload, atomically.
+
+        Written via a temp file in the same directory then renamed, so a reader
+        never sees a half-written file and a crash mid-write cannot destroy the
+        previous good copy. Never raises: losing the snapshot must not fail a
+        training run that otherwise succeeded.
+        """
+        try:
+            path = self._snapshot_path(cache_key)
+            fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(payload, f, default=str)
+                os.replace(tmp, path)
+            except Exception:
+                if os.path.exists(tmp):
+                    os.unlink(tmp)
+                raise
+        except Exception as e:
+            frappe.logger().warning(f"Could not write ML snapshot for {cache_key}: {e}")
 
 
 def ensure_dependencies():

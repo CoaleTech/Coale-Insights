@@ -45,25 +45,34 @@ def get_forecast_chart_data() -> Dict[str, Any]:
         return error(str(e))
 
 
+def _compute_sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
+    """Worker-side computation; too slow for the request path on a cold cache."""
+    try:
+        from insights.ml.sales_intelligence import SalesIntelligence
+        model = SalesIntelligence(date_filter=date_filter)
+        # allow_train: worker-side, so paying the training cost here is correct.
+        return success(model.train() if refresh else model.predict(allow_train=True))
+    except Exception as e:
+        return error(str(e))
+
+
 @frappe.whitelist()
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive sales intelligence, computed inline on this request.
-
-    Runs in the gunicorn web worker rather than a background job. rq forks a
-    work-horse per job and this app's numpy/pandas stack segfaults in a forked
-    child on some hosts, which the pre-async branches never hit because they
-    compute here. The cache read is kept (master retrains unconditionally), so
-    only a cold 24h window pays the full cost.
-
-    The caller holds the connection for the duration: a cold compute can exceed
-    a gateway's read timeout and surface as a 502.
-    """
+    """Get comprehensive sales intelligence, computing on a worker when cold."""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import SalesIntelligence
+        from insights.api.ml import async_compute
 
-        model = SalesIntelligence(date_filter=date_filter)
-        return success(model.train() if refresh else model.predict(allow_train=True))
+        key = f"sales_intelligence:{date_filter}"
+        if refresh:
+            async_compute.invalidate(key)
+
+        return async_compute.serve(
+            key=key,
+            method="insights.api.ml.sales._compute_sales_intelligence",
+            kwargs={"refresh": refresh, "date_filter": date_filter},
+            permission=("Sales Invoice", "read"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:
