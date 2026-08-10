@@ -192,12 +192,17 @@ def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_historical_and_forecast_by_dimension(dimension: str = 'product_group') -> Dict[str, Any]:
-    """Get historical and forecast data by dimension"""
+    """Monthly actuals plus a short projection, by product group and territory.
+
+    `dimension` is accepted for backward compatibility and ignored: the Revenue
+    dashboard's only caller passes 'both' and renders both tables from one
+    response, so splitting the query would just double the round trips.
+    """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_forecasting import get_grouped_forecast
-        result = get_grouped_forecast(group_by=dimension)
-        return success(result)
+        from insights.ml.sales_forecasting import get_dimensional_history_and_forecast
+
+        return success(get_dimensional_history_and_forecast())
     except frappe.PermissionError:
         raise
     except Exception as e:

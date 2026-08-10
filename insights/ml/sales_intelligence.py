@@ -776,10 +776,20 @@ class SalesIntelligence(BaseMLModel):
         }
 
         try:
-            # Sales Forecast (90 days)
-            sf_cached = self.get_cached_results("sales_forecast")
+            # Sales Forecast (90 days).
+            #
+            # `get_cached_results` reads Redis only. Redis is wiped by
+            # `bench migrate`, `bench clear-cache` and any Redis restart, so
+            # after a deploy this returned None for a model that is trained and
+            # whose payload is sitting on disk -- and the Revenue "Forecasts"
+            # tab rendered "No sales forecast available" with a Train button,
+            # inviting a retrain that was not needed. Fall back to the last good
+            # snapshot, which is what the model health page already reports from.
+            sf_cached = self.get_cached_results("sales_forecast") or self.get_last_good_results(
+                "sales_forecast"
+            )
 
-            # Auto-train if refresh requested and no cache
+            # Auto-train if refresh requested and neither cache nor snapshot has it
             if not sf_cached and refresh:
                 from insights.ml.sales_forecasting import SalesForecasting
 
@@ -804,7 +814,10 @@ class SalesIntelligence(BaseMLModel):
         
         try:
             # Demand Forecast
-            df_cached = self.get_cached_results("demand_forecast")
+            # Same Redis-only trap as the sales forecast above.
+            df_cached = self.get_cached_results("demand_forecast") or self.get_last_good_results(
+                "demand_forecast"
+            )
 
             # Auto-train if refresh requested and no cache
             if not df_cached and refresh:

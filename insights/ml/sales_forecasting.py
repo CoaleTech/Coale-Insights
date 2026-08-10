@@ -10,6 +10,7 @@ import frappe
 from frappe import _
 import pandas as pd
 import numpy as np
+from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from insights.ml.base import BaseMLModel, get_date_range
@@ -506,3 +507,163 @@ def get_grouped_forecast(group_by: str = "item_group", periods: int = 30) -> Dic
     """Get forecast by group"""
     model = SalesForecasting()
     return model.train(periods=int(periods), group_by=group_by)
+
+
+# Periods the Revenue "Forecasts" tab shows: a year of actuals, a quarter ahead.
+_DIM_HISTORY_MONTHS = 12
+_DIM_FORECAST_MONTHS = 3
+# Below this many observed months a group has no trend worth extrapolating;
+# it still contributes its history, just no forecast rows.
+_DIM_MIN_MONTHS = 3
+
+
+def _rows(raw: List[Dict[str, Any]], alias: str) -> List[Dict[str, Any]]:
+    return [
+        {
+            "period": r["period"],
+            alias: r["bucket"],
+            "revenue": float(r["revenue"] or 0),
+            "transactions": int(r["transactions"] or 0),
+            "is_forecast": False,
+        }
+        for r in raw
+    ]
+
+
+def _monthly_by_territory(months: int) -> List[Dict[str, Any]]:
+    """Monthly revenue per territory.
+
+    Territory is a Sales Invoice header field, so the invoice total can be
+    summed directly -- one row per invoice, no fan-out.
+    """
+    raw = frappe.db.sql(
+        """
+        SELECT
+            DATE_FORMAT(si.posting_date, '%%Y-%%m') AS period,
+            COALESCE(NULLIF(si.territory, ''), 'Unknown') AS bucket,
+            SUM(si.base_grand_total) AS revenue,
+            COUNT(*) AS transactions
+        FROM `tabSales Invoice` si
+        WHERE si.docstatus = 1
+          AND si.is_return = 0
+          AND si.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(months)s MONTH)
+        GROUP BY period, bucket
+        ORDER BY period
+        """,
+        {"months": months},
+        as_dict=True,
+    )
+    return _rows(raw, "territory")
+
+
+def _monthly_by_item_group(months: int) -> List[Dict[str, Any]]:
+    """Monthly revenue per item group.
+
+    Item group lives on the invoice *lines*, so this has to join -- and that is
+    where the naive version was wrong. Summing `si.base_grand_total` across the
+    join counts the whole invoice once per line, which inflated this site's
+    product-group revenue by 42% (17.4M against a true 12.2M for 2025-08).
+
+    Summing `sii.base_net_amount` instead attributes correctly but reports net,
+    so the table would not tie to the grand-total figure in the header KPI.
+    Allocating the invoice total across its lines in proportion to their net
+    amount gives both: correct attribution that still sums to revenue. Invoices
+    with a zero net total (fully discounted) fall back to the line amount rather
+    than dividing by zero.
+    """
+    raw = frappe.db.sql(
+        """
+        SELECT
+            DATE_FORMAT(si.posting_date, '%%Y-%%m') AS period,
+            COALESCE(NULLIF(sii.item_group, ''), 'Unknown') AS bucket,
+            SUM(
+                CASE
+                    WHEN IFNULL(si.base_net_total, 0) = 0 THEN sii.base_net_amount
+                    ELSE sii.base_net_amount / si.base_net_total * si.base_grand_total
+                END
+            ) AS revenue,
+            COUNT(DISTINCT si.name) AS transactions
+        FROM `tabSales Invoice` si
+        JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
+        WHERE si.docstatus = 1
+          AND si.is_return = 0
+          AND si.posting_date >= DATE_SUB(CURDATE(), INTERVAL %(months)s MONTH)
+        GROUP BY period, bucket
+        ORDER BY period
+        """,
+        {"months": months},
+        as_dict=True,
+    )
+    return _rows(raw, "product_group")
+
+
+def _extend_with_forecast(history: List[Dict[str, Any]], alias: str) -> List[Dict[str, Any]]:
+    """Append forecast months per group, using its own recent average.
+
+    A weighted mean of the last three observed months, not a fitted model: these
+    per-group monthly series are 12 points long at best and frequently sparse,
+    which is below what Holt-Winters needs for a seasonal fit and well below
+    Prophet's floor. Reporting a mean as a mean is honest; dressing it up as a
+    model would repeat the failure the health page exists to catch.
+    """
+    if not history:
+        return []
+
+    by_group: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    for row in history:
+        by_group[row[alias]].append(row)
+
+    last_period = max(row["period"] for row in history)
+    year, month = (int(part) for part in last_period.split("-"))
+
+    future_periods = []
+    for step in range(1, _DIM_FORECAST_MONTHS + 1):
+        total = month + step
+        future_periods.append(f"{year + (total - 1) // 12}-{(total - 1) % 12 + 1:02d}")
+
+    projected = []
+    for group, rows in by_group.items():
+        rows.sort(key=lambda r: r["period"])
+        if len(rows) < _DIM_MIN_MONTHS:
+            continue
+        recent = rows[-3:]
+        # Weight the most recent month heaviest: 1, 2, 3 over the last three.
+        weights = list(range(1, len(recent) + 1))
+        divisor = sum(weights)
+        revenue = sum(r["revenue"] * w for r, w in zip(recent, weights)) / divisor
+        transactions = sum(r["transactions"] * w for r, w in zip(recent, weights)) / divisor
+        for period in future_periods:
+            projected.append(
+                {
+                    "period": period,
+                    alias: group,
+                    "revenue": round(revenue, 2),
+                    "transactions": int(round(transactions)),
+                    "is_forecast": True,
+                }
+            )
+
+    return history + projected
+
+
+def get_dimensional_history_and_forecast(months: int = _DIM_HISTORY_MONTHS) -> Dict[str, Any]:
+    """Monthly actuals plus a short projection, by product group and territory.
+
+    Shaped for the Revenue dashboard's "Forecasts" tab, which transposes these
+    into a period-by-group table. It reads `combined_product_group` and
+    `combined_territory`; the endpoint previously returned
+    `SalesForecasting.train(group_by=...)`, whose shape is
+    `{status, group_by, groups}` and carries neither key -- so the tab rendered
+    "No product group data available" while the request came back 200 with a
+    full payload. The two sides had never agreed.
+    """
+    product_group = _monthly_by_item_group(months)
+    territory = _monthly_by_territory(months)
+
+    return {
+        "status": "success",
+        "months": months,
+        "horizon_months": _DIM_FORECAST_MONTHS,
+        "combined_product_group": _extend_with_forecast(product_group, "product_group"),
+        "combined_territory": _extend_with_forecast(territory, "territory"),
+    }

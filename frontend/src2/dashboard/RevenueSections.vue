@@ -51,6 +51,59 @@ const dimensions = computed(() => (props.data.dimensions ?? {}) as Record<string
 const margins = computed(() => (props.data.margins ?? {}) as Record<string, unknown>)
 const fulfillment = computed(() => (props.data.fulfillment ?? {}) as Record<string, unknown>)
 const forecasts = computed(() => (props.data.forecasts ?? {}) as Record<string, unknown>)
+
+/**
+ * The sales forecast panel, read from the payload rather than assumed.
+ *
+ * The template hardcoded "Next 90 Days" and three 30-day buckets. The model
+ * returns 30 days, so two buckets always rendered zero and the heading was
+ * wrong by a factor of three.
+ */
+interface SalesForecastPayload {
+  forecast?: { yhat?: number }[]
+  forecast_summary?: { total_forecast?: number; days?: number }
+  method?: string
+  metrics?: Record<string, number>
+}
+const salesForecast = computed(
+  () => (forecasts.value.sales_forecast ?? null) as SalesForecastPayload | null,
+)
+const forecastDays = computed(
+  () => salesForecast.value?.forecast_summary?.days ?? salesForecast.value?.forecast?.length ?? 0,
+)
+/** 30-day buckets, but only the ones the horizon actually covers. */
+const forecastBuckets = computed(() => {
+  const rows = salesForecast.value?.forecast ?? []
+  const buckets: { label: string; amount: number }[] = []
+  for (let start = 0; start < rows.length; start += 30) {
+    const slice = rows.slice(start, start + 30)
+    buckets.push({
+      label: start === 0 ? `Next ${slice.length} days` : `Days ${start + 1}-${start + slice.length}`,
+      amount: slice.reduce((sum, row) => sum + (row.yhat || 0), 0),
+    })
+  }
+  return buckets
+})
+/**
+ * Forecast error, reported as error rather than as "accuracy".
+ *
+ * This read `100 - mape`. MAPE divides by actuals, so a single zero-sales day
+ * sends it past 100 and the panel showed a negative accuracy -- this site
+ * measures MAPE 162.7%, which rendered as "-62.7%". sMAPE is bounded and
+ * defined at zero, and is what the model health page reports, so the two
+ * surfaces now agree.
+ */
+const forecastError = computed(() => {
+  const metrics = salesForecast.value?.metrics
+  if (!metrics) return null
+  if (typeof metrics.smape === 'number') {
+    return { label: 'sMAPE', value: metrics.smape, days: metrics.horizon_days }
+  }
+  if (typeof metrics.mape === 'number') {
+    return { label: 'MAPE', value: metrics.mape, days: metrics.horizon_days }
+  }
+  return null
+})
 const fulfillmentSeverity = computed(() =>
   scoreSeverity((fulfillment.value.fulfillment_rate as number) || summary.value.fulfillment_rate, { good: 95, warn: 85 }),
 )
@@ -904,40 +957,35 @@ onMounted(() => {
     </div>
 
     <div class="mb-6">
-      <div v-if="forecasts.sales_forecast">
-        <SectionHeader variant="caption" title="Sales Forecast (Next 90 Days)" :level="3">
+      <div v-if="salesForecast">
+        <SectionHeader
+          variant="caption"
+          :title="`Sales Forecast (Next ${forecastDays} Days)`"
+          :level="3"
+        >
           <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <div class="mt-4 bg-surface-gray-1 rounded-lg p-4 mb-4 border border-outline-gray-1">
-          <p class="text-sm text-ink-gray-6">Predicted Total ({{ (forecasts.sales_forecast as Record<string, Record<string, unknown>>).forecast_summary?.days || 90 }} days)</p>
+          <p class="text-sm text-ink-gray-6">Predicted Total ({{ forecastDays }} days)</p>
           <p class="text-3xl font-bold text-ink-gray-9">
-            {{ money(((forecasts.sales_forecast as Record<string, Record<string, unknown>>).forecast_summary?.total_forecast as number) || 0) }}
+            {{ money(salesForecast.forecast_summary?.total_forecast || 0) }}
           </p>
-          <p class="text-sm text-ink-gray-6 mt-1">Method: {{ (forecasts.sales_forecast as Record<string, string>).method }}</p>
+          <p class="text-sm text-ink-gray-6 mt-1">Method: {{ salesForecast.method || '—' }}</p>
         </div>
-        <div class="text-sm text-ink-gray-6">
-          <p v-if="(forecasts.sales_forecast as Record<string, Record<string, number>>).metrics?.mape">
-            Accuracy (MAPE): {{ pct(100 - (((forecasts.sales_forecast as Record<string, Record<string, number>>).metrics.mape) || 0)) }}
-          </p>
-        </div>
-        <div v-if="((forecasts.sales_forecast as Record<string, unknown[]>).forecast)?.length" class="mt-4">
+        <p v-if="forecastError" class="text-sm text-ink-gray-6">
+          Forecast error ({{ forecastError.label }}): {{ pct(forecastError.value) }}
+          <span v-if="forecastError.days" class="text-ink-gray-5">
+            · measured on a {{ forecastError.days }}-day held-out tail
+          </span>
+        </p>
+        <div v-if="forecastBuckets.length" class="mt-4">
           <h4 class="text-sm font-medium text-ink-gray-7 mb-2">Monthly Breakdown</h4>
-          <div class="grid grid-cols-3 gap-2">
+          <div class="grid gap-2" :class="forecastBuckets.length > 1 ? 'grid-cols-3' : 'grid-cols-1'">
             <KpiCard
-              label="Next 30 Days"
-              :amount="((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(0, 30).reduce((a, b) => a + (b.yhat || 0), 0)) || 0"
-              :currency="props.currency"
-              variant="tile"
-            />
-            <KpiCard
-              label="Days 31-60"
-              :amount="((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(30, 60).reduce((a, b) => a + (b.yhat || 0), 0)) || 0"
-              :currency="props.currency"
-              variant="tile"
-            />
-            <KpiCard
-              label="Days 61-90"
-              :amount="((forecasts.sales_forecast as Record<string, Record<string, number>[]>).forecast?.slice(60, 90).reduce((a, b) => a + (b.yhat || 0), 0)) || 0"
+              v-for="bucket in forecastBuckets"
+              :key="bucket.label"
+              :label="bucket.label"
+              :amount="bucket.amount"
               :currency="props.currency"
               variant="tile"
             />
