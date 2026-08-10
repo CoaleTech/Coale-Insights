@@ -33,11 +33,17 @@ dependencies = [
     # Installing the app installs the ML layer. Whether a given model may *run*
     # is decided at runtime against the data (see PROPHET_MIN_DAYS in
     # sales_forecasting.py) -- never by leaving a library out.
-    "scikit-learn>=1.3.0",   # payment default, product similarity, tax trend
+    "scikit-learn>=1.3.0",   # payment default, lead conversion, GL anomalies
     "statsmodels>=0.14.0",   # Holt-Winters -- fits the history this site has
-    "prophet>=1.1.4",        # + cmdstanpy, matplotlib; gated on >=2yr history
-    "xgboost>=2.0.0",        # reported by insights.ml.base.ensure_dependencies
-    "lightgbm>=4.1.0",       # ditto; kept so the ML install is complete
+    "prophet>=1.1.4",        # + cmdstanpy; gated on >=2yr history at runtime
+    # xgboost and lightgbm are imported by nothing. They were kept because
+    # `insights.ml.base.ensure_dependencies` reported them, but that function
+    # now probes the five libraries the app actually uses and xgboost is not
+    # among them, so the justification no longer holds. 19 MB installed and
+    # build time on every deploy, for no behaviour. Delete these two lines when
+    # you want them gone; nothing imports them.
+    "xgboost>=2.0.0",
+    "lightgbm>=4.1.0",
 ]
 
 [project.optional-dependencies]
