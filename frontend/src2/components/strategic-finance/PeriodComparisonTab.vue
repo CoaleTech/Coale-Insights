@@ -165,7 +165,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, markRaw, inject, isRef, type Ref } from 'vue'
+import { ref, computed, markRaw, type Ref } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import {
   BarChart3,
   TrendingUp,
@@ -202,8 +203,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const _currency = inject<string | Ref<string>>('currency', '')
-const getCurrency = () => (isRef(_currency) ? _currency.value : _currency) || ''
+const currency = useCurrency('')
+const getCurrency = () => currency.value
 const currencyVal = computed(() => getCurrency())
 
 // Tabs model: numeric index; computed string key used downstream

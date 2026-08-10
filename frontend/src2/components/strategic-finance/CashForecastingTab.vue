@@ -195,7 +195,8 @@ import {
   TrendingDown,
   Target,
 } from 'lucide-vue-next'
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import CashForecastChart from '../charts/CashForecastChart.vue'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
@@ -222,7 +223,7 @@ const chartForecasts = computed(() => ({
   pessimistic: (props.data?.pessimistic_forecast ?? []) as unknown as ForecastPoint[],
 }))
 
-const _currency = inject('currency', 'KES')
+const _currency = useCurrency()
 const getCurrency = () =>
   (typeof _currency === 'string' ? _currency : (_currency as unknown as { value: string })?.value) || 'KES'
 const currency = getCurrency()

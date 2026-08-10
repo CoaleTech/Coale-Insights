@@ -261,7 +261,8 @@
 
 <script setup lang="ts">
 import { NO_VALUE } from '../../utils/format'
-import { computed, inject, isRef, type Ref } from 'vue'
+import { computed, type Ref } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import {
   Repeat,
   Package,
@@ -289,8 +290,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const _currency = inject<string | Ref<string>>('currency', 'KES')
-const getCurrency = () => (isRef(_currency) ? _currency.value : _currency) || 'KES'
+const currency = useCurrency()
+const getCurrency = () => currency.value
 
 // DSO: higherIsBetter=false (fewer days to collect is better).
 // Thresholds carried from original getDSOHealthClass: <=30 good, <=45 fair, <=60 warn, >60 high

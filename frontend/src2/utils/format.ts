@@ -36,8 +36,15 @@ function formatter(key: string, build: () => Intl.NumberFormat): Intl.NumberForm
 	return made
 }
 
-/** ISO 4217 is three letters. Anything else makes `Intl` throw a RangeError. */
-function safeCurrency(currency: string | undefined | null): string | null {
+/**
+ * ISO 4217 is three letters. Anything else makes `Intl` throw a RangeError.
+ *
+ * Exported because components that hand-roll their own `Intl.NumberFormat` --
+ * the 13-week cash flow surfaces do, deliberately, for `en-KE` grouping --
+ * need the same guard. Without it a bad value reaches `Intl` and takes the
+ * whole dashboard down with "Invalid currency code".
+ */
+export function safeCurrency(currency: string | undefined | null): string | null {
 	if (!currency) return null
 	const code = currency.trim().toUpperCase()
 	return /^[A-Z]{3}$/.test(code) ? code : null

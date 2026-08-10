@@ -280,7 +280,8 @@
 
 <script setup lang="ts">
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
-import { computed, inject, isRef, markRaw, type Ref } from 'vue'
+import { computed, markRaw, type Ref } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import { Badge } from 'frappe-ui'
 import {
   TrendingDown,
@@ -338,8 +339,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const _currency = inject<string | Ref<string>>('currency', '')
-const getCurrency = () => (isRef(_currency) ? _currency.value : _currency) || ''
+const currency = useCurrency('')
+const getCurrency = () => currency.value
 const currencyVal = computed(() => getCurrency())
 
 

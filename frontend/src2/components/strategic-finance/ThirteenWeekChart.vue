@@ -80,7 +80,8 @@
 import { NO_VALUE } from '../../utils/format'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
 
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import { themeColor } from '../../utils/chartTheme'
 import { deltaInk } from '../../utils/status'
 
@@ -119,7 +120,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const currency = inject('currency', 'KES')
+const currency = useCurrency()
 
 const hasData = computed(() => {
   return props.data?.weeks && props.data.weeks.length > 0
@@ -244,7 +245,7 @@ const formatCurrency = (value: number) => {
   if (value === null || value === undefined) return NO_VALUE
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: currency,
+    currency: currency.value,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)

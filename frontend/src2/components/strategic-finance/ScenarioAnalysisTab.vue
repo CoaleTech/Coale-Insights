@@ -354,7 +354,8 @@
 
 <script setup lang="ts">
 import { NO_VALUE, formatMoney } from '../../utils/format'
-import { ref, computed, inject, isRef, type Ref } from 'vue'
+import { ref, computed, type Ref } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import {
   Sliders,
   Dices,
@@ -427,9 +428,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const _currency = inject<string | Ref<string>>('currency', 'KES')
-const getCurrency = () =>
-  (isRef(_currency) ? _currency.value : _currency) || 'KES'
+const currency = useCurrency()
+const getCurrency = () => currency.value
 
 // Tabs model: numeric index mapped to string key
 const viewTabs = [

@@ -476,6 +476,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import { Button, Badge, Tabs } from 'frappe-ui'
 import {
   RotateCcw,
@@ -501,15 +502,14 @@ import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import { themeColor } from '../../utils/chartTheme'
 import { formatMoney, NO_VALUE } from '../../utils/format'
 import { formatPeriod } from '../financial/format'
-import { computed as vueComputed, inject, isRef } from 'vue'
+import { computed as vueComputed } from 'vue'
 
 /**
- * Server currency, same injection the sibling planning tabs use. This tab used
- * to hardcode "KES" in its own formatter, which lied on any company reporting
- * in another currency.
+ * Server currency, same source the sibling planning tabs use. This tab used to
+ * hardcode "KES" in its own formatter, which lied on any company reporting in
+ * another currency.
  */
-const _currency = inject('currency', 'KES')
-const currency = vueComputed(() => (isRef(_currency) ? _currency.value : _currency) || 'KES')
+const currency = useCurrency()
 
 const emptyParams = ref({})
 const {

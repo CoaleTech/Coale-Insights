@@ -127,7 +127,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, inject } from 'vue'
+import { computed } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import { Badge } from 'frappe-ui'
 import { ragSeverity, severityBadge, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
@@ -189,11 +190,8 @@ interface KpiCardData {
 
 const props = defineProps<{ data: BreakevenSummary | null }>()
 
-const _injectedCurrency = inject('currency', 'KES')
-const getCurrency = (): string =>
-  (typeof _injectedCurrency === 'string'
-    ? _injectedCurrency
-    : (_injectedCurrency as unknown as { value: string })?.value) || 'KES'
+const currency = useCurrency()
+const getCurrency = (): string => currency.value
 
 const cashData = computed<CashFlowBreakeven | null>(() => props.data?.cash_flow_breakeven ?? null)
 const departments = computed<Department[]>(() => props.data?.employee_breakeven?.departments ?? [])

@@ -211,7 +211,8 @@ import {
   AlertTriangle,
   Lightbulb,
 } from 'lucide-vue-next'
-import { inject, isRef, type Ref } from 'vue'
+import { type Ref } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import { Badge } from 'frappe-ui'
 import { scoreSeverity, severityBadge, type BadgeSpec } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
@@ -248,8 +249,8 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const _currency = inject<string | Ref<string>>('currency', 'KES')
-const getCurrency = () => (isRef(_currency) ? _currency.value : _currency) || 'KES'
+const currency = useCurrency()
+const getCurrency = () => currency.value
 
 const formatCurrency = (value: number): string => {
   // Absent is not zero: this returned `${getCurrency()} 0`, reporting zero money

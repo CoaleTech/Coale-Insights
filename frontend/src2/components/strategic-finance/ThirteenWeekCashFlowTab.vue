@@ -381,7 +381,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, watch, inject } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
 import { Badge, FormControl } from 'frappe-ui'
 import {
   CalendarDays,
@@ -429,7 +430,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const currency = inject('currency', 'KES')
+const currency = useCurrency()
 
 const threshold = ref(0)
 const expandedSections = ref({ inflows: false, outflows: false })
@@ -518,7 +519,7 @@ const formatCurrency = (value: number) => {
   if (value === null || value === undefined) return NO_VALUE
   return new Intl.NumberFormat('en-KE', {
     style: 'currency',
-    currency: currency,
+    currency: currency.value,
     minimumFractionDigits: 0,
     maximumFractionDigits: 0
   }).format(value)
