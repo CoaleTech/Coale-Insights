@@ -22,7 +22,7 @@ _JSON_SAFE = frozenset({str, int, bool, bytes, type(None)})
 
 
 def sanitize_for_json(obj):
-    """Recursively convert numpy scalars and non-finite floats to JSON-safe values.
+    """Recursively make a payload something orjson will accept.
 
     Frappe serialises responses with orjson and sets no OPT_NUMPY flag, so a
     stray ``numpy.float64`` raises inside `frappe.utils.response.as_json`. That
@@ -32,7 +32,7 @@ def sanitize_for_json(obj):
     the browser as "the server returned a gateway error".
     """
     if isinstance(obj, dict):
-        return {k: sanitize_for_json(v) for k, v in obj.items()}
+        return {_json_key(k): sanitize_for_json(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [sanitize_for_json(v) for v in obj]
     if type(obj) in _JSON_SAFE:
@@ -47,6 +47,27 @@ def sanitize_for_json(obj):
     if isinstance(obj, float):
         return _finite(obj)
     return obj
+
+
+def _json_key(key):
+    """orjson requires string keys and will not consult `default=` for them.
+
+    `orjson.dumps({2025: 1})` raises `TypeError: Dict key must be str` with no
+    hook to intercept it, and pandas hands us non-string keys as a matter of
+    course -- `df.groupby(<numeric column>).to_dict()` returns int keys, and a
+    groupby on a date column returns Timestamps. Sanitising only values left
+    that as a live 500 waiting on the right shape of data.
+    """
+    if isinstance(key, str):
+        return key
+    if key is None or isinstance(key, bool):
+        return str(key)
+    numpy = sys.modules.get("numpy")
+    if numpy is not None and isinstance(key, numpy.generic):
+        key = key.item()
+    if isinstance(key, float):
+        key = _finite(key)
+    return str(key)
 
 
 def _finite(value):

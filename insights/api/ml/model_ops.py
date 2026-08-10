@@ -144,7 +144,12 @@ def _describe(spec: Dict[str, str]) -> Dict[str, Any]:
         row["method"] = payload.get("method")
         row["rows"] = len(payload.get("forecast") or [])
         metrics = payload.get("metrics") or {}
-        if metrics.get("mape") is not None:
+        # sMAPE, not MAPE: daily sales is zero on non-trading days, and dividing
+        # by a zero actual sends MAPE to hundreds of percent however good the
+        # forecast is. sMAPE is bounded at 200% and defined at zero.
+        if metrics.get("smape") is not None:
+            row["quality"] = f"sMAPE {metrics['smape']}% over {metrics.get('horizon_days')}d"
+        elif metrics.get("mape") is not None:
             row["quality"] = f"MAPE {metrics['mape']}%"
     elif spec["key"] == "demand_forecast":
         forecasts = payload.get("forecasts") or []

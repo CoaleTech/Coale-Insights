@@ -1604,7 +1604,7 @@ class ExecutiveReports:
 
 # API functions for Frappe
 @frappe.whitelist()
-def generate_executive_report(report_type="daily"):
+def generate_executive_report(report_type: str = "daily"):
     """API endpoint to generate executive report"""
     try:
         reports_system = ExecutiveReports()
@@ -1626,7 +1626,7 @@ def generate_executive_report(report_type="daily"):
 
 
 @frappe.whitelist()
-def send_executive_report_email(report_type="daily", recipients=None):
+def send_executive_report_email(report_type: str = "daily", recipients: str | list | None = None):
     """API endpoint to send executive report via email"""
     try:
         if not recipients:

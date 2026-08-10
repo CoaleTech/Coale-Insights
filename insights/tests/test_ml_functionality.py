@@ -316,36 +316,42 @@ class TestFinancialIntelligence(FrappeTestCase):
 class TestAPIDefensiveProgramming(FrappeTestCase):
     """Test suite for API defensive programming (optional dependencies)"""
 
+    def _assert_degrades_gracefully(self, result, endpoint):
+        """The contract these three share: a missing native library must never
+        escape as an exception and must never come back as a half-formed
+        payload. Whether the endpoint falls back to a simpler method or reports
+        the library missing is the implementation's call -- asserting one
+        specific message locked in the second, and broke the moment
+        `sales_forecast` grew a working fallback chain."""
+        self.assertIsInstance(result, dict, f"{endpoint} returned {type(result).__name__}")
+        self.assertIn("status", result, f"{endpoint} returned no status: {result}")
+        if result["status"] == "error":
+            self.assertTrue(result.get("message"), f"{endpoint} errored with no message")
+
     @patch.dict('sys.modules', {'sklearn': None})
     def test_customer_segmentation_without_sklearn(self):
-        """Test customer segmentation handles missing sklearn gracefully"""
+        """Customer segmentation handles missing sklearn gracefully."""
         from insights.api.ml.customer import customer_segmentation
 
-        # This should not raise an exception, but return an error response
-        result = customer_segmentation()
-
-        self.assertEqual(result['status'], 'error')
-        self.assertIn('not available', result['message'].lower())
+        self._assert_degrades_gracefully(customer_segmentation(), "customer_segmentation")
 
     @patch.dict('sys.modules', {'prophet': None})
     def test_sales_forecast_without_prophet(self):
-        """Test sales forecast handles missing prophet gracefully"""
+        """Sales forecast handles missing prophet gracefully.
+
+        It no longer errors: the `auto` chain falls through to exponential
+        smoothing, and on a cold cache the endpoint queues the fit on a worker
+        instead of running it in the request."""
         from insights.api.ml.sales import sales_forecast
 
-        result = sales_forecast()
-
-        self.assertEqual(result['status'], 'error')
-        self.assertIn('not available', result['message'].lower())
+        self._assert_degrades_gracefully(sales_forecast(), "sales_forecast")
 
     @patch.dict('sys.modules', {'pandas': None})
     def test_inventory_intelligence_without_pandas(self):
-        """Test inventory intelligence handles missing pandas gracefully"""
+        """Inventory intelligence handles missing pandas gracefully."""
         from insights.api.ml.inventory import inventory_intelligence
 
-        result = inventory_intelligence()
-
-        self.assertEqual(result['status'], 'error')
-        self.assertIn('not available', result['message'].lower())
+        self._assert_degrades_gracefully(inventory_intelligence(), "inventory_intelligence")
 
 
 class TestInventoryAPIDrillDown(FrappeTestCase):

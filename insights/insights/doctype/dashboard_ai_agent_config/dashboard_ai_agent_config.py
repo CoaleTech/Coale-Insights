@@ -5,6 +5,7 @@ import json
 from typing import Dict, List, Optional
 
 import frappe
+from frappe import _
 from frappe.model.document import Document
 
 
@@ -230,10 +231,10 @@ class DashboardAIAgentConfig(Document):
             "Marketing", "Manufacturing", "ESG", "Budget Variance"
         ]
         if self.dashboard_type not in valid_types:
-            frappe.throw("Invalid dashboard type")
+            frappe.throw(_("Invalid dashboard type"))
         
         if self.temperature and (self.temperature < 0 or self.temperature > 1):
-            frappe.throw("Temperature must be between 0 and 1")
+            frappe.throw(_("Temperature must be between 0 and 1"))
 
     def _set_defaults(self):
         """Set default values based on dashboard type"""

@@ -333,8 +333,8 @@ class SalesForecasting(BaseMLModel):
         if not forecast_result:
             forecast_result = self._forecast_moving_average(df, periods)
         
-        # Calculate accuracy metrics on historical data
-        metrics = self._calculate_metrics(df)
+        # Accuracy of the method actually used, measured on a held-out tail.
+        metrics = self._backtest(df, forecast_result.get("method"))
         
         # Prepare results
         results = {
@@ -393,29 +393,71 @@ class SalesForecasting(BaseMLModel):
             "groups": group_forecasts
         }
     
-    def _calculate_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Calculate forecast accuracy metrics"""
-        if len(df) < 14:
+    def _backtest(self, df: pd.DataFrame, method: Optional[str]) -> Dict[str, float]:
+        """Hold out the last 14 days, re-forecast them, and score the result.
+
+        Replaces a metric that never touched the model: it compared the *mean of
+        the training set* against the last 7 days, so the number reported as the
+        forecast's accuracy was the error of a flat constant. On this site that
+        surfaced as "MAPE 244.18%" for a forecast that was not being measured.
+
+        MAPE is also the wrong metric for this series. Daily sales is zero on
+        non-trading days -- `_forecast_exponential_smoothing` calls
+        `asfreq('D', fill_value=0)` -- and dividing by a zero actual makes the
+        percentage explode regardless of how good the forecast is. The old code
+        papered over it with `actual + 0.0001`, which turns a division by zero
+        into a division by almost zero and reports thousands of percent.
+
+        So: sMAPE, which is bounded at 200% and defined when an actual is zero,
+        plus MAE and RMSE in the series' own units. MAPE is still reported, but
+        only over the non-zero actuals where it means something.
+        """
+        horizon = 14
+        if len(df) < horizon * 3:
             return {}
-        
-        # Use last 7 days as test set
-        train = df.iloc[:-7]
-        test = df.iloc[-7:]
-        
-        # Simple forecast: average of training data
-        pred = train['y'].mean()
-        actual = test['y'].values
-        
-        # Calculate metrics
-        mae = np.mean(np.abs(actual - pred))
-        mape = np.mean(np.abs((actual - pred) / (actual + 0.0001))) * 100
-        rmse = np.sqrt(np.mean((actual - pred) ** 2))
-        
-        return {
-            "mae": round(float(mae), 2),
-            "mape": round(float(mape), 2),
-            "rmse": round(float(rmse), 2)
+
+        train, test = df.iloc[:-horizon], df.iloc[-horizon:]
+
+        forecaster = {
+            "prophet": self._forecast_prophet,
+            "exponential_smoothing": self._forecast_exponential_smoothing,
+        }.get(method or "", self._forecast_moving_average)
+
+        try:
+            backtest = forecaster(train, horizon)
+        except Exception:
+            backtest = None
+        if not backtest or not backtest.get("forecast"):
+            return {}
+
+        predicted = np.array(
+            [float(point.get("yhat", 0)) for point in backtest["forecast"][:horizon]], dtype=float
+        )
+        actual = np.asarray(test["y"].values, dtype=float)[: len(predicted)]
+        predicted = predicted[: len(actual)]
+        if not len(actual):
+            return {}
+
+        error = actual - predicted
+        denominator = (np.abs(actual) + np.abs(predicted)) / 2
+        smape = float(np.mean(np.where(denominator > 0, np.abs(error) / np.where(denominator > 0, denominator, 1), 0)) * 100)
+
+        nonzero = actual != 0
+        mape = (
+            float(np.mean(np.abs(error[nonzero] / actual[nonzero])) * 100) if nonzero.any() else None
+        )
+
+        metrics = {
+            "method_tested": method or "moving_average",
+            "horizon_days": int(len(actual)),
+            "mae": round(float(np.mean(np.abs(error))), 2),
+            "rmse": round(float(np.sqrt(np.mean(error**2))), 2),
+            "smape": round(smape, 2),
         }
+        if mape is not None:
+            metrics["mape"] = round(mape, 2)
+            metrics["mape_basis_days"] = int(nonzero.sum())
+        return metrics
     
     def _summarize_forecast(self, forecast: List[Dict]) -> Dict[str, Any]:
         """Summarize forecast results"""

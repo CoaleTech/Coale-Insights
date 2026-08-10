@@ -70,25 +70,24 @@ class CacheManager:
         return self._redis_client
         
     def _get_redis_client(self):
-        """Initialize Redis connection for hot cache"""
+        """Frappe's own Redis connection for the hot tier.
+
+        This used to build its own client from
+        `frappe.get_conf().get("redis_cache", {})`, treating the value as a dict
+        and calling `.get("host")` / `.get("port")` on it. Frappe stores that key
+        as a URL string -- 'redis://127.0.0.1:13051' -- so the attribute access
+        raised, the `except` swallowed it, and `redis_client` was None on every
+        bench this has ever run on. The hot tier then fell through to the
+        database branch, `_ensure_db_table()` declined, and `cache_data`
+        returned False while all seven callers ignored the return value.
+        Nothing was ever cached in the hot tier and nothing said so.
+
+        `frappe.cache()` is the connection the framework already opened from
+        that same URL, and it is site-namespaced -- which the hand-rolled
+        `hot:{key}` prefix was not, so two sites on one bench shared a keyspace.
+        """
         try:
-            # Use Frappe's Redis configuration
-            redis_config = frappe.get_conf().get("redis_cache", {})
-            
-            client = redis.Redis(
-                host=redis_config.get("host", "localhost"),
-                port=redis_config.get("port", 13000),
-                db=redis_config.get("db", 0),
-                decode_responses=True,
-                socket_connect_timeout=5,
-                socket_timeout=5,
-                retry_on_timeout=True
-            )
-            
-            # Test connection
-            client.ping()
-            return client
-            
+            return frappe.cache()
         except Exception as e:
             frappe.log_error(f"Redis connection failed: {str(e)}")
             return None

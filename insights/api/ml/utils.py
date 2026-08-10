@@ -7,6 +7,7 @@ Date filter helpers and the background-training entrypoint, shared across all
 ML API modules.
 """
 
+import re
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
@@ -88,32 +89,43 @@ def parse_date_filter(date_filter: str = "12m") -> Tuple[Optional[datetime], Opt
     return start_date, end_date
 
 
+# A bare SQL identifier. Anything else in `date_column`/`alias` is a
+# programming error, and the only route by which this helper could inject.
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def get_date_filter_sql(
     date_filter: str = "12m",
     date_column: str = "posting_date",
     alias: str = "",
 ) -> str:
-    """
-    Generate a SQL WHERE clause fragment for date filtering.
+    """Generate a SQL WHERE-clause fragment for date filtering.
 
-    Uses parameterised-style date strings (ISO 8601) that are safe to embed in
-    frappe.db.sql() calls via %s substitution when the caller incorporates them.
+    Returns an empty string when `date_filter` is 'all' (no filtering required).
 
-    Returns an empty string when date_filter is 'all' (no filtering required).
+    `date_column` and `alias` become SQL identifiers, which cannot be bound as
+    parameters, so they are validated against `_IDENTIFIER` and rejected
+    otherwise. Every caller in this app passes a literal, so a non-identifier
+    means the code is wrong -- not that a user typed something odd. Rejecting is
+    the only safe answer: returning "" instead would silently drop the date
+    filter and hand back the entire history as though it were the window asked
+    for, which is a worse failure than an exception.
+
+    The dates themselves are `strftime` output from datetimes this module
+    computed, so they cannot carry a quote and are embedded directly.
     """
+    for label, value in (("date_column", date_column), ("alias", alias)):
+        if value and not _IDENTIFIER.match(value):
+            frappe.throw(
+                _("Invalid SQL identifier passed as {0}: {1}").format(label, value),
+                frappe.ValidationError,
+            )
+
     start_date, end_date = parse_date_filter(date_filter)
-
-    if start_date is None:
+    if start_date is None or end_date is None:
         return ""
 
     start_str = start_date.strftime("%Y-%m-%d")
     end_str = end_date.strftime("%Y-%m-%d")
-
     date_col = f"{alias}.{date_column}" if alias else date_column
-
-    # NOTE: Callers that embed this fragment in frappe.db.sql() should pass the
-    # date values as query parameters (%s) rather than relying on string
-    # interpolation.  The formatted strings here are ISO dates from trusted
-    # internal sources (no user input reaches strftime), so direct embedding is
-    # safe but is retained only for backward compatibility.
     return f"AND {date_col} BETWEEN '{start_str}' AND '{end_str}'"

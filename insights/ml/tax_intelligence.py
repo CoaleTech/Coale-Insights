@@ -255,20 +255,26 @@ class TaxIntelligence(BaseMLModel):
         # - Capital expenditure (claimed as capital allowances instead)
         # - Provisions (general)
         
+        # Bound, not embedded. These are literals today, so the old
+        # f"... LIKE '{p}'" was not exploitable -- but it put values in the SQL
+        # text, which is the shape that becomes an injection the moment someone
+        # makes the list configurable. `%` is the LIKE wildcard here, not a
+        # format specifier, so it is single not doubled once bound.
         non_allowable_patterns = [
-            '%%entertainment%%',
-            '%%donation%%',
-            '%%penalty%%',
-            '%%fine%%',
-            '%%personal%%',
-            '%%gift%%',
-            '%%political%%',
-            '%%provision%%bad%%debt%%'
+            "%entertainment%",
+            "%donation%",
+            "%penalty%",
+            "%fine%",
+            "%personal%",
+            "%gift%",
+            "%political%",
+            "%provision%bad%debt%",
         ]
-        
-        like_conditions = " OR ".join([f"LOWER(acc.account_name) LIKE '{p}'" for p in non_allowable_patterns])
-        
-        result = frappe.db.sql(f"""
+
+        like_conditions = " OR ".join(["LOWER(acc.account_name) LIKE %s"] * len(non_allowable_patterns))
+
+        result = frappe.db.sql(
+            f"""
             SELECT COALESCE(SUM(debit - credit), 0) as total
             FROM `tabGL Entry` gle
             JOIN `tabAccount` acc ON gle.account = acc.name
@@ -277,7 +283,10 @@ class TaxIntelligence(BaseMLModel):
                 AND gle.is_cancelled = 0
                 AND acc.root_type = 'Expense'
                 AND ({like_conditions})
-        """, (self.company, fy_start, fy_end), as_dict=True)[0]
+            """,
+            (self.company, fy_start, fy_end, *non_allowable_patterns),
+            as_dict=True,
+        )[0]
         
         return float(result.get('total') or 0)
     

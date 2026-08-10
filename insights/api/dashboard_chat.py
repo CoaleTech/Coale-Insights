@@ -168,7 +168,7 @@ def get_recent_session(dashboard_type: str) -> Dict[str, Any]:
 
 
 @frappe.whitelist(allow_guest=False)
-def start_new_session(dashboard_type=None):
+def start_new_session(dashboard_type: str | None = None):
     """Create a new chat session for a dashboard."""
     try:
         # Mark any existing sessions as inactive
@@ -220,7 +220,7 @@ def start_new_session(dashboard_type=None):
 
 
 @frappe.whitelist(allow_guest=False)
-def send_message(session_id=None, query=None, context=None):
+def send_message(session_id: str | None = None, query: str | None = None, context: str | dict | None = None):
     """Send a message to the dashboard AI agent with dashboard context."""
     try:
         # Validate inputs
@@ -664,7 +664,7 @@ def get_ai_chat_status() -> Dict[str, Any]:
 
 
 @frappe.whitelist(allow_guest=False)
-def send_message_streaming(session_id=None, query=None, context=None):
+def send_message_streaming(session_id: str | None = None, query: str | None = None, context: str | dict | None = None):
     """
     Send a message and stream the response token-by-token via frappe.publish_realtime.
     The frontend listens on 'ai_response_token' events.

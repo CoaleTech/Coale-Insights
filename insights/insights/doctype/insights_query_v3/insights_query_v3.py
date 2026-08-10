@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from io import BytesIO
 
 import frappe
+from frappe import _
 import ibis
 import sqlparse
 from frappe.model.document import Document
@@ -103,12 +104,12 @@ class InsightsQueryv3(Document):
         ibis_query = builder.build()
 
         if ibis_query is None:
-            frappe.throw("Failed to build query")
+            frappe.throw(_("Failed to build query"))
 
         return ibis_query
 
     @frappe.whitelist()
-    def execute(self, active_operation_idx=None, adhoc_filters=None, force=False):
+    def execute(self, active_operation_idx: int | None = None, adhoc_filters: str | list | None = None, force: bool = False):
         with set_adhoc_filters(adhoc_filters):
             ibis_query = self.build(active_operation_idx)
 

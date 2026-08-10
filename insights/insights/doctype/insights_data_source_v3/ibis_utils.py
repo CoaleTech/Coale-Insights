@@ -3,6 +3,7 @@ import time
 from datetime import date
 
 import frappe
+from frappe import _
 import ibis
 import numpy as np
 import pandas as pd
@@ -131,7 +132,7 @@ class IbisQueryBuilder:
             _table = q.build(use_live_connection=self.use_live_connection)
 
         if _table is None:
-            frappe.throw("Table or Query not found")
+            frappe.throw(_("Table or Query not found"))
 
         return _table
 
@@ -212,7 +213,7 @@ class IbisQueryBuilder:
                 rc = getattr(rt, right_column.column_name)
                 return lc.cast(rc.type()) == rc
 
-            frappe.throw("Join condition is not valid")
+            frappe.throw(_("Join condition is not valid"))
 
         join_condition = join_args.join_condition
         if join_condition.join_expression and join_condition.join_expression.expression:
@@ -252,7 +253,7 @@ class IbisQueryBuilder:
             while is_conflicting(f"{new_name}_{n}"):
                 n += 1
                 if n > 20:
-                    frappe.throw("Too many duplicate columns")
+                    frappe.throw(_("Too many duplicate columns"))
 
             return f"{new_name}_{n}"
 
@@ -267,8 +268,8 @@ class IbisQueryBuilder:
 
         if not common_columns:
             frappe.throw(
-                "Both tables must have at least one common column to perform union",
-                title="Cannot Perform Union",
+                _("Both tables must have at least one common column to perform union"),
+                title=_("Cannot Perform Union"),
             )
 
         # ensure columns have the same data types
@@ -575,8 +576,8 @@ class IbisQueryBuilder:
 
         else:
             frappe.throw(
-                "SQL query must start with a SELECT or WITH statement",
-                title="Invalid SQL Query",
+                _("SQL query must start with a SELECT or WITH statement"),
+                title=_("Invalid SQL Query"),
             )
 
         return results

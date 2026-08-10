@@ -272,23 +272,32 @@ class TestDataValidation(FrappeTestCase):
         self.assertIsNotNone(end_date)
 
     def test_sql_injection_prevention(self):
-        """Test that SQL parameters are properly sanitized"""
+        """`date_column`/`alias` become SQL identifiers and cannot be bound as
+        parameters, so `get_date_filter_sql` must refuse anything that is not a
+        bare identifier. Rejecting beats sanitising: returning "" would silently
+        drop the date filter and hand back the whole history as though it were
+        the requested window."""
+        import frappe
+
         from insights.api.ml import get_date_filter_sql
 
-        # Test with potentially dangerous input
         dangerous_inputs = [
             "'; DROP TABLE users; --",
             "1' OR '1'='1",
-            "posting_date'; SELECT * FROM users; --"
+            "posting_date'; SELECT * FROM users; --",
         ]
 
         for dangerous_input in dangerous_inputs:
             with self.subTest(input=dangerous_input):
-                # Should not contain the dangerous input in output
-                sql = get_date_filter_sql('12m', dangerous_input)
-                self.assertNotIn("DROP", sql.upper())
-                self.assertNotIn("SELECT", sql.upper())
-                self.assertNotIn(";", sql)
+                with self.assertRaises(frappe.ValidationError):
+                    get_date_filter_sql("12m", dangerous_input)
+                with self.assertRaises(frappe.ValidationError):
+                    get_date_filter_sql("12m", "posting_date", dangerous_input)
+
+        # A legitimate identifier still produces a filter.
+        sql = get_date_filter_sql("12m", "posting_date", "si")
+        self.assertIn("si.posting_date", sql)
+        self.assertNotIn(";", sql)
 
     def test_numeric_parameter_validation(self):
         """Test validation of numeric parameters"""
