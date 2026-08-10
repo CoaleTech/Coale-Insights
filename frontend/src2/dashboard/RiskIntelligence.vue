@@ -9,6 +9,7 @@ import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillD
 import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
+import LedgerAnomalies from '../intelligence/components/LedgerAnomalies.vue'
 import {
   severityBadge, severityFill, severityAria, scoreSeverity, type Severity,
 } from '../utils/status'
@@ -146,6 +147,7 @@ const tabDefs = [
   { label: 'Operational Risk', value: 'operational' },
   { label: 'Compliance Risk', value: 'compliance' },
   { label: 'Predictive Analytics', value: 'predictive' },
+  { label: 'Ledger Anomalies', value: 'anomalies' },
 ]
 const activeTabIndex = ref(0)
 const activeTab = computed(() => tabDefs[activeTabIndex.value]?.value ?? 'overview')
@@ -938,6 +940,15 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </div>
           </div>
         </div>
+        </div>
+
+        <!-- `v-if` like its siblings, which suits this tab: mounting is what
+             issues the scan, so it stays unrequested until someone opens it. -->
+        <div v-if="activeTab === 'anomalies'" class="space-y-6">
+          <!-- No SectionHeader: the tab is already labelled "Ledger Anomalies",
+               and the component opens with the flagged/scanned count and the
+               caveat that unusual is not the same as wrong. -->
+          <LedgerAnomalies />
         </div>
       </div>
     </template>

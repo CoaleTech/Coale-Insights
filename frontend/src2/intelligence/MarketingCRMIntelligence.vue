@@ -340,6 +340,13 @@
             </table>
           </div>
         </section>
+
+        <!-- `v-if`, not `v-show` like its siblings: this tab owns a separate
+             endpoint, so mounting it is what issues the request. No reason to
+             score every open lead for someone who never opened the tab. -->
+        <section v-if="tabIndex === 4" class="mt-5">
+          <LeadWinProbability />
+        </section>
       </template>
 
       <IntelligenceDrillDown
@@ -368,6 +375,7 @@ import { computed, ref } from 'vue'
 import IntelligenceChart from './components/IntelligenceChart.vue'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import KpiCard from './components/KpiCard.vue'
+import LeadWinProbability from './components/LeadWinProbability.vue'
 import SectionHeader from './components/SectionHeader.vue'
 import SkeletonBlock from './components/SkeletonBlock.vue'
 import { useDrillDown } from './composables/useDrillDown'
@@ -446,6 +454,7 @@ const tabs = [
   { label: 'Channels' },
   { label: 'Trend' },
   { label: 'Coverage' },
+  { label: 'Win Probability' },
 ]
 const tabIndex = ref(0)
 
