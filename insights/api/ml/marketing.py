@@ -260,6 +260,10 @@ def get_marketing_overview(period: str = "YTD") -> Dict[str, Any]:
         open_placeholders = ", ".join(["%s"] * len(_LEAD_OPEN_STATUSES))
 
         # ── Funnel. Counts come from Lead.status, value from Quotation. ────────
+        # `open_list` is a run of `%s` placeholders generated from the length of
+        # the module constant `_LEAD_OPEN_STATUSES`; the statuses themselves are
+        # passed as bound parameters below. No caller input reaches the SQL text.
+        # nosemgrep: frappe-sql-format-injection
         lead_totals = frappe.db.sql(
             """
             SELECT

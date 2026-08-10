@@ -3,11 +3,54 @@
 
 """
 ML API Utilities
-Date filter helpers shared across all ML API modules.
+Date filter helpers and the background-training entrypoint, shared across all
+ML API modules.
 """
 
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
+
+import frappe
+from frappe import _
+
+
+def enqueue_training(method: str, job_id: str, label: str, **kwargs) -> Dict[str, Any]:
+    """Fit a model on a worker and tell the caller it started.
+
+    Frappe's contract for long work is a background job, and these are the only
+    endpoints that fit a model rather than aggregate SQL: a Prophet or
+    Holt-Winters pass held inside a gunicorn worker outlives the gateway read
+    timeout and reaches the browser as an HTML 502 with no Error Log entry.
+
+    Returns the ordinary `{"status": "success", "message": ...}` envelope, so
+    callers need no queued/polling special case.
+    """
+    from frappe.utils.background_jobs import get_job_status
+
+    from insights.api.response import success
+
+    # Ask before enqueuing, not after: `deduplicate=True` skips silently when a
+    # job with this id is already QUEUED or STARTED, so checking afterwards
+    # always reports "already running" -- including for the run we just started.
+    try:
+        already_running = get_job_status(job_id) in ("queued", "started")
+    except Exception:
+        already_running = False
+
+    if already_running:
+        return success(message=_("{0}: training is already running in the background.").format(label))
+
+    frappe.enqueue(
+        method,
+        queue="long",
+        timeout=1500,
+        job_id=job_id,
+        deduplicate=True,
+        **kwargs,
+    )
+    return success(
+        message=_("{0}: training started in the background. Refresh in a few minutes.").format(label)
+    )
 
 
 def parse_date_filter(date_filter: str = "12m") -> Tuple[Optional[datetime], Optional[datetime]]:

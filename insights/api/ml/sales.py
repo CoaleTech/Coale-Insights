@@ -13,17 +13,27 @@ from insights.api.response import success, error
 
 @frappe.whitelist()
 def sales_forecast(periods: int = 30, refresh: bool = False) -> Dict[str, Any]:
-    """Get sales forecast"""
+    """Get the cached sales forecast; `refresh` retrains on a worker.
+
+    `SalesForecasting.train()` fits Holt-Winters over the full daily series --
+    14.1s on a development dataset. Never on the request path.
+    """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_forecasting import SalesForecasting
-        model = SalesForecasting()
+
         if not refresh:
-            cached = model.get_cached_results("sales_forecast")
+            cached = SalesForecasting().get_cached_results("sales_forecast")
             if cached:
                 return success(cached)
-        result = model.train(periods=int(periods))
-        return success(result)
+
+        from insights.api.ml.utils import enqueue_training
+
+        return enqueue_training(
+            "insights.ml.scheduler.train_sales_forecast",
+            job_id="insights_train_sales_forecast",
+            label=_("Sales forecast"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -160,13 +170,20 @@ def sales_comparisons() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
-    """Train forecasting models"""
+    """Train forecasting models, on a worker.
+
+    The dashboard's own button already warns this "may take several minutes",
+    which is precisely why it cannot run in the request that triggered it.
+    """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_forecasting import SalesForecasting
-        model = SalesForecasting()
-        result = model.train()
-        return success(result)
+        from insights.api.ml.utils import enqueue_training
+
+        return enqueue_training(
+            "insights.ml.scheduler.train_sales_forecast",
+            job_id="insights_train_sales_forecast",
+            label=_("Sales forecast"),
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

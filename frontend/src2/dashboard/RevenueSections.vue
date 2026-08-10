@@ -109,19 +109,22 @@ const monthlyTrendConfig = computed(() => {
 function trainForecasts(modelType: string) {
   confirmDialog({
     title: 'Train Forecast Model',
-    message: `This will retrain the ${modelType} forecast model. Training is a slow operation and may take several minutes.`,
+    message: `This will retrain the ${modelType} forecast model on a background worker. It takes several minutes; the dashboard updates once it finishes.`,
     primaryActionLabel: 'Train Model',
     onSuccess: async () => {
       isTraining.value = modelType
       trainingStatus.value = ''
       try {
-        const result = await apiCall('insights.api.ml.train_forecast_models', {
+        // The endpoint queues the fit and returns immediately, so report what
+        // the server actually said rather than claiming the model is trained.
+        const result = (await apiCall('insights.api.ml.train_forecast_models', {
           model_type: modelType,
-        }) as Record<string, unknown>
-        trainingStatus.value = `Trained ${modelType} forecast model successfully`
+        })) as Record<string, unknown>
+        const message = (result?.message as string) || 'Training started in the background'
+        trainingStatus.value = message
         createToast({
-          title: 'Training Complete',
-          message: (result?.message as string) || 'Training complete',
+          title: 'Training Started',
+          message,
           variant: 'success',
         })
       } catch (e: unknown) {

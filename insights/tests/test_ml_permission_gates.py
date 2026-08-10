@@ -152,18 +152,37 @@ class TestOutsideVoiceFixes(FrappeTestCase):
             with self.assertRaises(frappe.PermissionError):
                 executive_api.get_department_insights(department="hr")
 
-    def test_payment_risk_analysis_always_returns_predictions_shape(self):
-        """PaymentPrediction.train() returns model-metrics (accuracy,
-        feature_importance...), NOT the {predictions, summary} shape that
-        predict() returns and that callers expect -- refresh=True must not
-        return train()'s output directly. See outside-voice finding 5."""
+    def test_payment_risk_analysis_never_trains_in_the_request(self):
+        """refresh=True used to call PaymentPrediction.train() inline, which fitted a
+        RandomForest while the browser held the connection. It now queues the fit on
+        a worker and answers immediately."""
+        with patch.object(frappe, "has_permission"), \
+             patch("insights.ml.payment_prediction.PaymentPrediction") as MockPP, \
+             patch("frappe.utils.background_jobs.get_job_status", return_value=None), \
+             patch("frappe.enqueue") as mock_enqueue:
+            instance = MockPP.return_value
+            result = general_api.payment_risk_analysis(refresh=True)
+
+            instance.train.assert_not_called()
+            instance.predict.assert_not_called()
+            mock_enqueue.assert_called_once()
+            self.assertEqual(
+                mock_enqueue.call_args[0][0],
+                "insights.ml.scheduler.train_payment_prediction",
+            )
+            self.assertEqual(mock_enqueue.call_args[1]["queue"], "long")
+            self.assertEqual(result["status"], "success")
+
+    def test_payment_risk_analysis_returns_predictions_shape(self):
+        """PaymentPrediction.train() returns model metrics (accuracy,
+        feature_importance...), NOT the {predictions, summary} shape callers expect.
+        The read path must come from predict(). See outside-voice finding 5."""
         with patch.object(frappe, "has_permission"), \
              patch("insights.ml.payment_prediction.PaymentPrediction") as MockPP:
             instance = MockPP.return_value
-            instance.train.return_value = {"accuracy": 0.9}  # wrong shape if returned directly
             instance.predict.return_value = {"predictions": [], "summary": {}}
-            result = general_api.payment_risk_analysis(refresh=True)
-            instance.train.assert_called_once()
+            result = general_api.payment_risk_analysis(refresh=False)
+            instance.train.assert_not_called()
             instance.predict.assert_called_once()
             self.assertEqual(result["data"], {"predictions": [], "summary": {}})
 

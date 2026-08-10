@@ -138,6 +138,10 @@ def get_tax_detail(metric: str, filters: str) -> dict:
 
         where = " AND ".join(conditions)
 
+        # `where` joins only the literal fragments appended above; every value is
+        # a bound parameter in `params`, so nothing caller-supplied reaches the
+        # SQL text. The f-string interpolates query *structure*, not data.
+        # nosemgrep: frappe-sql-format-injection
         rows = frappe.db.sql(
             f"""
             SELECT si.name, si.customer, si.posting_date, si.grand_total,
@@ -150,6 +154,7 @@ def get_tax_detail(metric: str, filters: str) -> dict:
             {**params, "page_size": page_size, "start": start},
             as_dict=True,
         )
+        # nosemgrep: frappe-sql-format-injection -- same `where`, same reasoning.
         total = frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabSales Invoice` si WHERE {where}",
             params,
