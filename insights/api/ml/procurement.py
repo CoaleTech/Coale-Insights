@@ -2,162 +2,140 @@
 # For license information, please see license.txt
 
 """
-Procurement Intelligence API Endpoints
+Procurement Intelligence API Endpoints — Ibis rewrite.
+
+Each endpoint builds one or two Ibis expressions (which compile to SQL
+and execute inside MariaDB) and wraps the result in the standard
+`success` envelope via `insights.api.ml.utils.run`. No cache, no
+background job, no fork. `refresh` is accepted but ignored.
+
+Drill-down endpoints (`get_procurement_detail`) are unchanged — they
+already use `frappe.get_list` and don't touch the ML stack.
 """
+
+from typing import Any, Dict
 
 import frappe
 from frappe import _
-from typing import Dict, Any
-from insights.api.response import success, error
-from insights.api.serialization import sanitize_for_json
+
+from insights.api.ml.utils import run
 
 
-@frappe.whitelist()
-def get_procurement_insights() -> Dict[str, Any]:
-    """Get procurement insights overview"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model.predict()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+# ---------------------------------------------------------------------------
+# Composite endpoints
+# ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
 def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
-    """Get comprehensive procurement intelligence, computed on request, cached 24h."""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        from insights.api.ml.utils import compute_or_cache
-
-        cache_key = "insights:procurement_intelligence"
-        if refresh:
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        result = compute_or_cache(
-            trainer=lambda: ProcurementIntelligence().train(),
-            cache_key=cache_key,
-            label=_("Procurement intelligence"),
-        )
-        return sanitize_for_json(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "procurement_intelligence error")
-        return {"status": "error", "message": str(e)}
+    """Get comprehensive procurement intelligence, computed on request."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence().train(),
+        "procurement_intelligence",
+    )
 
 
 @frappe.whitelist()
 def train_procurement_intelligence() -> Dict[str, Any]:
-    """Train procurement intelligence models"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model.train()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Synchronously re-compute procurement intelligence. No 'training'."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence().train(),
+        "train_procurement_intelligence",
+    )
+
+
+@frappe.whitelist()
+def get_procurement_insights() -> Dict[str, Any]:
+    """Get procurement insights overview (top-level summary only)."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: {
+            "spend_overview": ProcurementIntelligence()._spend_overview(),
+            "supplier_performance": ProcurementIntelligence()._supplier_performance(),
+            "risk_analysis": ProcurementIntelligence()._procurement_risks(),
+        },
+        "get_procurement_insights",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Granular endpoints (one per sub-section)
+# ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
 def get_spend_overview() -> Dict[str, Any]:
-    """Get procurement spend overview"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model._calculate_spend_overview()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get procurement spend overview."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence()._spend_overview(),
+        "get_spend_overview",
+    )
 
 
 @frappe.whitelist()
 def get_supplier_performance() -> Dict[str, Any]:
-    """Get supplier performance analysis"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model._calculate_supplier_performance()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get supplier performance analysis."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence()._supplier_performance(),
+        "get_supplier_performance",
+    )
 
 
 @frappe.whitelist()
 def get_purchase_analytics() -> Dict[str, Any]:
-    """Get purchase analytics"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model._analyze_purchase_cycles()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get purchase cycle / analytics."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence()._purchase_cycles(),
+        "get_purchase_analytics",
+    )
 
 
 @frappe.whitelist()
 def get_price_intelligence() -> Dict[str, Any]:
-    """Get price intelligence analysis"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model._calculate_price_intelligence()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get price intelligence analysis."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence()._price_intelligence(),
+        "get_price_intelligence",
+    )
 
 
 @frappe.whitelist()
 def get_procurement_risks() -> Dict[str, Any]:
-    """Get procurement risk analysis"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model._assess_procurement_risks()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get procurement risk analysis."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence()._procurement_risks(),
+        "get_procurement_risks",
+    )
 
 
 @frappe.whitelist()
 def get_procurement_forecast() -> Dict[str, Any]:
-    """Get procurement forecasting"""
-    try:
-        frappe.has_permission("Purchase Order", "read", throw=True)
-        from insights.ml.procurement_intelligence import ProcurementIntelligence
-        model = ProcurementIntelligence()
-        result = model._generate_procurement_forecast()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get procurement forecasting."""
+    frappe.has_permission("Purchase Order", "read", throw=True)
+    return run(
+        lambda: ProcurementIntelligence()._forecast(),
+        "get_procurement_forecast",
+    )
 
 
-# ─── Drill-Down ───────────────────────────────────────────────────────────────
+# Local import to avoid module-level circular
+def ProcurementIntelligence():
+    from insights.ml.procurement_intelligence import ProcurementIntelligence as _PI
+
+    return _PI()
+
+
+# ---------------------------------------------------------------------------
+# Drill-down (unchanged — uses frappe.get_list, not the ML stack)
+# ---------------------------------------------------------------------------
+
 
 @frappe.whitelist()
 def get_procurement_detail(metric: str, filters: str) -> dict:

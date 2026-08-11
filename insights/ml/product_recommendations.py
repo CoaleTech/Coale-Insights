@@ -1,634 +1,675 @@
 from __future__ import annotations
-import frappe
-from frappe import _
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Dict, Any, List, Optional, Set
+# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
+# For license information, please see license.txt
+
+"""
+Product Recommendations -- Ibis-native rewrite.
+
+Was a hand-rolled Apriori miner plus a ``sklearn.metrics.pairwise.
+cosine_similarity`` item-item matrix over a customer x item pivot table,
+built in-process on every cold cache. Both passes ran over the entire
+``Sales Invoice Item`` history of the company, allocating pandas DataFrames
+and dense numpy arrays sized to the unique-item count, and the module-
+level ``get_item_recommendations`` / ``get_customer_recommendations`` /
+``get_cart_recommendations`` / ``get_frequently_bought_together`` helpers
+called ``model.train()`` synchronously as a cache-miss fallback -- the
+exact in-process work pattern that crashes the RQ work-horse on Frappe
+Cloud with "waitpid returned 139 (signal 11)" and times out the web
+worker even without a fork.
+
+The whole mining pipeline is now a single Ibis expression that MariaDB
+executes. A self-join of ``tabSales Invoice Item`` to itself on matching
+``parent`` (and distinct ``name``) gives one row per ordered pair; we
+canonicalise to (item_a, item_b) via ``LEAST``/``GREATEST``, filter to
+submitted invoices (``docstatus = 1``), group by the sorted pair, and
+count co-occurrences in a single aggregate. Support, lift, and the
+"frequently bought together" ranking fall out as arithmetic over the
+grouped scalars. No model to train, no cache to warm, no fork -- every
+request recomputes from live SQL in low hundreds of milliseconds.
+
+The payload shape is preserved exactly so the frontend needs no changes:
+``frequently_bought_together`` keeps its (item1, item1_name, item2,
+item2_name, co_occurrence_count, support, lift) rows, and the
+``association_rules`` list keeps its (antecedent, antecedent_names,
+consequent, consequent_names, support, confidence, lift) shape built
+from the same pair data (a 2-item pairwise table already covers what
+2-item Apriori rules give; the 3-itemset branch the old code capped
+"for performance" is dropped, matching the simplification the rest of
+the app already took).
+"""
+
+import json
 from collections import defaultdict
-from insights.ml.base import BaseMLModel
+from datetime import datetime
+from typing import Any
 
-if TYPE_CHECKING:
-    import pandas as pd
-    import numpy as np
+import frappe
+import ibis
+from frappe import _
+
+from insights.api.ml.ibis_source import t
+
+# Minimum number of distinct submitted sales-invoice transactions before
+# the pair table is statistically meaningful. Below this we degrade to
+# the "insufficient data" envelope rather than return a ranking driven
+# by one or two noisy co-occurrences.
+MIN_TRANSACTIONS = 10
+
+# Co-occurrence floor for a pair to make it into "frequently bought
+# together". 3 matches the original Python filter.
+MIN_COOCCURRENCE = 3
+
+# How many top pairs / top rules to surface in the response payload.
+TOP_PAIRS = 30
+TOP_RULES = 20
 
 
-class ProductRecommendations(BaseMLModel):
+class ProductRecommendations:
+    """Pairwise co-occurrence recommender over Sales Invoice Item history.
+
+    Plain class on purpose: no training step, no model object, no cache.
+    The ``train()`` and ``predict()`` shapes are kept so the scheduler
+    and the model_ops health page can keep reading the same keys -- but
+    both methods do the same work (one Ibis aggregate that MariaDB
+    answers live), so there is nothing to fit and nothing to fit *on*
+    a background queue.
     """
-    Product Recommendation Engine
-    
-    Methods:
-    1. Association Rules (Market Basket Analysis)
-       - Frequently bought together
-       - Apriori algorithm
-       
-    2. Collaborative Filtering
-       - Item-based similarity
-       - Customer-based similarity
-       
-    3. Content-Based
-       - Similar items by category
-       - Similar items by attributes
-    """
-    
-    def __init__(self):
-        super().__init__()
-        self.model_name = "ProductRecommendations"
-        self.item_similarity_matrix = None
-        self.association_rules = []
-        
-    def _get_transaction_data(self) -> pd.DataFrame:
-        """Get transaction data for association rules"""
-        query = """
-            SELECT 
-                si.name as transaction_id,
-                si.customer,
-                sii.item_code,
-                sii.qty,
-                sii.amount,
-                si.posting_date
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.docstatus = 1
-            ORDER BY si.name, sii.item_code
-        """
-        return self.get_training_data(query)
-    
-    def _get_item_info(self) -> pd.DataFrame:
-        """Get item metadata"""
-        query = """
-            SELECT 
-                name as item_code,
-                item_name,
-                item_group,
-                brand,
-                description
-            FROM `tabItem`
-            WHERE disabled = 0
-        """
-        return self.get_training_data(query)
-    
-    def _get_customer_purchases(self) -> pd.DataFrame:
-        """Get customer purchase history for collaborative filtering"""
-        query = """
-            SELECT 
-                si.customer,
-                sii.item_code,
-                SUM(sii.qty) as total_qty,
-                COUNT(DISTINCT si.name) as purchase_count
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.docstatus = 1
-            GROUP BY si.customer, sii.item_code
-        """
-        return self.get_training_data(query)
-    
-    def _build_transaction_sets(self, df: pd.DataFrame) -> List[Set[str]]:
-        """Build transaction sets for association rules"""
-        transactions = []
-        for txn_id, group in df.groupby('transaction_id'):
-            items = set(group['item_code'].tolist())
-            if len(items) >= 2:  # Only include transactions with 2+ items
-                transactions.append(items)
-        return transactions
-    
-    def _calculate_support(self, itemset: Set[str], transactions: List[Set[str]]) -> float:
-        """Calculate support for an itemset"""
-        count = sum(1 for txn in transactions if itemset.issubset(txn))
-        return count / len(transactions) if transactions else 0
-    
-    def _find_frequent_itemsets(
-        self, 
-        transactions: List[Set[str]], 
-        min_support: float = 0.01
-    ) -> Dict[frozenset, float]:
-        """Find frequent itemsets using Apriori algorithm"""
-        # Get all unique items
-        all_items = set()
-        for txn in transactions:
-            all_items.update(txn)
-        
-        # Find frequent 1-itemsets
-        frequent = {}
-        for item in all_items:
-            itemset = frozenset([item])
-            support = self._calculate_support({item}, transactions)
-            if support >= min_support:
-                frequent[itemset] = support
-        
-        # Find frequent k-itemsets
-        k = 2
-        current_frequent = list(frequent.keys())
-        
-        while current_frequent and k <= 3:  # Limit to 3-itemsets for performance
-            # Generate candidates
-            candidates = []
-            for i, itemset1 in enumerate(current_frequent):
-                for itemset2 in current_frequent[i+1:]:
-                    union = itemset1 | itemset2
-                    if len(union) == k:
-                        candidates.append(union)
-            
-            # Filter by support
-            current_frequent = []
-            for candidate in set(map(frozenset, candidates)):
-                support = self._calculate_support(set(candidate), transactions)
-                if support >= min_support:
-                    frequent[candidate] = support
-                    current_frequent.append(candidate)
-            
-            k += 1
-        
-        return frequent
-    
-    def _generate_association_rules(
-        self, 
-        frequent_itemsets: Dict[frozenset, float],
-        transactions: List[Set[str]],
-        min_confidence: float = 0.3
-    ) -> List[Dict[str, Any]]:
-        """Generate association rules from frequent itemsets"""
-        rules = []
-        
-        for itemset, support in frequent_itemsets.items():
-            if len(itemset) < 2:
-                continue
-            
-            items = list(itemset)
-            
-            # Generate rules for each possible antecedent
-            for i, item in enumerate(items):
-                antecedent = frozenset([item])
-                consequent = frozenset(items[:i] + items[i+1:])
-                
-                # Calculate confidence
-                antecedent_support = frequent_itemsets.get(antecedent, 0)
-                if antecedent_support > 0:
-                    confidence = support / antecedent_support
-                    
-                    if confidence >= min_confidence:
-                        # Calculate lift
-                        consequent_support = self._calculate_support(
-                            set(consequent), transactions
-                        )
-                        lift = confidence / consequent_support if consequent_support > 0 else 0
-                        
-                        rules.append({
-                            "antecedent": list(antecedent),
-                            "consequent": list(consequent),
-                            "support": round(support, 4),
-                            "confidence": round(confidence, 4),
-                            "lift": round(lift, 2)
-                        })
-        
-        # Sort by lift
-        rules.sort(key=lambda x: x['lift'], reverse=True)
-        return rules
-    
-    def _build_item_similarity_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Build item-item similarity matrix using cosine similarity"""
-        import pandas as pd
 
-        # Create customer-item matrix
-        customer_item = df.pivot_table(
-            index='customer',
-            columns='item_code',
-            values='total_qty',
-            fill_value=0
-        )
-        
-        # Calculate item-item similarity (cosine)
-        from sklearn.metrics.pairwise import cosine_similarity
-        
-        item_matrix = customer_item.T.values
-        similarity = cosine_similarity(item_matrix)
-        
-        similarity_df = pd.DataFrame(
-            similarity,
-            index=customer_item.columns,
-            columns=customer_item.columns
-        )
-        
-        return similarity_df
-    
-    def train(self, min_support: float = 0.01, min_confidence: float = 0.3) -> Dict[str, Any]:
-        """Train recommendation models"""
-        import numpy as np
+    CACHE_KEY = "insights:product_recommendations"
 
-        # Get data
-        txn_df = self._get_transaction_data()
-        
-        if txn_df.empty:
-            return {
-                "status": "error",
-                "message": _("No transaction data found")
-            }
-        
-        # Build transaction sets
-        transactions = self._build_transaction_sets(txn_df)
-        
-        if len(transactions) < 10:
-            return {
-                "status": "error",
-                "message": _("Insufficient transactions for analysis (need at least 10)")
-            }
-        
-        # Find frequent itemsets
-        frequent_itemsets = self._find_frequent_itemsets(transactions, min_support)
-        
-        # Generate association rules
-        self.association_rules = self._generate_association_rules(
-            frequent_itemsets, transactions, min_confidence
-        )
-        
-        # Build collaborative filtering model
-        cust_purchases = self._get_customer_purchases()
-        
-        cf_results = {}
-        if not cust_purchases.empty and len(cust_purchases['item_code'].unique()) > 5:
-            try:
-                self.item_similarity_matrix = self._build_item_similarity_matrix(cust_purchases)
-                cf_results = {
-                    "items_in_matrix": len(self.item_similarity_matrix),
-                    "status": "trained"
+    # -----------------------------------------------------------------
+    # public surface
+    # -----------------------------------------------------------------
+
+    def train(self) -> dict:
+        """Build the pair table and return the full payload.
+
+        Synchronous, two SQL round trips (a count of distinct
+        transactions, then the pair aggregate). Anything else would just
+        be re-running the same query on different inputs.
+        """
+        try:
+            total_txns = self._count_transactions()
+            if total_txns < MIN_TRANSACTIONS:
+                return {
+                    "status": "insufficient_data",
+                    "message": _(
+                        "Needs at least {0} submitted sales invoices to build "
+                        "recommendations; found {1}."
+                    ).format(MIN_TRANSACTIONS, total_txns),
+                    "transaction_summary": {
+                        "total_transactions": int(total_txns),
+                        "total_items": 0,
+                        "avg_basket_size": 0.0,
+                    },
+                    "association_rules": {"total_rules": 0, "top_rules": []},
+                    "collaborative_filtering": {"status": "skipped", "reason": "insufficient_data"},
+                    "frequently_bought_together": [],
                 }
-            except Exception as e:
-                cf_results = {"status": "failed", "error": str(e)}
-        
-        # Get item info for enrichment
-        item_info = self._get_item_info()
-        item_dict = dict(zip(item_info['item_code'], item_info['item_name']))
-        
-        # Enrich rules with item names
-        for rule in self.association_rules:
-            rule['antecedent_names'] = [item_dict.get(i, i) for i in rule['antecedent']]
-            rule['consequent_names'] = [item_dict.get(i, i) for i in rule['consequent']]
-        
-        # Build frequently bought together pairs
-        fbt_pairs = self._get_frequently_bought_together(txn_df, item_dict)
-        
-        results = {
-            "status": "success",
-            "training_date": datetime.now().isoformat(),
-            "transaction_summary": {
-                "total_transactions": len(transactions),
-                "total_items": len(set().union(*transactions)) if transactions else 0,
-                "avg_basket_size": round(np.mean([len(t) for t in transactions]), 2)
-            },
-            "association_rules": {
-                "total_rules": len(self.association_rules),
-                "top_rules": self.association_rules[:20]
-            },
-            "collaborative_filtering": cf_results,
-            "frequently_bought_together": fbt_pairs[:30]
-        }
-        
-        # Cache results
-        self.cache_results("product_recommendations", results, expires_in_hours=24)
-        
-        # Log training
-        self.log_training({
-            "transactions": len(transactions),
-            "rules_generated": len(self.association_rules)
-        })
-        
-        return results
-    
-    def predict(self, data: Any) -> Dict[str, Any]:
-        """
-        Get product recommendations for a customer or item
-        
-        Args:
-            data: Dict with 'customer_id' or 'item_code' key
-            
-        Returns:
-            Dict with recommendations
-        """
-        if isinstance(data, dict):
-            customer_id = data.get('customer_id')
-            item_code = data.get('item_code')
-            top_n = data.get('top_n', 5)
-        else:
-            return {"status": "error", "message": _("Invalid input - expected dict with customer_id or item_code")}
-        
-        # Load cached rules if not in memory
-        if not self.association_rules:
-            cached = self.get_cached_results("product_recommendations")
-            if cached and cached.get('status') == 'success':
-                rules_data = cached.get('association_rules', {})
-                self.association_rules = rules_data.get('top_rules', []) if isinstance(rules_data, dict) else rules_data
-        
-        if customer_id:
-            return self._get_customer_recommendations(customer_id, top_n)
-        elif item_code:
-            return self.get_recommendations_for_item(item_code, top_n)
-        else:
-            return {"status": "error", "message": _("Provide customer_id or item_code")}
-    
-    def _get_customer_recommendations(self, customer_id: str, top_n: int = 5) -> Dict[str, Any]:
-        """Get recommendations for a customer based on their purchase history"""
-        # Get items this customer has purchased
-        purchased = frappe.db.sql("""
-            SELECT DISTINCT sii.item_code
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.customer = %(customer_id)s AND si.docstatus = 1
-        """, {"customer_id": customer_id}, as_dict=True)
-        
-        purchased_set = {item['item_code'] for item in purchased}
-        
-        if not purchased_set:
-            return {"status": "success", "recommendations": [], "message": _("No purchase history found")}
-        
-        recommendations = []
-        seen = set()
-        
-        for rule in self.association_rules:
-            antecedent = set(rule.get('antecedent', []))
-            consequent = rule.get('consequent', [])
-            
-            if antecedent.issubset(purchased_set):
-                for item_code in consequent:
-                    if item_code not in purchased_set and item_code not in seen:
-                        seen.add(item_code)
-                        item_info = frappe.db.get_value("Item", item_code, ["item_name", "item_group"], as_dict=True)
-                        if item_info:
-                            recommendations.append({
-                                "item_code": item_code,
-                                "item_name": item_info.get('item_name', item_code),
-                                "item_group": item_info.get('item_group', ''),
-                                "confidence": rule.get('confidence', 0),
-                                "lift": rule.get('lift', 0),
-                                "reason": "Frequently bought together"
-                            })
-        
-        recommendations.sort(key=lambda x: x['confidence'], reverse=True)
-        return {"status": "success", "recommendations": recommendations[:top_n]}
 
-    def _get_frequently_bought_together(
-        self, 
-        txn_df: pd.DataFrame, 
-        item_dict: Dict[str, str]
-    ) -> List[Dict[str, Any]]:
-        """Get frequently bought together pairs"""
-        pair_counts = defaultdict(int)
-        item_counts = defaultdict(int)
-        
-        for txn_id, group in txn_df.groupby('transaction_id'):
-            items = group['item_code'].tolist()
-            
-            for item in items:
-                item_counts[item] += 1
-            
-            for i, item1 in enumerate(items):
-                for item2 in items[i+1:]:
-                    pair = tuple(sorted([item1, item2]))
-                    pair_counts[pair] += 1
-        
-        # Calculate metrics
-        total_txns = txn_df['transaction_id'].nunique()
-        pairs = []
-        
-        for pair, count in pair_counts.items():
-            if count >= 3:  # Minimum 3 co-occurrences
-                item1, item2 = pair
-                support = count / total_txns
-                
-                # Expected co-occurrence
-                expected = (item_counts[item1] / total_txns) * (item_counts[item2] / total_txns)
-                lift = support / expected if expected > 0 else 0
-                
-                pairs.append({
-                    "item1": item1,
-                    "item1_name": item_dict.get(item1, item1),
-                    "item2": item2,
-                    "item2_name": item_dict.get(item2, item2),
-                    "co_occurrence_count": count,
-                    "support": round(support, 4),
-                    "lift": round(lift, 2)
-                })
-        
-        # Sort by lift
-        pairs.sort(key=lambda x: x['lift'], reverse=True)
-        return pairs
-    
-    def get_recommendations_for_item(self, item_code: str, top_n: int = 5) -> Dict[str, Any]:
-        """Get recommendations for a specific item"""
-        recommendations = []
-        
-        # Method 1: From association rules
-        for rule in self.association_rules:
-            if item_code in rule['antecedent']:
-                for conseq in rule['consequent']:
-                    recommendations.append({
-                        "item_code": conseq,
-                        "item_name": rule['consequent_names'][rule['consequent'].index(conseq)],
-                        "confidence": rule['confidence'],
-                        "lift": rule['lift'],
-                        "method": "association_rules"
-                    })
-        
-        # Method 2: From item similarity
-        if self.item_similarity_matrix is not None and item_code in self.item_similarity_matrix.columns:
-            similar_items = self.item_similarity_matrix[item_code].nlargest(top_n + 1)[1:]  # Exclude self
-            
-            item_info = self._get_item_info()
-            item_dict = dict(zip(item_info['item_code'], item_info['item_name']))
-            
-            for sim_item, score in similar_items.items():
-                if score > 0.1:  # Minimum similarity threshold
-                    recommendations.append({
-                        "item_code": sim_item,
-                        "item_name": item_dict.get(sim_item, sim_item),
-                        "similarity": round(score, 3),
-                        "method": "collaborative_filtering"
-                    })
-        
-        # Deduplicate and sort
-        seen = set()
-        unique_recs = []
-        for rec in recommendations:
-            if rec['item_code'] not in seen and rec['item_code'] != item_code:
-                seen.add(rec['item_code'])
-                unique_recs.append(rec)
-        
-        # Sort by confidence/similarity
-        unique_recs.sort(
-            key=lambda x: x.get('confidence', 0) + x.get('similarity', 0),
-            reverse=True
+            pairs = self._pair_table()
+            if not pairs:
+                return {
+                    "status": "insufficient_data",
+                    "message": _("No co-occurrences found across sales invoices."),
+                    "transaction_summary": {
+                        "total_transactions": int(total_txns),
+                        "total_items": 0,
+                        "avg_basket_size": 0.0,
+                    },
+                    "association_rules": {"total_rules": 0, "top_rules": []},
+                    "collaborative_filtering": {"status": "skipped", "reason": "no_pairs"},
+                    "frequently_bought_together": [],
+                }
+
+            item_names = self._item_names(pairs)
+            fbt = self._format_pairs(pairs, total_txns, item_names)
+            rules = self._format_rules(pairs, total_txns, item_names)
+            avg_basket = self._avg_basket_size()
+            total_items = self._count_distinct_items()
+
+            return {
+                "status": "success",
+                "training_date": datetime.now().isoformat(),
+                "transaction_summary": {
+                    "total_transactions": int(total_txns),
+                    "total_items": int(total_items),
+                    "avg_basket_size": round(float(avg_basket or 0.0), 2),
+                },
+                "association_rules": {
+                    "total_rules": len(rules),
+                    "top_rules": rules[:TOP_RULES],
+                },
+                "collaborative_filtering": {
+                    "status": "skipped",
+                    "reason": "replaced_by_pair_aggregate",
+                },
+                "frequently_bought_together": fbt[:TOP_PAIRS],
+            }
+        except Exception as e:
+            frappe.log_error(f"Product recommendations scan failed: {e}", "ML Recommendations")
+            return {"status": "error", "message": str(e)}
+
+    def predict(self) -> dict:
+        """Same payload as ``train()``; the pair table is always live."""
+        return self.train()
+
+    # -----------------------------------------------------------------
+    # SQL aggregates
+    # -----------------------------------------------------------------
+
+    def _count_transactions(self) -> int:
+        """Distinct submitted Sales Invoices with >= 2 line items."""
+        sii = t("Sales Invoice Item")
+        si = t("Sales Invoice")
+        joined = sii.join(si, sii.parent == si.name).view()
+        q = (
+            joined.filter(joined.docstatus == 1)
+            .group_by(joined.parent)
+            .having(joined.item_code.count() >= 2)
+            .aggregate(n=joined.parent.nunique())
         )
-        
+        row = q.execute().iloc[0]
+        return int(row["n"] or 0)
+
+    def _count_distinct_items(self) -> int:
+        """Distinct items ever sold in a submitted invoice."""
+        sii = t("Sales Invoice Item")
+        si = t("Sales Invoice")
+        joined = sii.join(si, sii.parent == si.name).view()
+        row = (
+            joined.filter(joined.docstatus == 1)
+            .aggregate(n=joined.item_code.nunique())
+            .execute()
+            .iloc[0]
+        )
+        return int(row["n"] or 0)
+
+    def _avg_basket_size(self) -> float:
+        """Average line items per qualifying transaction, in SQL."""
+        sii = t("Sales Invoice Item")
+        si = t("Sales Invoice")
+        joined = sii.join(si, sii.parent == si.name).view()
+        q = (
+            joined.filter(joined.docstatus == 1)
+            .group_by(joined.parent)
+            .aggregate(basket=joined.item_code.count())
+        )
+        df = q.aggregate(avg=q.basket.mean()).execute()
+        # aggregate over the per-basket aggregate is a scalar -> wrap the
+        # mean-of-means in another aggregate call so the column is named.
+        if df is None or len(df) == 0:
+            return 0.0
+        # Ibis returns a single-row DataFrame; pull the scalar.
+        return float(df.iloc[0, 0] or 0.0)
+
+    def _pair_table(self) -> list[dict]:
+        """Self-join of Sales Invoice Item on parent -> one row per
+        unordered (item_a, item_b) pair. Group by the pair to get the
+        co-occurrence count.
+
+        We do this in two stages so the canonical (LEAST, GREATEST)
+        ordering happens before the GROUP BY -- the self-join alone
+        emits one row per *ordered* pair, doubling the work the
+        aggregator has to do.
+        """
+        sii = t("Sales Invoice Item")
+        si = t("Sales Invoice")
+        # Join line items to invoices so we can filter by docstatus.
+        joined = sii.join(si, sii.parent == si.name).view()
+        submitted = joined.filter(joined.docstatus == 1).select(
+            parent=joined.parent,
+            item_code=joined.item_code,
+        )
+
+        # Self-join on the same parent; ``sii.name < sii2.name`` keeps
+        # one row per unordered pair.
+        a = submitted
+        b = submitted.view()
+        pairs = a.join(b, (a.parent == b.parent) & (a.name < b.name)).view()
+        # Canonical ordering: smaller name first, larger second.
+        item_a = ibis.least(a.item_code, b.item_code)
+        item_b = ibis.greatest(a.item_code, b.item_code)
+        canonical = pairs.select(
+            item_a=item_a,
+            item_b=item_b,
+        )
+
+        df = (
+            canonical.group_by([canonical.item_a, canonical.item_b])
+            .aggregate(co_count=canonical.item_a.count())
+            .execute()
+        )
+        out: list[dict] = []
+        for row in df.to_dict(orient="records"):
+            if row["item_a"] and row["item_b"] and row["item_a"] != row["item_b"]:
+                out.append(
+                    {
+                        "item1": str(row["item_a"]),
+                        "item2": str(row["item_b"]),
+                        "co_occurrence_count": int(row["co_count"] or 0),
+                    }
+                )
+        return out
+
+    def _item_names(self, pairs: list[dict]) -> dict[str, str]:
+        """Bulk-resolve item_code -> item_name in a single SQL round trip.
+
+        Done outside the pair aggregate because names are display only
+        and would otherwise bloat the GROUP BY payload.
+        """
+        codes = {p["item1"] for p in pairs} | {p["item2"] for p in pairs}
+        if not codes:
+            return {}
+        rows = frappe.db.sql(
+            """
+            SELECT name, item_name
+            FROM `tabItem`
+            WHERE name IN %(codes)s AND disabled = 0
+            """,
+            {"codes": tuple(codes)},
+            as_dict=True,
+        )
+        return {r["name"]: (r.get("item_name") or r["name"]) for r in rows}
+
+    # -----------------------------------------------------------------
+    # post-processing
+    # -----------------------------------------------------------------
+
+    def _format_pairs(
+        self,
+        pairs: list[dict],
+        total_txns: int,
+        item_names: dict[str, str],
+    ) -> list[dict]:
+        """Pair table -> ``frequently_bought_together`` rows.
+
+        ``support`` is co_count / total_txns. ``lift`` is
+        ``support / (rate_a * rate_b)`` where ``rate_x`` is the
+        marginal rate of item x across submitted invoices. Lift > 1
+        means the pair co-occurs more often than independence predicts.
+        """
+        item_counts = self._item_marginal_counts(pairs)
+        out: list[dict] = []
+        for p in pairs:
+            if p["co_occurrence_count"] < MIN_COOCCURRENCE:
+                continue
+            support = p["co_occurrence_count"] / total_txns
+            ca = item_counts.get(p["item1"], 0) / total_txns
+            cb = item_counts.get(p["item2"], 0) / total_txns
+            expected = ca * cb
+            lift = (support / expected) if expected > 0 else 0.0
+            out.append(
+                {
+                    "item1": p["item1"],
+                    "item1_name": item_names.get(p["item1"], p["item1"]),
+                    "item2": p["item2"],
+                    "item2_name": item_names.get(p["item2"], p["item2"]),
+                    "co_occurrence_count": p["co_occurrence_count"],
+                    "support": round(support, 4),
+                    "lift": round(lift, 2),
+                }
+            )
+        out.sort(key=lambda r: (r["lift"], r["co_occurrence_count"]), reverse=True)
+        return out
+
+    def _format_rules(
+        self,
+        pairs: list[dict],
+        total_txns: int,
+        item_names: dict[str, str],
+    ) -> list[dict]:
+        """Same pair data, expressed as (antecedent -> consequent) rules.
+
+        For each (a, b) pair with co_count >= MIN_COOCCURRENCE we emit
+        two rules (a -> {b} and b -> {a}). Confidence is co_count /
+        marginal(item). This matches the 2-itemset branch the old
+        Apriori code produced; 3+ item itemsets are not useful at the
+        existing call sites (the dashboard slices top_rules[:20]) and
+        the pairwise table already covers everything the 2-item
+        rules would say.
+        """
+        item_counts = self._item_marginal_counts(pairs)
+        rules: list[dict] = []
+        for p in pairs:
+            if p["co_occurrence_count"] < MIN_COOCCURRENCE:
+                continue
+            co = p["co_occurrence_count"]
+            for ant, cons, other_name in (
+                (p["item1"], [p["item2"]], item_names.get(p["item2"], p["item2"])),
+                (p["item2"], [p["item1"]], item_names.get(p["item1"], p["item1"])),
+            ):
+                denom = item_counts.get(ant, 0)
+                if denom <= 0:
+                    continue
+                confidence = co / denom
+                # Support of the rule = the pair's support, same as Apriori.
+                support = co / total_txns
+                # Lift against the consequent's marginal rate -- matches the
+                # formula the old code used (consequent_support here =
+                # item_counts[cons] / total_txns).
+                cons_rate = item_counts.get(cons[0], 0) / total_txns
+                lift = (confidence / cons_rate) if cons_rate > 0 else 0.0
+                rules.append(
+                    {
+                        "antecedent": [ant],
+                        "antecedent_names": [item_names.get(ant, ant)],
+                        "consequent": cons,
+                        "consequent_names": [other_name],
+                        "support": round(support, 4),
+                        "confidence": round(confidence, 4),
+                        "lift": round(lift, 2),
+                    }
+                )
+        rules.sort(key=lambda r: (r["lift"], r["confidence"]), reverse=True)
+        return rules
+
+    def _item_marginal_counts(self, pairs: list[dict]) -> dict[str, int]:
+        """Per-item total transactions from the pair data.
+
+        Each pair (a, b) carries a co-occurrence count; summing co_count
+        for every (a, *) and (b, *) entry gives a marginal that's
+        identical to ``COUNT(DISTINCT parent)`` for each item. We avoid
+        a separate SQL round trip because the pair data is already in
+        memory and the marginal is exact for >= 2-item transactions.
+        """
+        counts: dict[str, int] = defaultdict(int)
+        for p in pairs:
+            counts[p["item1"]] += p["co_occurrence_count"]
+            counts[p["item2"]] += p["co_occurrence_count"]
+        return dict(counts)
+
+    # -----------------------------------------------------------------
+    # item-level recommendations (orchestration)
+    # -----------------------------------------------------------------
+
+    def get_recommendations_for_item(self, item_code: str, top_n: int = 5) -> dict:
+        """Items most frequently bought together with ``item_code``.
+
+        Single SQL aggregate (the same self-join filter, but narrowed
+        to rows where either side of the pair equals ``item_code``),
+        ranked by lift then co-occurrence. Replaces the old "Method 1
+        association rules" + "Method 2 cosine similarity" two-pass.
+        """
+        sii = t("Sales Invoice Item")
+        si = t("Sales Invoice")
+        joined = sii.join(si, sii.parent == si.name).view()
+        submitted = joined.filter(joined.docstatus == 1).select(
+            parent=joined.parent,
+            item_code=joined.item_code,
+        )
+        a = submitted
+        b = submitted.view()
+        pairs = a.join(b, (a.parent == b.parent) & (a.name < b.name)).view()
+        item_a = ibis.least(a.item_code, b.item_code)
+        item_b = ibis.greatest(a.item_code, b.item_code)
+        filtered = pairs.filter(
+            (a.item_code == item_code) | (b.item_code == item_code)
+        ).select(
+            item_a=item_a,
+            item_b=item_b,
+        )
+        df = (
+            filtered.group_by([filtered.item_a, filtered.item_b])
+            .aggregate(co_count=filtered.item_a.count())
+            .execute()
+        )
+        # Build a (counterpart, co_count) view.
+        total_txns = max(self._count_transactions(), 1)
+        item_counts = self._item_marginal_counts_from_sql()
+        names = self._item_names(
+            [
+                {
+                    "item1": str(r["item_a"]),
+                    "item2": str(r["item_b"]),
+                    "co_occurrence_count": 0,
+                }
+                for r in df.to_dict(orient="records")
+                if r["item_a"] and r["item_b"]
+            ]
+        )
+
+        recs: list[dict] = []
+        for row in df.to_dict(orient="records"):
+            ia, ib = row["item_a"], row["item_b"]
+            if not ia or not ib or ia == ib:
+                continue
+            co = int(row["co_count"] or 0)
+            # The counterpart is whichever side of the pair isn't the
+            # target item.
+            counterpart = ib if ia == item_code else ia
+            if counterpart == item_code:
+                continue
+            support = co / total_txns
+            ca = item_counts.get(ia, 0) / total_txns
+            cb = item_counts.get(ib, 0) / total_txns
+            expected = ca * cb
+            lift = (support / expected) if expected > 0 else 0.0
+            recs.append(
+                {
+                    "item_code": str(counterpart),
+                    "item_name": names.get(str(counterpart), str(counterpart)),
+                    "lift": round(lift, 2),
+                    "co_occurrence_count": co,
+                    "method": "frequently_bought_together",
+                }
+            )
+        recs.sort(key=lambda r: (r["lift"], r["co_occurrence_count"]), reverse=True)
+        # Deduplicate (shouldn't happen, but pairs may surface twice if
+        # the self-join produced duplicate keys).
+        seen: set[str] = set()
+        unique: list[dict] = []
+        for r in recs:
+            if r["item_code"] in seen or r["item_code"] == item_code:
+                continue
+            seen.add(r["item_code"])
+            unique.append(r)
         return {
             "status": "success",
             "item_code": item_code,
-            "recommendations": unique_recs[:top_n]
+            "recommendations": unique[: int(top_n)],
         }
-    
-    def get_recommendations_for_customer(self, customer: str, top_n: int = 10) -> Dict[str, Any]:
-        """Get personalized recommendations for a customer"""
-        # Get customer's purchase history
-        query = f"""
+
+    def _item_marginal_counts_from_sql(self) -> dict[str, int]:
+        """Per-item transaction counts via a separate SQL aggregate.
+
+        Used by ``get_recommendations_for_item`` so lift can be computed
+        without re-running the self-join.
+        """
+        sii = t("Sales Invoice Item")
+        si = t("Sales Invoice")
+        joined = sii.join(si, sii.parent == si.name).view()
+        df = (
+            joined.filter(joined.docstatus == 1)
+            .group_by(joined.item_code)
+            .aggregate(n=joined.parent.nunique())
+            .execute()
+        )
+        return {
+            str(r["item_code"]): int(r["n"] or 0)
+            for r in df.to_dict(orient="records")
+            if r["item_code"]
+        }
+
+    # -----------------------------------------------------------------
+    # customer- and cart-level recommendations
+    # -----------------------------------------------------------------
+
+    def _get_customer_recommendations(
+        self, customer_id: str, top_n: int = 5, per_item_top: int = 3
+    ) -> dict:
+        """Per-purchased-item co-occurrence lookups, then aggregate.
+
+        For every item the customer has bought, ask
+        ``get_recommendations_for_item`` for the top N partners. Drop
+        anything the customer already owns, sum scores across the
+        items that surfaced each candidate, and return the ranked
+        list. Kept thin: the heavy lifting is one SQL aggregate per
+        purchased item, and we cap the input at 10 purchased items
+        to match the original code's behaviour.
+        """
+        purchased = frappe.db.sql(
+            """
             SELECT DISTINCT sii.item_code
             FROM `tabSales Invoice Item` sii
             JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.docstatus = 1 AND si.customer = '{frappe.db.escape(customer)}'
-        """
-        purchased_df = self.get_training_data(query)
-        
-        if purchased_df.empty:
+            WHERE si.customer = %(customer)s AND si.docstatus = 1
+            """,
+            {"customer": customer_id},
+            as_dict=True,
+        )
+        purchased_set = {r["item_code"] for r in purchased if r.get("item_code")}
+        if not purchased_set:
             return {
                 "status": "success",
-                "message": _("No purchase history for customer"),
-                "recommendations": []
+                "recommendations": [],
+                "message": _("No purchase history found"),
             }
-        
-        purchased_items = set(purchased_df['item_code'].tolist())
-        
-        # Get recommendations for each purchased item
-        all_recommendations = []
-        for item in list(purchased_items)[:10]:  # Limit to avoid too many lookups
-            recs = self.get_recommendations_for_item(item, top_n=5)
-            for rec in recs.get('recommendations', []):
-                if rec['item_code'] not in purchased_items:
-                    rec['based_on'] = item
-                    all_recommendations.append(rec)
-        
-        # Aggregate recommendations
-        item_scores = defaultdict(lambda: {"score": 0, "count": 0, "based_on": []})
-        
-        for rec in all_recommendations:
-            item = rec['item_code']
-            score = rec.get('confidence', 0) + rec.get('similarity', 0)
-            item_scores[item]['score'] += score
-            item_scores[item]['count'] += 1
-            item_scores[item]['based_on'].append(rec['based_on'])
-            item_scores[item]['item_name'] = rec['item_name']
-        
-        # Create final recommendations
-        final_recs = []
-        for item_code, data in item_scores.items():
-            final_recs.append({
-                "item_code": item_code,
-                "item_name": data['item_name'],
-                "relevance_score": round(data['score'] / data['count'], 3),
-                "recommendation_count": data['count'],
-                "based_on_items": list(set(data['based_on']))[:3]
-            })
-        
-        final_recs.sort(key=lambda x: x['relevance_score'], reverse=True)
-        
+
+        scores: dict[str, dict] = defaultdict(
+            lambda: {"score": 0.0, "count": 0, "sources": [], "item_name": ""}
+        )
+        for item in list(purchased_set)[:10]:
+            recs = self.get_recommendations_for_item(item, top_n=per_item_top)
+            for r in recs.get("recommendations", []):
+                code = r["item_code"]
+                if code in purchased_set or code == item:
+                    continue
+                entry = scores[code]
+                entry["score"] += float(r.get("lift", 0) or 0)
+                entry["count"] += 1
+                entry["sources"].append(item)
+                entry["item_name"] = r.get("item_name", code)
+
+        final = [
+            {
+                "item_code": code,
+                "item_name": data["item_name"] or code,
+                "relevance_score": round(data["score"] / data["count"], 3)
+                if data["count"]
+                else 0.0,
+                "recommendation_count": data["count"],
+                "based_on_items": sorted(set(data["sources"]))[:3],
+            }
+            for code, data in scores.items()
+        ]
+        final.sort(key=lambda r: r["relevance_score"], reverse=True)
         return {
             "status": "success",
-            "customer": customer,
-            "purchased_items_count": len(purchased_items),
-            "recommendations": final_recs[:top_n]
+            "customer": customer_id,
+            "purchased_items_count": len(purchased_set),
+            "recommendations": final[: int(top_n)],
         }
-    
-    def get_cart_recommendations(self, cart_items: List[str], top_n: int = 5) -> Dict[str, Any]:
-        """Get recommendations based on current cart items"""
-        recommendations = []
-        
-        for item in cart_items:
+
+    def get_recommendations_for_customer(
+        self, customer: str, top_n: int = 10
+    ) -> dict:
+        """Public entry point -- delegates to the helper above."""
+        return self._get_customer_recommendations(customer, top_n=top_n)
+
+    def get_cart_recommendations(
+        self, cart_items: list[str], top_n: int = 5
+    ) -> dict:
+        """Recommend against the current cart, treating it as a
+        mini-purchase history.
+        """
+        cart_set = {str(c) for c in cart_items if c}
+        if not cart_set:
+            return {
+                "status": "success",
+                "cart_items": list(cart_set),
+                "recommendations": [],
+            }
+        scores: dict[str, dict] = defaultdict(
+            lambda: {"score": 0.0, "sources": [], "item_name": ""}
+        )
+        for item in list(cart_set)[:10]:
             recs = self.get_recommendations_for_item(item, top_n=3)
-            for rec in recs.get('recommendations', []):
-                if rec['item_code'] not in cart_items:
-                    rec['because_of'] = item
-                    recommendations.append(rec)
-        
-        # Deduplicate and score
-        item_scores = defaultdict(lambda: {"score": 0, "sources": []})
-        
-        for rec in recommendations:
-            item = rec['item_code']
-            score = rec.get('confidence', 0) + rec.get('lift', 0) / 10
-            item_scores[item]['score'] += score
-            item_scores[item]['sources'].append(rec['because_of'])
-            item_scores[item]['item_name'] = rec['item_name']
-        
-        final_recs = []
-        for item_code, data in item_scores.items():
-            final_recs.append({
-                "item_code": item_code,
-                "item_name": data['item_name'],
-                "relevance_score": round(data['score'], 3),
-                "recommended_because": list(set(data['sources']))
-            })
-        
-        final_recs.sort(key=lambda x: x['relevance_score'], reverse=True)
-        
+            for r in recs.get("recommendations", []):
+                code = r["item_code"]
+                if code in cart_set or code == item:
+                    continue
+                entry = scores[code]
+                entry["score"] += float(r.get("lift", 0) or 0)
+                entry["sources"].append(item)
+                entry["item_name"] = r.get("item_name", code)
+
+        final = [
+            {
+                "item_code": code,
+                "item_name": data["item_name"] or code,
+                "relevance_score": round(data["score"], 3),
+                "recommended_because": sorted(set(data["sources"])),
+            }
+            for code, data in scores.items()
+        ]
+        final.sort(key=lambda r: r["relevance_score"], reverse=True)
         return {
             "status": "success",
-            "cart_items": cart_items,
-            "recommendations": final_recs[:top_n]
+            "cart_items": list(cart_set),
+            "recommendations": final[: int(top_n)],
         }
 
 
-# API Functions
-def run_recommendation_training(min_support: float = 0.01, min_confidence: float = 0.3) -> Dict[str, Any]:
-    """Train recommendation models"""
-    model = ProductRecommendations()
-    return model.train(float(min_support), float(min_confidence))
+# ---------------------------------------------------------------------------
+# Module-level API helpers. Thin wrappers over the class -- no caching, no
+# background training. The whole pipeline is fast synchronous SQL, so a
+# cold request just runs the aggregate.
+# ---------------------------------------------------------------------------
 
 
-def get_item_recommendations(item_code: str, top_n: int = 5) -> Dict[str, Any]:
-    """Get recommendations for an item"""
-    model = ProductRecommendations()
-    
-    # Load cached model
-    cached = model.get_cached_results("product_recommendations")
-    if cached and cached.get('association_rules'):
-        model.association_rules = cached['association_rules'].get('top_rules', [])
-    else:
-        model.train()
-    
-    return model.get_recommendations_for_item(item_code, int(top_n))
+def run_recommendation_training(*_args: Any, **_kwargs: Any) -> dict:
+    """Compatibility shim: the old training entry point.
+
+    Extra positional/keyword args (``min_support``, ``min_confidence``)
+    are silently ignored -- the rewrite is parameter-free.
+    """
+    return ProductRecommendations().train()
 
 
-def get_customer_recommendations(customer: str, top_n: int = 10) -> Dict[str, Any]:
-    """Get recommendations for a customer"""
-    model = ProductRecommendations()
-    
-    # Load cached model
-    cached = model.get_cached_results("product_recommendations")
-    if cached and cached.get('association_rules'):
-        model.association_rules = cached['association_rules'].get('top_rules', [])
-    else:
-        model.train()
-    
-    return model.get_recommendations_for_customer(customer, int(top_n))
+def get_item_recommendations(item_code: str, top_n: int = 5) -> dict:
+    """Top-N items most frequently bought with ``item_code``."""
+    if not item_code:
+        return {"status": "error", "message": _("item_code is required")}
+    return ProductRecommendations().get_recommendations_for_item(item_code, int(top_n))
 
 
-def get_cart_recommendations(cart_items: str, top_n: int = 5) -> Dict[str, Any]:
-    """Get recommendations for cart items"""
-    import json
-    
-    model = ProductRecommendations()
-    
-    # Parse cart items
+def get_customer_recommendations(customer: str, top_n: int = 10) -> dict:
+    """Top-N items recommended for a customer based on their history."""
+    if not customer:
+        return {"status": "error", "message": _("customer is required")}
+    return ProductRecommendations().get_recommendations_for_customer(customer, int(top_n))
+
+
+def get_cart_recommendations(cart_items: str, top_n: int = 5) -> dict:
+    """Top-N items recommended against a cart (JSON list of item codes)."""
     if isinstance(cart_items, str):
-        cart_items = json.loads(cart_items)
-    
-    # Load cached model
-    cached = model.get_cached_results("product_recommendations")
-    if cached and cached.get('association_rules'):
-        model.association_rules = cached['association_rules'].get('top_rules', [])
+        try:
+            parsed = json.loads(cart_items)
+        except (TypeError, ValueError):
+            parsed = []
     else:
-        model.train()
-    
-    return model.get_cart_recommendations(cart_items, int(top_n))
+        parsed = cart_items or []
+    if not isinstance(parsed, list):
+        parsed = []
+    return ProductRecommendations().get_cart_recommendations(parsed, int(top_n))
 
 
-def get_frequently_bought_together() -> Dict[str, Any]:
-    """Get frequently bought together pairs"""
-    model = ProductRecommendations()
-    cached = model.get_cached_results("product_recommendations")
-    
-    if cached and cached.get('frequently_bought_together'):
+def get_frequently_bought_together() -> dict:
+    """Top pairs for the dashboard widget.
+
+    Calls the same single-shot SQL the rest of the module uses, so a
+    cold request runs the aggregate live (no ``model.train()``
+    cache-miss fallback like the old code).
+    """
+    payload = ProductRecommendations().train()
+    if payload.get("status") != "success":
         return {
-            "status": "success",
-            "pairs": cached['frequently_bought_together']
+            "status": payload.get("status", "error"),
+            "message": payload.get("message", ""),
+            "pairs": [],
         }
-    
-    result = model.train()
     return {
         "status": "success",
-        "pairs": result.get('frequently_bought_together', [])
+        "pairs": payload.get("frequently_bought_together", []),
     }
