@@ -334,7 +334,7 @@ class ExecutiveReports:
                 from insights.ml.hr_intelligence import HRIntelligence
                 hr_intel = HRIntelligence()
                 data["hr"] = hr_intel.get_hr_overview(period)
-            except:
+            except Exception:
                 data["hr"] = {}
             
             # Manufacturing intelligence
@@ -350,7 +350,7 @@ class ExecutiveReports:
                 from insights.ml.marketing_intelligence import MarketingIntelligence
                 mkt_intel = MarketingIntelligence()
                 data["marketing"] = mkt_intel.get_marketing_overview(period)
-            except:
+            except Exception:
                 data["marketing"] = {}
             
             return data

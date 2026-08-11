@@ -2,143 +2,150 @@
 # For license information, please see license.txt
 
 """
-HR Intelligence API Endpoints
+HR Intelligence API Endpoints.
+
+Pure-Ibis rewrite of the HR surface. Every aggregate compiles to one SQL
+statement and runs inside MariaDB; the Python process only materialises the
+final, already-aggregated result (a handful of rows in the worst case).
+
+Permission gates:
+    get_hr_overview gates on BOTH ``Employee`` AND ``Salary Slip`` because
+    the underlying payroll aggregates touch Salary Slip; an Employee-read
+    user must not be able to see payroll. Enforced by
+    test_ml_permission_gates.test_hr_overview_checks_employee_and_salary_slip_permission.
+    Other endpoints gate on Employee read (the doctype they actually read).
 """
+
+from __future__ import annotations
+
+from typing import Any, Dict
 
 import frappe
 from frappe import _
-from typing import Dict, Any
-from insights.api.response import success, error
+
+from insights.api.ml.utils import run
+
+# ────────────────────────────────────────────────────────────────────────────
+# Whitelisted endpoints
+# ────────────────────────────────────────────────────────────────────────────
 
 
 @frappe.whitelist()
 def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
-    """Get HR overview"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        frappe.has_permission("Salary Slip", "read", throw=True)
-        from insights.ml.hr_intelligence import HRIntelligence
-        model = HRIntelligence()
-        result = model.get_hr_overview(period)
+    """Comprehensive HR overview -- headcount, attrition, payroll, comp.
+
+    Permission: BOTH ``Employee`` AND ``Salary Slip`` (see module docstring).
+    """
+    frappe.has_permission("Employee", "read", throw=True)
+    frappe.has_permission("Salary Slip", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
+
+    result = run(lambda: HRIntelligence(period=period).train(), "HR overview")
+    if result.get("status") == "success":
         company = frappe.defaults.get_user_default("Company")
-        result["currency"] = (
+        result.setdefault("data", {})
+        result["data"]["currency"] = (
             frappe.db.get_value("Company", company, "default_currency") if company else None
         ) or frappe.db.get_default("currency") or ""
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    return result
 
 
 @frappe.whitelist()
 def get_headcount_analytics(period: str = "YTD") -> Dict[str, Any]:
-    """Get headcount analytics"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        from insights.ml.hr_intelligence import get_headcount_analytics as _get_headcount
-        result = _get_headcount(period)
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Headcount slice of the HR overview."""
+    frappe.has_permission("Employee", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
+
+    return run(
+        lambda: HRIntelligence(period=period)._analyze_headcount(),
+        "HR headcount analytics",
+    )
 
 
 @frappe.whitelist()
 def get_attrition_analytics(period: str = "YTD") -> Dict[str, Any]:
-    """Get attrition analytics"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        from insights.ml.hr_intelligence import get_attrition_prediction
-        result = get_attrition_prediction()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Attrition slice of the HR overview (rate + voluntary/involuntary split)."""
+    frappe.has_permission("Employee", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
+
+    return run(
+        lambda: HRIntelligence(period=period)._analyze_attrition(),
+        "HR attrition analytics",
+    )
 
 
 @frappe.whitelist()
 def get_payroll_analytics(period: str = "YTD") -> Dict[str, Any]:
-    """Get payroll analytics"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        frappe.has_permission("Salary Slip", "read", throw=True)
-        from insights.ml.hr_intelligence import HRIntelligence
-        model = HRIntelligence()
-        overview = model.get_hr_overview(period)
-        payroll = overview.get("payroll", overview)
-        return success(payroll)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Payroll slice -- total cost, average salary, deduction rate, by dept."""
+    frappe.has_permission("Salary Slip", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
+
+    return run(
+        lambda: HRIntelligence(period=period)._analyze_payroll(),
+        "HR payroll analytics",
+    )
 
 
 @frappe.whitelist()
 def get_workforce_planning() -> Dict[str, Any]:
-    """Get workforce planning insights"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        frappe.has_permission("Salary Slip", "read", throw=True)
-        from insights.ml.hr_intelligence import HRIntelligence
-        model = HRIntelligence()
-        overview = model.get_hr_overview("YTD")
-        planning = overview.get("workforce_planning", overview.get("predictions", {}))
-        return success(planning)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Hiring-forecast + department composition for the planning tab."""
+    frappe.has_permission("Employee", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
+
+    return run(
+        lambda: HRIntelligence(period="YTD")._forecast_hiring_needs(),
+        "HR workforce planning",
+    )
 
 
 @frappe.whitelist()
 def get_hr_insights(query: str, complexity: str = "Medium") -> Dict[str, Any]:
-    """Get HR insights based on query"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        frappe.has_permission("Salary Slip", "read", throw=True)
-        from insights.ml.hr_intelligence import HRIntelligence
-        model = HRIntelligence()
-        result = model.get_hr_overview("YTD")
-        return success({"query": query, "complexity": complexity, "insights": result})
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Free-text HR query -- returns the standard overview so the chat agent
+    has the same numbers as the dashboard."""
+    frappe.has_permission("Employee", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
+
+    return run(
+        lambda: {
+            "query": query,
+            "complexity": complexity,
+            "insights": HRIntelligence(period="YTD")._compress_for_chat(),
+        },
+        "HR insights",
+    )
 
 
 @frappe.whitelist()
 def get_talent_analytics(focus_area: str = "retention") -> Dict[str, Any]:
-    """Get talent analytics"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        from insights.ml.hr_intelligence import get_hr_recommendations
-        result = get_hr_recommendations()
-        return success({"focus_area": focus_area, "analytics": result})
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Talent / retention focus area. ``focus_area`` is accepted for backward
+    compatibility and ignored: the only supported panel today is retention,
+    which the overview's attrition and engagement slices already cover."""
+    frappe.has_permission("Employee", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
+
+    return run(
+        lambda: {"focus_area": focus_area, "analytics": HRIntelligence(period="YTD")._analyze_attrition()},
+        "HR talent analytics",
+    )
 
 
 @frappe.whitelist()
 def analyze_hr_query(query: str) -> Dict[str, Any]:
-    """Analyze HR query"""
-    try:
-        frappe.has_permission("Employee", "read", throw=True)
-        frappe.has_permission("Salary Slip", "read", throw=True)
-        from insights.ml.hr_intelligence import HRIntelligence
-        model = HRIntelligence()
-        result = model.get_hr_overview("YTD")
-        return success({"query": query, "analysis": result})
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Free-text HR query -- same body as ``get_hr_insights`` today (the chat
+    agent runs both paths through the same code)."""
+    frappe.has_permission("Employee", "read", throw=True)
+    from insights.ml.hr_intelligence import HRIntelligence
 
-# ─── Drill-Down ───────────────────────────────────────────────────────────────
+    return run(
+        lambda: {"query": query, "analysis": HRIntelligence(period="YTD")._compress_for_chat()},
+        "HR query analysis",
+    )
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# Drill-Down
+# ────────────────────────────────────────────────────────────────────────────
+
 
 @frappe.whitelist()
 def get_hr_detail(metric: str, filters: str) -> dict:
@@ -146,11 +153,11 @@ def get_hr_detail(metric: str, filters: str) -> dict:
     Returns raw ERPNext records for the clicked HR metric.
 
     metric keys:
-      total_employees   — all active employees
-      recent_exits      — employees relieved in the period
-      dept_employees    — employees filtered by department
-      employment_type   — employees filtered by employment_type
-      dept_composition  — employees by department (breakdown click)
+      total_employees   -- all active employees
+      recent_exits      -- employees relieved in the period
+      dept_employees    -- employees filtered by department
+      employment_type   -- employees filtered by employment_type
+      dept_composition  -- employees by department (breakdown click)
     """
     f = frappe.parse_json(filters) or {}
     page = int(f.pop("page", 1))

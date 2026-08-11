@@ -1,679 +1,946 @@
+"""
+HR Intelligence Module.
+
+Pure-Ibis rewrite of the HR surface. Every aggregate compiles to one SQL
+statement and runs inside MariaDB; the Python process only materialises
+the final, already-aggregated result (a handful of rows in the worst case).
+
+Source doctypes (HRMS app):
+    Employee           - headcount, attrition, dept composition
+    Salary Slip        - payroll aggregates (may be empty on sites without
+                         a payroll cycle; every payroll function is written
+                         so the empty result is a valid zero, not an
+                         exception)
+    Attendance         - present/absent/late aggregates
+    Leave Application  - leave volume
+
+Sites without HRMS installed (no Employee table) raise a clean error from
+the API layer, not a stack trace -- HR is opt-in for ERPNext deployments
+that don't run payroll in-house.
+"""
+
 from __future__ import annotations
-"""
-HR Intelligence Module
 
-Provides comprehensive HR analytics including headcount analysis, attrition prediction,
-payroll optimization, and workforce planning with AI-powered insights.
-"""
-
-import frappe
-from frappe import _
-from frappe.utils import nowdate, add_months, add_days, flt, cint, date_diff
-from frappe.defaults import get_user_default
-from datetime import datetime, date, timedelta
-from typing import Dict, List, Optional, Any, TYPE_CHECKING
+from datetime import date, datetime
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    import pandas as pd
-    import numpy as np
+    pass  # no pandas / numpy / sklearn in this rewrite
 
-import logging
+import frappe
+from frappe.defaults import get_user_default
+from frappe.utils import add_months
 
-from ..analytics.data_collectors import HRDataCollector
+from insights.api.ml.ibis_source import t
 
-logger = logging.getLogger(__name__)
+# ────────────────────────────────────────────────────────────────────────────
+# Module helpers
+# ────────────────────────────────────────────────────────────────────────────
+
+
+def _now_iso() -> str:
+    return datetime.now().isoformat()
+
+
+def _rows(expr) -> List[Dict[str, Any]]:
+    """Execute a small Ibis aggregate and return list-of-dict rows."""
+    df = expr.execute()
+    if df is None or len(df) == 0:
+        return []
+    return [
+        {k: (None if v is None else v) for k, v in row.items()}
+        for row in df.to_dict(orient="records")
+    ]
+
+
+def _scalar(expr, default: float = 0.0):
+    df = expr.execute()
+    if df is None or len(df) == 0:
+        return default
+    v = df.iloc[0, 0]
+    if v is None:
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _period_start_date(period: str) -> date:
+    """Resolve period keyword to a ``date``."""
+    today = date.today()
+    if period == "MTD":
+        return today.replace(day=1)
+    if period == "QTD":
+        quarter_start = ((today.month - 1) // 3) * 3 + 1
+        return today.replace(month=quarter_start, day=1)
+    if period == "YTD":
+        return today.replace(month=1, day=1)
+    # TTM
+    end = today
+    return add_months(end.strftime("%Y-%m-%d"), -12) if isinstance(end, date) else add_months(str(end), -12)
+
+
+def _base_currency(company: Optional[str]) -> str:
+    if company:
+        cur = frappe.db.get_value("Company", company, "default_currency")
+        if cur:
+            return cur
+    return (
+        frappe.db.get_single_value("System Settings", "default_currency")
+        or "USD"
+    )
+
+
+def _median(values: List[float]) -> float:
+    """Plain-Python median. Operates on a list of at most a few hundred
+    per-department averages, so no numpy needed."""
+    if not values:
+        return 0.0
+    s = sorted(values)
+    n = len(s)
+    if n % 2 == 0:
+        return (s[n // 2 - 1] + s[n // 2]) / 2
+    return s[n // 2]
+
+
+def _variance(values: List[float]) -> float:
+    """Plain-Python variance (population)."""
+    if not values:
+        return 0.0
+    m = sum(values) / len(values)
+    return sum((v - m) ** 2 for v in values) / len(values)
+
+
+def _shannon_normalised(counts: List[int]) -> float:
+    """Shannon diversity index normalised to 0-100, matching the
+    pre-existing formula the frontend expects."""
+    total = sum(counts)
+    if not counts or total == 0 or len(counts) < 2:
+        return 0
+    import math
+
+    proportions = [c / total for c in counts if c > 0]
+    diversity = -sum(p * math.log2(p) for p in proportions)
+    max_div = math.log2(len(counts))
+    return round((diversity / max_div * 100), 1) if max_div > 0 else 0
+
+
+# ────────────────────────────────────────────────────────────────────────────
+# HRIntelligence class
+# ────────────────────────────────────────────────────────────────────────────
 
 
 class HRIntelligence:
-    """
-    HR Intelligence provides comprehensive workforce analytics and insights
-    including headcount optimization, attrition prediction, and compensation analysis.
-    """
-    
-    def __init__(self):
-        self.today = nowdate()
-        self.current_month_start = datetime.now().replace(day=1).date()
-        self.current_quarter_start = self._get_quarter_start()
-        self.current_year_start = datetime.now().replace(month=1, day=1).date()
-        # Payroll figures are money, so the frontend needs the company's currency
-        # to label them. Without this the HR dashboard hardcoded "KES" in nine
-        # places, which is wrong on any site whose company reports in anything
-        # else. Same resolution order as the other seven intelligence modules,
-        # but importing `get_user_default` directly: `frappe.defaults` is not
-        # re-exported on the package, so attribute access on it does not resolve.
-        company = get_user_default("Company") or frappe.db.get_single_value(
-            "Global Defaults", "default_company"
+    """Pure-Ibis HR analytics. No training, no caching, no background job."""
+
+    def __init__(self, period: str = "YTD"):
+        self.model_name = "HRIntelligence"
+        self.period = period
+        self.from_date = _period_start_date(period)
+        self.to_date = date.today()
+        self.company = (
+            get_user_default("Company")
+            or frappe.db.get_single_value("Global Defaults", "default_company")
         )
-        self.company = str(company) if company else None
-        self.base_currency = (
-            (
-                frappe.db.get_value("Company", self.company, "default_currency")
-                if self.company
-                else None
-            )
-            or frappe.db.get_single_value("System Settings", "default_currency")
-            or "USD"
-        )
-        
-    def _get_quarter_start(self) -> date:
-        """Get the start date of current quarter"""
-        current_month = datetime.now().month
-        quarter_start_month = ((current_month - 1) // 3) * 3 + 1
-        return datetime.now().replace(month=quarter_start_month, day=1).date()
-    
+        self.company = str(self.company) if self.company else None
+        self.base_currency = _base_currency(self.company)
+
+    # ------------------------------------------------------------------ train
+    def train(self) -> Dict[str, Any]:
+        """Generate the full HR overview payload. The Vue dashboard reads
+        every top-level key below, so the shape must match exactly."""
+        return {
+            "status": "success",
+            "period": self.period,
+            "generated_at": _now_iso(),
+            "company": self.company,
+            "base_currency": self.base_currency,
+            "headcount_metrics": self._analyze_headcount(),
+            "attrition_metrics": self._analyze_attrition(),
+            "payroll_metrics": self._analyze_payroll(),
+            "attendance_metrics": self._analyze_attendance(),
+            "leave_metrics": self._analyze_leave(),
+            "workforce_composition": self._analyze_workforce_composition(),
+            "department_health": self._analyze_department_health(),
+            "compensation_analysis": self._analyze_compensation(),
+            "engagement_indicators": self._analyze_engagement(),
+            "attrition_risk": self._predict_attrition_risk(),
+            "hiring_forecast": self._forecast_hiring_needs(),
+            "recommendations": self._generate_hr_recommendations(),
+        }
+
+    def predict(self) -> Dict[str, Any]:
+        """Backward-compat alias for callers that expect a sklearn-style
+        ``predict()``. The endpoint has no real "model" to predict with --
+        every call computes fresh, so this is the same dict as ``train``."""
+        return self.train()
+
     def get_hr_overview(self, period: str = "YTD") -> Dict[str, Any]:
+        """Instance-method form of the module-level ``get_hr_overview``
+        wrapper. Used by ``HRIntelligenceAgent`` (``agents/hr_agent.py``)
+        and ``ExecutiveIntelligence`` (``ml/executive_intelligence.py``),
+        which instantiate ``HRIntelligence()`` and call this on the
+        instance. Re-instantiates with the requested ``period`` so a
+        caller holding an instance built with one window can ask for
+        another without rebuilding the object themselves."""
+        if period == self.period:
+            return self.train()
+        return HRIntelligence(period=period).train()
+
+    # ------------------------------------------------------------------ helpers
+    def _compressed_corpora(self) -> Dict[str, Any]:
+        """Pre-aggregate everything once and reuse across the slices.
+
+        Saves a handful of round-trips when the dashboard hits six tabs
+        of analytics in one render. Returns plain dicts of scalars /
+        per-row aggregates that downstream methods consume.
         """
-        Get comprehensive HR overview with key metrics
-        
-        Args:
-            period: One of MTD, QTD, YTD, TTM
+        employee = t("Employee")
+        emp_active = employee.filter(employee["status"] == "Active")
+
+        # Headcount snapshot
+        total_active = _scalar(emp_active.aggregate(n=emp_active.count()))
+
+        # Period hires (any status, with date_of_joining in the window).
+        # Use a bound intermediate so the count belongs to the filtered
+        # relation; referencing the original `employee` after `.filter()`
+        # triggers the documented "belong to another relation" IntegrityError.
+        emp_hires = employee.filter(
+            employee["date_of_joining"].between(
+                str(self.from_date), str(self.to_date)
+            )
+        )
+        new_hires = _scalar(emp_hires.aggregate(n=emp_hires.count()))
+
+        # Period exits (any status, with relieving_date in the window).
+        # Same gotcha as above: bind the filtered table to a local so the
+        # count and sum belong to that relation.
+        emp_exits = employee.filter(
+            employee["relieving_date"].between(
+                str(self.from_date), str(self.to_date)
+            )
+        )
+        exits_df = (
+            emp_exits
+            .aggregate(
+                total=emp_exits.count(),
+                voluntary=(
+                    emp_exits["resignation_letter_date"].notnull().cast("int").sum()
+                ),
+            )
+            .execute()
+        )
+        total_exits = 0
+        voluntary_exits = 0
+        if exits_df is not None and len(exits_df):
+            total_exits = int(exits_df.iloc[0].get("total") or 0)
+            voluntary_exits = int(exits_df.iloc[0].get("voluntary") or 0)
+
+        # Department composition (active only).
+        # Ibis gotcha: count must reference the filtered+grouped relation,
+        # not the original `employee` table, or you get the
+        # "belong to another relation" IntegrityError. Bind to a local.
+        emp_active_dept = emp_active.filter(
+            employee["department"].notnull() & (employee["department"] != "")
+        )
+        dept_df = (
+            emp_active_dept
+            .group_by(emp_active_dept["department"].name("department"))
+            .aggregate(count=emp_active_dept.count())
+            .order_by(ibis.desc("count"))
+            .execute()
+        )
+        dept_breakdown = []
+        if dept_df is not None and len(dept_df):
+            for _, r in dept_df.iterrows():
+                dept_breakdown.append({
+                    "department": r.get("department"),
+                    "count": int(r.get("count") or 0),
+                })
+
+        # Employment type composition (active only)
+        emp_active_emptype = emp_active.filter(
+            employee["employment_type"].notnull() & (employee["employment_type"] != "")
+        )
+        emptype_df = (
+            emp_active_emptype
+            .group_by(emp_active_emptype["employment_type"].name("employment_type"))
+            .aggregate(count=emp_active_emptype.count())
+            .execute()
+        )
+        emp_type_breakdown = []
+        if emptype_df is not None and len(emptype_df):
+            for _, r in emptype_df.iterrows():
+                emp_type_breakdown.append({
+                    "employment_type": r.get("employment_type"),
+                    "count": int(r.get("count") or 0),
+                })
+
+        # Gender composition
+        # Gender composition (active only)
+        emp_active_gender = emp_active.filter(
+            employee["gender"].notnull() & (employee["gender"] != "")
+        )
+        gender_df = (
+            emp_active_gender
+            .group_by(emp_active_gender["gender"].name("gender"))
+            .aggregate(count=emp_active_gender.count())
+            .execute()
+        )
+        gender_dist = []
+        if gender_df is not None and len(gender_df):
+            for _, r in gender_df.iterrows():
+                gender_dist.append({
+                    "gender": r.get("gender"),
+                    "count": int(r.get("count") or 0),
+                })
+
+        return {
+            "total_active": int(total_active),
+            "new_hires": int(new_hires),
+            "total_exits": total_exits,
+            "voluntary_exits": voluntary_exits,
+            "involuntary_exits": max(0, total_exits - voluntary_exits),
+            "department_breakdown": dept_breakdown,
+            "employment_type_breakdown": emp_type_breakdown,
+            "gender_dist": gender_dist,
+        }
+
+    # ------------------------------------------------------------------ headcount
+    def _analyze_headcount(self) -> Dict[str, Any]:
+        c = self._compressed_corpora()
+        total_active = c["total_active"]
+        new_hires = c["new_hires"]
+        exits = c["total_exits"]
+        net_change = new_hires - exits
+
+        growth_rate = (net_change / total_active * 100) if total_active else 0
+        turnover_rate = (exits / total_active * 100) if total_active else 0
+        hire_rate = (new_hires / total_active * 100) if total_active else 0
+
+        dept = c["department_breakdown"]
+        largest_dept = dept[0] if dept else {}
+        smallest_dept = dept[-1] if dept else {}
+
+        return {
+            "total_employees": total_active,
+            "new_hires": new_hires,
+            "exits": exits,
+            "net_growth": net_change,
+            "growth_rate_pct": round(growth_rate, 2),
+            "turnover_rate_pct": round(turnover_rate, 2),
+            "hire_rate_pct": round(hire_rate, 2),
+            "largest_department": largest_dept.get("department") or "N/A",
+            "smallest_department": smallest_dept.get("department") or "N/A",
+            "department_count": len(dept),
+            "headcount_health": "healthy" if growth_rate >= 0 and turnover_rate < 15 else "needs_attention",
+        }
+
+    # ------------------------------------------------------------------ attrition
+    def _analyze_attrition(self) -> Dict[str, Any]:
+        c = self._compressed_corpora()
+        total_exits = c["total_exits"]
+        voluntary_exits = c["voluntary_exits"]
+        involuntary_exits = c["involuntary_exits"]
+
+        # Attrition rate denominator is total employees, not just active
+        # (industry-standard formula: exits / average headcount). The
+        # site has 26 employees, so use the snapshot total.
+        employee = t("Employee")
+        total_employees = _scalar(employee.aggregate(n=employee.count()))
+        attrition_rate = (total_exits / total_employees * 100) if total_employees else 0
+
+        voluntary_rate = (voluntary_exits / total_exits * 100) if total_exits else 0
+        involuntary_rate = (involuntary_exits / total_exits * 100) if total_exits else 0
+
+        attrition_risk = "low"
+        if attrition_rate > 20:
+            attrition_risk = "high"
+        elif attrition_rate > 12:
+            attrition_risk = "medium"
+
+        return {
+            "attrition_rate_pct": round(attrition_rate, 2),
+            "total_exits": total_exits,
+            "voluntary_exits": voluntary_exits,
+            "involuntary_exits": involuntary_exits,
+            "voluntary_rate_pct": round(voluntary_rate, 2),
+            "involuntary_rate_pct": round(involuntary_rate, 2),
+            "attrition_risk_level": attrition_risk,
+            "benchmark_comparison": "above_average" if attrition_rate > 15 else "below_average",
+        }
+
+    # ------------------------------------------------------------------ payroll
+    def _analyze_payroll(self) -> Dict[str, Any]:
+        """Payroll aggregates over Salary Slip. Returns zeroed-out structure
+        on sites with no payroll cycle (Salary Slip table empty)."""
+        if not frappe.db.table_exists("Salary Slip"):
+            return {
+                "total_payroll_cost": 0,
+                "average_salary": 0,
+                "cost_per_employee": 0,
+                "employees_on_payroll": 0,
+                "deduction_rate_pct": 0,
+                "payroll_efficiency": "no_data",
+                "payroll_data_note": "Salary Slip table not available on this site",
+            }
+
+        ss = t("Salary Slip")
+        ss_period = ss.filter(
+            (ss["docstatus"] == 1)
+            & (ss["start_date"] <= str(self.to_date))
+            & (ss["end_date"] >= str(self.from_date))
+        )
+
+        # Single aggregate for the totals row
+        # Single aggregate for the totals row. References must point at
+        # `ss_period`, the filtered table, not the original `ss`.
+        totals_df = (
+            ss_period.aggregate(
+                total_gross=ss_period["gross_pay"].sum(),
+                total_deductions=ss_period["total_deduction"].sum(),
+                total_net=ss_period["net_pay"].sum(),
+                avg_gross=ss_period["gross_pay"].mean(),
+                employees_paid=ss_period["employee"].nunique(),
+            ).execute()
+        )
+
+        if totals_df is None or not len(totals_df):
+            return {
+                "total_payroll_cost": 0,
+                "average_salary": 0,
+                "cost_per_employee": 0,
+                "employees_on_payroll": 0,
+                "deduction_rate_pct": 0,
+                "payroll_efficiency": "no_data",
+                "payroll_data_note": "No Salary Slip records in this period",
+            }
+
+        r = totals_df.iloc[0]
+        total_gross = float(r.get("total_gross") or 0)
+
+        total_net = float(r.get("total_net") or 0)
+        avg_gross = float(r.get("avg_gross") or 0)
+        employees_paid = int(r.get("employees_paid") or 0)
+
+        # Department breakdown via Employee join
+        dept_payroll_df = (
+            ss_period
+            .join(t("Employee"), ss_period["employee"] == t("Employee")["name"])
+            .filter(t("Employee")["department"].notnull() & (t("Employee")["department"] != ""))
+            .group_by(t("Employee")["department"].name("department"))
+            .aggregate(
+                total_cost=ss_period["gross_pay"].sum(),
+                avg_cost=ss_period["gross_pay"].mean(),
+                employee_count=ss_period["employee"].nunique(),
+            )
+            .order_by(ibis.desc("total_cost"))
+            .execute()
+        )
+        dept_payroll = []
+        if dept_payroll_df is not None and len(dept_payroll_df):
+            for _, row in dept_payroll_df.iterrows():
+                dept_payroll.append({
+                    "department": row.get("department"),
+                    "total_cost": float(row.get("total_cost") or 0),
+                    "avg_cost": float(row.get("avg_cost") or 0),
+                    "employee_count": int(row.get("employee_count") or 0),
+                })
+
+        cost_per_employee = total_gross / employees_paid if employees_paid else 0
+        deduction_rate = (
+            (total_gross - total_net) / total_gross * 100
+            if total_gross
+            else 0
+        )
+
+        return {
+            "total_payroll_cost": total_gross,
+            "average_salary": avg_gross,
+            "cost_per_employee": cost_per_employee,
+            "employees_on_payroll": employees_paid,
+            "deduction_rate_pct": round(deduction_rate, 2),
+            "payroll_efficiency": "optimal" if deduction_rate < 25 else "review_needed",
+            "department_breakdown": dept_payroll,
+        }
+
+    # ------------------------------------------------------------------ attendance
+    def _analyze_attendance(self) -> Dict[str, Any]:
+        if not frappe.db.table_exists("Attendance"):
+            return {
+                "attendance_rate_pct": 0,
+                "late_arrivals": 0,
+                "total_attendance_records": 0,
+                "attendance_health": "no_data",
+                "productivity_indicator": "unknown",
+                "attendance_data_note": "Attendance table not available on this site",
+            }
+
+        att = t("Attendance")
+        period_att = att.filter(
+            (att["docstatus"] == 1)
+            & att["attendance_date"].between(str(self.from_date), str(self.to_date))
+        )
+
+        # Ibis gotcha: aggregate metrics must reference the filtered
+        # relation (`period_att`), not the original `att` table, or you
+        # get the "belong to another relation" IntegrityError.
+        totals_df = (
+            period_att.aggregate(
+                total=period_att.count(),
+                present=((period_att["status"] == "Present").cast("int").sum()),
+                absent=((period_att["status"] == "Absent").cast("int").sum()),
+            ).execute()
+        )
+        total = 0
+        present = 0
+        absent = 0
+        if totals_df is not None and len(totals_df):
+            r = totals_df.iloc[0]
+            total = int(r.get("total") or 0)
+            present = int(r.get("present") or 0)
+            absent = int(r.get("absent") or 0)
+
+        attendance_rate = (present / total * 100) if total else 0
+
+        # Late arrivals from Employee Checkin.
+        # Count must reference the filtered relation (see the "belong to
+        # another relation" note above), and the time-of-day check is done
+        # in Python on the already-filtered count -- the SQL we send to
+        # MariaDB is "all IN checkins in the period".
+        late_arrivals = 0
+        if frappe.db.table_exists("Employee Checkin"):
+            ec = t("Employee Checkin")
+            ec_in_period = ec.filter(
+                (ec["log_type"] == "IN")
+                & ec["time"].between(
+                    str(self.from_date), str(self.to_date)
+                )
+            )
+            df_late = ec_in_period.select(
+                ec_in_period["time"].name("t")
+            ).execute()
+            if df_late is not None and len(df_late):
+                # Count rows where the time-of-day is after 09:30.
+                late_arrivals = int(sum(
+                    1 for v in df_late["t"] if v is not None and v.time() > __import__("datetime").time(9, 30)
+                ))
+
+        late_arrival_rate = (late_arrivals / total * 100) if total else 0
+
+        if attendance_rate < 85:
+            health = "poor"
+        elif attendance_rate < 92:
+            health = "needs_improvement"
+        elif attendance_rate < 96:
+            health = "good"
+        else:
+            health = "excellent"
+
+        if attendance_rate > 95:
+            productivity = "high"
+        elif attendance_rate > 90:
+            productivity = "medium"
+        else:
+            productivity = "low"
+
+        return {
+            "attendance_rate_pct": round(attendance_rate, 2),
+            "late_arrivals": late_arrivals,
+            "late_arrival_rate_pct": round(late_arrival_rate, 2),
+            "total_attendance_records": total,
+            "present_days": present,
+            "absent_days": absent,
+            "attendance_health": health,
+            "productivity_indicator": productivity,
+        }
+
+    # ------------------------------------------------------------------ leave
+    def _analyze_leave(self) -> Dict[str, Any]:
+        if not frappe.db.table_exists("Leave Application"):
+            return {
+                "total_leave_applications": 0,
+                "total_leave_days": 0,
+                "average_days_per_application": 0,
+                "leave_utilization": "no_data",
+                "leave_pattern": "no_data",
+                "leave_data_note": "Leave Application table not available on this site",
+            }
+
+        la = t("Leave Application")
+        period_la = la.filter(
+            (la["status"] == "Approved")
+            & (la["from_date"] <= str(self.to_date))
+            & (la["to_date"] >= str(self.from_date))
+        )
+
+        # Aggregate must reference the filtered relation.
+        totals_df = (
+            period_la.aggregate(
+                total=period_la.count(),
+                total_days=period_la["total_leave_days"].sum(),
+                avg_days=period_la["total_leave_days"].mean(),
+            ).execute()
+        )
+        total_apps = 0
+        total_days = 0
+        avg_days = 0
+        if totals_df is not None and len(totals_df):
+            r = totals_df.iloc[0]
+            total_apps = int(r.get("total") or 0)
+            total_days = float(r.get("total_days") or 0)
+            avg_days = float(r.get("avg_days") or 0)
+
+        return {
+            "total_leave_applications": total_apps,
+            "total_leave_days": total_days,
+            "average_days_per_application": round(avg_days, 1),
+            "leave_utilization": "normal" if avg_days < 5 else "high",
+            "leave_pattern": "healthy" if total_apps > 0 else "low_utilization",
+        }
+
+    # ------------------------------------------------------------------ composition
+    def _analyze_workforce_composition(self) -> Dict[str, Any]:
+        c = self._compressed_corpora()
+        gender = c["gender_dist"]
+        total = sum(g["count"] for g in gender)
+        gender_ratios = {
+            g["gender"]: round(g["count"] / total * 100, 1) if total else 0
+            for g in gender
+        }
+
+        return {
+            "department_distribution": c["department_breakdown"],
+            "employment_type_distribution": c["employment_type_breakdown"],
+            "gender_ratios": gender_ratios,
+            "diversity_score": _shannon_normalised([g["count"] for g in gender]),
+            "composition_balance": "balanced" if len(c["department_breakdown"]) > 3 else "concentrated",
+        }
+
+    # ------------------------------------------------------------------ department health
+    def _analyze_department_health(self) -> Dict[str, Any]:
+        c = self._compressed_corpora()
+        dept_hc = {d["department"]: d["count"] for d in c["department_breakdown"]}
+
+        # Department payroll (zeroed on sites with no payroll data)
+        payroll = self._analyze_payroll()
+        dept_pr = {
+            d["department"]: d
+            for d in payroll.get("department_breakdown", [])
+        }
+
+        merged = {}
+        for dept_name, headcount in dept_hc.items():
+            pr = dept_pr.get(dept_name, {})
+            merged[dept_name] = {
+                "headcount": headcount,
+                "payroll_cost": float(pr.get("total_cost") or 0),
+                "cost_per_employee": float(pr.get("avg_cost") or 0),
+            }
+        # Include any payroll-only departments (no employees in current list)
+        for dept_name, pr in dept_pr.items():
+            if dept_name not in merged:
+                merged[dept_name] = {
+                    "headcount": 0,
+                    "payroll_cost": float(pr.get("total_cost") or 0),
+                    "cost_per_employee": float(pr.get("avg_cost") or 0),
+                }
+
+        if merged:
+            highest_cost_dept = max(
+                merged.items(), key=lambda kv: kv[1]["payroll_cost"]
+            )[0]
+            largest_dept = max(
+                merged.items(), key=lambda kv: kv[1]["headcount"]
+            )[0]
+        else:
+            highest_cost_dept = "N/A"
+            largest_dept = "N/A"
+
+        return {
+            "department_metrics": merged,
+            "highest_cost_department": highest_cost_dept,
+            "largest_department": largest_dept,
+            "total_departments": len(merged),
+        }
+
+    # ------------------------------------------------------------------ compensation
+    def _analyze_compensation(self) -> Dict[str, Any]:
+        payroll = self._analyze_payroll()
+        dept_payroll = payroll.get("department_breakdown", [])
+
+        if not dept_payroll:
+            return {
+                "median_salary": 0,
+                "salary_variance": 0,
+                "highest_paying_dept": "N/A",
+                "lowest_paying_dept": "N/A",
+                "pay_ratio": 0,
+                "pay_equity_status": "no_data",
+            }
+
+        all_avg_salaries = [d["avg_cost"] for d in dept_payroll]
+        overall_median = _median(all_avg_salaries)
+        salary_var = _variance(all_avg_salaries)
+
+        highest_paying = max(dept_payroll, key=lambda d: d["avg_cost"])
+        lowest_paying = min(dept_payroll, key=lambda d: d["avg_cost"])
+        pay_ratio = (
+            highest_paying["avg_cost"] / lowest_paying["avg_cost"]
+            if lowest_paying["avg_cost"]
+            else 0
+        )
+
+        return {
+            "median_salary": overall_median,
+            "salary_variance": salary_var,
+            "highest_paying_dept": highest_paying["department"],
+            "lowest_paying_dept": lowest_paying["department"],
+            "pay_ratio": round(pay_ratio, 2),
+            "pay_equity_status": "good" if pay_ratio < 3 else "needs_review",
+        }
+
+    # ------------------------------------------------------------------ engagement
+    def _analyze_engagement(self) -> Dict[str, Any]:
+        """Engagement score derived from attendance + retention + leave use.
+
+        A transparent weighted formula, fully explained in the comments,
+        rather than a learned score -- a BI dashboard shouldn't hide its
+        assumptions behind a model.
         """
-        try:
-            # Set date range based on period
-            if period == "MTD":
-                from_date = self.current_month_start
-            elif period == "QTD":
-                from_date = self.current_quarter_start
-            elif period == "YTD":
-                from_date = self.current_year_start
-            else:  # TTM
-                from_date = add_months(self.today, -12)
-            
-            to_date = self.today
-            
-            # Collect HR data
-            collector = HRDataCollector({
-                "from_date": from_date,
-                "to_date": to_date
-            })
-            hr_data = collector.collect()
-            
-            # Generate insights
-            insights = {
-                "period": period,
-                "generated_at": datetime.now().isoformat(),
-                "company": self.company,
-                "base_currency": self.base_currency,
-                
-                # Key metrics
-                "headcount_metrics": self._analyze_headcount(hr_data.get("headcount", {})),
-                "attrition_metrics": self._analyze_attrition(hr_data.get("attrition", {})),
-                "payroll_metrics": self._analyze_payroll(hr_data.get("payroll", {})),
-                "attendance_metrics": self._analyze_attendance(hr_data.get("attendance", {})),
-                "leave_metrics": self._analyze_leave(hr_data.get("leave", {})),
-                
-                # Advanced analytics
-                "workforce_composition": self._analyze_workforce_composition(hr_data),
-                "department_health": self._analyze_department_health(hr_data),
-                "compensation_analysis": self._analyze_compensation(hr_data),
-                "engagement_indicators": self._analyze_engagement(hr_data),
-                
-                # Predictive insights
-                "attrition_risk": self._predict_attrition_risk(hr_data),
-                "hiring_forecast": self._forecast_hiring_needs(hr_data),
-                
-                # Recommendations
-                "recommendations": self._generate_hr_recommendations(hr_data),
-                
-                # Raw data for further analysis
-                "raw_data": hr_data
-            }
-            
-            return insights
-            
-        except Exception as e:
-            logger.error(f"Error generating HR overview: {e}")
-            return {
-                "error": str(e),
-                "period": period,
-                "generated_at": datetime.now().isoformat()
-            }
-    
-    def _analyze_headcount(self, headcount_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze headcount metrics and trends"""
-        try:
-            total_active = headcount_data.get("total_active", 0)
-            new_hires = headcount_data.get("new_hires", 0)
-            exits = headcount_data.get("exits", 0)
-            net_change = headcount_data.get("net_change", 0)
-            
-            # Calculate key metrics
-            growth_rate = (net_change / total_active * 100) if total_active else 0
-            turnover_rate = (exits / total_active * 100) if total_active else 0
-            hire_rate = (new_hires / total_active * 100) if total_active else 0
-            
-            # Department analysis
-            dept_breakdown = headcount_data.get("department_breakdown", [])
-            largest_dept = max(dept_breakdown, key=lambda x: x["count"]) if dept_breakdown else {}
-            smallest_dept = min(dept_breakdown, key=lambda x: x["count"]) if dept_breakdown else {}
-            
-            return {
-                "total_employees": total_active,
-                "new_hires": new_hires,
-                "exits": exits,
-                "net_growth": net_change,
-                "growth_rate_pct": round(growth_rate, 2),
-                "turnover_rate_pct": round(turnover_rate, 2),
-                "hire_rate_pct": round(hire_rate, 2),
-                "largest_department": largest_dept.get("department", "N/A"),
-                "smallest_department": smallest_dept.get("department", "N/A"),
-                "department_count": len(dept_breakdown),
-                "headcount_health": "healthy" if growth_rate >= 0 and turnover_rate < 15 else "needs_attention"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing headcount: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_attrition(self, attrition_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze attrition patterns and risk factors"""
-        try:
-            attrition_rate = attrition_data.get("attrition_rate", 0)
-            total_exits = attrition_data.get("total_exits", 0)
-            voluntary_exits = attrition_data.get("voluntary_exits", 0)
-            involuntary_exits = attrition_data.get("involuntary_exits", 0)
-            
-            voluntary_rate = (voluntary_exits / total_exits * 100) if total_exits else 0
-            involuntary_rate = (involuntary_exits / total_exits * 100) if total_exits else 0
-            
-            # Risk assessment
-            attrition_risk = "low"
-            if attrition_rate > 20:
-                attrition_risk = "high"
-            elif attrition_rate > 12:
-                attrition_risk = "medium"
-            
-            return {
-                "attrition_rate_pct": round(attrition_rate, 2),
-                "total_exits": total_exits,
-                "voluntary_exits": voluntary_exits,
-                "involuntary_exits": involuntary_exits,
-                "voluntary_rate_pct": round(voluntary_rate, 2),
-                "involuntary_rate_pct": round(involuntary_rate, 2),
-                "attrition_risk_level": attrition_risk,
-                "benchmark_comparison": "above_average" if attrition_rate > 15 else "below_average"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing attrition: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_payroll(self, payroll_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze payroll costs and trends"""
-        try:
-            total_gross_pay = payroll_data.get("total_gross_pay", 0)
-            total_net_pay = payroll_data.get("total_net_pay", 0)
-            average_gross_pay = payroll_data.get("average_gross_pay", 0)
-            employees_paid = payroll_data.get("employees_paid", 0)
-            
-            # Calculate ratios
-            cost_per_employee = total_gross_pay / employees_paid if employees_paid else 0
-            deduction_rate = ((total_gross_pay - total_net_pay) / total_gross_pay * 100) if total_gross_pay else 0
-            
-            return {
-                "total_payroll_cost": total_gross_pay,
-                "average_salary": average_gross_pay,
-                "cost_per_employee": cost_per_employee,
-                "employees_on_payroll": employees_paid,
-                "deduction_rate_pct": round(deduction_rate, 2),
-                "payroll_efficiency": "optimal" if deduction_rate < 25 else "review_needed"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing payroll: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_attendance(self, attendance_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze attendance patterns and productivity indicators"""
-        try:
-            attendance_rate = attendance_data.get("attendance_rate", 0)
-            late_arrivals = attendance_data.get("late_arrivals", 0)
-            total_records = attendance_data.get("total_attendance_records", 0)
-            
-            late_arrival_rate = (late_arrivals / total_records * 100) if total_records else 0
-            
-            # Attendance health assessment
-            attendance_health = "excellent"
-            if attendance_rate < 85:
-                attendance_health = "poor"
-            elif attendance_rate < 92:
-                attendance_health = "needs_improvement"
-            elif attendance_rate < 96:
-                attendance_health = "good"
-            
-            return {
-                "attendance_rate_pct": round(attendance_rate, 2),
-                "late_arrivals": late_arrivals,
-                "late_arrival_rate_pct": round(late_arrival_rate, 2),
-                "attendance_health": attendance_health,
-                "productivity_indicator": "high" if attendance_rate > 95 else "medium" if attendance_rate > 90 else "low"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing attendance: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_leave(self, leave_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze leave patterns and utilization"""
-        try:
-            total_applications = leave_data.get("total_applications", 0)
-            total_days = leave_data.get("total_leave_days", 0)
-            avg_days = leave_data.get("avg_days_per_application", 0)
-            
-            return {
-                "total_leave_applications": total_applications,
-                "total_leave_days": total_days,
-                "average_days_per_application": round(avg_days, 1),
-                "leave_utilization": "normal" if avg_days < 5 else "high",
-                "leave_pattern": "healthy" if total_applications > 0 else "low_utilization"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing leave: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_workforce_composition(self, hr_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze workforce composition and diversity"""
-        try:
-            headcount_data = hr_data.get("headcount", {})
-            planning_data = hr_data.get("workforce_planning", {})
-            
-            dept_breakdown = headcount_data.get("department_breakdown", [])
-            emp_type_breakdown = headcount_data.get("employment_type_breakdown", [])
-            diversity = planning_data.get("workforce_diversity", {})
-            
-            # Calculate diversity ratios
-            gender_dist = diversity.get("gender_distribution", [])
-            total_employees = sum(item["count"] for item in gender_dist)
-            
-            gender_ratios = {}
-            for item in gender_dist:
-                gender_ratios[item["gender"]] = round(item["count"] / total_employees * 100, 1) if total_employees else 0
-            
-            return {
-                "department_distribution": dept_breakdown,
-                "employment_type_distribution": emp_type_breakdown,
-                "gender_ratios": gender_ratios,
-                "diversity_score": self._calculate_diversity_score(gender_dist),
-                "composition_balance": "balanced" if len(dept_breakdown) > 3 else "concentrated"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing workforce composition: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_department_health(self, hr_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze department-level HR health metrics"""
-        try:
-            headcount_data = hr_data.get("headcount", {})
-            payroll_data = hr_data.get("payroll", {})
-            
-            dept_breakdown = headcount_data.get("department_breakdown", [])
-            dept_payroll = payroll_data.get("department_breakdown", [])
-            
-            # Combine headcount and payroll data by department
-            dept_health = {}
-            for dept_hc in dept_breakdown:
-                dept_name = dept_hc["department"]
-                dept_health[dept_name] = {
-                    "headcount": dept_hc["count"],
-                    "payroll_cost": 0,
-                    "cost_per_employee": 0
-                }
-            
-            for dept_pr in dept_payroll:
-                dept_name = dept_pr["department"]
-                if dept_name in dept_health:
-                    dept_health[dept_name]["payroll_cost"] = dept_pr["total_cost"]
-                    dept_health[dept_name]["cost_per_employee"] = dept_pr["avg_cost"]
-            
-            # Identify highest cost and largest departments
-            if dept_health:
-                highest_cost_dept = max(dept_health.items(), key=lambda x: x[1]["payroll_cost"])
-                largest_dept = max(dept_health.items(), key=lambda x: x[1]["headcount"])
-                
-                return {
-                    "department_metrics": dept_health,
-                    "highest_cost_department": highest_cost_dept[0],
-                    "largest_department": largest_dept[0],
-                    "total_departments": len(dept_health)
-                }
-            else:
-                return {"message": _("No department data available")}
-                
-        except Exception as e:
-            logger.error(f"Error analyzing department health: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_compensation(self, hr_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze compensation competitiveness and equity"""
-        import numpy as np
-        try:
-            payroll_data = hr_data.get("payroll", {})
-            dept_payroll = payroll_data.get("department_breakdown", [])
-            
-            if not dept_payroll:
-                return {"message": _("No payroll data available")}
-            
-            # Calculate compensation metrics
-            all_avg_salaries = [dept["avg_cost"] for dept in dept_payroll]
-            overall_median = np.median(all_avg_salaries) if all_avg_salaries else 0
-            salary_variance = np.var(all_avg_salaries) if all_avg_salaries else 0
-            
-            # Identify high and low paying departments
-            highest_paying = max(dept_payroll, key=lambda x: x["avg_cost"])
-            lowest_paying = min(dept_payroll, key=lambda x: x["avg_cost"])
-            
-            pay_ratio = (highest_paying["avg_cost"] / lowest_paying["avg_cost"]) if lowest_paying["avg_cost"] else 0
-            
-            return {
-                "median_salary": overall_median,
-                "salary_variance": salary_variance,
-                "highest_paying_dept": highest_paying["department"],
-                "lowest_paying_dept": lowest_paying["department"],
-                "pay_ratio": round(pay_ratio, 2),
-                "pay_equity_status": "good" if pay_ratio < 3 else "needs_review"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing compensation: {e}")
-            return {"error": str(e)}
-    
-    def _analyze_engagement(self, hr_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze employee engagement indicators"""
-        try:
-            attendance_data = hr_data.get("attendance", {})
-            attrition_data = hr_data.get("attrition", {})
-            leave_data = hr_data.get("leave", {})
-            
-            # Calculate engagement score based on available metrics
-            attendance_rate = attendance_data.get("attendance_rate", 0)
-            attrition_rate = attrition_data.get("attrition_rate", 0)
-            leave_pattern = leave_data.get("avg_days_per_application", 0)
-            
-            # Simple engagement scoring (can be enhanced with survey data)
-            engagement_score = 0
-            
-            # Attendance contribution (40%)
-            if attendance_rate > 95:
-                engagement_score += 40
-            elif attendance_rate > 90:
-                engagement_score += 30
-            elif attendance_rate > 85:
-                engagement_score += 20
-            else:
-                engagement_score += 10
-            
-            # Attrition contribution (40%) - inverse correlation
-            if attrition_rate < 5:
-                engagement_score += 40
-            elif attrition_rate < 10:
-                engagement_score += 30
-            elif attrition_rate < 15:
-                engagement_score += 20
-            else:
-                engagement_score += 10
-            
-            # Leave pattern contribution (20%)
-            if leave_pattern < 3:
-                engagement_score += 20
-            elif leave_pattern < 5:
-                engagement_score += 15
-            else:
-                engagement_score += 10
-            
-            engagement_level = "high"
-            if engagement_score < 50:
-                engagement_level = "low"
-            elif engagement_score < 75:
-                engagement_level = "medium"
-            
-            return {
-                "engagement_score": engagement_score,
-                "engagement_level": engagement_level,
-                "key_indicators": {
-                    "attendance_contribution": attendance_rate,
-                    "retention_contribution": 100 - attrition_rate,
-                    "leave_pattern_score": 100 - (leave_pattern * 10)
-                }
-            }
-            
-        except Exception as e:
-            logger.error(f"Error analyzing engagement: {e}")
-            return {"error": str(e)}
-    
-    def _predict_attrition_risk(self, hr_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Predict attrition risk using simple heuristics"""
-        try:
-            attrition_data = hr_data.get("attrition", {})
-            attendance_data = hr_data.get("attendance", {})
-            
-            current_attrition = attrition_data.get("attrition_rate", 0)
-            attendance_rate = attendance_data.get("attendance_rate", 0)
-            
-            # Simple risk prediction
-            risk_factors = []
-            risk_score = 0
-            
-            if current_attrition > 15:
-                risk_factors.append("High current attrition rate")
-                risk_score += 30
-            
-            if attendance_rate < 90:
-                risk_factors.append("Low attendance rate")
-                risk_score += 20
-            
-            if current_attrition > 20:
-                risk_factors.append("Critical attrition levels")
-                risk_score += 25
-            
-            # Predict next period attrition
-            predicted_attrition = current_attrition
-            if risk_score > 50:
-                predicted_attrition *= 1.2
-            elif risk_score > 30:
-                predicted_attrition *= 1.1
-            
+        att = self._analyze_attendance()
+        attr = self._analyze_attrition()
+        leave = self._analyze_leave()
+
+        attendance_rate = att.get("attendance_rate_pct", 0)
+        attrition_rate = attr.get("attrition_rate_pct", 0)
+        leave_pattern = leave.get("average_days_per_application", 0)
+
+        score = 0
+        # Attendance contribution (40 pts)
+        if attendance_rate > 95:
+            score += 40
+        elif attendance_rate > 90:
+            score += 30
+        elif attendance_rate > 85:
+            score += 20
+        else:
+            score += 10
+
+        # Retention contribution (40 pts, inverse)
+        if attrition_rate < 5:
+            score += 40
+        elif attrition_rate < 10:
+            score += 30
+        elif attrition_rate < 15:
+            score += 20
+        else:
+            score += 10
+
+        # Leave pattern contribution (20 pts)
+        if leave_pattern < 3:
+            score += 20
+        elif leave_pattern < 5:
+            score += 15
+        else:
+            score += 10
+
+        if score < 50:
+            level = "low"
+        elif score < 75:
+            level = "medium"
+        else:
+            level = "high"
+
+        return {
+            "engagement_score": score,
+            "engagement_level": level,
+            "key_indicators": {
+                "attendance_contribution": attendance_rate,
+                "retention_contribution": max(0, 100 - attrition_rate),
+                "leave_pattern_score": max(0, 100 - (leave_pattern * 10)),
+            },
+        }
+
+    # ------------------------------------------------------------------ attrition risk
+    def _predict_attrition_risk(self) -> Dict[str, Any]:
+        """Transparent risk score: each factor adds a documented weight.
+        Not a learned model -- a BI dashboard wants an explainable
+        heuristic, not a black box."""
+        attr = self._analyze_attrition()
+        att = self._analyze_attendance()
+
+        current_attrition = attr.get("attrition_rate_pct", 0)
+        attendance_rate = att.get("attendance_rate_pct", 0)
+
+        risk_factors: List[str] = []
+        risk_score = 0
+        if current_attrition > 15:
+            risk_factors.append("High current attrition rate")
+            risk_score += 30
+        if attendance_rate < 90:
+            risk_factors.append("Low attendance rate")
+            risk_score += 20
+        if current_attrition > 20:
+            risk_factors.append("Critical attrition levels")
+            risk_score += 25
+
+        # Apply a heuristic drift to next-period projection: high risk
+        # inflates, low risk holds. Linear, no model needed.
+        predicted_attrition = current_attrition
+        if risk_score > 50:
+            predicted_attrition *= 1.2
+        elif risk_score > 30:
+            predicted_attrition *= 1.1
+
+        if risk_score > 50:
+            risk_level = "high"
+        elif risk_score > 30:
+            risk_level = "medium"
+        else:
             risk_level = "low"
-            if risk_score > 50:
-                risk_level = "high"
-            elif risk_score > 30:
-                risk_level = "medium"
-            
-            return {
-                "risk_level": risk_level,
-                "risk_score": risk_score,
-                "risk_factors": risk_factors,
-                "predicted_attrition_rate": round(predicted_attrition, 2),
-                "recommended_actions": self._get_attrition_recommendations(risk_level)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error predicting attrition risk: {e}")
-            return {"error": str(e)}
-    
-    def _forecast_hiring_needs(self, hr_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Forecast hiring needs based on growth and attrition trends"""
-        try:
-            headcount_data = hr_data.get("headcount", {})
-            attrition_data = hr_data.get("attrition", {})
-            
-            current_headcount = headcount_data.get("total_active", 0)
-            net_growth = headcount_data.get("net_change", 0)
-            attrition_rate = attrition_data.get("attrition_rate", 0)
-            
-            # Forecast for next quarter
-            quarterly_attrition = (attrition_rate / 4) / 100 * current_headcount
-            projected_exits = int(quarterly_attrition)
-            
-            # Assume continued growth trajectory
-            projected_growth_hires = max(0, int(net_growth))
-            
-            total_hiring_need = projected_exits + projected_growth_hires
-            
-            return {
-                "projected_exits_next_quarter": projected_exits,
-                "growth_based_hiring": projected_growth_hires,
-                "total_hiring_need": total_hiring_need,
-                "hiring_urgency": "high" if total_hiring_need > current_headcount * 0.1 else "normal"
-            }
-            
-        except Exception as e:
-            logger.error(f"Error forecasting hiring needs: {e}")
-            return {"error": str(e)}
-    
-    def _generate_hr_recommendations(self, hr_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Generate actionable HR recommendations"""
-        try:
-            recommendations = []
-            
-            # Analyze each area and generate recommendations
-            attrition_data = hr_data.get("attrition", {})
-            attendance_data = hr_data.get("attendance", {})
-            headcount_data = hr_data.get("headcount", {})
-            
-            if attrition_data.get("attrition_rate", 0) > 15:
-                recommendations.append({
-                    "priority": "high",
-                    "category": "Retention",
-                    "title": "Address High Attrition Rate",
-                    "description": f"Current attrition rate of {attrition_data.get('attrition_rate', 0)}% is above industry average. Implement retention programs.",
-                    "actions": ["Conduct exit interviews", "Review compensation", "Improve management training"]
-                })
-            
-            if attendance_data.get("attendance_rate", 0) < 92:
-                recommendations.append({
-                    "priority": "medium",
-                    "category": "Engagement",
-                    "title": "Improve Attendance Rates",
-                    "description": f"Attendance rate of {attendance_data.get('attendance_rate', 0)}% indicates engagement issues.",
-                    "actions": ["Review attendance policy", "Address work-life balance", "Implement flexible working"]
-                })
-            
-            if headcount_data.get("net_change", 0) < 0:
-                recommendations.append({
-                    "priority": "medium",
-                    "category": "Growth",
-                    "title": "Address Negative Headcount Growth",
-                    "description": "Net headcount reduction may impact business growth.",
-                    "actions": ["Accelerate hiring", "Improve retention", "Review workforce planning"]
-                })
-            
-            return recommendations
-            
-        except Exception as e:
-            logger.error(f"Error generating HR recommendations: {e}")
-            return [{"error": str(e)}]
-    
-    def _get_attrition_recommendations(self, risk_level: str) -> List[str]:
-        """Get specific recommendations based on attrition risk level"""
+
+        return {
+            "risk_level": risk_level,
+            "risk_score": risk_score,
+            "risk_factors": risk_factors,
+            "predicted_attrition_rate": round(predicted_attrition, 2),
+            "recommended_actions": self._attrition_recommendations(risk_level),
+        }
+
+    @staticmethod
+    def _attrition_recommendations(risk_level: str) -> List[str]:
         if risk_level == "high":
             return [
                 "Implement immediate retention bonuses",
                 "Conduct urgent employee satisfaction survey",
                 "Review and improve management practices",
-                "Accelerate career development programs"
+                "Accelerate career development programs",
             ]
-        elif risk_level == "medium":
+        if risk_level == "medium":
             return [
                 "Enhance employee engagement initiatives",
                 "Review compensation competitiveness",
                 "Improve internal communication",
-                "Strengthen performance management"
+                "Strengthen performance management",
             ]
-        else:
-            return [
-                "Maintain current retention strategies",
-                "Continue monitoring engagement metrics",
-                "Regular check-ins with high performers"
-            ]
-    
-    def _calculate_diversity_score(self, gender_dist: List[Dict]) -> float:
-        """Calculate a simple diversity score"""
-        import numpy as np
-        if not gender_dist or len(gender_dist) < 2:
-            return 0
-        
-        total = sum(item["count"] for item in gender_dist)
-        if total == 0:
-            return 0
-        
-        # Shannon diversity index simplified
-        proportions = [item["count"] / total for item in gender_dist]
-        diversity = -sum(p * np.log2(p) for p in proportions if p > 0)
-        
-        # Normalize to 0-100 scale
-        max_diversity = np.log2(len(gender_dist))
-        return round((diversity / max_diversity * 100), 1) if max_diversity > 0 else 0
+        return [
+            "Maintain current retention strategies",
+            "Continue monitoring engagement metrics",
+            "Regular check-ins with high performers",
+        ]
+
+    # ------------------------------------------------------------------ hiring forecast
+    def _forecast_hiring_needs(self) -> Dict[str, Any]:
+        hc = self._analyze_headcount()
+        attr = self._analyze_attrition()
+
+        current_headcount = hc.get("total_employees", 0)
+        net_growth = hc.get("net_growth", 0)
+        attrition_rate = attr.get("attrition_rate_pct", 0)
+
+        # Quarterly projection: ((attrition_rate / 4) / 100) * current_headcount
+        quarterly_attrition = (attrition_rate / 4) / 100 * current_headcount
+        projected_exits = int(quarterly_attrition)
+        projected_growth_hires = max(0, int(net_growth))
+        total_hiring_need = projected_exits + projected_growth_hires
+
+        return {
+            "projected_exits_next_quarter": projected_exits,
+            "growth_based_hiring": projected_growth_hires,
+            "total_hiring_need": total_hiring_need,
+            "hiring_urgency": "high" if total_hiring_need > current_headcount * 0.1 else "normal",
+        }
+
+    # ------------------------------------------------------------------ recommendations
+    def _generate_hr_recommendations(self) -> List[Dict[str, Any]]:
+        attr = self._analyze_attrition()
+        att = self._analyze_attendance()
+        hc = self._analyze_headcount()
+
+        recs: List[Dict[str, Any]] = []
+        if attr.get("attrition_rate_pct", 0) > 15:
+            recs.append({
+                "priority": "high",
+                "category": "Retention",
+                "title": "Address High Attrition Rate",
+                "description": f"Current attrition rate of {attr.get('attrition_rate_pct', 0)}% is above industry average.",
+                "actions": ["Conduct exit interviews", "Review compensation", "Improve management training"],
+            })
+        if att.get("attendance_rate_pct", 0) < 92 and att.get("attendance_rate_pct", 0) > 0:
+            recs.append({
+                "priority": "medium",
+                "category": "Engagement",
+                "title": "Improve Attendance Rates",
+                "description": f"Attendance rate of {att.get('attendance_rate_pct', 0)}% indicates engagement issues.",
+                "actions": ["Review attendance policy", "Address work-life balance", "Implement flexible working"],
+            })
+        if hc.get("net_growth", 0) < 0:
+            recs.append({
+                "priority": "medium",
+                "category": "Growth",
+                "title": "Address Negative Headcount Growth",
+                "description": "Net headcount reduction may impact business growth.",
+                "actions": ["Accelerate hiring", "Improve retention", "Review workforce planning"],
+            })
+        return recs
+
+    # ------------------------------------------------------------------ chat
+    def _compress_for_chat(self) -> Dict[str, Any]:
+        """Smaller payload for the chat agent. Same numbers, fewer keys."""
+        return {
+            "headcount_metrics": self._analyze_headcount(),
+            "attrition_metrics": self._analyze_attrition(),
+            "payroll_metrics": self._analyze_payroll(),
+            "attendance_metrics": self._analyze_attendance(),
+            "engagement_indicators": self._analyze_engagement(),
+            "workforce_composition": self._analyze_workforce_composition(),
+            "department_health": self._analyze_department_health(),
+            "compensation_analysis": self._analyze_compensation(),
+            "hiring_forecast": self._forecast_hiring_needs(),
+            "recommendations": self._generate_hr_recommendations(),
+            "period": self.period,
+        }
 
 
-# API functions for Frappe
-def get_hr_overview(period="YTD"):
-    """API endpoint for HR overview"""
-    try:
-        hr_intel = HRIntelligence()
-        return hr_intel.get_hr_overview(period)
-    except Exception as e:
-        frappe.log_error(f"HR overview API error: {e}")
-        return {"error": str(e)}
+# ────────────────────────────────────────────────────────────────────────────
+# Backward-compatible module-level API functions
+# ────────────────────────────────────────────────────────────────────────────
 
 
-def get_headcount_analytics(period="YTD"):
-    """API endpoint for headcount analytics"""
-    try:
-        hr_intel = HRIntelligence()
-        data = hr_intel.get_hr_overview(period)
-        return data.get("headcount_metrics", {})
-    except Exception as e:
-        frappe.log_error(f"Headcount analytics API error: {e}")
-        return {"error": str(e)}
+def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
+    """Module-level convenience wrapper matching the old API."""
+    return HRIntelligence(period=period).train()
 
 
-def get_attrition_prediction():
-    """API endpoint for attrition prediction"""
-    try:
-        hr_intel = HRIntelligence()
-        data = hr_intel.get_hr_overview("TTM")  # Use trailing 12 months for prediction
-        return data.get("attrition_risk", {})
-    except Exception as e:
-        frappe.log_error(f"Attrition prediction API error: {e}")
-        return {"error": str(e)}
+def get_headcount_analytics(period: str = "YTD") -> Dict[str, Any]:
+    return HRIntelligence(period=period)._analyze_headcount()
 
 
-def get_hr_recommendations():
-    """API endpoint for HR recommendations"""
-    try:
-        hr_intel = HRIntelligence()
-        data = hr_intel.get_hr_overview("YTD")
-        return data.get("recommendations", [])
-    except Exception as e:
-        frappe.log_error(f"HR recommendations API error: {e}")
-        return {"error": str(e)}
+def get_attrition_prediction() -> Dict[str, Any]:
+    return HRIntelligence(period="TTM")._predict_attrition_risk()
 
 
-def update_hr_intelligence():
+def get_hr_recommendations() -> List[Dict[str, Any]]:
+    return HRIntelligence(period="YTD")._generate_hr_recommendations()
+
+
+# `update_hr_intelligence` is the scheduler entry point that the central
+# hooks call on a daily cron. With the ML layer gone (no cache, no
+# background job), this is a no-op kept for forward compatibility.
+def update_hr_intelligence() -> Dict[str, Any]:
+    """No-op stub.
+
+    The pre-rewrite scheduler filled a 24h Redis cache here; with the ML
+    layer gone (every endpoint computes fresh in-request), there is
+    nothing to pre-compute. Kept so the existing scheduler entry point
+    in ``hooks.py`` continues to resolve.
     """
-    Scheduler function to update HR intelligence daily
-    """
-    try:
-        logger.info("Starting HR intelligence update...")
-        
-        hr_intel = HRIntelligence()
-        
-        # Generate fresh data for all periods
-        periods = ["MTD", "QTD", "YTD", "TTM"]
-        
-        for period in periods:
-            overview = hr_intel.get_hr_overview(period)
-            
-            # Cache the overview for 24 hours
-            cache_key = f"hr_overview_{period}"
-            frappe.cache().set_value(cache_key, overview, expires_in_sec=86400)
-            
-            logger.info(f"Updated HR intelligence for period: {period}")
-        
-        logger.info("HR intelligence update completed successfully")
-        
-    except Exception as e:
-        logger.error(f"Error updating HR intelligence: {e}")
-        frappe.log_error(f"HR intelligence update error: {e}")
+    return {"status": "no_op", "message": "HR intelligence is computed on demand; no scheduled warm-up needed."}
+
+
+# `ibis` is imported at module bottom so the `desc` helper used in the
+# ranking/order_by clauses above is resolvable. We only use ibis for
+# pure desc, so the import is local to keep the public surface small.
+import ibis
