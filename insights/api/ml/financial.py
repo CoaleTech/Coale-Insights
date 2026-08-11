@@ -2,109 +2,102 @@
 # For license information, please see license.txt
 
 """
-Financial Intelligence API Endpoints
+Financial Intelligence API Endpoints (Ibis-backed)
+
+All endpoints are synchronous, computed fresh per call, against the site's
+own MariaDB through Ibis. No background jobs, no cache, no fork.
 """
 
+from __future__ import annotations
+
+from typing import Any, Dict
+
 import frappe
-from frappe import _
-from typing import Dict, Any
-from insights.api.response import success, error
+from insights.api.ml.utils import run
 
 
 @frappe.whitelist()
-def financial_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive financial intelligence"""
-    try:
-        frappe.has_permission("GL Entry", "read", throw=True)
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence(date_filter=date_filter)
-        if refresh:
-            return model.train()
-        return model.predict()
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def financial_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
+    """Get comprehensive financial intelligence."""
+    frappe.has_permission("GL Entry", "read", throw=True)
+    from insights.ml.financial_intelligence import FinancialIntelligence
+    return run(
+        lambda: FinancialIntelligence(date_filter=date_filter).train(),
+        "financial_intelligence",
+    )
 
 
 @frappe.whitelist()
 def train_financial_intelligence() -> Dict[str, Any]:
-    """Train financial intelligence models"""
-    try:
-        frappe.has_permission("GL Entry", "read", throw=True)
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model.train()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Train financial intelligence models (synchronous, computes now)."""
+    frappe.has_permission("GL Entry", "read", throw=True)
+    from insights.ml.financial_intelligence import FinancialIntelligence
+    return run(
+        lambda: FinancialIntelligence().train(),
+        "train_financial_intelligence",
+    )
 
 
 @frappe.whitelist()
 def get_financial_overview() -> Dict[str, Any]:
-    """Get financial overview"""
-    try:
-        frappe.has_permission("GL Entry", "read", throw=True)
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._calculate_financial_overview()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get P&L financial overview only."""
+    frappe.has_permission("GL Entry", "read", throw=True)
+    from insights.ml.financial_intelligence import FinancialIntelligence
+    return run(
+        lambda: FinancialIntelligence()._calculate_financial_overview(),
+        "get_financial_overview",
+    )
 
 
 @frappe.whitelist()
 def get_cash_flow_analysis() -> Dict[str, Any]:
-    """Get cash flow analysis"""
-    try:
-        frappe.has_permission("GL Entry", "read", throw=True)
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._calculate_cash_flow()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get cash flow analysis only."""
+    frappe.has_permission("GL Entry", "read", throw=True)
+    from insights.ml.financial_intelligence import FinancialIntelligence
+    return run(
+        lambda: FinancialIntelligence()._calculate_cash_flow(),
+        "get_cash_flow_analysis",
+    )
 
 
 @frappe.whitelist()
 def get_receivables_analysis() -> Dict[str, Any]:
-    """Get receivables analysis"""
-    try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._analyze_receivables()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get receivables analysis only."""
+    frappe.has_permission("Sales Invoice", "read", throw=True)
+    from insights.ml.financial_intelligence import FinancialIntelligence
+    return run(
+        lambda: FinancialIntelligence()._analyze_receivables(),
+        "get_receivables_analysis",
+    )
 
 
 @frappe.whitelist()
 def get_payables_analysis() -> Dict[str, Any]:
-    """Get payables analysis"""
-    try:
-        frappe.has_permission("Purchase Invoice", "read", throw=True)
-        from insights.ml.financial_intelligence import FinancialIntelligence
-        model = FinancialIntelligence()
-        result = model._analyze_payables()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get payables analysis only."""
+    frappe.has_permission("Purchase Invoice", "read", throw=True)
+    from insights.ml.financial_intelligence import FinancialIntelligence
+    return run(
+        lambda: FinancialIntelligence()._analyze_payables(),
+        "get_payables_analysis",
+    )
+
+
+@frappe.whitelist()
+def get_forex_exposure() -> Dict[str, Any]:
+    """Get forex exposure analysis only."""
+    frappe.has_permission("GL Entry", "read", throw=True)
+    from insights.ml.financial_intelligence import FinancialIntelligence
+    return run(
+        lambda: FinancialIntelligence()._analyze_forex_exposure(),
+        "get_forex_exposure",
+    )
+
 
 # ─── Drill-Down ───────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
 def get_finance_detail(metric: str, filters: str) -> dict:
+    from frappe import _
     f = frappe.parse_json(filters) or {}
     page = int(f.pop("page", 1))
     page_size = 50

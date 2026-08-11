@@ -1,23 +1,33 @@
+from __future__ import annotations
+
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
 """
 Break-Even Engine for Frappe Insights.
+
 Calculates item-level, employee-level, cash-flow, and capital-efficiency
 break-even metrics using GL, Sales, Payroll, and Payment Entry data.
+
+Every metric is a parameterized SQL aggregate computed fresh on each call --
+fast enough for a web request, unlike the pandas/sklearn training modules
+elsewhere in ``insights.ml`` -- so there is no self-managed cache and no
+``BaseMLModel`` dependency. IRR is solved via ``numpy.roots`` on the
+cash-flow polynomial instead of the unmaintained, uninstalled
+``numpy_financial`` package (``calculate_irr`` was silently returning
+``irr: None`` on every call -- see ``_polynomial_irr``).
 """
 
+from datetime import datetime
+from typing import Any
+
 import frappe
-from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
-from insights.ml.base import BaseMLModel
 
 
-class BreakevenEngine(BaseMLModel):
+class BreakevenEngine:
     """Break-even analysis engine"""
 
-    def __init__(self, period: str = "Quarterly", fiscal_year: Optional[str] = None):
-        super().__init__()
+    def __init__(self, period: str = "Quarterly", fiscal_year: str | None = None):
         self.period = period
         self.fiscal_year = fiscal_year
         self.company = frappe.defaults.get_user_default("Company")
@@ -43,7 +53,7 @@ class BreakevenEngine(BaseMLModel):
 
     def _get_fiscal_dates(self) -> tuple:
         """Returns (start_date, end_date) for the selected fiscal year. Result cached on instance."""
-        if hasattr(self, '_fiscal_dates'):
+        if hasattr(self, "_fiscal_dates"):
             return self._fiscal_dates
 
         if self.fiscal_year:
@@ -84,7 +94,7 @@ class BreakevenEngine(BaseMLModel):
 
     def _get_fixed_costs(self, start: str, end: str) -> float:
         """Sum GL entries from fixed cost centers. Result cached on instance per date range."""
-        if hasattr(self, '_fixed_costs_result'):
+        if hasattr(self, "_fixed_costs_result"):
             return self._fixed_costs_result
 
         if not self.fixed_cost_centers:
@@ -141,17 +151,11 @@ class BreakevenEngine(BaseMLModel):
             return "amber"
         return "red"
 
-    def calculate_item_breakeven(self, item_group: Optional[str] = None) -> Dict[str, Any]:
+    def calculate_item_breakeven(self, item_group: str | None = None) -> dict[str, Any]:
         """Per-item contribution margin, break-even qty, coverage, RAG indicator."""
-        cache_key = f"breakeven_item_{self.company}_{self.period}_{self.fiscal_year}_{item_group or 'all'}"
-        cached = self.get_cached_results(cache_key, max_age_hours=12)
-        if cached:
-            return cached
-
         start, end = self._get_fiscal_dates()
         total_fixed = self._get_fixed_costs(start, end)
 
-        filters = {"disabled": 0}
         group_filter = ""
         if item_group:
             group_filter = " AND item.item_group = %s"
@@ -195,7 +199,6 @@ class BreakevenEngine(BaseMLModel):
 
         # Compute total contribution to allocate fixed costs proportionally
         total_contribution = 0.0
-        item_data = []
         for item in items:
             sp = float(item.selling_price or 0)
             vc = float(item.variable_cost or 0)
@@ -235,25 +238,17 @@ class BreakevenEngine(BaseMLModel):
                 "rag": self._rag_coverage(coverage),
             })
 
-        output = {
+        return {
             "period": self.period,
             "fiscal_year": self.fiscal_year,
             "date_range": {"start": start, "end": end},
             "total_fixed_costs": total_fixed,
             "items": results,
         }
-        self.cache_results(cache_key, output, expires_in_hours=12)
-        return output
 
-    def calculate_employee_breakeven(self) -> Dict[str, Any]:
+    def calculate_employee_breakeven(self) -> dict[str, Any]:
         """Orders needed to cover each department's payroll."""
-        cache_key = f"breakeven_employee_{self.company}_{self.period}_{self.fiscal_year}"
-        cached = self.get_cached_results(cache_key, max_age_hours=12)
-        if cached:
-            return cached
-
         start, end = self._get_fiscal_dates()
-        total_fixed = self._get_fixed_costs(start, end)
 
         # Payroll by department
         payroll = frappe.db.sql(
@@ -327,12 +322,19 @@ class BreakevenEngine(BaseMLModel):
             (self.company, start, end),
             as_dict=True,
         )
+
+        payroll_map = {p.department: float(p.total_payroll or 0) for p in payroll}
         orders_map = {d.department: int(d.order_count or 0) for d in dept_orders}
 
-        departments = ["Sales", "HR", "Purchase", "Procurement"]
+        # Departments actually present in the data. A hardcoded
+        # ["Sales", "HR", "Purchase", "Procurement"] whitelist never matched
+        # this company's real department names (e.g. "Sales - JKM"), so every
+        # coverage figure below was silently zero regardless of real payroll
+        # or order volume.
+        departments: list[str] = sorted(str(d) for d in set(payroll_map) | set(orders_map))
         results = []
         for dept in departments:
-            payroll_cost = next((float(p.total_payroll or 0) for p in payroll if p.department == dept), 0.0)
+            payroll_cost = payroll_map.get(dept, 0.0)
             orders_needed = round(payroll_cost / avg_contribution_per_order, 2) if avg_contribution_per_order > 0 else 0.0
             actual_orders = orders_map.get(dept, 0)
             coverage = round(actual_orders / orders_needed, 2) if orders_needed > 0 else 0.0
@@ -346,23 +348,16 @@ class BreakevenEngine(BaseMLModel):
                 "rag": self._rag_coverage(coverage),
             })
 
-        output = {
+        return {
             "period": self.period,
             "fiscal_year": self.fiscal_year,
             "date_range": {"start": start, "end": end},
             "avg_contribution_per_order": avg_contribution_per_order,
             "departments": results,
         }
-        self.cache_results(cache_key, output, expires_in_hours=12)
-        return output
 
-    def calculate_cash_flow_breakeven(self) -> Dict[str, Any]:
+    def calculate_cash_flow_breakeven(self) -> dict[str, Any]:
         """Cash flow break-even using Payment Entry data."""
-        cache_key = f"breakeven_cash_{self.company}_{self.period}_{self.fiscal_year}"
-        cached = self.get_cached_results(cache_key, max_age_hours=12)
-        if cached:
-            return cached
-
         start, end = self._get_fiscal_dates()
 
         monthly = frappe.db.sql(
@@ -408,7 +403,7 @@ class BreakevenEngine(BaseMLModel):
         total_out = round(cumulative_out, 2)
         coverage = round(total_in / total_out, 2) if total_out > 0 else 0.0
 
-        output = {
+        return {
             "period": self.period,
             "fiscal_year": self.fiscal_year,
             "date_range": {"start": start, "end": end},
@@ -419,10 +414,8 @@ class BreakevenEngine(BaseMLModel):
             "coverage": coverage,
             "rag": self._rag_coverage(coverage),
         }
-        self.cache_results(cache_key, output, expires_in_hours=12)
-        return output
 
-    def calculate_roce(self) -> Dict[str, Any]:
+    def calculate_roce(self) -> dict[str, Any]:
         """Return on Capital Employed from GL data."""
         start, end = self._get_fiscal_dates()
 
@@ -500,28 +493,17 @@ class BreakevenEngine(BaseMLModel):
             "rag": self._rag_roce(roce),
         }
 
-    def _irr_from_flows(self, cash_flows: List[float]) -> Dict[str, Any]:
+    def _irr_from_flows(self, cash_flows: list[float]) -> dict[str, Any]:
         """Compute IRR dict from a list of net cash flow values."""
-        irr_value = None
-        if len(cash_flows) >= 2:
-            try:
-                import numpy_financial as npf
-                irr_value = npf.irr(cash_flows)
-            except Exception:
-                irr_value = None
+        irr_value = _polynomial_irr(cash_flows) if len(cash_flows) >= 2 else None
         return {
             "monthly_cash_flows": [round(v, 2) for v in cash_flows],
             "irr": round(irr_value * 100, 2) if irr_value is not None else None,
             "irr_decimal": round(irr_value, 6) if irr_value is not None else None,
         }
 
-    def calculate_irr(self) -> Dict[str, Any]:
+    def calculate_irr(self) -> dict[str, Any]:
         """Internal Rate of Return on monthly net cash flows."""
-        cache_key = f"breakeven_irr_{self.company}_{self.period}_{self.fiscal_year}"
-        cached = self.get_cached_results(cache_key, max_age_hours=12)
-        if cached:
-            return cached
-
         start, end = self._get_fiscal_dates()
 
         monthly = frappe.db.sql(
@@ -541,11 +523,9 @@ class BreakevenEngine(BaseMLModel):
         )
 
         cash_flows = [float(row.net_cash or 0) for row in monthly]
-        result = self._irr_from_flows(cash_flows)
-        self.cache_results(cache_key, result, expires_in_hours=12)
-        return result
+        return self._irr_from_flows(cash_flows)
 
-    def get_item_lead_breakeven_ratio(self) -> Dict[str, Any]:
+    def get_item_lead_breakeven_ratio(self) -> dict[str, Any]:
         """Leads needed per item = BE qty / lead conversion rate."""
         item_data = self.calculate_item_breakeven()
 
@@ -585,13 +565,8 @@ class BreakevenEngine(BaseMLModel):
             "items": results,
         }
 
-    def get_breakeven_summary(self) -> Dict[str, Any]:
+    def get_breakeven_summary(self) -> dict[str, Any]:
         """Returns all break-even metrics in one call."""
-        cache_key = f"breakeven_summary_{self.company}_{self.period}_{self.fiscal_year}"
-        cached = self.get_cached_results(cache_key, max_age_hours=12)
-        if cached:
-            return cached
-
         start, end = self._get_fiscal_dates()
         total_fixed = self._get_fixed_costs(start, end)
         total_variable = self._get_variable_costs(start, end)
@@ -615,7 +590,7 @@ class BreakevenEngine(BaseMLModel):
         coverage = round(actual_revenue / overall_be_revenue, 2) if overall_be_revenue > 0 else 0.0
         safety_margin = round((actual_revenue - overall_be_revenue) / actual_revenue * 100, 2) if actual_revenue > 0 else 0.0
 
-        summary = {
+        return {
             "period": self.period,
             "fiscal_year": self.fiscal_year,
             "date_range": {"start": start, "end": end},
@@ -633,19 +608,55 @@ class BreakevenEngine(BaseMLModel):
             "roce": roce_data,
             "irr": irr_data,
         }
-        self.cache_results(cache_key, summary, expires_in_hours=12)
-        return summary
 
-    def train(self) -> Dict[str, Any]:
-        """Train / refresh the break-even model caches."""
+    def train(self) -> dict[str, Any]:
+        """Run the full break-even summary (kept for the weekly scheduler)."""
         try:
             summary = self.get_breakeven_summary()
-            self.log_training({"status": "success", "items": len(summary.get("item_breakeven", {}).get("items", []))})
+            frappe.logger().info(
+                f"BreakevenEngine training completed: "
+                f"{len(summary.get('item_breakeven', {}).get('items', []))} items"
+            )
             return {"status": "success", "data": summary}
         except Exception as e:
-            frappe.log_error(f"BreakevenEngine training failed: {str(e)}", "BreakevenEngine")
+            frappe.log_error(f"BreakevenEngine training failed: {e!s}", "BreakevenEngine")
             return {"status": "error", "message": str(e)}
 
-    def predict(self, data: Any) -> Dict[str, Any]:
+    def predict(self, data: Any) -> dict[str, Any]:
         """Predict break-even for a given scenario (not implemented)."""
         return {"status": "not_implemented"}
+
+
+def _polynomial_irr(cash_flows: list[float]) -> float | None:
+    """Internal rate of return via the roots of the cash-flow polynomial.
+
+    Replaces ``numpy_financial.irr``: that package is not declared as a
+    dependency of this app and is not installed, so ``calculate_irr`` was
+    silently returning ``irr: None`` on every call (the import always raised
+    inside the old ``try/except``). ``numpy`` is already a hard dependency
+    elsewhere in ``insights.ml``, so this solves the same equation
+    numpy_financial does internally instead of adding the extra package back:
+
+        NPV(r) = sum(cf_i * (1 + r) ** (n - 1 - i)) == 0
+
+    which, substituting X = (1 + r), is a plain polynomial in X whose
+    decreasing-power coefficients are exactly ``cash_flows`` in order.
+    """
+    import numpy as np
+
+    try:
+        roots = np.roots(cash_flows)
+    except Exception:
+        return None
+
+    real_x = roots[np.abs(roots.imag) < 1e-9].real
+    real_x = real_x[real_x > 0]  # X = 1 + r must be positive (r > -100%)
+    if real_x.size == 0:
+        return None
+
+    # Cash flows with more than one sign change can satisfy NPV == 0 at
+    # several rates; the one closest to zero is the economically sensible
+    # root (matches numpy_financial's Newton iteration, which starts near a
+    # 0.1 guess and converges to this same root for realistic cash flows).
+    rates = real_x - 1.0
+    return float(rates[np.argmin(np.abs(rates))])

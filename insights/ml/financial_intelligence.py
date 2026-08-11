@@ -1,224 +1,268 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
 """
 Financial Intelligence Model
-Comprehensive financial analytics with ML-powered insights for:
+
+Comprehensive financial analytics for the Financial Intelligence dashboard:
 - P&L analysis and profitability
-- Cash flow management and forecasting
+- Cash flow management and runway
 - Accounts receivable and payable
 - Forex exposure analysis
 
-Financial ratios and budget variance analysis have moved to the Strategic
-Finance engine (insights.ml.strategic_finance) to keep one canonical
-computation per metric; see FinancialRatiosTab.vue / BudgetVarianceTab.vue.
+All aggregates are computed via Ibis against the site's own MariaDB; the
+Python process only ever materialises the final, already-aggregated result
+(normally a few hundred rows). No pandas/sklearn, no training, no caching.
+
+Financial ratios and budget variance have their own modules under
+`insights.ml.strategic_finance` and `insights.ml.budget_variance_intelligence`
+to keep one canonical computation per metric; see FinancialRatiosTab.vue /
+BudgetVarianceTab.vue.
 """
 
-import frappe
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Dict, Any
-from insights.ml.base import BaseMLModel
-from insights.api.ml import get_date_filter_sql
-from insights.ml.strategic_finance.data import get_current_fiscal_year
+from typing import Any
+
+import frappe
+
+from insights.api.ml.ibis_source import company_filter, default_company, t
 
 
-class FinancialIntelligence(BaseMLModel):
-    """
-    Comprehensive Financial Intelligence Model
-    
-    Features:
-    - P&L analysis with trends
-    - Cash position and runway
-    - Receivables and payables analytics
-    - Forex exposure analysis
+def _now_iso() -> str:
+    return datetime.now().isoformat()
 
-    Financial ratios and budget variance analysis live in the Strategic
-    Finance engine (see module docstring above); tax filing/GST analytics
-    live in insights.ml.india_tax_intelligence.
-    """
-    
-    def __init__(self, date_filter: str = '12m'):
-        super().__init__()
+
+def _fiscal_year_for(company: str) -> dict[str, str]:
+    """Return {name, start_date, end_date} for the fiscal year that contains
+    today (calendar fallback if the company has no Fiscal Year record)."""
+    today = datetime.now().date()
+    row = frappe.db.sql(
+        """
+        SELECT name, year_start_date, year_end_date
+        FROM `tabFiscal Year`
+        WHERE %s BETWEEN year_start_date AND year_end_date
+        ORDER BY year_start_date DESC
+        LIMIT 1
+        """,
+        (today,),
+        as_dict=True,
+    )
+    if row:
+        return {
+            "name": row[0].name,
+            "start_date": str(row[0].year_start_date),
+            "end_date": str(row[0].year_end_date),
+        }
+    return {
+        "name": str(today.year),
+        "start_date": f"{today.year}-01-01",
+        "end_date": f"{today.year}-12-31",
+    }
+
+
+def _base_currency(company: str | None) -> str:
+    if company:
+        cur = frappe.db.get_value("Company", company, "default_currency")
+        if cur:
+            return cur
+    return (
+        frappe.db.get_single_value("System Settings", "default_currency")
+        or "USD"
+    )
+
+
+class FinancialIntelligence:
+    """Pure-Ibis financial analytics. No training, no caching."""
+
+    def __init__(self, date_filter: str = "12m"):
         self.model_name = "FinancialIntelligence"
         self.date_filter = date_filter
-        self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
-        self.base_currency = (
-            frappe.db.get_value("Company", self.company, "default_currency")
-            or frappe.db.get_single_value("System Settings", "default_currency")
-            or "USD"
-        )
-        # Generate SQL date filter
-        self.date_filter_sql = get_date_filter_sql(date_filter, 'posting_date', '')
-        # Resolve fiscal year once; used by _calculate_financial_overview for the
-        # YTD start date (fiscal, not calendar).  Same source as
-        # strategic_finance/model.py → get_current_fiscal_year().
-        self.fiscal_year = get_current_fiscal_year(self)
-    
-    def train(self) -> Dict[str, Any]:
-        """Generate comprehensive financial intelligence"""
-        try:
-            overview = self._calculate_financial_overview()
-            cash_flow = self._calculate_cash_flow()
-            receivables = self._analyze_receivables()
-            payables = self._analyze_payables()
-            forex = self._analyze_forex_exposure()
-            
-            result = {
-                "status": "success",
-                "generated_at": datetime.now().isoformat(),
-                "company": self.company,
-                "base_currency": self.base_currency,
-                "overview": overview,
-                "cash_flow": cash_flow,
-                "receivables": receivables,
-                "payables": payables,
-                "forex": forex,
-            }
-            
-            self.cache_results("financial_intelligence", result)
-            return result
-            
-        except Exception as e:
-            frappe.log_error(f"Financial Intelligence failed: {str(e)}", "ML Financial")
-            return {"status": "error", "message": str(e)}
-    
-    def predict(self) -> Dict[str, Any]:
-        """Return cached results or generate new ones"""
-        cached = self.get_cached_results("financial_intelligence")
-        if cached:
-            return cached
+        self.company = default_company()
+        self.base_currency = _base_currency(self.company)
+        self.fiscal_year = _fiscal_year_for(self.company) if self.company else None
+
+    # ------------------------------------------------------------------ train
+    def train(self) -> dict[str, Any]:
+        """Generate comprehensive financial intelligence."""
+        result = {
+            "status": "success",
+            "generated_at": _now_iso(),
+            "company": self.company,
+            "base_currency": self.base_currency,
+            "overview": self._calculate_financial_overview(),
+            "cash_flow": self._calculate_cash_flow(),
+            "receivables": self._analyze_receivables(),
+            "payables": self._analyze_payables(),
+            "forex": self._analyze_forex_exposure(),
+        }
+        return result
+
+    def predict(self) -> dict[str, Any]:
+        """Same as train: every call is computed fresh, no stale cache."""
         return self.train()
-    
-    def _calculate_financial_overview(self) -> Dict[str, Any]:
-        """Calculate P&L overview and key metrics"""
-        current_month_start = datetime.now().replace(day=1).strftime('%Y-%m-%d')
-        # Fiscal YTD start: resolved from the Fiscal Year doctype, same source as
-        # strategic_finance/summary.py (intelligence.fiscal_year["start_date"]).
-        # Falls back to calendar year start only when no Fiscal Year record covers
-        # today (the fallback is inside get_current_fiscal_year()).
-        ytd_start = self.fiscal_year["start_date"]
-        
-        # MTD Revenue
-        mtd_revenue_data = frappe.db.sql("""
-            SELECT COALESCE(SUM(ABS(credit - debit)), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Income'
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (current_month_start, self.company), as_dict=True)[0]
-        mtd_revenue = float(mtd_revenue_data.get('amount') or 0)
-        
-        # MTD Expenses
-        mtd_expense_data = frappe.db.sql("""
-            SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Expense'
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (current_month_start, self.company), as_dict=True)[0]
-        mtd_expenses = float(mtd_expense_data.get('amount') or 0)
+
+    # ------------------------------------------------------------------ helpers
+    def _gl_with_account(self, company: str | None = None):
+        gle = t("GL Entry")
+        acc = t("Account")
+        joined = gle.join(acc, gle["account"] == acc["name"])
+        joined = company_filter(joined, company or self.company)
+        joined = joined.filter(joined["is_cancelled"] == 0)
+        return joined
+
+    def _scalar(self, expr, default: float = 0.0) -> float:
+        """Execute an Ibis expression and return its single scalar value.
+
+        Accepts a Table (1×1), a Column (Series of length 1), or a Scalar
+        (numpy/pandas 0-d). Returns `default` if the result is empty/null.
+        """
+        result = expr.execute()
+        if result is None:
+            return default
+        # Pandas/numpy scalar
+        try:
+            if hasattr(result, "iloc"):
+                if result.ndim == 0:
+                    v = result.item()
+                else:
+                    v = result.iloc[0]
+                    # If it's a 1-row DataFrame, take the first column value
+                    if hasattr(v, "iloc"):
+                        v = v.iloc[0]
+            else:
+                v = result
+        except Exception:
+            return default
+        if v is None:
+            return default
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return default
+
+    def _rows(self, expr) -> list[dict[str, Any]]:
+        df = expr.execute()
+        if df is None or len(df) == 0:
+            return []
+        return [
+            {k: (None if v is None else v) for k, v in row.items()}
+            for row in df.to_dict(orient="records")
+        ]
+
+    # ------------------------------------------------------------------ overview
+    def _calculate_financial_overview(self) -> dict[str, Any]:
+        fy_start = (self.fiscal_year or _fiscal_year_for(self.company or ""))["start_date"]
+        mtd_start = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+
+        joined = self._gl_with_account()
+
+        # MTD
+        mtd_inc = joined.filter(
+            (joined["root_type"] == "Income")
+            & (joined["posting_date"] >= mtd_start)
+        ).aggregate(amount=(joined["credit"] - joined["debit"]).sum())
+        mtd_income = self._scalar(mtd_inc["amount"].abs())
+
+        mtd_exp = joined.filter(
+            (joined["root_type"] == "Expense")
+            & (joined["posting_date"] >= mtd_start)
+        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
+        mtd_expenses = self._scalar(mtd_exp["amount"].abs())
+
+        # YTD (fiscal)
+        ytd_inc = joined.filter(
+            (joined["root_type"] == "Income")
+            & (joined["posting_date"] >= fy_start)
+        ).aggregate(amount=(joined["credit"] - joined["debit"]).sum())
+        ytd_income = self._scalar(ytd_inc["amount"].abs())
+
+        ytd_exp = joined.filter(
+            (joined["root_type"] == "Expense")
+            & (joined["posting_date"] >= fy_start)
+        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
+        ytd_expenses = self._scalar(ytd_exp["amount"].abs())
+
+        mtd_revenue = mtd_income
         mtd_profit = mtd_revenue - mtd_expenses
-        
-        # YTD figures
-        ytd_revenue_data = frappe.db.sql("""
-            SELECT COALESCE(SUM(ABS(credit - debit)), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Income'
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (ytd_start, self.company), as_dict=True)[0]
-        
-        ytd_expense_data = frappe.db.sql("""
-            SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Expense'
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-        """, (ytd_start, self.company), as_dict=True)[0]
-        
-        ytd_revenue = float(ytd_revenue_data.get('amount') or 0)
-        ytd_expenses = float(ytd_expense_data.get('amount') or 0)
+        ytd_revenue = ytd_income
+        ytd_expenses = ytd_expenses
         ytd_profit = ytd_revenue - ytd_expenses
-        
-        # Monthly P&L trend
-        monthly_pl = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(gle.posting_date, '%%Y-%%m') as period,
-                SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(gle.credit - gle.debit) ELSE 0 END) as revenue,
-                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(gle.debit - gle.credit) ELSE 0 END) as expenses
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type IN ('Income', 'Expense')
-                AND gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-            GROUP BY DATE_FORMAT(gle.posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
-        for row in monthly_pl:
-            row['revenue'] = float(row.get('revenue') or 0)
-            row['expenses'] = float(row.get('expenses') or 0)
-            row['profit'] = row['revenue'] - row['expenses']
-            row['margin'] = round((row['profit'] / row['revenue'] * 100), 1) if row['revenue'] > 0 else 0
-        
-        # Revenue breakdown by category
-        revenue_breakdown = frappe.db.sql("""
-            SELECT 
-                COALESCE(acc.parent_account, acc.name) as category,
-                SUM(ABS(gle.credit - gle.debit)) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Income'
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-            GROUP BY COALESCE(acc.parent_account, acc.name)
-            ORDER BY amount DESC
-            LIMIT 10
-        """, (ytd_start, self.company), as_dict=True)
-        
-        for item in revenue_breakdown:
-            item['amount'] = float(item['amount'] or 0)
-            item['pct'] = round((item['amount'] / ytd_revenue * 100), 1) if ytd_revenue > 0 else 0
-        
-        # Expense breakdown
-        expense_breakdown = frappe.db.sql("""
-            SELECT 
-                COALESCE(acc.parent_account, acc.name) as category,
-                SUM(ABS(gle.debit - gle.credit)) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.root_type = 'Expense'
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-            GROUP BY COALESCE(acc.parent_account, acc.name)
-            ORDER BY amount DESC
-            LIMIT 10
-        """, (ytd_start, self.company), as_dict=True)
-        
-        for item in expense_breakdown:
-            item['amount'] = float(item['amount'] or 0)
-            item['pct'] = round((item['amount'] / ytd_expenses * 100), 1) if ytd_expenses > 0 else 0
-        
-        # Margins
-        # net_margin: net profit after all expenses as a % of revenue — the correct
-        # definition.  gross_margin requires querying COGS (account_type = 'Cost of
-        # Goods Sold') which this function does not do; return None rather than
-        # aliasing net to gross (see strategic_finance/summary.py for COGS-based
-        # gross margin).
+
+        # Monthly P&L trend: aggregate by YYYY-MM over the last 12 calendar months
+        twelve_months_ago = datetime.now().replace(year=datetime.now().year - 1)
+        import ibis
+        period_expr = joined["posting_date"].strftime("%Y-%m").name("period")
+        is_income = joined["root_type"] == "Income"
+        is_expense = joined["root_type"] == "Expense"
+        monthly_agg = (
+            joined
+            .filter(joined["posting_date"] >= twelve_months_ago.strftime("%Y-%m-%d"))
+            .filter(joined["root_type"].isin(["Income", "Expense"]))
+            .group_by(period_expr)
+            .aggregate(
+                revenue=ibis.ifelse(is_income, (joined["credit"] - joined["debit"]).abs(), 0).sum(),
+                expenses=ibis.ifelse(is_expense, (joined["debit"] - joined["credit"]).abs(), 0).sum(),
+            )
+            .order_by("period")
+        )
+        monthly_rows = self._rows(monthly_agg)
+        monthly_trend = []
+        for r in monthly_rows:
+            rev = float(r.get("revenue") or 0)
+            exp = float(r.get("expenses") or 0)
+            monthly_trend.append({
+                "period": r["period"],
+                "revenue": rev,
+                "expenses": exp,
+                "profit": rev - exp,
+                "margin": round((rev - exp) / rev * 100, 1) if rev > 0 else 0,
+            })
+
+        # Revenue breakdown by parent_account
+        _rev_diff = (joined["credit"] - joined["debit"]).abs()
+        rev_break = (
+            joined
+            .filter(
+                (joined["root_type"] == "Income")
+                & (joined["posting_date"] >= fy_start)
+            )
+            .group_by(
+                joined["parent_account"].coalesce(joined["account"]).name("category")
+            )
+            .aggregate(amount=_rev_diff.sum())
+            .order_by("amount")
+            .limit(10)
+        )
+        rev_rows = self._rows(rev_break)
+        for r in rev_rows:
+            amt = float(r.get("amount") or 0)
+            r["amount"] = amt
+            r["pct"] = round((amt / ytd_revenue * 100), 1) if ytd_revenue > 0 else 0
+
+        # Expense breakdown by parent_account
+        _exp_diff = (joined["debit"] - joined["credit"]).abs()
+        exp_break = (
+            joined
+            .filter(
+                (joined["root_type"] == "Expense")
+                & (joined["posting_date"] >= fy_start)
+            )
+            .group_by(
+                joined["parent_account"].coalesce(joined["account"]).name("category")
+            )
+            .aggregate(amount=_exp_diff.sum())
+            .order_by("amount")
+            .limit(10)
+        )
+        exp_rows = self._rows(exp_break)
+        for r in exp_rows:
+            amt = float(r.get("amount") or 0)
+            r["amount"] = amt
+            r["pct"] = round((amt / ytd_expenses * 100), 1) if ytd_expenses > 0 else 0
+
+        # net_margin: net profit / revenue. gross_margin: not computed here
+        # (no COGS query in overview); see strategic_finance/summary.py.
         net_margin = round((ytd_profit / ytd_revenue * 100), 1) if ytd_revenue > 0 else None
-        gross_margin = None  # COGS not queried here; see strategic_finance/summary.py
-        
+
         return {
             "mtd_revenue": mtd_revenue,
             "mtd_expenses": mtd_expenses,
@@ -226,115 +270,118 @@ class FinancialIntelligence(BaseMLModel):
             "ytd_revenue": ytd_revenue,
             "ytd_expenses": ytd_expenses,
             "ytd_profit": ytd_profit,
-            "gross_margin": gross_margin,
+            "gross_margin": None,
             "net_margin": net_margin,
-            "monthly_trend": monthly_pl,
-            "revenue_breakdown": revenue_breakdown,
-            "expense_breakdown": expense_breakdown
+            "monthly_trend": monthly_trend,
+            "revenue_breakdown": rev_rows,
+            "expense_breakdown": exp_rows,
         }
-    
-    def _calculate_cash_flow(self) -> Dict[str, Any]:
-        """Calculate cash flow metrics and position"""
-        # Current cash position
-        cash_position = frappe.db.sql("""
-            SELECT 
-                acc.account_type,
-                acc.name as account,
-                acc.account_name,
-                SUM(gle.debit - gle.credit) as balance
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE acc.account_type IN ('Bank', 'Cash')
-                AND gle.is_cancelled = 0
-                AND gle.company = %s
-            GROUP BY acc.name, acc.account_type, acc.account_name
-            HAVING balance != 0
-        """, (self.company,), as_dict=True)
-        
-        total_cash = sum(float(c.get('balance') or 0) for c in cash_position)
-        
-        # Monthly cash flows
-        cash_inflows = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(posting_date, '%%Y-%%m') as period,
-                SUM(paid_amount) as amount
-            FROM `tabPayment Entry`
-            WHERE payment_type = 'Receive'
-                AND docstatus = 1
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                AND company = %s
-            GROUP BY DATE_FORMAT(posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
-        cash_outflows = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(posting_date, '%%Y-%%m') as period,
-                SUM(paid_amount) as amount
-            FROM `tabPayment Entry`
-            WHERE payment_type = 'Pay'
-                AND docstatus = 1
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                AND company = %s
-            GROUP BY DATE_FORMAT(posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
-        # Calculate averages and runway
-        avg_outflow = sum(float(o.get('amount') or 0) for o in cash_outflows) / max(len(cash_outflows), 1)
-        avg_inflow = sum(float(i.get('amount') or 0) for i in cash_inflows) / max(len(cash_inflows), 1)
+
+    # ------------------------------------------------------------------ cash flow
+    def _calculate_cash_flow(self) -> dict[str, Any]:
+        import ibis
+
+        joined = self._gl_with_account()
+
+        # Cash accounts balance (Bank + Cash)
+        cash_agg = (
+            joined
+            .filter(joined["account_type"].isin(["Bank", "Cash"]))
+            .group_by(
+                joined["account"].name("account"),
+                joined["account_name"].name("account_name"),
+                joined["account_type"].name("account_type"),
+            )
+            .aggregate(balance=(joined["debit"] - joined["credit"]).sum())
+        )
+        cash_rows = [r for r in self._rows(cash_agg) if float(r.get("balance") or 0) != 0]
+        total_cash = sum(float(c.get("balance") or 0) for c in cash_rows)
+
+        # Monthly inflows (Payment Entry Receive) for last 6 months
+        pe = company_filter(t("Payment Entry"), self.company).filter(
+            t("Payment Entry")["docstatus"] == 1
+        )
+        # last-6-months window is computed once and shared by both directions below
+        six_months_ago = _months_ago(6)
+
+        def _pe_monthly(payment_type: str) -> list[dict[str, Any]]:
+            agg = (
+                pe
+                .filter(
+                    (pe["payment_type"] == payment_type)
+                    & (pe["posting_date"] >= six_months_ago)
+                )
+                .group_by(pe["posting_date"].truncate("month").name("period"))
+                .aggregate(amount=pe["paid_amount"].sum())
+                .order_by("period")
+            )
+            rows = self._rows(agg)
+            for r in rows:
+                r["period"] = str(r["period"])[:7] if r.get("period") else ""
+            return rows
+
+        cash_inflows = _pe_monthly("Receive")
+        cash_outflows = _pe_monthly("Pay")
+
+        avg_outflow = sum(float(o.get("amount") or 0) for o in cash_outflows) / max(len(cash_outflows), 1)
+        avg_inflow = sum(float(i.get("amount") or 0) for i in cash_inflows) / max(len(cash_inflows), 1)
         net_burn = avg_outflow - avg_inflow
-        
         runway_months = round(total_cash / net_burn, 1) if net_burn > 0 else 999
-        
-        # Cash flow by source
-        inflow_by_source = frappe.db.sql("""
-            SELECT 
-                COALESCE(party_type, 'Other') as source,
-                SUM(paid_amount) as amount
-            FROM `tabPayment Entry`
-            WHERE payment_type = 'Receive'
-                AND docstatus = 1
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
-                AND company = %s
-            GROUP BY party_type
-            ORDER BY amount DESC
-        """, (self.company,), as_dict=True)
-        
-        outflow_by_use = frappe.db.sql("""
-            SELECT 
-                COALESCE(party_type, 'Other') as category,
-                SUM(paid_amount) as amount
-            FROM `tabPayment Entry`
-            WHERE payment_type = 'Pay'
-                AND docstatus = 1
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)
-                AND company = %s
-            GROUP BY party_type
-            ORDER BY amount DESC
-        """, (self.company,), as_dict=True)
-        
-        # Large transactions
-        large_transactions = frappe.db.sql("""
-            SELECT 
-                name,
-                posting_date,
-                payment_type,
-                party_type,
-                party,
-                paid_amount,
-                reference_no
-            FROM `tabPayment Entry`
-            WHERE docstatus = 1
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)
-                AND company = %s
-            ORDER BY paid_amount DESC
-            LIMIT 15
-        """, (self.company,), as_dict=True)
-        
+
+        # Inflow/outflow by source (party_type) for last 3 months
+        three_months_ago = _months_ago(3)
+
+        inflow_src = (
+            pe
+            .filter(
+                (pe["payment_type"] == "Receive")
+                & (pe["posting_date"] >= three_months_ago)
+            )
+            .group_by(pe["party_type"].name("source"))
+            .aggregate(amount=pe["paid_amount"].sum())
+            .order_by(ibis.desc("amount"))
+        )
+        inflow_by_source = [
+            {**r, "source": r.get("source") or "Other"}
+            for r in self._rows(inflow_src)
+        ]
+        outflow_use = (
+            pe
+            .filter(
+                (pe["payment_type"] == "Pay")
+                & (pe["posting_date"] >= three_months_ago)
+            )
+            .group_by(pe["party_type"].name("category"))
+            .aggregate(amount=pe["paid_amount"].sum())
+            .order_by(ibis.desc("amount"))
+        )
+        outflow_by_use = [
+            {**r, "category": r.get("category") or "Other"}
+            for r in self._rows(outflow_use)
+        ]
+
+        # Large transactions in last 1 month
+        one_month_ago = _months_ago(1)
+        large_tx = (
+            pe
+            .filter(pe["posting_date"] >= one_month_ago)
+            .select(
+                pe["name"],
+                pe["posting_date"],
+                pe["payment_type"],
+                pe["party_type"],
+                pe["party"],
+                pe["paid_amount"],
+                pe["reference_no"],
+            )
+            .order_by(pe["paid_amount"].desc())
+            .limit(15)
+        )
+        large_transactions = self._rows(large_tx)
+
         return {
             "total_cash": total_cash,
-            "cash_accounts": cash_position,
+            "cash_accounts": cash_rows,
             "avg_monthly_inflow": round(avg_inflow, 2),
             "avg_monthly_outflow": round(avg_outflow, 2),
             "net_burn_rate": round(net_burn, 2),
@@ -343,446 +390,460 @@ class FinancialIntelligence(BaseMLModel):
             "monthly_outflows": cash_outflows,
             "inflow_by_source": inflow_by_source,
             "outflow_by_use": outflow_by_use,
-            "large_transactions": large_transactions
+            "large_transactions": large_transactions,
         }
-    
-    def _analyze_receivables(self) -> Dict[str, Any]:
-        """Analyze accounts receivable"""
-        # Total outstanding
-        ar_total = frappe.db.sql("""
-            SELECT 
-                COALESCE(SUM(outstanding_amount), 0) as total,
-                COUNT(*) as invoice_count
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        # AR aging buckets
-        aging_buckets = frappe.db.sql("""
-            SELECT 
-                CASE 
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 0 THEN 'Current'
-                    WHEN DATEDIFF(CURDATE(), due_date) BETWEEN 1 AND 30 THEN '1-30 Days'
-                    WHEN DATEDIFF(CURDATE(), due_date) BETWEEN 31 AND 60 THEN '31-60 Days'
-                    WHEN DATEDIFF(CURDATE(), due_date) BETWEEN 61 AND 90 THEN '61-90 Days'
-                    ELSE '90+ Days'
-                END as bucket,
-                COUNT(*) as count,
-                SUM(outstanding_amount) as amount
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-            GROUP BY bucket
-            ORDER BY FIELD(bucket, 'Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days')
-        """, (self.company,), as_dict=True)
-        
-        # DSO = (total outstanding AR / trailing-12m credit sales) × 366 days.
-        # Trailing 12 months is the conventional DSO basis; the fiscal-YTD window
-        # (used for revenue/profit above) is deliberately different — it is too
-        # short (4 months today) when outstanding receivables include invoices
-        # predating the current fiscal year.  None when denominator is zero: a
-        # DSO of 0 would falsely imply instant collection.
-        dso_ar_total = float(frappe.db.sql("""
-            SELECT COALESCE(SUM(outstanding_amount), 0) as total
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-        """, (self.company,), as_dict=True)[0].get('total') or 0)
 
-        dso_sales_12m = float(frappe.db.sql("""
-            SELECT COALESCE(SUM(base_grand_total), 0) as total
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND company = %s
-        """, (self.company,), as_dict=True)[0].get('total') or 0)
+    # ------------------------------------------------------------------ receivables
+    def _analyze_receivables(self) -> dict[str, Any]:
+        import ibis
 
+        si = company_filter(t("Sales Invoice"), self.company).filter(
+            (t("Sales Invoice")["docstatus"] == 1)
+            & (t("Sales Invoice")["outstanding_amount"] > 0)
+        )
+
+        ar_total = si.aggregate(
+            total=si["outstanding_amount"].sum(),
+            invoice_count=si.count(),
+        )
+        ar_total_row = self._rows(ar_total)
+        if ar_total_row:
+            ar_total_dict = ar_total_row[0]
+        else:
+            ar_total_dict = {"total": 0, "invoice_count": 0}
+
+        # Aging buckets via a CASE expression on the due-date diff (in days).
+        diff_expr = (si["due_date"] - datetime.now().date()).cast("int32")
+
+        bucket_expr = ibis.cases(
+            (diff_expr <= 0, "Current"),
+            ((diff_expr >= 1) & (diff_expr <= 30), "1-30 Days"),
+            ((diff_expr >= 31) & (diff_expr <= 60), "31-60 Days"),
+            ((diff_expr >= 61) & (diff_expr <= 90), "61-90 Days"),
+            else_="90+ Days",
+        ).name("bucket")
+
+        aging_agg = (
+            si.group_by(bucket_expr)
+            .aggregate(
+                count=si.count(),
+                amount=si["outstanding_amount"].sum(),
+            )
+        )
+        # Order buckets explicitly: collect rows, then sort in Python.
+        bucket_order = {"Current": 0, "1-30 Days": 1, "31-60 Days": 2, "61-90 Days": 3, "90+ Days": 4}
+        aging_rows = sorted(
+            self._rows(aging_agg),
+            key=lambda r: bucket_order.get(r.get("bucket", ""), 99),
+        )
+
+        # DSO: trailing 12m credit sales / 366 days
+        si_sales = company_filter(t("Sales Invoice"), self.company).filter(
+            (t("Sales Invoice")["docstatus"] == 1)
+            & (t("Sales Invoice")["posting_date"] >= _months_ago(12))
+        )
+        dso_sales_12m = self._scalar(
+            si_sales.aggregate(si_sales["base_grand_total"].sum().name("t"))["t"]
+        )
+        dso_ar_total = float(ar_total_dict.get("total") or 0)
         current_dso = round(dso_ar_total / dso_sales_12m * 366, 1) if dso_sales_12m > 0 else None
 
-        # Old metric preserved under an honest name: average calendar age of all
-        # open receivables (not a DSO).
-        avg_open_receivable_age_data = frappe.db.sql("""
-            SELECT AVG(DATEDIFF(CURDATE(), posting_date)) as avg_age
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-        """, (self.company,), as_dict=True)[0]
-        avg_open_receivable_age_days = round(float(avg_open_receivable_age_data.get('avg_age') or 0), 1)
-        
+        # Average calendar age of open AR
+        avg_age_agg = si.aggregate(
+            avg_age=((datetime.now().date() - si["posting_date"]).cast("int32")).mean()
+        )
+        avg_open_age = self._scalar(avg_age_agg["avg_age"])
+
         # Top overdue customers
-        overdue_customers = frappe.db.sql("""
-            SELECT 
-                customer,
-                customer_name,
-                COUNT(*) as invoice_count,
-                SUM(outstanding_amount) as total_outstanding,
-                MIN(due_date) as oldest_due_date,
-                MAX(DATEDIFF(CURDATE(), due_date)) as max_overdue_days
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND due_date < CURDATE()
-                AND company = %s
-            GROUP BY customer, customer_name
-            ORDER BY total_outstanding DESC
-            LIMIT 15
-        """, (self.company,), as_dict=True)
-        
-        # Collection trend
-        collections = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(pe.posting_date, '%%Y-%%m') as period,
-                SUM(per.allocated_amount) as collected
-            FROM `tabPayment Entry` pe
-            JOIN `tabPayment Entry Reference` per ON per.parent = pe.name
-            WHERE pe.payment_type = 'Receive'
-                AND pe.docstatus = 1
-                AND per.reference_doctype = 'Sales Invoice'
-                AND pe.posting_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                AND pe.company = %s
-            GROUP BY DATE_FORMAT(pe.posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
+        si_overdue = si.filter(si["due_date"] < datetime.now().date())
+        overdue_diff = (si_overdue["due_date"] - datetime.now().date()).cast("int32")
+        overdue_agg = (
+            si_overdue
+            .group_by(si_overdue["customer"], si_overdue["customer_name"])
+            .aggregate(
+                invoice_count=si_overdue.count(),
+                total_outstanding=si_overdue["outstanding_amount"].sum(),
+                oldest_due_date=si_overdue["due_date"].min(),
+                max_overdue_days=overdue_diff.max(),
+            )
+            .order_by(ibis.desc("total_outstanding"))
+            .limit(15)
+        )
+        overdue_customers = self._rows(overdue_agg)
+
+        # Collection trend (last 6 months)
+        six_months_ago = _months_ago(6)
+        per = t("Payment Entry Reference")
+        pe_with_company = company_filter(t("Payment Entry"), self.company).filter(
+            (t("Payment Entry")["docstatus"] == 1)
+            & (t("Payment Entry")["payment_type"] == "Receive")
+            & (t("Payment Entry")["posting_date"] >= six_months_ago)
+        )
+        coll = (
+            pe_with_company
+            .join(per, per["parent"] == pe_with_company["name"])
+            .filter(per["reference_doctype"] == "Sales Invoice")
+            .group_by(pe_with_company["posting_date"].truncate("month").name("period"))
+            .aggregate(collected=per["allocated_amount"].sum())
+            .order_by("period")
+        )
+        collections = self._rows(coll)
+        for r in collections:
+            r["period"] = str(r["period"])[:7] if r.get("period") else ""
+
         return {
-            "total_outstanding": float(ar_total.get('total') or 0),
-            "invoice_count": int(ar_total.get('invoice_count') or 0),
-            "aging_buckets": aging_buckets,
+            "total_outstanding": dso_ar_total,
+            "invoice_count": int(ar_total_dict.get("invoice_count") or 0),
+            "aging_buckets": aging_rows,
             "current_dso": current_dso,
-            "avg_open_receivable_age_days": avg_open_receivable_age_days,
+            "avg_open_receivable_age_days": round(avg_open_age or 0.0, 1),
             "overdue_customers": overdue_customers,
-            "collection_trend": collections
+            "collection_trend": collections,
         }
-    
-    def _analyze_payables(self) -> Dict[str, Any]:
-        """Analyze accounts payable"""
-        # Total outstanding
-        ap_total = frappe.db.sql("""
-            SELECT 
-                COALESCE(SUM(outstanding_amount), 0) as total,
-                COUNT(*) as invoice_count
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-        """, (self.company,), as_dict=True)[0]
-        
-        # AP aging buckets
-        aging_buckets = frappe.db.sql("""
-            SELECT 
-                CASE 
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 0 THEN 'Current'
-                    WHEN DATEDIFF(CURDATE(), due_date) BETWEEN 1 AND 30 THEN '1-30 Days'
-                    WHEN DATEDIFF(CURDATE(), due_date) BETWEEN 31 AND 60 THEN '31-60 Days'
-                    WHEN DATEDIFF(CURDATE(), due_date) BETWEEN 61 AND 90 THEN '61-90 Days'
-                    ELSE '90+ Days'
-                END as bucket,
-                COUNT(*) as count,
-                SUM(outstanding_amount) as amount
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-            GROUP BY bucket
-            ORDER BY FIELD(bucket, 'Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days')
-        """, (self.company,), as_dict=True)
-        
-        # DPO = (total outstanding AP / trailing-12m credit purchases) × 366 days.
-        # Trailing 12 months is the conventional DPO basis; the fiscal-YTD window
-        # (used for revenue/profit above) is deliberately different — it is too
-        # short (4 months today) when outstanding payables include invoices
-        # predating the current fiscal year, which would inflate DPO artificially.
-        # None when denominator is zero: 0 would falsely imply instant payment.
-        dpo_ap_total = float(frappe.db.sql("""
-            SELECT COALESCE(SUM(outstanding_amount), 0) as total
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-        """, (self.company,), as_dict=True)[0].get('total') or 0)
 
-        dpo_purchases_12m = float(frappe.db.sql("""
-            SELECT COALESCE(SUM(base_grand_total), 0) as total
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND company = %s
-        """, (self.company,), as_dict=True)[0].get('total') or 0)
+    # ------------------------------------------------------------------ payables
+    def _analyze_payables(self) -> dict[str, Any]:
+        import ibis
 
+        pi = company_filter(t("Purchase Invoice"), self.company).filter(
+            (t("Purchase Invoice")["docstatus"] == 1)
+            & (t("Purchase Invoice")["outstanding_amount"] > 0)
+        )
+
+        ap_total = pi.aggregate(
+            total=pi["outstanding_amount"].sum(),
+            invoice_count=pi.count(),
+        )
+        ap_total_row = self._rows(ap_total)
+        ap_dict = ap_total_row[0] if ap_total_row else {"total": 0, "invoice_count": 0}
+
+        diff_expr = (pi["due_date"] - datetime.now().date()).cast("int32")
+        bucket_expr = ibis.cases(
+            (diff_expr <= 0, "Current"),
+            ((diff_expr >= 1) & (diff_expr <= 30), "1-30 Days"),
+            ((diff_expr >= 31) & (diff_expr <= 60), "31-60 Days"),
+            ((diff_expr >= 61) & (diff_expr <= 90), "61-90 Days"),
+            else_="90+ Days",
+        ).name("bucket")
+        aging_agg = (
+            pi.group_by(bucket_expr)
+            .aggregate(
+                count=pi.count(),
+                amount=pi["outstanding_amount"].sum(),
+            )
+        )
+        bucket_order = {"Current": 0, "1-30 Days": 1, "31-60 Days": 2, "61-90 Days": 3, "90+ Days": 4}
+        aging_rows = sorted(
+            self._rows(aging_agg),
+            key=lambda r: bucket_order.get(r.get("bucket", ""), 99),
+        )
+
+        # DPO: trailing 12m credit purchases
+        pi_sales = company_filter(t("Purchase Invoice"), self.company).filter(
+            (t("Purchase Invoice")["docstatus"] == 1)
+            & (t("Purchase Invoice")["posting_date"] >= _months_ago(12))
+        )
+        dpo_purchases_12m = self._scalar(
+            pi_sales.aggregate(pi_sales["base_grand_total"].sum().name("t"))["t"]
+        )
+        dpo_ap_total = float(ap_dict.get("total") or 0)
         current_dpo = round(dpo_ap_total / dpo_purchases_12m * 366, 1) if dpo_purchases_12m > 0 else None
 
-        # Old metric preserved under an honest name: average calendar age of all
-        # open payables (not a DPO).
-        avg_open_payable_age_data = frappe.db.sql("""
-            SELECT AVG(DATEDIFF(CURDATE(), posting_date)) as avg_age
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-        """, (self.company,), as_dict=True)[0]
-        avg_open_payable_age_days = round(float(avg_open_payable_age_data.get('avg_age') or 0), 1)
-        
-        # Upcoming payments
-        upcoming_payments = frappe.db.sql("""
-            SELECT 
-                name,
-                supplier,
-                supplier_name,
-                posting_date,
-                due_date,
-                outstanding_amount,
-                DATEDIFF(due_date, CURDATE()) as days_until_due
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)
-                AND company = %s
-            ORDER BY due_date
-            LIMIT 20
-        """, (self.company,), as_dict=True)
-        
+        avg_age_agg = pi.aggregate(
+            avg_age=((datetime.now().date() - pi["posting_date"]).cast("int32")).mean()
+        )
+        avg_open_age = self._scalar(avg_age_agg["avg_age"])
+        today = datetime.now().date()
+
+        upcoming = (
+            pi
+            .filter(pi["due_date"].between(today, _add_days(today, 30)))
+            .select(
+                name=pi["name"],
+                supplier=pi["supplier"],
+                supplier_name=pi["supplier_name"],
+                posting_date=pi["posting_date"],
+                due_date=pi["due_date"],
+                outstanding_amount=pi["outstanding_amount"],
+                days_until_due=(pi["due_date"] - today).cast("int32").name("days_until_due"),
+            )
+            .order_by("due_date")
+            .limit(20)
+        )
+        upcoming_payments = self._rows(upcoming)
+
         # Top suppliers by payable
-        top_suppliers = frappe.db.sql("""
-            SELECT 
-                supplier,
-                supplier_name,
-                COUNT(*) as invoice_count,
-                SUM(outstanding_amount) as total_outstanding
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-            GROUP BY supplier, supplier_name
-            ORDER BY total_outstanding DESC
-            LIMIT 10
-        """, (self.company,), as_dict=True)
-        
-        # Payment schedule
-        payment_schedule = frappe.db.sql("""
-            SELECT 
-                CASE 
-                    WHEN due_date < CURDATE() THEN 'Overdue'
-                    WHEN due_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 7 DAY) THEN 'This Week'
-                    WHEN due_date BETWEEN DATE_ADD(CURDATE(), INTERVAL 8 DAY) AND DATE_ADD(CURDATE(), INTERVAL 14 DAY) THEN 'Next Week'
-                    WHEN due_date BETWEEN DATE_ADD(CURDATE(), INTERVAL 15 DAY) AND DATE_ADD(CURDATE(), INTERVAL 30 DAY) THEN 'This Month'
-                    ELSE 'Later'
-                END as period,
-                COUNT(*) as count,
-                SUM(outstanding_amount) as amount
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1
-                AND outstanding_amount > 0
-                AND company = %s
-            GROUP BY period
-            ORDER BY FIELD(period, 'Overdue', 'This Week', 'Next Week', 'This Month', 'Later')
-        """, (self.company,), as_dict=True)
-        
+        top_sup = (
+            pi
+            .group_by(pi["supplier"], pi["supplier_name"])
+            .aggregate(
+                invoice_count=pi.count(),
+                total_outstanding=pi["outstanding_amount"].sum(),
+            )
+            .order_by(ibis.desc("total_outstanding"))
+            .limit(10)
+        )
+        top_suppliers = self._rows(top_sup)
+
+        # Payment schedule buckets
+        period_expr = ibis.cases(
+            (diff_expr < 0, "Overdue"),
+            ((diff_expr >= 0) & (diff_expr <= 7), "This Week"),
+            ((diff_expr >= 8) & (diff_expr <= 14), "Next Week"),
+            ((diff_expr >= 15) & (diff_expr <= 30), "This Month"),
+            else_="Later",
+        ).name("period")
+        sched_agg = (
+            pi.group_by(period_expr)
+            .aggregate(
+                count=pi.count(),
+                amount=pi["outstanding_amount"].sum(),
+            )
+        )
+        period_order = {"Overdue": 0, "This Week": 1, "Next Week": 2, "This Month": 3, "Later": 4}
+        payment_schedule = sorted(
+            self._rows(sched_agg),
+            key=lambda r: period_order.get(r.get("period", ""), 99),
+        )
+
         return {
-            "total_outstanding": float(ap_total.get('total') or 0),
-            "invoice_count": int(ap_total.get('invoice_count') or 0),
-            "aging_buckets": aging_buckets,
+            "total_outstanding": dpo_ap_total,
+            "invoice_count": int(ap_dict.get("invoice_count") or 0),
+            "aging_buckets": aging_rows,
             "current_dpo": current_dpo,
-            "avg_open_payable_age_days": avg_open_payable_age_days,
+            "avg_open_payable_age_days": round(avg_open_age or 0.0, 1),
             "upcoming_payments": upcoming_payments,
             "top_suppliers": top_suppliers,
-            "payment_schedule": payment_schedule
+            "payment_schedule": payment_schedule,
         }
-    
-    def _analyze_forex_exposure(self) -> Dict[str, Any]:
-        """Analyze foreign currency exposure"""
-        # Foreign currency receivables
-        fx_receivables = frappe.db.sql("""
-            SELECT 
-                si.currency,
-                COUNT(*) as invoice_count,
-                SUM(si.outstanding_amount) as outstanding_foreign,
-                SUM(si.outstanding_amount * si.conversion_rate) as outstanding_base,
-                AVG(si.conversion_rate) as avg_rate
-            FROM `tabSales Invoice` si
-            WHERE si.docstatus = 1
-                AND si.outstanding_amount > 0
-                AND si.currency != %s
-                AND si.company = %s
-            GROUP BY si.currency
-        """, (self.base_currency, self.company), as_dict=True)
-        
-        # Foreign currency payables
-        fx_payables = frappe.db.sql("""
-            SELECT 
-                pi.currency,
-                COUNT(*) as invoice_count,
-                SUM(pi.outstanding_amount) as outstanding_foreign,
-                SUM(pi.outstanding_amount * pi.conversion_rate) as outstanding_base,
-                AVG(pi.conversion_rate) as avg_rate
-            FROM `tabPurchase Invoice` pi
-            WHERE pi.docstatus = 1
-                AND pi.outstanding_amount > 0
-                AND pi.currency != %s
-                AND pi.company = %s
-            GROUP BY pi.currency
-        """, (self.base_currency, self.company), as_dict=True)
-        
-        # Get current exchange rates
-        currencies = set([r['currency'] for r in fx_receivables] + [p['currency'] for p in fx_payables])
-        current_rates = {}
-        
-        for currency in currencies:
-            rate = frappe.db.sql("""
+
+    # ------------------------------------------------------------------ forex
+    def _analyze_forex_exposure(self) -> dict[str, Any]:
+        import ibis
+
+        base = self.base_currency
+        si = company_filter(t("Sales Invoice"), self.company).filter(
+            (t("Sales Invoice")["docstatus"] == 1)
+            & (t("Sales Invoice")["outstanding_amount"] > 0)
+            & (t("Sales Invoice")["currency"] != base)
+        )
+        fx_rec_agg = (
+            si
+            .group_by(si["currency"])
+            .aggregate(
+                invoice_count=si.count(),
+                outstanding_foreign=si["outstanding_amount"].sum(),
+                outstanding_base=(si["outstanding_amount"] * si["conversion_rate"]).sum(),
+                avg_rate=si["conversion_rate"].mean(),
+            )
+        )
+        fx_receivables = self._rows(fx_rec_agg)
+
+        pi = company_filter(t("Purchase Invoice"), self.company).filter(
+            (t("Purchase Invoice")["docstatus"] == 1)
+            & (t("Purchase Invoice")["outstanding_amount"] > 0)
+            & (t("Purchase Invoice")["currency"] != base)
+        )
+        fx_pay_agg = (
+            pi
+            .group_by(pi["currency"])
+            .aggregate(
+                invoice_count=pi.count(),
+                outstanding_foreign=pi["outstanding_amount"].sum(),
+                outstanding_base=(pi["outstanding_amount"] * pi["conversion_rate"]).sum(),
+                avg_rate=pi["conversion_rate"].mean(),
+            )
+        )
+        fx_payables = self._rows(fx_pay_agg)
+
+        # Current exchange rates from Currency Exchange (latest <= today)
+        currencies = {r["currency"] for r in fx_receivables} | {p["currency"] for p in fx_payables}
+        current_rates: dict[str, float] = {}
+        for cur in currencies:
+            row = frappe.db.sql(
+                """
                 SELECT exchange_rate
                 FROM `tabCurrency Exchange`
-                WHERE from_currency = %s
-                    AND to_currency = %s
-                    AND date <= CURDATE()
+                WHERE from_currency = %s AND to_currency = %s
+                  AND date <= %s
                 ORDER BY date DESC
                 LIMIT 1
-            """, (currency, self.base_currency), as_dict=True)
-            
-            if rate:
-                current_rates[currency] = float(rate[0]['exchange_rate'])
-        
-        # Calculate unrealized gain/loss
-        total_receivable_foreign = 0
-        total_receivable_base = 0
-        total_unrealized_ar = 0
-        
+                """,
+                (cur, base, datetime.now().date()),
+                as_dict=True,
+            )
+            if row and row[0].exchange_rate is not None:
+                current_rates[cur] = float(row[0].exchange_rate)
+
+        total_rec_foreign = 0.0
+        total_rec_base = 0.0
+        total_unrealized_ar = 0.0
         for r in fx_receivables:
-            r['outstanding_foreign'] = float(r['outstanding_foreign'] or 0)
-            r['outstanding_base'] = float(r['outstanding_base'] or 0)
-            r['avg_rate'] = float(r['avg_rate'] or 0)
-            
-            current_rate = current_rates.get(r['currency'], r['avg_rate'])
-            r['current_rate'] = current_rate
-            r['current_value'] = r['outstanding_foreign'] * current_rate
-            r['unrealized_gain_loss'] = r['current_value'] - r['outstanding_base']
-            
-            total_receivable_foreign += r['outstanding_foreign']
-            total_receivable_base += r['outstanding_base']
-            total_unrealized_ar += r['unrealized_gain_loss']
-        
-        total_payable_foreign = 0
-        total_payable_base = 0
-        total_unrealized_ap = 0
-        
+            r["outstanding_foreign"] = float(r.get("outstanding_foreign") or 0)
+            r["outstanding_base"] = float(r.get("outstanding_base") or 0)
+            r["avg_rate"] = float(r.get("avg_rate") or 0)
+            cur = current_rates.get(r["currency"], r["avg_rate"])
+            r["current_rate"] = cur
+            r["current_value"] = r["outstanding_foreign"] * cur
+            r["unrealized_gain_loss"] = r["current_value"] - r["outstanding_base"]
+            total_rec_foreign += r["outstanding_foreign"]
+            total_rec_base += r["outstanding_base"]
+            total_unrealized_ar += r["unrealized_gain_loss"]
+
+        total_pay_foreign = 0.0
+        total_pay_base = 0.0
+        total_unrealized_ap = 0.0
         for p in fx_payables:
-            p['outstanding_foreign'] = float(p['outstanding_foreign'] or 0)
-            p['outstanding_base'] = float(p['outstanding_base'] or 0)
-            p['avg_rate'] = float(p['avg_rate'] or 0)
-            
-            current_rate = current_rates.get(p['currency'], p['avg_rate'])
-            p['current_rate'] = current_rate
-            p['current_value'] = p['outstanding_foreign'] * current_rate
-            p['unrealized_gain_loss'] = p['current_value'] - p['outstanding_base']
-            
-            total_payable_foreign += p['outstanding_foreign']
-            total_payable_base += p['outstanding_base']
-            total_unrealized_ap += p['unrealized_gain_loss']
-        
-        # Net exposure by currency
-        net_exposure = {}
+            p["outstanding_foreign"] = float(p.get("outstanding_foreign") or 0)
+            p["outstanding_base"] = float(p.get("outstanding_base") or 0)
+            p["avg_rate"] = float(p.get("avg_rate") or 0)
+            cur = current_rates.get(p["currency"], p["avg_rate"])
+            p["current_rate"] = cur
+            p["current_value"] = p["outstanding_foreign"] * cur
+            p["unrealized_gain_loss"] = p["current_value"] - p["outstanding_base"]
+            total_pay_foreign += p["outstanding_foreign"]
+            total_pay_base += p["outstanding_base"]
+            total_unrealized_ap += p["unrealized_gain_loss"]
+
+        net_exposure: dict[str, dict[str, float]] = {}
         for r in fx_receivables:
-            currency = r['currency']
-            if currency not in net_exposure:
-                net_exposure[currency] = {'receivable': 0, 'payable': 0, 'current_rate': r.get('current_rate', 0)}
-            net_exposure[currency]['receivable'] = r['outstanding_foreign']
-        
+            net_exposure.setdefault(
+                r["currency"],
+                {"receivable": 0.0, "payable": 0.0, "current_rate": r.get("current_rate", 0.0)},
+            )
+            net_exposure[r["currency"]]["receivable"] = r["outstanding_foreign"]
         for p in fx_payables:
-            currency = p['currency']
-            if currency not in net_exposure:
-                net_exposure[currency] = {'receivable': 0, 'payable': 0, 'current_rate': p.get('current_rate', 0)}
-            net_exposure[currency]['payable'] = p['outstanding_foreign']
-        
+            net_exposure.setdefault(
+                p["currency"],
+                {"receivable": 0.0, "payable": 0.0, "current_rate": p.get("current_rate", 0.0)},
+            )
+            net_exposure[p["currency"]]["payable"] = p["outstanding_foreign"]
+
         exposure_summary = []
         for currency, data in net_exposure.items():
-            net = data['receivable'] - data['payable']
+            net = data["receivable"] - data["payable"]
             exposure_summary.append({
-                'currency': currency,
-                'receivable': data['receivable'],
-                'payable': data['payable'],
-                'net_exposure': net,
-                'current_rate': data['current_rate'],
-                'net_exposure_base': net * data['current_rate'],
-                'position': 'Long' if net > 0 else 'Short'
+                "currency": currency,
+                "receivable": data["receivable"],
+                "payable": data["payable"],
+                "net_exposure": net,
+                "current_rate": data["current_rate"],
+                "net_exposure_base": net * data["current_rate"],
+                "position": "Long" if net > 0 else "Short",
             })
-        
-        # At-risk invoices (large forex exposure nearing due date)
-        at_risk_invoices = frappe.db.sql("""
-            SELECT 
-                'Sales Invoice' as doctype,
-                si.name,
-                si.customer as party,
-                si.currency,
-                si.outstanding_amount,
-                si.conversion_rate,
-                si.due_date,
-                DATEDIFF(si.due_date, CURDATE()) as days_to_due
-            FROM `tabSales Invoice` si
-            WHERE si.docstatus = 1
-                AND si.outstanding_amount > 0
-                AND si.currency != %s
-                AND si.company = %s
-            UNION ALL
-            SELECT 
-                'Purchase Invoice' as doctype,
-                pi.name,
-                pi.supplier as party,
-                pi.currency,
-                pi.outstanding_amount,
-                pi.conversion_rate,
-                pi.due_date,
-                DATEDIFF(pi.due_date, CURDATE()) as days_to_due
-            FROM `tabPurchase Invoice` pi
-            WHERE pi.docstatus = 1
-                AND pi.outstanding_amount > 0
-                AND pi.currency != %s
-                AND pi.company = %s
-            ORDER BY outstanding_amount DESC
-            LIMIT 20
-        """, (self.base_currency, self.company, self.base_currency, self.company), as_dict=True)
-        
-        # Realized forex gains/losses (from journal entries)
-        realized_forex = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(je.posting_date, '%%Y-%%m') as period,
-                SUM(CASE WHEN jea.credit > jea.debit THEN jea.credit - jea.debit ELSE 0 END) as forex_gain,
-                SUM(CASE WHEN jea.debit > jea.credit THEN jea.debit - jea.credit ELSE 0 END) as forex_loss
-            FROM `tabJournal Entry` je
-            JOIN `tabJournal Entry Account` jea ON jea.parent = je.name
-            JOIN `tabAccount` acc ON jea.account = acc.name
-            WHERE je.docstatus = 1
-                AND je.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND je.company = %s
-                AND (acc.account_name LIKE '%%Exchange Gain%%' OR acc.account_name LIKE '%%Exchange Loss%%'
-                     OR acc.account_name LIKE '%%Forex%%')
-            GROUP BY DATE_FORMAT(je.posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, (self.company,), as_dict=True)
-        
+
+        # At-risk invoices: large forex exposure nearing due date, top 20 by amount
+        at_risk_si = (
+            si
+            .select(
+                doctype=ibis_literal("Sales Invoice").name("doctype"),
+                name=si["name"],
+                party=si["customer"].name("party"),
+                currency=si["currency"],
+                outstanding_amount=si["outstanding_amount"],
+                conversion_rate=si["conversion_rate"],
+                due_date=si["due_date"],
+                days_to_due=(si["due_date"] - datetime.now().date()).cast("int32").name("days_to_due"),
+            )
+            .order_by(si["outstanding_amount"].desc())
+            .limit(20)
+        )
+        at_risk_pi = (
+            pi
+            .select(
+                doctype=ibis_literal("Purchase Invoice").name("doctype"),
+                name=pi["name"],
+                party=pi["supplier"].name("party"),
+                currency=pi["currency"],
+                outstanding_amount=pi["outstanding_amount"],
+                conversion_rate=pi["conversion_rate"],
+                due_date=pi["due_date"],
+                days_to_due=(pi["due_date"] - datetime.now().date()).cast("int32").name("days_to_due"),
+            )
+            .order_by(pi["outstanding_amount"].desc())
+            .limit(20)
+        )
+        ar_risks = self._rows(at_risk_si)
+        ap_risks = self._rows(at_risk_pi)
+        at_risk_invoices = (ar_risks + ap_risks)
+        at_risk_invoices.sort(key=lambda r: -float(r.get("outstanding_amount") or 0))
+        at_risk_invoices = at_risk_invoices[:20]
+
+        # Realized forex gains/losses from Journal Entry (account name LIKE 'Exchange Gain/Loss/Forex')
+        je = company_filter(t("Journal Entry"), self.company).filter(
+            (t("Journal Entry")["docstatus"] == 1)
+            & (t("Journal Entry")["posting_date"] >= _months_ago(12))
+        )
+        jea = t("Journal Entry Account").select("parent", "account", "credit", "debit")
+        acc = t("Account").select(account_id="name", account_name="account_name")
+        realized = (
+            je
+            .join(jea, jea["parent"] == je["name"])
+            .join(acc, acc["account_id"] == jea["account"])
+            .filter(
+                acc["account_name"].like("%Exchange Gain%")
+                | acc["account_name"].like("%Exchange Loss%")
+                | acc["account_name"].like("%Forex%")
+            )
+            .group_by(je["posting_date"].truncate("month").name("period"))
+            .aggregate(
+                forex_gain=ibis.cases(
+                    (jea["credit"] > jea["debit"], jea["credit"] - jea["debit"]),
+                    else_=0,
+                ).sum(),
+                forex_loss=ibis.cases(
+                    (jea["debit"] > jea["credit"], jea["debit"] - jea["credit"]),
+                    else_=0,
+                ).sum(),
+            )
+            .order_by("period")
+        )
+        realized_rows = self._rows(realized)
+        for r in realized_rows:
+            r["period"] = str(r["period"])[:7] if r.get("period") else ""
+            r["forex_gain"] = float(r.get("forex_gain") or 0)
+            r["forex_loss"] = float(r.get("forex_loss") or 0)
+
         return {
-            "base_currency": self.base_currency,
+            "base_currency": base,
             "receivables_by_currency": fx_receivables,
             "payables_by_currency": fx_payables,
             "exposure_summary": exposure_summary,
-            "total_receivable_base": total_receivable_base,
-            "total_payable_base": total_payable_base,
-            "net_exposure_base": total_receivable_base - total_payable_base,
+            "total_receivable_base": total_rec_base,
+            "total_payable_base": total_pay_base,
+            "net_exposure_base": total_rec_base - total_pay_base,
             "total_unrealized_ar": round(total_unrealized_ar, 2),
             "total_unrealized_ap": round(total_unrealized_ap, 2),
             "net_unrealized": round(total_unrealized_ar - total_unrealized_ap, 2),
             "at_risk_invoices": at_risk_invoices,
-            "realized_forex_trend": realized_forex
+            "realized_forex_trend": realized_rows,
         }
 
 
-def run_financial_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Run financial intelligence analysis"""
-    model = FinancialIntelligence(date_filter=date_filter)
-    if not refresh:
-        cached = model.get_cached_results(f"financial_intelligence_{date_filter}")
-        if cached:
-            return cached
-    return model.train()
+# ─── Local helpers (no dateutil / pandas / numpy at module scope) ──────────
+def _months_ago(n: int) -> str:
+    """Return YYYY-MM-DD for the first day of the month `n` months ago."""
+    from datetime import date
+    today = date.today()
+    month_index = today.year * 12 + (today.month - 1) - n
+    y, m = divmod(month_index, 12)
+    return f"{y:04d}-{m + 1:02d}-01"
+
+
+def _add_days(base_date, days: int):
+    from datetime import timedelta
+    if hasattr(base_date, "date"):
+        base_date = base_date.date()
+    return base_date + timedelta(days=days)
+
+
+def ibis_literal(value):
+    """Lazy-import ibis.literal so the module loads even if ibis is missing
+    at import time (e.g. for IDE/lint)."""
+    import ibis
+    return ibis.literal(value)
+
+
+def run_financial_intelligence(refresh: bool = False, date_filter: str = "12m") -> dict[str, Any]:
+    """Run financial intelligence analysis (computed fresh, no cache)."""
+    return FinancialIntelligence(date_filter=date_filter).train()
