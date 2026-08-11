@@ -1,12 +1,9 @@
 from __future__ import annotations
+from typing import TYPE_CHECKING
 
-# pandas and numpy are imported at module scope because `SafePandasDataFrame`
-# (line 862) subclasses `pd.DataFrame` at runtime — this is not a type
-# annotation, so `from __future__ import annotations` / `TYPE_CHECKING`
-# cannot make it lazy. The ibis query execution path also uses `np.nan` and
-# `pd.NaT` in isinstance checks and dict replacements.
-import pandas as pd
-import numpy as np
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 import ast
 import time
@@ -681,7 +678,7 @@ class IbisQueryBuilder:
         frappe.flags.current_ibis_query = self.query
         context = frappe._dict()
         context.pandas = frappe._dict()
-        context.pandas.DataFrame = SafePandasDataFrame
+        context.pandas.DataFrame = _get_safe_dataframe_class()
         context.q = self.query
         context.update(self.get_current_columns())
         context.update(get_functions())
@@ -862,18 +859,39 @@ def sanitize_name(name):
     )
 
 
-class SafePandasDataFrame(pd.DataFrame):
-    def to_csv(self, *args, **kwargs):
-        raise NotImplementedError("to_csv is not supported in this context")
+# Lazy factory: pandas must NOT be imported at module level because this file
+# is loaded in the RQ worker parent via the insights hooks import chain
+# (insights.permissions → insights_team → ibis_utils). A module-level
+# `import pandas` initialises OpenBLAS threads in the parent; the subsequent
+# os.fork() copies dead threads into the work-horse → SIGSEGV (signal 11).
+# Defining the class inside a function keeps pandas out of the parent.
+_SafePandasDataFrame = None
 
-    def to_json(self, *args, **kwargs):
-        raise NotImplementedError("to_json is not supported in this context")
 
+def _get_safe_dataframe_class():
+    """Return a pd.DataFrame subclass that blocks to_csv/to_json.
+
+    Created once on first call; the class object is cached in the module global
+    so repeated calls are free.
+    """
+    global _SafePandasDataFrame
+    if _SafePandasDataFrame is None:
+        import pandas as pd
+
+        class SafePandasDataFrame(pd.DataFrame):
+            def to_csv(self, *args, **kwargs):
+                raise NotImplementedError("to_csv is not supported in this context")
+
+            def to_json(self, *args, **kwargs):
+                raise NotImplementedError("to_json is not supported in this context")
+
+        _SafePandasDataFrame = SafePandasDataFrame
+    return _SafePandasDataFrame
 
 def get_code_results(code: str, variables=None):
     import pandas as pd
     pandas = frappe._dict()
-    pandas.DataFrame = SafePandasDataFrame
+    pandas.DataFrame = _get_safe_dataframe_class()
     pandas.read_csv = pd.read_csv
     pandas.json_normalize = pd.json_normalize
 
