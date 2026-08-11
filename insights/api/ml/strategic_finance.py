@@ -21,7 +21,7 @@ def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12
     except frappe.PermissionError:
         raise
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return error(str(e))
 
 
 @frappe.whitelist()
