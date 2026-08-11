@@ -162,8 +162,8 @@ _LAZY_MAP = {
     "get_executive_reports_status": ("insights.api.ml.executive", "get_executive_reports_status"),
     "get_recent_executive_reports": ("insights.api.ml.executive", "get_recent_executive_reports"),
     "download_executive_report": ("insights.api.ml.executive", "download_executive_report"),
-    "test_executive_intelligence_data": ("insights.api.ml.executive", "test_executive_intelligence_data"),
     "preview_executive_report_data": ("insights.api.ml.executive", "preview_executive_report_data"),
+    "get_executive_detail": ("insights.api.ml.executive", "get_executive_detail"),
     # ------------------------------------------------------------------ model ops
     # Backs the Machine Learning dashboard: health of every model the app
     # trains, plus the two models with no domain dashboard of their own.
