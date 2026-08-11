@@ -22,6 +22,7 @@ import frappe
 from frappe import _
 
 from insights.api.response import error, success
+from insights.api.serialization import sanitize_for_json
 
 # Every model the app trains, with the precondition that decides whether it is
 # allowed to run at all. This is the health page's data source; it exists
@@ -271,11 +272,11 @@ def retrain(model: str) -> Dict[str, Any]:
         import importlib
         from insights.api.ml.utils import compute_or_cache
 
-        module_path, _, attr = spec["trainer"].rpartition(".")
+        module_path, _sep, attr = spec["trainer"].rpartition(".")
         trainer_fn = getattr(importlib.import_module(module_path), attr)
 
         cache_key = f"insights:retrain:{spec['key']}"
-        return success(compute_or_cache(
+        return sanitize_for_json(compute_or_cache(
             trainer=trainer_fn,
             cache_key=cache_key,
             label=spec["label"],
@@ -297,11 +298,9 @@ def lead_conversion(refresh: bool = False) -> Dict[str, Any]:
         if refresh:
             cache_key = "insights:lead_conversion"
             frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-            return success(compute_or_cache(
-                trainer=lambda: LeadConversion().train(),
-                cache_key=cache_key,
-                label=_("Lead conversion"),
-            ))
+            return sanitize_for_json(compute_or_cache(trainer=lambda: LeadConversion().train(),
+            cache_key=cache_key,
+            label=_("Lead conversion"),))
 
         return success(LeadConversion().predict())
     except frappe.PermissionError:
@@ -321,11 +320,9 @@ def gl_anomalies(refresh: bool = False) -> Dict[str, Any]:
         if refresh:
             cache_key = "insights:gl_anomaly"
             frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-            return success(compute_or_cache(
-                trainer=lambda: GLAnomalyDetection().train(),
-                cache_key=cache_key,
-                label=_("Ledger anomaly scan"),
-            ))
+            return sanitize_for_json(compute_or_cache(trainer=lambda: GLAnomalyDetection().train(),
+            cache_key=cache_key,
+            label=_("Ledger anomaly scan"),))
 
         return success(GLAnomalyDetection().predict())
     except frappe.PermissionError:

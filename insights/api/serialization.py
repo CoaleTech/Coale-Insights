@@ -12,6 +12,7 @@ answered by the gateway with an HTML 502 rather than JSON.
 """
 
 import sys
+from typing import Any
 
 # Exact types that are already JSON-safe. Matched by identity, never isinstance:
 # `numpy.float64` is a genuine subclass of `float`, so an isinstance fast path
@@ -21,7 +22,7 @@ import sys
 _JSON_SAFE = frozenset({str, int, bool, bytes, type(None)})
 
 
-def sanitize_for_json(obj):
+def sanitize_for_json(obj: Any) -> Any:
     """Recursively make a payload something orjson will accept.
 
     Frappe serialises responses with orjson and sets no OPT_NUMPY flag, so a

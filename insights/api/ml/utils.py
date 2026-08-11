@@ -97,7 +97,7 @@ def _train_sync(
             cache.set_value(cache_key, result, expires_in_sec=CACHE_TTL)  # type: ignore[union-attr]
         return result
     except Exception as e:
-        frappe.log_error(f"ML compute failed for {label}: {e}", "ML Analytics")
+        frappe.log_error(frappe.get_traceback(), f"ML compute failed: {label}")
         return {"status": "error", "message": str(e)}
     finally:
         cache.delete_value(lock_key)  # type: ignore[union-attr]
@@ -133,7 +133,7 @@ def _train_in_thread(
                 frappe.logger("ML Analytics").info(f"Computed {label} in background thread")
 
         except Exception:
-            frappe.log_error(f"ML background compute failed for {label}", "ML Analytics")
+            frappe.log_error(frappe.get_traceback(), f"ML background compute failed: {label}")
         finally:
             try:
                 cache = frappe.cache()

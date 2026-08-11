@@ -91,7 +91,7 @@ class DemandForecasting(BaseMLModel):
         df['posting_date'] = pd.to_datetime(df['posting_date'])
         df['week'] = df['posting_date'].dt.to_period('W').dt.start_time
         
-        weekly = df.groupby(['item_code', 'week']).agg({
+        return df.groupby(['item_code', 'week']).agg({
             'qty_sold': 'sum',
             'amount': 'sum',
             'item_name': 'first',

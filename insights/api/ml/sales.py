@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
+from insights.api.serialization import sanitize_for_json
 
 
 @frappe.whitelist()
@@ -29,11 +30,9 @@ def sales_forecast(periods: int = 30, refresh: bool = False) -> Dict[str, Any]:
         if refresh:
             frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-        return success(compute_or_cache(
-            trainer=lambda: SalesForecasting().train(periods=periods),
-            cache_key=cache_key,
-            label=_("Sales forecast"),
-        ))
+        return sanitize_for_json(compute_or_cache(trainer=lambda: SalesForecasting().train(periods=periods),
+        cache_key=cache_key,
+        label=_("Sales forecast"),))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -67,11 +66,9 @@ def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[
         if refresh:
             frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-        return success(compute_or_cache(
-            trainer=lambda: SalesIntelligence(date_filter=date_filter).train(refresh_forecasts=False),
-            cache_key=cache_key,
-            label=_("Sales intelligence"),
-        ))
+        return sanitize_for_json(compute_or_cache(trainer=lambda: SalesIntelligence(date_filter=date_filter).train(refresh_forecasts=False),
+        cache_key=cache_key,
+        label=_("Sales intelligence"),))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -176,11 +173,9 @@ def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
         cache_key = "insights:sales_forecast"
         frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-        return success(compute_or_cache(
-            trainer=lambda: SalesForecasting().train(),
-            cache_key=cache_key,
-            label=_("Sales forecast"),
-        ))
+        return sanitize_for_json(compute_or_cache(trainer=lambda: SalesForecasting().train(),
+        cache_key=cache_key,
+        label=_("Sales forecast"),))
     except frappe.PermissionError:
         raise
     except Exception as e:

@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
+from insights.api.serialization import sanitize_for_json
 
 
 @frappe.whitelist()
@@ -73,11 +74,9 @@ def customer_intelligence(refresh: bool = False, async_mode: bool = False, date_
         if refresh:
             frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-        return success(compute_or_cache(
-            trainer=lambda: CustomerIntelligence(date_filter=date_filter).train(update_customers=True),
-            cache_key=cache_key,
-            label=_("Customer intelligence"),
-        ))
+        return sanitize_for_json(compute_or_cache(trainer=lambda: CustomerIntelligence(date_filter=date_filter).train(update_customers=True),
+        cache_key=cache_key,
+        label=_("Customer intelligence"),))
     except frappe.PermissionError:
         raise
     except Exception as e:

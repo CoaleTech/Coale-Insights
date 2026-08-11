@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
+from insights.api.serialization import sanitize_for_json
 
 
 @frappe.whitelist()
@@ -92,8 +93,8 @@ def run_all_models() -> Dict[str, Any]:
             ),
             (
                 "procurement_intelligence",
-                "insights:procurement_intelligence:12m",
-                lambda: ProcurementIntelligence(date_filter="12m").train(),
+                "insights:procurement_intelligence",
+                lambda: ProcurementIntelligence().train(),
                 _("Procurement intelligence"),
             ),
         ]
@@ -125,11 +126,9 @@ def payment_risk_analysis(refresh: bool = False) -> Dict[str, Any]:
         if refresh:
             frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-        return success(compute_or_cache(
-            trainer=lambda: PaymentPrediction().train(),
-            cache_key=cache_key,
-            label=_("Payment prediction"),
-        ))
+        return sanitize_for_json(compute_or_cache(trainer=lambda: PaymentPrediction().train(),
+        cache_key=cache_key,
+        label=_("Payment prediction"),))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -171,11 +170,9 @@ def demand_forecast(periods: int = 4, top_items: int = 100, refresh: bool = Fals
         if refresh:
             frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-        return success(compute_or_cache(
-            trainer=lambda: DemandForecasting().train(periods=periods, top_items=top_items),
-            cache_key=cache_key,
-            label=_("Demand forecast"),
-        ))
+        return sanitize_for_json(compute_or_cache(trainer=lambda: DemandForecasting().train(periods=periods, top_items=top_items),
+        cache_key=cache_key,
+        label=_("Demand forecast"),))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -198,17 +195,21 @@ def get_reorder_alerts() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def product_recommendations(refresh: bool = False) -> Dict[str, Any]:
-    """Get product recommendations"""
+    """Get product recommendations, computed on request, cached 24h."""
     try:
         frappe.has_permission("Item", "read", throw=True)
+        from insights.api.ml.utils import compute_or_cache
         from insights.ml.product_recommendations import ProductRecommendations
-        model = ProductRecommendations()
+
+        cache_key = "insights:product_recommendations"
         if refresh:
-            result = model.train()
-        else:
-            cached = model.get_cached_results("product_recommendations")
-            result = cached if cached else model.train()
-        return success(result)
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
+
+        return sanitize_for_json(compute_or_cache(
+            trainer=lambda: ProductRecommendations().train(),
+            cache_key=cache_key,
+            label=_("Product recommendations"),
+        ))
     except frappe.PermissionError:
         raise
     except Exception as e:
