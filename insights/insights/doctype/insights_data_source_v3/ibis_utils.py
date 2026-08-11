@@ -1,9 +1,12 @@
 from __future__ import annotations
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pandas as pd
-    import numpy as np
+# pandas and numpy are imported at module scope because `SafePandasDataFrame`
+# (line 862) subclasses `pd.DataFrame` at runtime — this is not a type
+# annotation, so `from __future__ import annotations` / `TYPE_CHECKING`
+# cannot make it lazy. The ibis query execution path also uses `np.nan` and
+# `pd.NaT` in isinstance checks and dict replacements.
+import pandas as pd
+import numpy as np
 
 import ast
 import time
