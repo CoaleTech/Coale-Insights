@@ -289,18 +289,14 @@ def retrain(model: str) -> Dict[str, Any]:
 
 @frappe.whitelist()
 def lead_conversion(refresh: bool = False) -> Dict[str, Any]:
-    """Win probability for open leads, and historical win rate by source."""
+    """Win probability for open leads, and historical win rate by source.
+
+    ``refresh`` is kept for backward compatibility with older frontend
+    callers; the score is always computed live, so it has no effect.
+    """
     try:
         frappe.has_permission("Lead", "read", throw=True)
         from insights.ml.lead_conversion import LeadConversion
-        from insights.api.ml.utils import compute_or_cache
-
-        if refresh:
-            cache_key = "insights:lead_conversion"
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-            return sanitize_for_json(compute_or_cache(trainer=lambda: LeadConversion().train(),
-            cache_key=cache_key,
-            label=_("Lead conversion"),))
 
         return success(LeadConversion().predict())
     except frappe.PermissionError:
@@ -311,18 +307,14 @@ def lead_conversion(refresh: bool = False) -> Dict[str, Any]:
 
 @frappe.whitelist()
 def gl_anomalies(refresh: bool = False) -> Dict[str, Any]:
-    """Ledger entries ranked by how unlike the rest of the ledger they are."""
+    """Ledger entries ranked by how unlike the rest of the ledger they are.
+
+    ``refresh`` is kept for backward compatibility with older frontend
+    callers; the ranking is always computed live, so it has no effect.
+    """
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.gl_anomaly import GLAnomalyDetection
-        from insights.api.ml.utils import compute_or_cache
-
-        if refresh:
-            cache_key = "insights:gl_anomaly"
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-            return sanitize_for_json(compute_or_cache(trainer=lambda: GLAnomalyDetection().train(),
-            cache_key=cache_key,
-            label=_("Ledger anomaly scan"),))
 
         return success(GLAnomalyDetection().predict())
     except frappe.PermissionError:
