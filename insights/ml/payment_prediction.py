@@ -1,519 +1,450 @@
 from __future__ import annotations
+# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
+# For license information, please see license.txt
+
+"""
+Payment Risk Intelligence -- Ibis-native rewrite.
+
+Was a scikit-learn ``RandomForestClassifier`` (with a hand-rolled
+``_train_rule_based`` fallback) trained on paid Sales Invoices. The forest
+needed ~50 examples per outcome before it stopped memorising the majority
+class; below that floor the same rule-based scorer ran instead. The
+``predict()`` path then assembled a feature row per outstanding invoice,
+ran the model, and bolted on a hand-written ``_calculate_risk_score`` on top.
+
+The classifier is gone. The whole module is now a transparent weighted rule
+score, computed by MariaDB via Ibis on a single round trip per query:
+
+  Risk (0-100) = w1 * days_overdue_component
+               + w2 * customer_on_time_rate_component
+               + w3 * invoice_vs_typical_amount_component
+               + w4 * customer_late_history_component
+               + w5 * high_days_to_pay_component
+
+Each component is a normalised 0-100 signal that a finance team can read
+and override; weights below sum to 100. No model, no train/test split, no
+numpy/sklearn dependency, no fork-safety problem.
+
+Weights (sum = 100):
+  30 -- days already past due on the invoice (the strongest signal in
+        AR collections; overdue is overdue).
+  25 -- historical on-time payment rate of THIS customer (low on-time rate
+        over a long history is a much stronger predictor than the same
+        rate for a customer with two paid invoices).
+  15 -- this invoice's size relative to the customer's typical invoice
+        (one unusually large invoice is harder for a customer to absorb).
+  15 -- share of this customer's prior invoices that were paid late
+        (complements on-time rate but is more directional).
+  15 -- average days-to-pay of this customer (if they always pay at day
+        45, even a "Current" invoice is a moderate risk).
+
+The score lands on the same 0-100 scale and the same Low/Medium/High
+bucketing the frontend already renders, so Vue callers do not change.
+"""
+
+from datetime import datetime
+
 import frappe
+import ibis
 from frappe import _
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Dict, Any, List, Optional
-from insights.ml.base import BaseMLModel
 
-if TYPE_CHECKING:
-    import pandas as pd
+from insights.api.ml.ibis_source import company_filter, default_company, t
 
-# sklearn is imported lazily inside the methods that need it (train, predict)
-# to avoid loading numpy/OpenBLAS in the RQ worker parent before fork.
-# _check_sklearn() tests availability at call time.
-def _check_sklearn():
-    try:
-        import sklearn  # noqa: F401
-        return True
-    except ImportError:
-        return False
+# Hard floors: no per-customer history -> neutral component; no paid
+# invoices at all -> the customer is genuinely unknown, score everything
+# from invoice-level signals only.
+MIN_HISTORY_FOR_CUSTOMER_SCORE = 1
 
-# Minimum examples of *each* outcome before a classifier is worth fitting.
-# At the time of writing this site has 127 overdue invoices against 3,704
-# total: a forest trained on that memorises the minority class and reports an
-# accuracy driven entirely by the majority one. Below the floor, the
-# rule-based scorer is the honest answer.
-MIN_CLASS_EXAMPLES = 50
+# A finance team can edit these in code review; they are intentionally
+# explicit so the score is auditable, not learned.
+WEIGHT_DAYS_OVERDUE = 30
+WEIGHT_ON_TIME_RATE = 25
+WEIGHT_AMOUNT_VS_TYPICAL = 15
+WEIGHT_LATE_HISTORY_SHARE = 15
+WEIGHT_AVG_DAYS_TO_PAY = 15
 
 
-class PaymentPrediction(BaseMLModel):
+class PaymentPrediction:
+    """Ibis-native risk scorer for outstanding Sales Invoices.
+
+    Kept as a plain class (not a ``BaseMLModel``) on purpose: there is no
+    training step, no cache, and no model to ship to the disk snapshot.
+    The ``run_payment_prediction()`` and ``get_payment_predictions()``
+    module-level helpers below are what the API endpoints and the
+    scheduler call into; both answer synchronously.
     """
-    Payment Delay Prediction
-    
-    Uses historical payment patterns to predict:
-    - Probability of late payment
-    - Expected days to payment
-    - At-risk invoices
-    
-    Features used:
-    - Customer payment history
-    - Invoice amount
-    - Customer credit limit utilization
-    - Day of week/month
-    - Customer age
-    - Historical average days to pay
-    """
-    
-    def __init__(self):
-        super().__init__()
-        self.model_name = "PaymentPrediction"
-        self.model = None
-        self.feature_columns = []
-        
-    def _get_payment_history(self) -> pd.DataFrame:
-        """Get historical payment data for training"""
-        query = """
-            SELECT 
-                si.name as invoice_id,
-                si.customer,
-                si.grand_total,
-                si.posting_date,
-                si.due_date,
-                si.status,
-                si.outstanding_amount,
-                c.customer_group,
-                c.territory,
-                COALESCE((SELECT ccl.credit_limit FROM `tabCustomer Credit Limit` ccl
-                          WHERE ccl.parent = c.name AND ccl.parenttype = 'Customer'
-                          ORDER BY ccl.credit_limit DESC LIMIT 1), 0) as credit_limit,
-                c.creation as customer_since,
-                DATEDIFF(COALESCE(
-                    (SELECT MIN(pe.posting_date) 
-                     FROM `tabPayment Entry Reference` per
-                     JOIN `tabPayment Entry` pe ON per.parent = pe.name
-                     WHERE per.reference_name = si.name AND pe.docstatus = 1),
-                    CASE WHEN si.outstanding_amount = 0 THEN si.modified ELSE NULL END
-                ), si.posting_date) as days_to_pay,
-                CASE 
-                    WHEN si.outstanding_amount = 0 THEN 'Paid'
-                    WHEN si.due_date < CURDATE() THEN 'Overdue'
-                    ELSE 'Outstanding'
-                END as payment_status
-            FROM `tabSales Invoice` si
-            LEFT JOIN `tabCustomer` c ON si.customer = c.name
-            WHERE si.docstatus = 1
-            ORDER BY si.posting_date DESC
+
+    def __init__(self) -> None:
+        self.company = default_company()
+
+    # -----------------------------------------------------------------
+    # public surface
+    # -----------------------------------------------------------------
+
+    def train(self) -> dict:
+        """No training is required for the rule scorer.
+
+        Kept because the scheduler (``insights.ml.scheduler.train_payment_prediction``)
+        and ``run_all_models`` still call ``model.train()`` -- returning a
+        small health dict keeps them happy without faking a model fit.
         """
-        return self.get_training_data(query)
-    
-    def _get_outstanding_invoices(self) -> pd.DataFrame:
-        """Get currently outstanding invoices for prediction"""
-        query = """
-            SELECT 
-                si.name as invoice_id,
-                si.customer,
-                si.customer_name,
-                si.grand_total,
-                si.outstanding_amount,
-                si.posting_date,
-                si.due_date,
-                DATEDIFF(CURDATE(), si.due_date) as days_overdue,
-                c.customer_group,
-                c.territory,
-                COALESCE((SELECT ccl.credit_limit FROM `tabCustomer Credit Limit` ccl
-                          WHERE ccl.parent = c.name AND ccl.parenttype = 'Customer'
-                          ORDER BY ccl.credit_limit DESC LIMIT 1), 0) as credit_limit,
-                c.creation as customer_since
-            FROM `tabSales Invoice` si
-            LEFT JOIN `tabCustomer` c ON si.customer = c.name
-            WHERE si.docstatus = 1 
-            AND si.outstanding_amount > 0
-            ORDER BY si.due_date ASC
-        """
-        return self.get_training_data(query)
-    
-    def _calculate_customer_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calculate customer-level payment metrics"""
-        import pandas as pd
-
-        customer_metrics = df.groupby('customer').agg({
-            'days_to_pay': ['mean', 'std', 'max'],
-            'grand_total': ['sum', 'mean', 'count'],
-            'invoice_id': 'count'
-        }).reset_index()
-        
-        customer_metrics.columns = [
-            'customer', 'avg_days_to_pay', 'std_days_to_pay', 'max_days_to_pay',
-            'total_business', 'avg_invoice_value', 'invoice_count', 'total_invoices'
-        ]
-        
-        # Calculate on-time payment rate
-        on_time = df[df['days_to_pay'] <= df.apply(
-            lambda x: (pd.to_datetime(x['due_date']) - pd.to_datetime(x['posting_date'])).days 
-            if pd.notna(x['due_date']) else 30, axis=1
-        )].groupby('customer').size().reset_index(name='on_time_payments')
-        
-        customer_metrics = customer_metrics.merge(on_time, on='customer', how='left')
-        customer_metrics['on_time_payments'] = customer_metrics['on_time_payments'].fillna(0)
-        customer_metrics['on_time_rate'] = (
-            customer_metrics['on_time_payments'] / customer_metrics['total_invoices']
-        ).fillna(0)
-        
-        return customer_metrics
-
-    def _prepare_features(self, df: pd.DataFrame, customer_metrics: pd.DataFrame) -> pd.DataFrame:
-        """Prepare features for model training/prediction"""
-        import pandas as pd
-        import numpy as np
-
-        # Merge customer metrics
-        df = df.merge(customer_metrics, on='customer', how='left')
-
-        # Date features
-        df['posting_date'] = pd.to_datetime(df['posting_date'])
-        df['day_of_week'] = df['posting_date'].dt.dayofweek
-        df['day_of_month'] = df['posting_date'].dt.day
-        df['month'] = df['posting_date'].dt.month
-        
-        # Customer age
-        if 'customer_since' in df.columns:
-            df['customer_since'] = pd.to_datetime(df['customer_since'])
-            df['customer_age_days'] = (df['posting_date'] - df['customer_since']).dt.days
-        else:
-            df['customer_age_days'] = 365  # Default
-        
-        # Credit utilization
-        if 'credit_limit' in df.columns and 'grand_total' in df.columns:
-            df['credit_utilization'] = df.apply(
-                lambda x: x['grand_total'] / x['credit_limit'] if x['credit_limit'] > 0 else 0.5,
-                axis=1
-            )
-        else:
-            df['credit_utilization'] = 0.5
-        
-        # Invoice size category
-        invoice_median = df['grand_total'].median()
-        df['is_large_invoice'] = (df['grand_total'] > invoice_median * 2).astype(int)
-        
-        # Fill NaN values
-        numeric_cols = df.select_dtypes(include=[np.number]).columns
-        df[numeric_cols] = df[numeric_cols].fillna(0)
-        
-        return df
-    
-    def train(self) -> Dict[str, Any]:
-        """Train payment prediction model"""
-        import pandas as pd
-
-        # Get historical data
-        df = self._get_payment_history()
-        
-        if df.empty or len(df) < 50:
-            return {
-                "status": "error",
-                "message": _("Insufficient payment history for training (need at least 50 invoices)")
-            }
-        
-        # Filter to paid invoices for training
-        paid_df = df[df['payment_status'] == 'Paid'].copy()
-        
-        if len(paid_df) < 30:
-            return {
-                "status": "error",
-                "message": _("Insufficient paid invoices for training")
-            }
-        
-        # Calculate customer metrics
-        customer_metrics = self._calculate_customer_metrics(paid_df)
-        
-        # Prepare features
-        paid_df = self._prepare_features(paid_df, customer_metrics)
-        
-        # Define features and target
-        self.feature_columns = [
-            'grand_total', 'avg_days_to_pay', 'on_time_rate',
-            'day_of_week', 'day_of_month', 'customer_age_days',
-            'credit_utilization', 'is_large_invoice', 'total_invoices',
-            'avg_invoice_value'
-        ]
-        
-        if not _check_sklearn():
-            return {
-                "status": "error",
-                "message": "scikit-learn not installed. Run: pip install insights[ml]"
-            }
-        
-        # Create target: is_late (1 if paid after due date)
-        paid_df['credit_days'] = paid_df.apply(
-            lambda x: (pd.to_datetime(x['due_date']) - pd.to_datetime(x['posting_date'])).days 
-            if pd.notna(x['due_date']) else 30, axis=1
-        )
-        paid_df['is_late'] = (paid_df['days_to_pay'] > paid_df['credit_days']).astype(int)
-        
-        # Ensure all feature columns exist
-        for col in self.feature_columns:
-            if col not in paid_df.columns:
-                paid_df[col] = 0
-        
-        X = paid_df[self.feature_columns].values
-        y = paid_df['is_late'].values
-
-        # Train model
-        try:
-            from sklearn.ensemble import RandomForestClassifier
-            from sklearn.model_selection import train_test_split
-            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-
-            # A forest fitted on a handful of late payments memorises them and
-            # reports a flattering accuracy driven entirely by the majority
-            # class. Below the floor the rule-based scorer is the honest answer.
-            late_count = int((y == 1).sum())
-            on_time_count = int((y == 0).sum())
-            if min(late_count, on_time_count) < MIN_CLASS_EXAMPLES:
-                frappe.logger().info(
-                    f"Payment prediction: {late_count} late / {on_time_count} on-time "
-                    f"is below the {MIN_CLASS_EXAMPLES} minimum per class; using the "
-                    "rule-based scorer instead of RandomForest."
-                )
-                raise ImportError("insufficient minority-class examples")
-
-            # Split data, preserving the class balance in both halves.
-            X_train, X_test, y_train, y_test = train_test_split(
-                X, y, test_size=0.2, random_state=42, stratify=y
-            )
-
-            # Train Random Forest
-            self.model = RandomForestClassifier(
-                n_estimators=100,
-                max_depth=10,
-                random_state=42,
-                class_weight="balanced",
-            )
-            self.model.fit(X_train, y_train)
-            
-            # Evaluate
-            y_pred = self.model.predict(X_test)
-            
-            metrics = {
-                "accuracy": round(accuracy_score(y_test, y_pred) * 100, 2),
-                "precision": round(precision_score(y_test, y_pred, zero_division=0) * 100, 2),
-                "recall": round(recall_score(y_test, y_pred, zero_division=0) * 100, 2),
-                "f1_score": round(f1_score(y_test, y_pred, zero_division=0) * 100, 2)
-            }
-            
-            # Feature importance
-            importance = dict(zip(
-                self.feature_columns,
-                [round(float(i), 4) for i in self.model.feature_importances_]
-            ))
-            
-        except ImportError:
-            # Fallback to rule-based model
-            metrics = self._train_rule_based(paid_df)
-            importance = {"on_time_rate": 0.4, "avg_days_to_pay": 0.3, "credit_utilization": 0.3}
-        
-        # Store customer metrics for predictions
-        self.customer_metrics = customer_metrics
-        
-        # Calculate summary statistics
-        late_rate = (paid_df['is_late'].sum() / len(paid_df)) * 100
-        
-        results = {
-            "status": "success",
-            "training_date": datetime.now().isoformat(),
-            "training_samples": len(paid_df),
-            "late_payment_rate": round(late_rate, 2),
-            "metrics": metrics,
-            "feature_importance": importance,
-            "customer_metrics_summary": {
-                "total_customers": len(customer_metrics),
-                "avg_on_time_rate": float(round(customer_metrics['on_time_rate'].mean() * 100, 2)),
-                "avg_days_to_pay": float(round(customer_metrics['avg_days_to_pay'].mean(), 1))
-            }
-        }
-        
-        # Cache results
-        self.cache_results("payment_model", results, expires_in_hours=24)
-        
-        # Log training
-        self.log_training({"metrics": metrics, "samples": len(paid_df)})
-        
-        return results
-    
-    def _train_rule_based(self, df: pd.DataFrame) -> Dict[str, float]:
-        """Train a simple rule-based model when sklearn is not available"""
-        # Calculate thresholds
-        self.rules = {
-            "low_on_time_threshold": float(df.groupby('customer')['is_late'].mean().quantile(0.75)),
-            "high_days_threshold": float(df['days_to_pay'].quantile(0.75)),
-            "high_amount_threshold": float(df['grand_total'].quantile(0.75))
-        }
-        self.model = "rule_based"
-        
+        closed = self._count_closed_invoices()
         return {
-            "accuracy": 65.0,
-            "precision": 60.0,
-            "recall": 70.0,
-            "f1_score": 65.0,
-            "note": "Rule-based model (sklearn not available)"
+            "status": "success",
+            "training_date": frappe.utils.now(),
+            "training_samples": closed,
+            "model": "weighted_rule_score",
+            "weights": {
+                "days_overdue": WEIGHT_DAYS_OVERDUE,
+                "on_time_rate": WEIGHT_ON_TIME_RATE,
+                "amount_vs_typical": WEIGHT_AMOUNT_VS_TYPICAL,
+                "late_history_share": WEIGHT_LATE_HISTORY_SHARE,
+                "avg_days_to_pay": WEIGHT_AVG_DAYS_TO_PAY,
+            },
+            "metrics": {
+                "note": "rule-based scorer; no test set or accuracy metric",
+            },
         }
-    
-    def predict(self) -> Dict[str, Any]:
-        """Predict payment risk for outstanding invoices"""
-        # Get outstanding invoices
-        outstanding = self._get_outstanding_invoices()
-        
-        if outstanding.empty:
+
+    def predict(self) -> dict:
+        """Score every outstanding invoice for the current company."""
+        outstanding = self._fetch_outstanding_invoices()
+        history = self._fetch_customer_history()
+
+        if not outstanding:
             return {
                 "status": "success",
-                "message": _("No outstanding invoices"),
-                "predictions": []
+                "prediction_date": datetime.now().isoformat(),
+                "summary": {
+                    "total_outstanding": 0.0,
+                    "total_invoices": 0,
+                    "high_risk_count": 0,
+                    "high_risk_amount": 0.0,
+                    "overdue_count": 0,
+                    "overdue_amount": 0.0,
+                },
+                "predictions": [],
             }
-        
-        # Get historical data for customer metrics
-        history = self._get_payment_history()
-        customer_metrics = self._calculate_customer_metrics(
-            history[history['payment_status'] == 'Paid']
-        )
-        
-        # Prepare features
-        outstanding = self._prepare_features(outstanding, customer_metrics)
-        
-        # Make predictions
-        predictions = []
-        
-        for _, row in outstanding.iterrows():
-            risk_score = self._calculate_risk_score(row, customer_metrics)
-            
-            prediction = {
-                "invoice_id": row['invoice_id'],
-                "customer": row['customer'],
-                "customer_name": row.get('customer_name', row['customer']),
-                "outstanding_amount": float(row['outstanding_amount']),
-                "due_date": str(row['due_date']),
-                "days_overdue": int(row['days_overdue']) if row['days_overdue'] > 0 else 0,
-                "risk_score": risk_score,
-                "risk_level": self._get_risk_level(risk_score),
-                "expected_days_to_pay": self._estimate_days_to_pay(row, customer_metrics),
-                "recommended_action": self._get_recommended_action(risk_score, row['days_overdue'])
-            }
-            predictions.append(prediction)
-        
-        # Sort by risk score
-        predictions.sort(key=lambda x: x['risk_score'], reverse=True)
-        
-        # Summary statistics
+
+        predictions = [self._score_invoice(row, history) for row in outstanding]
+        predictions.sort(key=lambda p: p["risk_score"], reverse=True)
+
         summary = {
-            "total_outstanding": float(outstanding['outstanding_amount'].sum()),
+            "total_outstanding": float(sum(p["outstanding_amount"] for p in predictions)),
             "total_invoices": len(predictions),
-            "high_risk_count": len([p for p in predictions if p['risk_level'] == 'High']),
-            "high_risk_amount": sum([p['outstanding_amount'] for p in predictions if p['risk_level'] == 'High']),
-            "overdue_count": len([p for p in predictions if p['days_overdue'] > 0]),
-            "overdue_amount": sum([p['outstanding_amount'] for p in predictions if p['days_overdue'] > 0])
+            "high_risk_count": sum(1 for p in predictions if p["risk_level"] == "High"),
+            "high_risk_amount": float(
+                sum(p["outstanding_amount"] for p in predictions if p["risk_level"] == "High")
+            ),
+            "overdue_count": sum(1 for p in predictions if p["days_overdue"] > 0),
+            "overdue_amount": float(
+                sum(p["outstanding_amount"] for p in predictions if p["days_overdue"] > 0)
+            ),
         }
-        
+
         return {
             "status": "success",
             "prediction_date": datetime.now().isoformat(),
             "summary": summary,
-            "predictions": predictions
+            "predictions": predictions,
         }
-    
-    def _calculate_risk_score(self, row: pd.Series, customer_metrics: pd.DataFrame) -> float:
-        """Calculate payment risk score (0-100)"""
-        score = 50  # Base score
-        
-        # Get customer history
-        cust_data = customer_metrics[customer_metrics['customer'] == row['customer']]
-        
-        if not cust_data.empty:
-            cust = cust_data.iloc[0]
-            
-            # On-time rate factor (-20 to +20)
-            if cust['on_time_rate'] < 0.5:
-                score += 20
-            elif cust['on_time_rate'] < 0.8:
-                score += 10
-            elif cust['on_time_rate'] > 0.95:
-                score -= 20
-            else:
-                score -= 10
-            
-            # Average days to pay factor (-15 to +15)
-            if cust['avg_days_to_pay'] > 45:
-                score += 15
-            elif cust['avg_days_to_pay'] > 30:
-                score += 10
-            elif cust['avg_days_to_pay'] < 15:
-                score -= 15
+
+    # -----------------------------------------------------------------
+    # Ibis queries
+    # -----------------------------------------------------------------
+
+    def _count_closed_invoices(self) -> int:
+        si = company_filter(t("Sales Invoice"), self.company).filter(
+            t("Sales Invoice").docstatus == 1
+        )
+        row = si.aggregate(n=si.count()).execute().iloc[0]
+        return int(row["n"] or 0)
+
+    def _fetch_outstanding_invoices(self) -> list[dict]:
+        """Every Sales Invoice that is still partly unpaid, for the current
+        company (when there is one). One SQL round trip."""
+        si = t("Sales Invoice")
+        q = si.filter(si.docstatus == 1, si.outstanding_amount > 0)
+        q = company_filter(q, self.company)
+        today = datetime.now().date()
+        q = q.mutate(
+            invoice_id=q.name,
+            days_overdue=ibis.ifelse(
+                q.due_date.isnull(),
+                ibis.literal(0),
+                ibis.greatest(q.due_date.cast("date").delta(today, unit="day"), 0),
+            ),
+        )
+        df = (
+            q.select(
+                "invoice_id",
+                "customer",
+                "customer_name",
+                "grand_total",
+                "outstanding_amount",
+                "posting_date",
+                "due_date",
+                "days_overdue",
+            )
+            .order_by("due_date")
+            .execute()
+        )
+        return [dict(r) for r in df.to_dict(orient="records")]
+
+    def _fetch_customer_history(self) -> dict:
+        """Per-customer aggregates from CLOSED Sales Invoices (paid in
+        full). One group-by aggregate; never raw transactions in Python.
+        """
+        si = t("Sales Invoice")
+        closed = si.filter(si.docstatus == 1, si.outstanding_amount == 0)
+        closed = company_filter(closed, self.company)
+        # MariaDB DATEDIFF on dates, returning NULL on null inputs.
+        closed = closed.mutate(
+            credit_days=ibis.ifelse(
+                closed.due_date.isnull() | closed.posting_date.isnull(),
+                ibis.null(),
+                closed.due_date.cast("date").delta(closed.posting_date.cast("date"), unit="day"),
+            ),
+            days_to_pay=ibis.ifelse(
+                closed.modified.isnull() | closed.posting_date.isnull(),
+                ibis.null(),
+                closed.modified.cast("date").delta(closed.posting_date.cast("date"), unit="day"),
+            ),
+        )
+        closed = closed.mutate(
+            is_late=ibis.ifelse(
+                closed.days_to_pay.isnull() | closed.credit_days.isnull(),
+                ibis.literal(False),
+                closed.days_to_pay > closed.credit_days,
+            )
+        )
+        agg = closed.group_by(closed.customer).aggregate(
+            closed_invoices=closed.count(),
+            on_time_payments=(~closed.is_late).sum(),
+            late_payments=closed.is_late.sum(),
+            avg_days_to_pay=closed.days_to_pay.mean(),
+            avg_invoice_value=closed.grand_total.mean(),
+        )
+        df = agg.execute()
+        out: dict = {}
+        for r in df.to_dict(orient="records"):
+            closed_n = int(r["closed_invoices"] or 0)
+            on_time = int(r["on_time_payments"] or 0)
+            late = int(r["late_payments"] or 0)
+            r["on_time_rate"] = (on_time / closed_n) if closed_n else 0.0
+            r["late_share"] = (late / closed_n) if closed_n else 0.0
+            out[r["customer"]] = r
+        return out
+
+    # -----------------------------------------------------------------
+    # per-invoice scoring
+    # -----------------------------------------------------------------
+
+    def _score_invoice(self, row: dict, history: dict) -> dict:
+        customer = row["customer"]
+        cust = history.get(customer, {})
+        closed_n = int(cust.get("closed_invoices", 0) or 0)
+        on_time_rate = float(cust.get("on_time_rate", 0.0) or 0.0)
+        late_share = float(cust.get("late_share", 0.0) or 0.0)
+        avg_days_to_pay = cust.get("avg_days_to_pay")
+        avg_invoice_value = cust.get("avg_invoice_value")
+
+        days_overdue = max(0, int(row.get("days_overdue") or 0))
+        outstanding = float(row.get("outstanding_amount") or 0.0)
+        this_amount = float(row.get("grand_total") or 0.0)
+
+        # Each component is 0-100; the weighted sum is 0-100.
+        c_days_overdue = _component_days_overdue(days_overdue)
+        c_on_time = (
+            _component_on_time_rate(on_time_rate)
+            if closed_n >= MIN_HISTORY_FOR_CUSTOMER_SCORE
+            else 50.0
+        )
+        c_amount = (
+            _component_amount_vs_typical(this_amount, avg_invoice_value)
+            if closed_n >= MIN_HISTORY_FOR_CUSTOMER_SCORE and avg_invoice_value
+            else 50.0
+        )
+        c_late = (
+            _component_late_share(late_share)
+            if closed_n >= MIN_HISTORY_FOR_CUSTOMER_SCORE
+            else 50.0
+        )
+        c_dtp = (
+            _component_avg_days_to_pay(avg_days_to_pay)
+            if closed_n >= MIN_HISTORY_FOR_CUSTOMER_SCORE and avg_days_to_pay is not None
+            else 50.0
+        )
+
+        score = (
+            WEIGHT_DAYS_OVERDUE * c_days_overdue / 100.0
+            + WEIGHT_ON_TIME_RATE * c_on_time / 100.0
+            + WEIGHT_AMOUNT_VS_TYPICAL * c_amount / 100.0
+            + WEIGHT_LATE_HISTORY_SHARE * c_late / 100.0
+            + WEIGHT_AVG_DAYS_TO_PAY * c_dtp / 100.0
+        )
+        score = max(0.0, min(100.0, score))
+        risk_level = _risk_level(score)
+
+        if closed_n >= MIN_HISTORY_FOR_CUSTOMER_SCORE and avg_days_to_pay is not None:
+            posted = row.get("posting_date")
+            try:
+                elapsed = (datetime.now().date() - posted).days if posted else 0
+            except Exception:
+                elapsed = 0
+            expected = max(0, int(avg_days_to_pay - elapsed))
         else:
-            # New customer - moderate risk
-            score += 10
-        
-        # Days overdue factor
-        days_overdue = row.get('days_overdue', 0)
-        if days_overdue > 60:
-            score += 25
-        elif days_overdue > 30:
-            score += 15
-        elif days_overdue > 0:
-            score += 5
-        
-        # Amount factor
-        if row['outstanding_amount'] > 100000:
-            score += 5
-        
-        # Credit utilization
-        if row.get('credit_utilization', 0) > 0.9:
-            score += 10
-        
-        return max(0, min(100, score))
-    
-    def _get_risk_level(self, score: float) -> str:
-        """Convert risk score to risk level"""
-        if score >= 70:
-            return "High"
-        elif score >= 40:
-            return "Medium"
-        return "Low"
-    
-    def _estimate_days_to_pay(self, row: pd.Series, customer_metrics: pd.DataFrame) -> int:
-        """Estimate days until payment"""
-        import pandas as pd
+            expected = 30
 
-        cust_data = customer_metrics[customer_metrics['customer'] == row['customer']]
-        
-        if not cust_data.empty:
-            avg_days = cust_data.iloc[0]['avg_days_to_pay']
-            posting_date = pd.to_datetime(row['posting_date'])
-            days_since_posting = (datetime.now() - posting_date).days
-            
-            remaining = max(0, int(avg_days - days_since_posting))
-            return remaining
-        
-        return 30  # Default estimate
-    
-    def _get_recommended_action(self, risk_score: float, days_overdue: int) -> str:
-        """Get recommended collection action"""
-        if days_overdue > 60 or risk_score > 80:
-            return "Escalate to collections team immediately"
-        elif days_overdue > 30 or risk_score > 60:
-            return "Send formal demand letter and call customer"
-        elif days_overdue > 0 or risk_score > 40:
-            return "Send payment reminder email"
-        else:
-            return "Monitor - low risk"
+        return {
+            "invoice_id": row["invoice_id"],
+            "customer": customer,
+            "customer_name": row.get("customer_name") or customer,
+            "outstanding_amount": outstanding,
+            "due_date": str(row.get("due_date")),
+            "days_overdue": days_overdue,
+            "risk_score": round(score, 1),
+            "risk_level": risk_level,
+            "expected_days_to_pay": expected,
+            "recommended_action": _recommended_action(score, days_overdue),
+            "components": {
+                "days_overdue": round(c_days_overdue, 1),
+                "on_time_rate": round(c_on_time, 1),
+                "amount_vs_typical": round(c_amount, 1),
+                "late_share": round(c_late, 1),
+                "avg_days_to_pay": round(c_dtp, 1),
+            },
+        }
 
 
-# API Functions
-def run_payment_prediction() -> Dict[str, Any]:
-    """Train payment prediction model"""
-    model = PaymentPrediction()
-    return model.train()
+# ---------------------------------------------------------------------
+# component curves
+# ---------------------------------------------------------------------
 
 
-def get_payment_predictions() -> Dict[str, Any]:
-    """Get payment risk predictions for outstanding invoices"""
-    model = PaymentPrediction()
-    return model.predict()
+def _component_days_overdue(days: int) -> float:
+    """0 days -> 0, 30 days -> 50, 60 days -> 80, 90+ days -> 100.
+    Linear ramp saturates -- 200 days overdue is not materially worse
+    than 90 from a collections standpoint.
+    """
+    if days <= 0:
+        return 0.0
+    if days >= 90:
+        return 100.0
+    return min(100.0, days * (100.0 / 90.0))
 
 
-def get_customer_payment_risk(customer: str) -> Dict[str, Any]:
-    """Get payment risk for a specific customer"""
-    model = PaymentPrediction()
-    predictions = model.predict()
-    
-    customer_predictions = [
-        p for p in predictions.get('predictions', [])
-        if p['customer'] == customer
-    ]
-    
-    if not customer_predictions:
+def _component_on_time_rate(rate: float) -> float:
+    """Inverted: 100% on time -> 0 risk, 0% on time -> 100 risk.
+    rate is 0..1; bucketed so a near-perfect payer is rewarded more
+    than a near-miss is penalised.
+    """
+    rate = max(0.0, min(1.0, rate))
+    if rate >= 0.95:
+        return 0.0
+    if rate >= 0.80:
+        return 20.0
+    if rate >= 0.50:
+        return 60.0
+    return 100.0
+
+
+def _component_late_share(late: float) -> float:
+    """Share of prior invoices that were paid late. 0 -> 0, 0.5 -> 60,
+    1.0 -> 100. Symmetric with on-time rate but additive so a customer
+    who pays late AND late AND late gets a stronger signal than a single
+    factor can express.
+    """
+    late = max(0.0, min(1.0, late))
+    if late <= 0.05:
+        return 0.0
+    if late <= 0.20:
+        return 25.0
+    if late <= 0.50:
+        return 60.0
+    return 100.0
+
+
+def _component_amount_vs_typical(this: float, typical: float | None) -> float:
+    """If this invoice is 1x the customer's typical, score 0; 2x -> 50;
+    3x+ -> 100. ``typical`` is the mean grand_total across their paid
+    invoices. Unusually large invoices are harder to collect.
+    """
+    if not typical or typical <= 0 or not this:
+        return 50.0
+    this = float(this)
+    typical = float(typical)
+    if typical <= 0:
+        return 50.0
+    ratio = this / typical
+    if ratio <= 1.0:
+        return 0.0
+    if ratio >= 3.0:
+        return 100.0
+    return (ratio - 1.0) * 50.0
+
+def _component_avg_days_to_pay(avg: float | None) -> float:
+    """A customer who always pays at day 45 is riskier than one at day
+    15, even on a not-yet-overdue invoice. <15 days -> 0, 30 -> 30,
+    60 -> 80, 90+ -> 100. The "credit terms" anchor is 30 days, the
+    most common in B2B.
+    """
+    if avg is None or avg < 0:
+        return 50.0
+    if avg <= 15:
+        return 0.0
+    if avg <= 30:
+        return 30.0
+    if avg <= 60:
+        return 60.0
+    if avg <= 90:
+        return 80.0
+    return 100.0
+
+
+def _risk_level(score: float) -> str:
+    if score >= 70:
+        return "High"
+    if score >= 40:
+        return "Medium"
+    return "Low"
+
+
+def _recommended_action(score: float, days_overdue: int) -> str:
+    if days_overdue > 60 or score > 80:
+        return "Escalate to collections team immediately"
+    if days_overdue > 30 or score > 60:
+        return "Send formal demand letter and call customer"
+    if days_overdue > 0 or score > 40:
+        return "Send payment reminder email"
+    return "Monitor - low risk"
+
+
+# ---------------------------------------------------------------------
+# API functions
+# ---------------------------------------------------------------------
+
+
+def run_payment_prediction() -> dict:
+    """Train payment prediction model (now a no-op health check)."""
+    return PaymentPrediction().train()
+
+
+def get_payment_predictions() -> dict:
+    """Get payment risk predictions for outstanding invoices."""
+    return PaymentPrediction().predict()
+
+
+def get_customer_payment_risk(customer: str) -> dict:
+    """Get payment risk for a specific customer."""
+    result = PaymentPrediction().predict()
+    invoices = [p for p in result.get("predictions", []) if p.get("customer") == customer]
+    if not invoices:
         return {"status": "success", "message": _("No outstanding invoices for customer")}
-    
+
     return {
         "status": "success",
         "customer": customer,
-        "total_outstanding": sum(p['outstanding_amount'] for p in customer_predictions),
-        "invoices": customer_predictions
+        "total_outstanding": float(sum(p["outstanding_amount"] for p in invoices)),
+        "invoices": invoices,
     }

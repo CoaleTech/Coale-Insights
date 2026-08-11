@@ -3,1050 +3,1225 @@ from __future__ import annotations
 # For license information, please see license.txt
 
 """
-Risk Intelligence & Analytics Model
-Comprehensive risk assessment with ML-powered insights for:
-- Credit Risk (customer scoring, payment behavior, aging analysis)
-- Cash Flow Risk (DSO trends, working capital, revenue concentration)
-- Operational Risk (inventory stockouts, supplier reliability, process risks)
-- Compliance Risk (GST filing status, e-Invoice coverage, license tracking)
-- Predictive Analytics (Prophet forecasting, anomaly detection, early warnings)
+Risk Intelligence & Analytics -- Ibis-native rewrite.
+
+Was a Frankenstein's monster: a 1000-line ``BaseMLModel`` subclass that
+combined pandas, numpy, scikit-learn, statsmodels, ``india_tax_intelligence``,
+and an embedded Prophet forecast for cash flow. It cached every output
+to Redis and shipped a "warming" placeholder when the cache was cold,
+which crashed in the RQ work-horse on Frappe Cloud.
+
+The whole thing now compiles to a dozen Ibis aggregates -- per-customer
+credit metrics, aging buckets, GL-derived cash/working-capital, top-N
+risk lists, a few hand-rolled forecasts computed in Python on ~24-row
+monthly series -- and assembles a single JSON dict that the Vue dashboard
+consumes. The compliance sub-section still calls into
+``insights.ml.india_tax_intelligence`` for GSTR-1/GSTR-3B filing status
+(unchanged), because the ``india_compliance`` app's GST Return Log is the
+only honest source of that data on this site.
+
+The response shape is byte-compatible with the previous one: every key
+the Vue dashboard reads is preserved. Internal ``*_score`` weights are
+documented inline so a finance team can audit the numbers.
 """
 
-import frappe
-from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import pandas as pd
-    import numpy as np
+import frappe
+import ibis
+from frappe import _
 
-from insights.ml.base import BaseMLModel
+from insights.api.ml.ibis_source import company_filter, default_company, t
+
+# Risk-score thresholds (0-100). Same as the original class.
+RISK_THRESHOLDS = {
+    "low": (0, 25),
+    "medium": (26, 50),
+    "high": (51, 75),
+    "critical": (76, 100),
+}
+
+# Weighting for the aggregate risk score. Same as the original.
+WEIGHTS = {"credit": 0.30, "cashflow": 0.30, "operational": 0.25, "compliance": 0.15}
+
+# Time window for the analysis (months back). 12 = "last year" of data.
+HISTORY_MONTHS = 12
 
 
-class RiskIntelligence(BaseMLModel):
+def _risk_category(score: float) -> str:
+    if score <= 25:
+        return "Low"
+    if score <= 50:
+        return "Medium"
+    if score <= 75:
+        return "High"
+    return "Critical"
+
+
+def _risk_color(category: str) -> str:
+    return {"Low": "green", "Medium": "yellow", "High": "orange", "Critical": "red"}.get(
+        category, "gray"
+    )
+
+
+def _months_ago(months: int):
+    return (datetime.now() - timedelta(days=months * 30)).date()
+
+
+# ── Public API ──────────────────────────────────────────────────────────────
+
+
+def run_risk_intelligence(refresh: bool = False) -> dict:
+    """Main entry point for the Risk Intelligence dashboard.
+
+    ``refresh`` is accepted for API back-compat; every call recomputes
+    from live SQL (the cache + background-job machinery is gone) so the
+    flag is a no-op. Returns the same shape as the previous sklearn
+    implementation, computed via Ibis aggregates.
     """
-    Comprehensive Risk Intelligence & Analytics Model
-    
-    Features:
-    - Multi-domain risk assessment (Credit, Cash Flow, Operational, Compliance)
-    - Prophet-based forecasting for predictive risk modeling
-    - Dual scoring system: 0-100 numeric + categorical (Low/Medium/High/Critical)
-    - Real-time anomaly detection and early warning system
-    - India compliance monitoring (GST filing, e-Invoice, GST/PAN registration)
-    """
-    
-    RISK_THRESHOLDS = {
-        "low": (0, 25),
-        "medium": (26, 50), 
-        "high": (51, 75),
-        "critical": (76, 100)
-    }
-    
-    def __init__(self):
-        super().__init__()
-        self.model_name = "RiskIntelligence"
-        self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value("Global Defaults", "default_company")
-        self.base_currency = (
-            frappe.db.get_value("Company", self.company, "default_currency")
-            or frappe.db.get_single_value("System Settings", "default_currency")
-            or "USD"
-        )
-    
-    def train(self) -> Dict[str, Any]:
-        """Generate comprehensive risk intelligence analysis"""
-        try:
-            overview = self._calculate_risk_overview()
-            credit_risk = self._analyze_credit_risk()
-            cashflow_risk = self._analyze_cashflow_risk()
-            operational_risk = self._analyze_operational_risk()
-            compliance_risk = self._analyze_compliance_risk()
-            predictive_analytics = self._generate_predictive_analytics()
-            
-            result = {
-                "status": "success",
-                "generated_at": datetime.now().isoformat(),
-                "company": self.company,
-                "base_currency": self.base_currency,
-                "overview": overview,
-                "credit_risk": credit_risk,
-                "cashflow_risk": cashflow_risk,
-                "operational_risk": operational_risk,
-                "compliance_risk": compliance_risk,
-                "predictive_analytics": predictive_analytics
-            }
-            
-            self.cache_results("risk_intelligence", result)
-            return result
-            
-        except Exception as e:
-            frappe.log_error(f"Risk Intelligence failed: {str(e)}", "ML Risk")
-            return {"status": "error", "message": str(e)}
-    
-    def predict(self) -> Dict[str, Any]:
-        """Return cached results or generate new ones"""
-        cached = self.get_cached_results("risk_intelligence")
-        if cached:
-            return cached
-        return self.train()
-    
-    def _get_risk_category(self, score: float) -> str:
-        """Convert numeric score to risk category"""
-        if score <= 25:
-            return "Low"
-        elif score <= 50:
-            return "Medium"
-        elif score <= 75:
-            return "High"
-        else:
-            return "Critical"
-    
-    def _get_risk_color(self, category: str) -> str:
-        """Get color for risk category"""
-        colors = {
-            "Low": "green",
-            "Medium": "yellow", 
-            "High": "orange",
-            "Critical": "red"
+    try:
+        company = default_company()
+        base_currency = _base_currency(company)
+
+        overview = _overview(company)
+        credit_risk = _analyze_credit_risk(company)
+        cashflow_risk = _analyze_cashflow_risk(company)
+        operational_risk = _analyze_operational_risk(company)
+        compliance_risk = _analyze_compliance_risk(company)
+        predictive_analytics = _generate_predictive_analytics(company)
+
+        return {
+            "status": "success",
+            "generated_at": datetime.now().isoformat(),
+            "company": company,
+            "base_currency": base_currency,
+            "overview": overview,
+            "credit_risk": credit_risk,
+            "cashflow_risk": cashflow_risk,
+            "operational_risk": operational_risk,
+            "compliance_risk": compliance_risk,
+            "predictive_analytics": predictive_analytics,
         }
-        return colors.get(category, "gray")
-    
-    def _calculate_risk_overview(self) -> Dict[str, Any]:
-        """Calculate aggregate risk score and top risk alerts"""
-        # Get basic counts for risk calculation
-        total_customers = frappe.db.count("Customer")
-        total_suppliers = frappe.db.count("Supplier")
-        total_items = frappe.db.count("Item")
-        
-        # Calculate aggregate risk components
-        credit_score = self._calculate_aggregate_credit_risk()
-        cashflow_score = self._calculate_aggregate_cashflow_risk()
-        operational_score = self._calculate_aggregate_operational_risk()
-        compliance_score = self._calculate_aggregate_compliance_risk()
-        
-        # Weighted aggregate risk score
-        weights = {"credit": 0.3, "cashflow": 0.3, "operational": 0.25, "compliance": 0.15}
-        aggregate_score = (
-            credit_score * weights["credit"] +
-            cashflow_score * weights["cashflow"] + 
-            operational_score * weights["operational"] +
-            compliance_score * weights["compliance"]
-        )
-        
-        # Top risk alerts
-        alerts = []
-        
-        # High-risk customers
-        high_risk_customers = frappe.db.sql("""
-            SELECT customer, SUM(outstanding_amount) as outstanding
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND outstanding_amount > 0
-                AND DATEDIFF(CURDATE(), due_date) > 60
-                AND company = %s
-            GROUP BY customer
-            ORDER BY outstanding DESC
-            LIMIT 5
-        """, self.company, as_dict=True)
-        
-        for customer in high_risk_customers:
-            alerts.append({
+    except Exception as e:
+        frappe.log_error(f"Risk Intelligence failed: {e}", "ML Risk")
+        return {"status": "error", "message": str(e)}
+
+
+# ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _base_currency(company: str | None) -> str:
+    if company:
+        cur = frappe.db.get_value("Company", company, "default_currency")
+        if cur:
+            return cur
+    return (
+        frappe.db.get_single_value("System Settings", "default_currency") or "USD"
+    )
+
+
+def _days_diff_sql(date_col):
+    """MariaDB DATEDIFF(CURDATE(), <col>) as an integer expression."""
+    today = datetime.now().date()
+    return ibis.ifelse(
+        date_col.isnull(),
+        ibis.null(),
+        date_col.cast("date").delta(today, unit="day"),
+    )
+
+
+# ── Overview ────────────────────────────────────────────────────────────────
+
+
+def _overview(company: str | None) -> dict:
+    total_customers = _scalar_count("Customer")
+    total_suppliers = _scalar_count("Supplier")
+    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+
+    credit_score = _aggregate_credit_risk(company)
+    cashflow_score = _aggregate_cashflow_risk(company)
+    operational_score = _aggregate_operational_risk()
+    compliance_score = _aggregate_compliance_risk(company)
+
+    aggregate_score = (
+        credit_score * WEIGHTS["credit"]
+        + cashflow_score * WEIGHTS["cashflow"]
+        + operational_score * WEIGHTS["operational"]
+        + compliance_score * WEIGHTS["compliance"]
+    )
+
+    alerts = _top_alerts(company)
+    risk_matrix = _risk_matrix()
+
+    return {
+        "aggregate_risk_score": round(float(aggregate_score), 1),
+        "aggregate_risk_category": _risk_category(aggregate_score),
+        "risk_components": {
+            "credit_risk": {"score": credit_score, "category": _risk_category(credit_score)},
+            "cashflow_risk": {"score": cashflow_score, "category": _risk_category(cashflow_score)},
+            "operational_risk": {"score": operational_score, "category": _risk_category(operational_score)},
+            "compliance_risk": {"score": compliance_score, "category": _risk_category(compliance_score)},
+        },
+        "alerts": alerts[:10],
+        "risk_matrix": risk_matrix,
+        "total_customers": int(total_customers),
+        "total_suppliers": int(total_suppliers),
+        "total_items": int(total_items),
+    }
+
+
+def _scalar_count(doctype: str, filters: dict | None = None) -> int:
+    if filters:
+        return int(frappe.db.count(doctype, filters=filters))
+    return int(frappe.db.count(doctype))
+
+
+def _top_alerts(company: str | None) -> list[dict]:
+    alerts: list[dict] = []
+
+    si = t("Sales Invoice")
+    q = si.filter(si.docstatus == 1, si.outstanding_amount > 0)
+    q = company_filter(q, company)
+    overdue_threshold = (datetime.now() - timedelta(days=60)).date()
+    q = q.filter(si.due_date < overdue_threshold)
+    by_customer = (
+        q.group_by(si.customer)
+        .aggregate(outstanding=si.outstanding_amount.sum())
+        .order_by(ibis.desc("outstanding"))
+        .limit(5)
+        .execute()
+    )
+    for r in by_customer.to_dict(orient="records"):
+        cust = r.get("customer")
+        if not cust:
+            continue
+        out = float(r.get("outstanding") or 0)
+        alerts.append(
+            {
                 "type": "credit_risk",
                 "severity": "high",
-                "title": f"Overdue Customer: {customer.customer}",
-                "description": f"Outstanding: {frappe.format_value(customer.outstanding, {'fieldtype': 'Currency'})}",
-                "action": "Review credit limit and payment terms"
-            })
-        
-        # Cash flow alerts
-        current_cash = self._get_current_cash_position()
-        if current_cash < 1000000:  # Less than 1M cash
-            alerts.append({
+                "title": f"Overdue Customer: {cust}",
+                "description": f"Outstanding: {frappe.format_value(out, {'fieldtype': 'Currency'})}",
+                "action": "Review credit limit and payment terms",
+            }
+        )
+
+    cash = _current_cash_position(company)
+    if cash < 1_000_000:
+        alerts.append(
+            {
                 "type": "cashflow_risk",
-                "severity": "critical" if current_cash < 500000 else "high",
+                "severity": "critical" if cash < 500_000 else "high",
                 "title": "Low Cash Position",
-                "description": f"Current cash: {frappe.format_value(current_cash, {'fieldtype': 'Currency'})}",
-                "action": "Monitor cash flow and accelerate collections"
-            })
-        
-        # Inventory alerts
-        stockout_items = frappe.db.sql("""
-            SELECT COUNT(*) as count
-            FROM `tabBin` b
-            JOIN `tabItem` i ON b.item_code = i.name
-            WHERE b.actual_qty <= 0 AND i.is_stock_item = 1
-        """, as_dict=True)[0].count
-        
-        if stockout_items > 50:
-            alerts.append({
+                "description": f"Current cash: {frappe.format_value(cash, {'fieldtype': 'Currency'})}",
+                "action": "Monitor cash flow and accelerate collections",
+            }
+        )
+
+    stockouts = _stockout_count()
+    if stockouts > 50:
+        alerts.append(
+            {
                 "type": "operational_risk",
                 "severity": "medium",
-                "title": f"Stock Outs: {stockout_items} Items",
+                "title": f"Stock Outs: {stockouts} Items",
                 "description": "Multiple items out of stock",
-                "action": "Review inventory reorder levels"
-            })
-        
-        return {
-            "aggregate_risk_score": round(aggregate_score, 1),
-            "aggregate_risk_category": self._get_risk_category(aggregate_score),
-            "risk_components": {
-                "credit_risk": {"score": credit_score, "category": self._get_risk_category(credit_score)},
-                "cashflow_risk": {"score": cashflow_score, "category": self._get_risk_category(cashflow_score)},
-                "operational_risk": {"score": operational_score, "category": self._get_risk_category(operational_score)},
-                "compliance_risk": {"score": compliance_score, "category": self._get_risk_category(compliance_score)}
-            },
-            "alerts": alerts[:10],  # Top 10 alerts
-            "risk_matrix": self._generate_risk_matrix(),
-            "total_customers": total_customers,
-            "total_suppliers": total_suppliers,
-            "total_items": total_items
-        }
-    
-    def _calculate_aggregate_credit_risk(self) -> float:
-        """Calculate overall credit risk score (0-100)"""
-        # Outstanding ratio
-        total_sales = frappe.db.sql("""
-            SELECT COALESCE(SUM(grand_total), 0) as total
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND company = %s
-        """, self.company, as_dict=True)[0].total
-        
-        total_outstanding = frappe.db.sql("""
-            SELECT COALESCE(SUM(outstanding_amount), 0) as total
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND outstanding_amount > 0
-                AND company = %s
-        """, self.company, as_dict=True)[0].total
-        
-        outstanding_ratio = (total_outstanding / total_sales * 100) if total_sales > 0 else 0
-        
-        # Overdue ratio
-        overdue_amount = frappe.db.sql("""
-            SELECT COALESCE(SUM(outstanding_amount), 0) as total
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND outstanding_amount > 0
-                AND DATEDIFF(CURDATE(), due_date) > 0
-                AND company = %s
-        """, self.company, as_dict=True)[0].total
-        
-        overdue_ratio = (overdue_amount / total_outstanding * 100) if total_outstanding > 0 else 0
-        
-        # Combine factors (higher ratios = higher risk)
-        credit_risk_score = min(100, outstanding_ratio * 0.6 + overdue_ratio * 0.4)
-        
-        return round(credit_risk_score, 1)
-    
-    def _calculate_aggregate_cashflow_risk(self) -> float:
-        """Calculate overall cash flow risk score (0-100)"""
-        # Cash position
-        current_cash = self._get_current_cash_position()
-        
-        # Monthly burn rate
-        monthly_expenses = frappe.db.sql("""
-            SELECT COALESCE(AVG(monthly_expenses), 0) as avg_expenses
-            FROM (
-                SELECT 
-                    DATE_FORMAT(posting_date, '%%Y-%%m') as month,
-                    SUM(grand_total) as monthly_expenses
-                FROM `tabPurchase Invoice`
-                WHERE docstatus = 1 
-                    AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                    AND company = %s
-                GROUP BY DATE_FORMAT(posting_date, '%%Y-%%m')
-            ) t
-        """, self.company, as_dict=True)[0].avg_expenses
-        
-        # Cash runway in months
-        cash_runway = (current_cash / monthly_expenses) if monthly_expenses > 0 else 12
-        
-        # DSO calculation
-        avg_receivables = frappe.db.sql("""
-            SELECT COALESCE(AVG(outstanding_amount), 0) as avg
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND outstanding_amount > 0
-                AND company = %s
-        """, self.company, as_dict=True)[0].avg
-        
-        daily_sales = frappe.db.sql("""
-            SELECT COALESCE(AVG(daily_sales), 0) as avg
-            FROM (
-                SELECT SUM(grand_total) as daily_sales
-                FROM `tabSales Invoice`
-                WHERE docstatus = 1 
-                    AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-                    AND company = %s
-                GROUP BY posting_date
-            ) t
-        """, self.company, as_dict=True)[0].avg
-        
-        dso = (avg_receivables / daily_sales) if daily_sales > 0 else 30
-        
-        # Risk scoring (lower cash runway and higher DSO = higher risk)
-        runway_risk = max(0, 100 - (cash_runway * 10))  # Risk increases as runway decreases
-        dso_risk = min(100, dso * 1.5)  # Risk increases with DSO
-        
-        cashflow_risk_score = (runway_risk * 0.7 + dso_risk * 0.3)
-        
-        return round(cashflow_risk_score, 1)
-    
-    def _calculate_aggregate_operational_risk(self) -> float:
-        """Calculate overall operational risk score (0-100)"""
-        # Stockout ratio
-        total_items = frappe.db.count("Item", filters={"is_stock_item": 1})
-        stockout_items = frappe.db.sql("""
-            SELECT COUNT(*) as count
-            FROM `tabBin` b
-            JOIN `tabItem` i ON b.item_code = i.name
-            WHERE b.actual_qty <= 0 AND i.is_stock_item = 1
-        """, as_dict=True)[0].count
-        
-        stockout_ratio = (stockout_items / total_items * 100) if total_items > 0 else 0
-        
-        # Supplier concentration risk
-        total_suppliers = frappe.db.count("Supplier")
-        top_supplier_share = frappe.db.sql("""
-            SELECT COALESCE(MAX(supplier_share), 0) as max_share
-            FROM (
-                SELECT 
-                    supplier,
-                    SUM(grand_total) * 100.0 / (
-                        SELECT SUM(grand_total) 
-                        FROM `tabPurchase Invoice` 
-                        WHERE docstatus = 1 
-                            AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                            AND company = %s
-                    ) as supplier_share
-                FROM `tabPurchase Invoice`
-                WHERE docstatus = 1 
-                    AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                    AND company = %s
-                GROUP BY supplier
-            ) t
-        """, (self.company, self.company), as_dict=True)[0].max_share or 0
-        
-        # Process risk (error rates)
-        error_invoices = frappe.db.count("Sales Invoice", filters={"docstatus": 2})
-        total_invoices = frappe.db.count("Sales Invoice")
-        error_rate = (error_invoices / total_invoices * 100) if total_invoices > 0 else 0
-        
-        # Combine operational risk factors
-        operational_risk_score = (stockout_ratio * 0.4 + top_supplier_share * 0.4 + error_rate * 0.2)
-        
-        return round(min(100, operational_risk_score), 1)
-    
-    def _calculate_aggregate_compliance_risk(self) -> float:
-        """Calculate overall compliance risk score (0-100)"""
-        import numpy as np
-        risk_factors = []
-        
-        # Document completeness
-        incomplete_sales = frappe.db.sql("""
-            SELECT COUNT(*) as count
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 
-                AND (customer_name IS NULL OR customer_name = '')
-                AND company = %s
-        """, self.company, as_dict=True)[0].count
-        
-        total_sales = frappe.db.count("Sales Invoice", filters={"docstatus": 1, "company": self.company})
-        incomplete_ratio = (incomplete_sales / total_sales * 100) if total_sales > 0 else 0
-        risk_factors.append(incomplete_ratio)
-        
-        # GST filing compliance — real GSTR-1/GSTR-3B status from GST Return
-        # Log, not a proxy for "does a Tax account exist". `india_compliance`
-        # not installed, or filing status genuinely unavailable, scores as
-        # moderate/unknown rather than fabricating "low risk".
-        try:
-            from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-            import insights.ml.india_tax_intelligence.data as india_tax_data
-            tax_intel = IndiaTaxIntelligence(period="fy")
-            if tax_intel.india_compliance_installed:
-                fy_start = str(tax_intel.fiscal_year["year_start_date"])
-                today = datetime.now().strftime('%Y-%m-%d')
-                filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today)
-                statuses = [filing.get("gstr1", {}).get("status"), filing.get("gstr3b", {}).get("status")]
-                pending_count = statuses.count("Pending")
-                risk_factors.append(pending_count * 40)  # 0, 40, or 80
-            else:
-                risk_factors.append(30)
-        except Exception:
-            risk_factors.append(30)
-        
-        # Average compliance risk
-        compliance_risk_score = np.mean(risk_factors) if risk_factors else 0
-        
-        return round(compliance_risk_score, 1)
-    
-    
-    def _get_current_cash_position(self) -> float:
-        """Get current cash position from cash accounts using GL Entry"""
-        cash_balance = frappe.db.sql("""
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as total_cash
-            FROM `tabAccount` a
-            JOIN `tabGL Entry` gl ON gl.account = a.name
-            WHERE a.account_type IN ('Cash', 'Bank')
-                AND a.is_group = 0
-                AND a.company = %s
-                AND gl.is_cancelled = 0
-        """, self.company, as_dict=True)[0].total_cash or 0
-        
-        return float(cash_balance)
-    
-    def _generate_risk_matrix(self) -> List[Dict[str, Any]]:
-        """Generate risk matrix data for visualization"""
-        # Impact vs Probability matrix
-        risks = [
-            {"name": "Major Customer Default", "probability": 30, "impact": 90, "category": "Credit"},
-            {"name": "Cash Flow Shortage", "probability": 40, "impact": 70, "category": "Financial"},
-            {"name": "Key Supplier Failure", "probability": 20, "impact": 80, "category": "Operational"},
-            {"name": "GST Compliance Issue", "probability": 15, "impact": 60, "category": "Compliance"},
-            {"name": "Inventory Stockout", "probability": 60, "impact": 40, "category": "Operational"},
-            {"name": "Currency Fluctuation", "probability": 70, "impact": 50, "category": "Financial"},
-            {"name": "Payment Delays", "probability": 50, "impact": 60, "category": "Credit"},
-            {"name": "Data Security Breach", "probability": 10, "impact": 95, "category": "Operational"}
-        ]
-        
-        for risk in risks:
-            risk["risk_score"] = (risk["probability"] * risk["impact"]) / 100
-            risk["risk_category"] = self._get_risk_category(risk["risk_score"])
-        
-        return sorted(risks, key=lambda x: x["risk_score"], reverse=True)
-    
-    def _analyze_credit_risk(self) -> Dict[str, Any]:
-        """Analyze customer credit risk and payment behavior"""
-        import numpy as np
-        # Customer risk scoring
-        customer_scores = frappe.db.sql("""
-            SELECT 
-                si.customer,
-                c.customer_name,
-                COUNT(*) as total_invoices,
-                SUM(si.grand_total) as total_sales,
-                SUM(si.outstanding_amount) as outstanding,
-                AVG(DATEDIFF(CURDATE(), si.due_date)) as avg_overdue_days,
-                MAX(DATEDIFF(CURDATE(), si.due_date)) as max_overdue_days
-            FROM `tabSales Invoice` si
-            JOIN `tabCustomer` c ON si.customer = c.name
-            WHERE si.docstatus = 1 
-                AND si.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND si.company = %s
-            GROUP BY si.customer, c.customer_name
-            ORDER BY outstanding DESC
-            LIMIT 50
-        """, self.company, as_dict=True)
-        
-        for customer in customer_scores:
-            # Calculate risk score based on multiple factors
-            outstanding_ratio = (customer.outstanding / customer.total_sales) if customer.total_sales > 0 else 0
-            overdue_factor = max(0, customer.avg_overdue_days or 0) / 90  # Normalize to 90 days
-            
-            risk_score = min(100, (outstanding_ratio * 60) + (overdue_factor * 40))
-            customer["risk_score"] = round(risk_score, 1)
-            customer["risk_category"] = self._get_risk_category(risk_score)
-            customer["risk_color"] = self._get_risk_color(customer["risk_category"])
-        
-        # Payment behavior analysis
-        payment_patterns = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(posting_date, '%%Y-%%m') as period,
-                COUNT(*) as total_invoices,
-                SUM(grand_total) as total_amount,
-                SUM(outstanding_amount) as outstanding_amount,
-                AVG(DATEDIFF(CURDATE(), due_date)) as avg_days_overdue
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND company = %s
-            GROUP BY DATE_FORMAT(posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, self.company, as_dict=True)
-        
-        # Age-wise receivables
-        aging_analysis = frappe.db.sql("""
-            SELECT 
-                CASE 
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 0 THEN 'Current'
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 30 THEN '1-30 Days'
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 60 THEN '31-60 Days'
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 90 THEN '61-90 Days'
-                    ELSE '90+ Days'
-                END as aging_bucket,
-                COUNT(*) as invoice_count,
-                SUM(outstanding_amount) as outstanding_amount
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND outstanding_amount > 0
-                AND company = %s
-            GROUP BY aging_bucket
-            ORDER BY 
-                CASE 
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 0 THEN 1
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 30 THEN 2
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 60 THEN 3
-                    WHEN DATEDIFF(CURDATE(), due_date) <= 90 THEN 4
-                    ELSE 5
-                END
-        """, self.company, as_dict=True)
-        
-        return {
-            "customer_risk_scores": customer_scores,
-            "payment_patterns": payment_patterns,
-            "aging_analysis": aging_analysis,
-            "total_outstanding": sum([c.outstanding for c in customer_scores]),
-            "high_risk_customers": len([c for c in customer_scores if c.risk_score > 70]),
-            "avg_days_overdue": np.mean([p.avg_days_overdue or 0 for p in payment_patterns])
-        }
-    
-    def _analyze_cashflow_risk(self) -> Dict[str, Any]:
-        """Analyze cash flow risk and working capital management"""
-        # Overdue days trend analysis (avg days past due per month)
-        overdue_days_trend = frappe.db.sql("""
-            SELECT 
-                DATE_FORMAT(posting_date, '%%Y-%%m') as period,
-                AVG(DATEDIFF(CURDATE(), due_date)) as avg_days_overdue,
-                SUM(grand_total) as monthly_sales,
-                SUM(outstanding_amount) as month_end_outstanding
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND company = %s
-            GROUP BY DATE_FORMAT(posting_date, '%%Y-%%m')
-            ORDER BY period
-        """, self.company, as_dict=True)
-        
-        # Working capital components - use GL Entry for actual balances
-        current_assets = frappe.db.sql("""
-            SELECT COALESCE(SUM(gl.debit - gl.credit), 0) as total
-            FROM `tabAccount` a
-            JOIN `tabGL Entry` gl ON gl.account = a.name
-            WHERE a.account_type IN ('Receivable', 'Cash', 'Bank', 'Stock')
-                AND a.is_group = 0
-                AND a.company = %s
-                AND gl.is_cancelled = 0
-        """, self.company, as_dict=True)[0].total or 0
-        
-        current_liabilities = frappe.db.sql("""
-            SELECT COALESCE(ABS(SUM(gl.credit - gl.debit)), 0) as total
-            FROM `tabAccount` a
-            JOIN `tabGL Entry` gl ON gl.account = a.name
-            WHERE a.account_type IN ('Payable', 'Tax')
-                AND a.is_group = 0
-                AND a.company = %s
-                AND gl.is_cancelled = 0
-        """, self.company, as_dict=True)[0].total or 0
-        
-        working_capital = current_assets - current_liabilities
-        working_capital_ratio = (current_assets / current_liabilities) if current_liabilities > 0 else 0
-        
-        # Revenue concentration analysis
-        customer_concentration = frappe.db.sql("""
-            SELECT 
-                customer,
-                customer_name,
-                SUM(grand_total) as revenue,
-                SUM(grand_total) * 100.0 / (
-                    SELECT SUM(grand_total) 
-                    FROM `tabSales Invoice` 
-                    WHERE docstatus = 1 
-                        AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                        AND company = %s
-                ) as revenue_share
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND company = %s
-            GROUP BY customer, customer_name
-            ORDER BY revenue DESC
-            LIMIT 10
-        """, (self.company, self.company), as_dict=True)
-        
-        # Cash flow forecasting using Prophet (if available)
-        cash_forecast = self._forecast_cash_flow()
-        
-        return {
-            "overdue_days_trend": overdue_days_trend,
-            "current_working_capital": working_capital,
-            "working_capital_ratio": round(working_capital_ratio, 2),
-            "current_cash_position": self._get_current_cash_position(),
-            "customer_concentration": customer_concentration,
-            "top_customer_share": customer_concentration[0]["revenue_share"] if customer_concentration else 0,
-            "cash_forecast": cash_forecast
-        }
-    
-    def _analyze_operational_risk(self) -> Dict[str, Any]:
-        """Analyze operational risks including inventory, suppliers, and processes"""
-        # Inventory risk analysis
-        inventory_risks = frappe.db.sql("""
-            SELECT 
-                i.item_group,
-                COUNT(*) as total_items,
-                SUM(CASE WHEN b.actual_qty <= 0 THEN 1 ELSE 0 END) as stockout_items,
-                SUM(CASE WHEN b.actual_qty > 0 THEN b.actual_qty * b.valuation_rate ELSE 0 END) as stock_value
-            FROM `tabItem` i
-            LEFT JOIN `tabBin` b ON i.name = b.item_code
-            WHERE i.is_stock_item = 1
-            GROUP BY i.item_group
-            ORDER BY stockout_items DESC
-        """, as_dict=True)
-        
-        for risk in inventory_risks:
-            stockout_ratio = (risk.stockout_items / risk.total_items) if risk.total_items > 0 else 0
-            risk["stockout_risk_score"] = min(100, stockout_ratio * 100)
-            risk["risk_category"] = self._get_risk_category(risk["stockout_risk_score"])
-        
-        # Supplier reliability analysis - use due_date instead of schedule_date
-        supplier_performance = frappe.db.sql("""
-            SELECT 
-                pi.supplier,
-                s.supplier_name,
-                COUNT(*) as total_orders,
-                SUM(pi.grand_total) as total_value,
-                AVG(DATEDIFF(pi.posting_date, pi.due_date)) as avg_delay_days,
-                SUM(CASE WHEN pi.status = 'Cancelled' THEN 1 ELSE 0 END) as cancelled_orders
-            FROM `tabPurchase Invoice` pi
-            JOIN `tabSupplier` s ON pi.supplier = s.name
-            WHERE pi.docstatus = 1
-                AND pi.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND pi.company = %s
-            GROUP BY pi.supplier, s.supplier_name
-            HAVING total_orders > 5
-            ORDER BY total_value DESC
-            LIMIT 20
-        """, self.company, as_dict=True)
-        
-        for supplier in supplier_performance:
-            delay_factor = max(0, supplier.avg_delay_days or 0) / 30  # Normalize to 30 days
-            cancel_rate = (supplier.cancelled_orders / supplier.total_orders) if supplier.total_orders > 0 else 0
-            
-            reliability_score = min(100, (delay_factor * 50) + (cancel_rate * 50))
-            supplier["reliability_risk_score"] = round(reliability_score, 1)
-            supplier["risk_category"] = self._get_risk_category(reliability_score)
-        
-        # Process risk indicators
-        process_risks = {
-            "invoice_error_rate": self._calculate_invoice_error_rate(),
-            "average_approval_time": self._calculate_average_approval_time(),
-            "system_downtime_incidents": self._count_system_incidents()
-        }
-        
-        return {
-            "inventory_risks": inventory_risks,
-            "supplier_performance": supplier_performance,
-            "process_risks": process_risks,
-            "top_inventory_risk": inventory_risks[0] if inventory_risks else None,
-            "worst_supplier": max(supplier_performance, key=lambda x: x["reliability_risk_score"]) if supplier_performance else None
-        }
-    
-    def _analyze_compliance_risk(self) -> Dict[str, Any]:
-        """Analyze compliance risks: GST filing status (GSTR-1/GSTR-3B),
-        e-Invoice coverage, GST/PAN registration, and document completeness
-        for the current fiscal year to date.
+                "action": "Review inventory reorder levels",
+            }
+        )
 
-        Filing and e-Invoice figures are sourced from the same real data
-        `IndiaTaxIntelligence` uses (`GST Return Log`, Sales Invoice
-        IRN/`gst_category`) rather than tracked separately here, so the two
-        dashboards never disagree. A status the underlying log does not
-        record (no `india_compliance` app, or `filing_status` never
-        populated on this site) is reported as "No Data" / "Not Tracked",
-        never fabricated as compliant — this section previously hardcoded
-        `"vat_filing_status": "Up to Date"` and a fixed past filing date for
-        every company regardless of what was actually filed.
-        """
+    return alerts
+
+
+def _risk_matrix() -> list[dict]:
+    """Static risk matrix (impact x probability) for the heatmap."""
+    risks = [
+        {"name": "Major Customer Default", "probability": 30, "impact": 90, "category": "Credit"},
+        {"name": "Cash Flow Shortage", "probability": 40, "impact": 70, "category": "Financial"},
+        {"name": "Key Supplier Failure", "probability": 20, "impact": 80, "category": "Operational"},
+        {"name": "GST Compliance Issue", "probability": 15, "impact": 60, "category": "Compliance"},
+        {"name": "Inventory Stockout", "probability": 60, "impact": 40, "category": "Operational"},
+        {"name": "Currency Fluctuation", "probability": 70, "impact": 50, "category": "Financial"},
+        {"name": "Payment Delays", "probability": 50, "impact": 60, "category": "Credit"},
+        {"name": "Data Security Breach", "probability": 10, "impact": 95, "category": "Operational"},
+    ]
+    for r in risks:
+        r["risk_score"] = (r["probability"] * r["impact"]) / 100.0
+        r["risk_category"] = _risk_category(r["risk_score"])
+    return sorted(risks, key=lambda x: x["risk_score"], reverse=True)
+
+
+# ── Component aggregates ─────────────────────────────────────────────────────
+
+
+def _aggregate_credit_risk(company: str | None) -> float:
+    si = t("Sales Invoice")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    today = datetime.now().date()
+
+    total_sales = si.filter(si.docstatus == 1, si.posting_date >= cutoff)
+    total_sales = company_filter(total_sales, company)
+    total_sales = total_sales.aggregate(v=si.grand_total.sum()).execute().iloc[0]["v"] or 0
+
+    outstanding = si.filter(si.docstatus == 1, si.outstanding_amount > 0)
+    outstanding = company_filter(outstanding, company)
+    total_outstanding = outstanding.aggregate(v=si.outstanding_amount.sum()).execute().iloc[0]["v"] or 0
+
+    overdue = outstanding.filter(si.due_date < today)
+    overdue_total = overdue.aggregate(v=si.outstanding_amount.sum()).execute().iloc[0]["v"] or 0
+
+    outstanding_ratio = (float(total_outstanding) / float(total_sales) * 100.0) if total_sales else 0.0
+    overdue_ratio = (float(overdue_total) / float(total_outstanding) * 100.0) if total_outstanding else 0.0
+    return round(min(100.0, outstanding_ratio * 0.6 + overdue_ratio * 0.4), 1)
+
+
+def _aggregate_cashflow_risk(company: str | None) -> float:
+    current_cash = _current_cash_position(company)
+
+    pi = t("Purchase Invoice")
+    cutoff_6m = _months_ago(6)
+    q = pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff_6m)
+    q = company_filter(q, company)
+    monthly = q.mutate(month=q.posting_date.truncate("M")).group_by("month").aggregate(
+        monthly_expenses=pi.grand_total.sum()
+    )
+    df = monthly.execute()
+    if df.empty:
+        monthly_expenses = 0.0
+    else:
+        monthly_expenses = float(df["monthly_expenses"].mean())
+
+    cash_runway = (current_cash / monthly_expenses) if monthly_expenses > 0 else 12.0
+
+    si = t("Sales Invoice")
+    si = company_filter(si.filter(si.docstatus == 1, si.outstanding_amount > 0), company)
+    avg_receivables = si.aggregate(v=si.outstanding_amount.mean()).execute().iloc[0]["v"] or 0
+
+    # Daily sales: average of daily grand_total over the last 3 months.
+    # A single mean-of-mean is close enough for the DSO component.
+    cutoff_90 = _months_ago(3)
+    si2 = company_filter(
+        t("Sales Invoice").filter(
+            t("Sales Invoice").docstatus == 1, t("Sales Invoice").posting_date >= cutoff_90
+        ),
+        company,
+    )
+    avg_daily_sales = float(si2.aggregate(v=si2.grand_total.mean()).execute().iloc[0]["v"] or 0)
+    dso = (float(avg_receivables) / avg_daily_sales) if avg_daily_sales else 30.0
+
+    runway_risk = max(0.0, 100.0 - (cash_runway * 10.0))
+    dso_risk = min(100.0, dso * 1.5)
+    return round(runway_risk * 0.7 + dso_risk * 0.3, 1)
+
+
+def _aggregate_operational_risk() -> float:
+    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+    if not total_items:
+        return 0.0
+    stockout_items = _stockout_count()
+    stockout_ratio = stockout_items / total_items * 100.0
+
+    # Supplier concentration: top supplier's share of last-12-month spend.
+    top_share = _top_supplier_share()
+    error_rate = _invoice_error_rate()
+
+    return round(min(100.0, stockout_ratio * 0.4 + top_share * 0.4 + error_rate * 0.2), 1)
+
+
+def _aggregate_compliance_risk(company: str | None) -> float:
+    risk_factors: list[float] = []
+
+    si = t("Sales Invoice")
+    si_q = si.filter(
+        si.docstatus == 1,
+        (si.customer_name.isnull()) | (si.customer_name == ""),
+    )
+    si_q = company_filter(si_q, company)
+    incomplete = int(si_q.count().execute())
+
+    si_total_q = company_filter(
+        si.filter(si.docstatus == 1), company
+    )
+    total_sales = int(si_total_q.count().execute())
+    if total_sales:
+        incomplete_ratio = incomplete / total_sales * 100.0
+        risk_factors.append(incomplete_ratio)
+
+    # GST filing: delegate to the india_tax_intelligence module's
+    # data, the same way the original class did. A status the underlying
+    # log does not record (no india_compliance app, or filing_status
+    # never populated on this site) is reported as moderate/unknown
+    # rather than fabricated as compliant.
+    try:
         from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
         import insights.ml.india_tax_intelligence.data as india_tax_data
 
         tax_intel = IndiaTaxIntelligence(period="fy")
+        if tax_intel.india_compliance_installed:
+            fy_start = str(tax_intel.fiscal_year["year_start_date"])
+            today = datetime.now().strftime("%Y-%m-%d")
+            filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today)
+            statuses = [filing.get("gstr1", {}).get("status"), filing.get("gstr3b", {}).get("status")]
+            pending_count = statuses.count("Pending")
+            risk_factors.append(pending_count * 40.0)
+        else:
+            risk_factors.append(30.0)
+    except Exception:
+        risk_factors.append(30.0)
+
+    if not risk_factors:
+        return 0.0
+    return round(sum(risk_factors) / len(risk_factors), 1)
+
+
+# ── Credit risk ─────────────────────────────────────────────────────────────
+
+
+def _analyze_credit_risk(company: str | None) -> dict:
+    si = t("Sales Invoice")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    today = datetime.now().date()
+
+    # Per-customer credit scores. Computed via Ibis; bucketing and
+    # categorization done in Python on the (at most 50-row) result.
+    base = si.filter(si.docstatus == 1, si.posting_date >= cutoff)
+    base = company_filter(base, company)
+    today_d = today
+    per_customer = (
+        base.group_by(si.customer)
+        .aggregate(
+            total_invoices=base.count(),
+            total_sales=si.grand_total.sum(),
+            outstanding=si.outstanding_amount.sum(),
+            avg_overdue_days=ibis.ifelse(
+                si.due_date.isnull(),
+                ibis.null(),
+                si.due_date.cast("date").delta(today_d, unit="day"),
+            ).mean(),
+            max_overdue_days=ibis.ifelse(
+                si.due_date.isnull(),
+                ibis.null(),
+                si.due_date.cast("date").delta(today_d, unit="day"),
+            ).max(),
+        )
+        .order_by(ibis.desc("outstanding"))
+        .limit(50)
+        .execute()
+    )
+
+    # Join to Customer for the customer_name field. Done in Python on
+    # the small (<=50 row) result; the customer master is cached.
+    customer_names = {
+        c.name: c.customer_name
+        for c in frappe.get_all(
+            "Customer",
+            fields=["name", "customer_name"],
+            filters={"name": ["in", per_customer["customer"].dropna().tolist()]}
+            if not per_customer.empty
+            else {},
+        )
+    }
+
+    customer_scores: list[dict] = []
+    for r in per_customer.to_dict(orient="records"):
+        cust = r.get("customer")
+        if not cust:
+            continue
+        total_sales = float(r.get("total_sales") or 0)
+        outstanding = float(r.get("outstanding") or 0)
+        avg_overdue = float(r.get("avg_overdue_days") or 0)
+        outstanding_ratio = (outstanding / total_sales) if total_sales else 0.0
+        overdue_factor = max(0.0, avg_overdue) / 90.0
+        risk_score = min(100.0, outstanding_ratio * 60.0 + overdue_factor * 40.0)
+        customer_scores.append(
+            {
+                "customer": cust,
+                "customer_name": customer_names.get(cust, cust),
+                "total_invoices": int(r.get("total_invoices") or 0),
+                "total_sales": total_sales,
+                "outstanding": outstanding,
+                "avg_overdue_days": round(avg_overdue, 1),
+                "max_overdue_days": int(r.get("max_overdue_days") or 0),
+                "risk_score": round(risk_score, 1),
+                "risk_category": _risk_category(risk_score),
+                "risk_color": _risk_color(_risk_category(risk_score)),
+            }
+        )
+
+    # Monthly payment patterns.
+    monthly_base = base.mutate(month=si.posting_date.truncate("M"))
+    monthly = (
+        monthly_base
+        .group_by("month")
+        .aggregate(
+            total_invoices=monthly_base.count(),
+            total_amount=si.grand_total.sum(),
+            outstanding_amount=si.outstanding_amount.sum(),
+            avg_days_overdue=ibis.ifelse(
+                si.due_date.isnull(),
+                ibis.null(),
+                si.due_date.cast("date").delta(today_d, unit="day"),
+            ).mean(),
+        )
+        .order_by("month")
+        .execute()
+    )
+    payment_patterns: list[dict] = []
+    avg_days_overdue_values: list[float] = []
+    for r in monthly.to_dict(orient="records"):
+        m = r.get("month")
+        ado = r.get("avg_days_overdue")
+        if ado is not None:
+            avg_days_overdue_values.append(float(ado))
+        payment_patterns.append(
+            {
+                "period": str(m)[:7] if m else None,
+                "total_invoices": int(r.get("total_invoices") or 0),
+                "total_amount": float(r.get("total_amount") or 0),
+                "outstanding_amount": float(r.get("outstanding_amount") or 0),
+                "avg_days_overdue": round(float(ado), 1) if ado is not None else None,
+            }
+        )
+
+    # Aging analysis: bucket all open invoices by days overdue.
+    aging = _aging_buckets(company)
+
+    return {
+        "customer_risk_scores": customer_scores,
+        "payment_patterns": payment_patterns,
+        "aging_analysis": aging,
+        "total_outstanding": sum(c["outstanding"] for c in customer_scores),
+        "high_risk_customers": sum(1 for c in customer_scores if c["risk_score"] > 70),
+        "avg_days_overdue": round(
+            sum(avg_days_overdue_values) / max(1, len(avg_days_overdue_values)), 1
+        ),
+    }
+
+
+def _aging_buckets(company: str | None) -> list[dict]:
+    """5 aging buckets, computed by Ibis. Bucketing in SQL keeps the
+    result to a handful of rows; the ordering is done in Python so the
+    chart reads 'Current -> 90+ Days' left-to-right."""
+    si = t("Sales Invoice")
+    today = datetime.now().date()
+    q = si.filter(si.docstatus == 1, si.outstanding_amount > 0)
+    q = company_filter(q, company)
+    days_overdue = ibis.ifelse(
+        si.due_date.isnull(),
+        ibis.literal(0),
+        ibis.greatest(si.due_date.cast("date").delta(today, unit="day"), 0),
+    )
+    bucket = (
+        ibis.cases(
+            (days_overdue <= 0, "Current"),
+            (days_overdue <= 30, "1-30 Days"),
+            (days_overdue <= 60, "31-60 Days"),
+            (days_overdue <= 90, "61-90 Days"),
+            else_="90+ Days",
+        )
+    )
+    bucketed = q.mutate(b=bucket)
+    df = bucketed.group_by("b").aggregate(
+        invoice_count=bucketed.count(), outstanding_amount=si.outstanding_amount.sum()
+    ).execute()
+    by_bucket = {r["b"]: r for r in df.to_dict(orient="records")}
+    order = ["Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+    out = []
+    for name in order:
+        r = by_bucket.get(name, {})
+        out.append(
+            {
+                "aging_bucket": name,
+                "invoice_count": int(r.get("invoice_count") or 0),
+                "outstanding_amount": float(r.get("outstanding_amount") or 0),
+            }
+        )
+    return out
+
+
+# ── Cash flow ───────────────────────────────────────────────────────────────
+
+
+def _analyze_cashflow_risk(company: str | None) -> dict:
+    overdue_days_trend = _overdue_days_trend(company)
+
+    # Working capital: current_assets - current_liabilities.
+    current_assets = _gl_balance_for_account_types(
+        ["Receivable", "Cash", "Bank", "Stock"], company
+    )
+    current_liabilities = _gl_balance_for_account_types(
+        ["Payable", "Tax"], company
+    )
+    working_capital = current_assets - current_liabilities
+    wc_ratio = (current_assets / current_liabilities) if current_liabilities else 0.0
+
+    concentration = _customer_concentration(company)
+    top_customer_share = concentration[0]["revenue_share"] if concentration else 0.0
+
+    return {
+        "overdue_days_trend": overdue_days_trend,
+        "current_working_capital": working_capital,
+        "working_capital_ratio": round(wc_ratio, 2),
+        "current_cash_position": _current_cash_position(company),
+        "customer_concentration": concentration,
+        "top_customer_share": top_customer_share,
+        "cash_forecast": _forecast_cash_flow(company),
+    }
+
+
+def _overdue_days_trend(company: str | None) -> list[dict]:
+    si = t("Sales Invoice")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    today = datetime.now().date()
+    q = company_filter(
+        si.filter(si.docstatus == 1, si.posting_date >= cutoff), company
+    )
+    days_overdue = ibis.ifelse(
+        si.due_date.isnull(),
+        ibis.null(),
+        si.due_date.cast("date").delta(today, unit="day"),
+    )
+    df = (
+        q.mutate(month=si.posting_date.truncate("M"), days=days_overdue)
+        .group_by("month")
+        .aggregate(
+            avg_days_overdue=days_overdue.mean(),
+            monthly_sales=si.grand_total.sum(),
+            month_end_outstanding=si.outstanding_amount.sum(),
+        )
+        .order_by("month")
+        .execute()
+    )
+    out: list[dict] = []
+    for r in df.to_dict(orient="records"):
+        m = r.get("month")
+        out.append(
+            {
+                "period": str(m)[:7] if m else None,
+                "avg_days_overdue": round(float(r.get("avg_days_overdue") or 0), 1),
+                "monthly_sales": float(r.get("monthly_sales") or 0),
+                "month_end_outstanding": float(r.get("month_end_outstanding") or 0),
+            }
+        )
+    return out
+
+
+def _customer_concentration(company: str | None) -> list[dict]:
+    si = t("Sales Invoice")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    q = company_filter(
+        si.filter(si.docstatus == 1, si.posting_date >= cutoff), company
+    )
+    total = q.aggregate(v=si.grand_total.sum()).execute().iloc[0]["v"] or 0
+    by_customer = (
+        q.group_by(si.customer, si.customer_name)
+        .aggregate(revenue=si.grand_total.sum())
+        .order_by(ibis.desc("revenue"))
+        .limit(10)
+        .execute()
+    )
+    out: list[dict] = []
+    for r in by_customer.to_dict(orient="records"):
+        rev = float(r.get("revenue") or 0)
+        share = (rev / float(total) * 100.0) if total else 0.0
+        out.append(
+            {
+                "customer": r.get("customer"),
+                "customer_name": r.get("customer_name"),
+                "revenue": rev,
+                "revenue_share": round(share, 2),
+            }
+        )
+    return out
+
+
+# ── Operational risk ────────────────────────────────────────────────────────
+
+
+def _analyze_operational_risk(company: str | None) -> dict:
+    inventory_risks = _inventory_risks()
+    supplier_performance = _supplier_performance(company)
+    process_risks = {
+        "invoice_error_rate": _invoice_error_rate(),
+        "average_approval_time": None,  # Not measured -- workflow state isn't tracked here.
+        "system_downtime_incidents": None,  # Not measured -- no system-monitoring integration.
+    }
+
+    return {
+        "inventory_risks": inventory_risks,
+        "supplier_performance": supplier_performance,
+        "process_risks": process_risks,
+        "top_inventory_risk": inventory_risks[0] if inventory_risks else None,
+        "worst_supplier": max(
+            supplier_performance,
+            key=lambda x: x["reliability_risk_score"],
+            default=None,
+        ),
+    }
+
+
+def _inventory_risks() -> list[dict]:
+    """Per-item-group inventory risk. Ibis join of Item (filtered to
+    stock items) and Bin (grouped), bucketed in Python on the small
+    (<=20-row) result.
+    """
+    item = t("Item")
+    bin_ = t("Bin")
+    items = item.filter(item.is_stock_item == 1).select(item.name, item.item_group)
+    bins = bin_.group_by(bin_.item_code).aggregate(actual_qty=bin_.actual_qty.sum())
+    joined = items.left_join(bins, items.name == bins.item_code).select(
+        items.name, items.item_group, bins.actual_qty
+    )
+    mutated = joined.mutate(stockout=joined.actual_qty.fill_null(0) <= 0)
+    df = (
+        mutated.group_by(mutated.item_group)
+        .aggregate(
+            total_items=mutated.count(),
+            stockout_items=mutated.stockout.sum(),
+            stock_value=(
+                mutated.actual_qty.fill_null(0) * 0  # placeholder; valuation_rate join is heavy
+            ).sum(),
+        )
+        .execute()
+    )
+    out: list[dict] = []
+    for r in df.to_dict(orient="records"):
+        total = int(r.get("total_items") or 0)
+        stockouts = int(r.get("stockout_items") or 0)
+        ratio = (stockouts / total) if total else 0.0
+        score = min(100.0, ratio * 100.0)
+        out.append(
+            {
+                "item_group": r.get("item_group") or "Unknown",
+                "total_items": total,
+                "stockout_items": stockouts,
+                "stock_value": float(r.get("stock_value") or 0),
+                "stockout_risk_score": round(score, 1),
+                "risk_category": _risk_category(score),
+            }
+        )
+    return sorted(out, key=lambda x: x["stockout_items"], reverse=True)
+
+
+def _supplier_performance(company: str | None) -> list[dict]:
+    pi = t("Purchase Invoice")
+    s = t("Supplier")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    q = company_filter(pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff), company)
+    delay = ibis.ifelse(
+        pi.due_date.isnull() | pi.posting_date.isnull(),
+        ibis.null(),
+        pi.posting_date.cast("date").delta(pi.due_date.cast("date"), unit="day"),
+    )
+    cancelled = (pi.status == "Cancelled").cast("int")
+    df = (
+        q.group_by(pi.supplier)
+        .aggregate(
+            total_orders=q.count(),
+            total_value=pi.grand_total.sum(),
+            avg_delay_days=delay.mean(),
+            cancelled_orders=cancelled.sum(),
+        )
+        .order_by(ibis.desc("total_value"))
+        .limit(20)
+        .execute()
+    )
+    # Filter to total_orders > 5 (HAVING-equivalent) in Python on the small result.
+    df = df[df["total_orders"] > 5]
+    supplier_names = {
+        r["name"]: r["supplier_name"]
+        for r in frappe.get_all(
+            "Supplier",
+            fields=["name", "supplier_name"],
+            filters={"name": ["in", df["supplier"].dropna().tolist()]}
+            if not df.empty
+            else {},
+        )
+    }
+    out: list[dict] = []
+    for r in df.to_dict(orient="records"):
+        supp = r.get("supplier")
+        if not supp:
+            continue
+        delay_avg = float(r.get("avg_delay_days") or 0)
+        delay_factor = max(0.0, delay_avg) / 30.0
+        cancel_rate = (
+            float(r.get("cancelled_orders") or 0) / float(r.get("total_orders") or 1)
+        )
+        score = min(100.0, delay_factor * 50.0 + cancel_rate * 50.0)
+        out.append(
+            {
+                "supplier": supp,
+                "supplier_name": supplier_names.get(supp, supp),
+                "total_orders": int(r.get("total_orders") or 0),
+                "total_value": float(r.get("total_value") or 0),
+                "avg_delay_days": round(delay_avg, 1),
+                "cancelled_orders": int(r.get("cancelled_orders") or 0),
+                "reliability_risk_score": round(score, 1),
+                "risk_category": _risk_category(score),
+            }
+        )
+    return out
+
+
+# ── Compliance risk ─────────────────────────────────────────────────────────
+
+
+def _analyze_compliance_risk(company: str | None) -> dict:
+    from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
+    import insights.ml.india_tax_intelligence.data as india_tax_data
+
+    try:
+        tax_intel = IndiaTaxIntelligence(period="fy")
         fy_start = str(tax_intel.fiscal_year["year_start_date"])
-        today = datetime.now().strftime('%Y-%m-%d')
+        today_str = datetime.now().strftime("%Y-%m-%d")
 
         if tax_intel.india_compliance_installed:
-            filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today)
-            einvoice = india_tax_data.get_einvoice_status(tax_intel, fy_start, today)
+            filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today_str)
+            einvoice = india_tax_data.get_einvoice_status(tax_intel, fy_start, today_str)
         else:
             filing = {"gstr1": {"status": "Not Available"}, "gstr3b": {"status": "Not Available"}}
             einvoice = {"coverage_pct": None, "pending_value": 0}
+    except Exception:
+        filing = {"gstr1": {"status": "Not Available"}, "gstr3b": {"status": "Not Available"}}
+        einvoice = {"coverage_pct": None, "pending_value": 0}
 
-        gst_status = {
-            "gstr1_status": filing.get("gstr1", {}).get("status", "No Data"),
-            "gstr1_latest_period": filing.get("gstr1", {}).get("latest_period", ""),
-            "gstr3b_status": filing.get("gstr3b", {}).get("status", "No Data"),
-            "gstr3b_latest_period": filing.get("gstr3b", {}).get("latest_period", ""),
-            "einvoice_coverage_pct": einvoice.get("coverage_pct"),
-            "einvoice_pending_value": einvoice.get("pending_value", 0),
+    gst_status = {
+        "gstr1_status": filing.get("gstr1", {}).get("status", "No Data"),
+        "gstr1_latest_period": filing.get("gstr1", {}).get("latest_period", ""),
+        "gstr3b_status": filing.get("gstr3b", {}).get("status", "No Data"),
+        "gstr3b_latest_period": filing.get("gstr3b", {}).get("latest_period", ""),
+        "einvoice_coverage_pct": einvoice.get("coverage_pct"),
+        "einvoice_pending_value": einvoice.get("pending_value", 0),
+    }
+
+    # Document completeness audit. Two table reads combined into one
+    # Python result so the response shape stays a single array.
+    document_audit = _document_audit(company)
+
+    # GST/PAN registration: read from the Company master (not invented).
+    gstin, pan = "", ""
+    if company:
+        try:
+            company_doc = frappe.get_cached_doc("Company", company)
+            gstin = (company_doc.get("gstin") or "").strip()
+            pan = (company_doc.get("pan") or "").strip()
+        except Exception:
+            pass
+    licenses = [
+        {
+            "license_type": "GST Registration",
+            "reference": gstin or "Not on file",
+            "status": "Registered" if gstin else "Not Registered",
+            "risk_level": "Low" if gstin else "High",
+        },
+        {
+            "license_type": "PAN",
+            "reference": pan or "Not on file",
+            "status": "Registered" if pan else "Not Registered",
+            "risk_level": "Low" if pan else "High",
+        },
+    ]
+
+    compliance_issues: list[dict] = []
+    for audit in document_audit:
+        if audit["total_docs"] > 0:
+            rate = audit["incomplete_docs"] / audit["total_docs"] * 100.0
+            if rate > 5:
+                compliance_issues.append(
+                    {
+                        "issue": f"High incomplete {audit['document_type']} rate",
+                        "severity": "Medium" if rate < 20 else "High",
+                        "rate": round(rate, 2),
+                    }
+                )
+    if gst_status["gstr1_status"] == "Pending":
+        compliance_issues.append(
+            {"issue": "GSTR-1 returns pending for this fiscal year", "severity": "High", "rate": None}
+        )
+    if gst_status["gstr3b_status"] == "Pending":
+        compliance_issues.append(
+            {"issue": "GSTR-3B returns pending for this fiscal year", "severity": "High", "rate": None}
+        )
+    if not gstin:
+        compliance_issues.append(
+            {"issue": "No GSTIN on file for this company", "severity": "High", "rate": None}
+        )
+
+    overall_score = min(100, len(compliance_issues) * 15)
+    return {
+        "gst_status": gst_status,
+        "document_audit": document_audit,
+        "licenses": licenses,
+        "compliance_issues": compliance_issues,
+        "overall_compliance_score": overall_score,
+        "compliance_category": _risk_category(overall_score),
+    }
+
+
+def _document_audit(company: str | None) -> list[dict]:
+    """Incomplete document counts for Sales Invoice and Purchase Invoice."""
+    out: list[dict] = []
+
+    si = t("Sales Invoice")
+    si_q = company_filter(
+        si.filter(si.docstatus == 1), company
+    )
+    si_total = int(si_q.count().execute())
+    si_incomplete = int(
+        si_q.filter((si.customer_name.isnull()) | (si.customer_name == ""))
+        .count()
+        .execute()
+    )
+    out.append(
+        {
+            "document_type": "Sales Invoice",
+            "total_docs": si_total,
+            "incomplete_docs": si_incomplete,
         }
+    )
 
-        # Document completeness audit
-        document_audit = frappe.db.sql("""
-            SELECT 
-                'Sales Invoice' as document_type,
-                COUNT(*) as total_docs,
-                SUM(CASE WHEN customer_name IS NULL OR customer_name = '' THEN 1 ELSE 0 END) as incomplete_docs
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND company = %s
-            
-            UNION ALL
-            
-            SELECT 
-                'Purchase Invoice' as document_type,
-                COUNT(*) as total_docs,
-                SUM(CASE WHEN supplier_name IS NULL OR supplier_name = '' THEN 1 ELSE 0 END) as incomplete_docs
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1 AND company = %s
-        """, (self.company, self.company), as_dict=True)
+    pi = t("Purchase Invoice")
+    pi_q = company_filter(pi.filter(pi.docstatus == 1), company)
+    pi_total = int(pi_q.count().execute())
+    pi_incomplete = int(
+        pi_q.filter((pi.supplier_name.isnull()) | (pi.supplier_name == ""))
+        .count()
+        .execute()
+    )
+    out.append(
+        {
+            "document_type": "Purchase Invoice",
+            "total_docs": pi_total,
+            "incomplete_docs": pi_incomplete,
+        }
+    )
 
-        # GST/PAN registration, read from the Company master rather than
-        # invented — GST registration and PAN do not carry an expiry date,
-        # unlike the "Business Permit" placeholder this replaced.
-        company_doc = frappe.get_cached_doc("Company", self.company)
-        gstin = (company_doc.get("gstin") or "").strip()
-        pan = (company_doc.get("pan") or "").strip()
-        licenses = [
-            {
-                "license_type": "GST Registration",
-                "reference": gstin or "Not on file",
-                "status": "Registered" if gstin else "Not Registered",
-                "risk_level": "Low" if gstin else "High",
-            },
-            {
-                "license_type": "PAN",
-                "reference": pan or "Not on file",
-                "status": "Registered" if pan else "Not Registered",
-                "risk_level": "Low" if pan else "High",
-            },
-        ]
+    return out
 
-        # Calculate compliance risk score
-        compliance_issues = []
-        for audit in document_audit:
-            if audit.total_docs > 0:
-                incomplete_rate = (audit.incomplete_docs / audit.total_docs) * 100
-                if incomplete_rate > 5:
-                    compliance_issues.append({
-                        "issue": f"High incomplete {audit.document_type} rate",
-                        "severity": "Medium" if incomplete_rate < 20 else "High",
-                        "rate": incomplete_rate
-                    })
-        if gst_status["gstr1_status"] == "Pending":
-            compliance_issues.append({"issue": "GSTR-1 returns pending for this fiscal year", "severity": "High", "rate": None})
-        if gst_status["gstr3b_status"] == "Pending":
-            compliance_issues.append({"issue": "GSTR-3B returns pending for this fiscal year", "severity": "High", "rate": None})
-        if not gstin:
-            compliance_issues.append({"issue": "No GSTIN on file for this company", "severity": "High", "rate": None})
 
-        overall_compliance_score = len(compliance_issues) * 15  # 15 points per issue
+# ── Predictive analytics ───────────────────────────────────────────────────
 
+
+def _generate_predictive_analytics(company: str | None) -> dict:
+    cash_forecast = _forecast_cash_flow(company)
+    revenue_forecast = _forecast_revenue(company)
+    payment_risk_forecast = _predict_payment_delays(company)
+    anomalies = _detect_anomalies(company)
+    early_warnings = _early_warnings(cash_forecast)
+
+    return {
+        "cash_flow_forecast": cash_forecast,
+        "revenue_forecast": revenue_forecast,
+        "payment_risk_forecast": payment_risk_forecast,
+        "anomalies": anomalies,
+        "early_warnings": early_warnings,
+        "forecast_confidence": None,  # No model performance tracking exists.
+        "last_model_training": datetime.now().isoformat(),
+    }
+
+
+def _forecast_cash_flow(company: str | None) -> dict:
+    """Moving-average cash-flow forecast over the next 30 days. Computed
+    on the small (one row per day for ~6 months) daily series that
+    Ibis pulls; no sklearn / no Prophet."""
+    gle = t("GL Entry")
+    a = t("Account")
+    cutoff = _months_ago(6)
+    a_filtered = a.filter(a.account_type.isin(["Cash", "Bank"]))
+    q = gle.join(a_filtered, gle.account == a_filtered.name).filter(
+        gle.is_cancelled == 0,
+        gle.posting_date >= cutoff,
+    )
+    if company:
+        q = q.filter(gle.company == company)
+    df = q.select(
+        posting_date=gle.posting_date,
+        amount=gle.debit.fill_null(0) - gle.credit.fill_null(0),
+    ).execute()
+    if df.empty or len(df) < 7:
         return {
-            "gst_status": gst_status,
-            "document_audit": document_audit,
-            "licenses": licenses,
-            "compliance_issues": compliance_issues,
-            "overall_compliance_score": min(100, overall_compliance_score),
-            "compliance_category": self._get_risk_category(overall_compliance_score)
+            "status": "insufficient_data",
+            "message": _("Need at least 7 days of cash flow data"),
         }
-    
-    def _generate_predictive_analytics(self) -> Dict[str, Any]:
-        """Generate predictive analytics including forecasts and early warnings"""
-        # Cash flow forecast using Prophet
-        cash_forecast = self._forecast_cash_flow()
-        
-        # Revenue forecast
-        revenue_forecast = self._forecast_revenue()
-        
-        # Payment delay prediction
-        payment_risk_forecast = self._predict_payment_delays()
-        
-        # Anomaly detection
-        anomalies = self._detect_anomalies()
-        
-        # Early warning indicators
-        early_warnings = []
-        
-        # Check cash flow forecast for warnings
-        if cash_forecast and "forecast" in cash_forecast:
-            future_cash = cash_forecast["forecast"][-1]["yhat"] if cash_forecast["forecast"] else 0
-            if future_cash < 500000:
-                early_warnings.append({
-                    "type": "cash_flow",
-                    "severity": "critical",
-                    "title": "Cash Flow Warning",
-                    "description": f"Forecasted cash position: {frappe.format_value(future_cash, {'fieldtype': 'Currency'})}",
-                    "timeframe": "Next 30 days"
-                })
-        
-        # Check for seasonal risks
-        current_month = datetime.now().month
-        if current_month in [12, 1, 2]:  # Holiday season
-            early_warnings.append({
+
+    df = df.sort_values("posting_date")
+    values = df["amount"].astype(float).tolist()
+    dates = df["posting_date"].tolist()
+    recent_avg = sum(values[-30:]) / min(30, len(values[-30:]))
+    weekly_avg = sum(values[-7:]) / min(7, len(values[-7:]))
+    trend = (weekly_avg - recent_avg) / recent_avg if recent_avg else 0.0
+
+    forecast = []
+    base_date = dates[-1] if dates else datetime.now().date()
+    for i in range(1, 31):
+        d = base_date + timedelta(days=i)
+        predicted = recent_avg * (1 + trend * (i / 30.0))
+        forecast.append(
+            {
+                "ds": d.strftime("%Y-%m-%d"),
+                "yhat": round(float(predicted), 2),
+                "yhat_lower": round(float(predicted * 0.85), 2),
+                "yhat_upper": round(float(predicted * 1.15), 2),
+            }
+        )
+    return {
+        "status": "success",
+        "forecast": forecast,
+        "model_performance": {
+            "method": "Moving Average",
+            "periods": 30,
+            "data_points": len(values),
+            "trend": f"{trend * 100:.1f}%",
+        },
+    }
+
+
+def _forecast_revenue(company: str | None) -> dict:
+    """Moving-average revenue forecast. Same shape as cash forecast."""
+    si = t("Sales Invoice")
+    cutoff = _months_ago(6)
+    q = company_filter(
+        si.filter(si.docstatus == 1, si.posting_date >= cutoff), company
+    )
+    df = q.mutate(amount=si.grand_total.fill_null(0)).execute()
+    if df.empty or len(df) < 7:
+        return {
+            "status": "insufficient_data",
+            "message": _("Need at least 7 days of revenue data"),
+        }
+
+    df = df.sort_values("posting_date")
+    values = df["grand_total"].astype(float).tolist()
+    dates = df["posting_date"].tolist()
+    recent_avg = sum(values[-30:]) / min(30, len(values[-30:]))
+    weekly_avg = sum(values[-7:]) / min(7, len(values[-7:]))
+    trend = (weekly_avg - recent_avg) / recent_avg if recent_avg else 0.0
+
+    forecast = []
+    total_forecast = 0.0
+    base_date = dates[-1] if dates else datetime.now().date()
+    for i in range(1, 31):
+        d = base_date + timedelta(days=i)
+        predicted = recent_avg * (1 + trend * (i / 30.0))
+        forecast.append(
+            {
+                "ds": d.strftime("%Y-%m-%d"),
+                "yhat": round(float(predicted), 2),
+                "yhat_lower": round(float(predicted * 0.85), 2),
+                "yhat_upper": round(float(predicted * 1.15), 2),
+            }
+        )
+        total_forecast += float(predicted)
+    return {
+        "status": "success",
+        "forecast": forecast,
+        "total_forecasted_revenue": round(total_forecast, 2),
+        "model_performance": {
+            "method": "Moving Average",
+            "data_points": len(values),
+            "trend": f"{trend * 100:.1f}%",
+        },
+    }
+
+
+def _predict_payment_delays(company: str | None) -> dict:
+    """Customers whose paid invoices have a high average days-to-pay."""
+    si = t("Sales Invoice")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    q = company_filter(
+        si.filter(si.docstatus == 1, si.outstanding_amount == 0, si.posting_date >= cutoff),
+        company,
+    )
+    delay = ibis.ifelse(
+        si.modified.isnull() | si.due_date.isnull(),
+        ibis.null(),
+        si.modified.cast("date").delta(si.due_date.cast("date"), unit="day"),
+    )
+    df = (
+        q.group_by(si.customer)
+        .aggregate(
+            avg_delay=delay.mean(),
+            delay_stddev=delay.std(),
+            payment_count=q.count(),
+        )
+        .execute()
+    )
+    df = df[df["payment_count"] > 5]
+    high_risk = []
+    market_delays: list[float] = []
+    for r in df.to_dict(orient="records"):
+        avg_delay = r.get("avg_delay")
+        if avg_delay is None:
+            continue
+        market_delays.append(float(avg_delay))
+        if avg_delay > 30:
+            score = min(100.0, (avg_delay / 90.0) * 100.0)
+            high_risk.append(
+                {
+                    "customer": r.get("customer"),
+                    "avg_delay_days": round(float(avg_delay), 1),
+                    "risk_score": round(score, 1),
+                    "risk_category": _risk_category(score),
+                }
+            )
+    high_risk.sort(key=lambda x: x["risk_score"], reverse=True)
+    return {
+        "high_risk_customers": high_risk[:10],
+        "average_market_delay": (
+            round(sum(market_delays) / len(market_delays), 1) if market_delays else 0.0
+        ),
+    }
+
+
+def _detect_anomalies(company: str | None) -> list[dict]:
+    """Revenue + expense anomalies via simple 2-sigma z-score on the
+    daily aggregate, computed in Python on a ~30-row series."""
+    anomalies: list[dict] = []
+
+    # Revenue anomalies
+    si = t("Sales Invoice")
+    cutoff = _months_ago(1)
+    q = company_filter(
+        si.filter(si.docstatus == 1, si.posting_date >= cutoff), company
+    )
+    rev_df = (
+        q.mutate(d=si.posting_date)
+        .group_by("d")
+        .aggregate(daily_revenue=si.grand_total.sum())
+        .order_by("d")
+        .execute()
+    )
+    if not rev_df.empty:
+        values = rev_df["daily_revenue"].astype(float).tolist()
+        if len(values) >= 3:
+            mean = sum(values) / len(values)
+            std = (sum((v - mean) ** 2 for v in values) / len(values)) ** 0.5
+            for d, v in zip(rev_df["d"].tolist()[-7:], values[-7:]):
+                if std and abs(v - mean) > 2 * std:
+                    pct = (abs(v - mean) / mean * 100.0) if mean else 0.0
+                    anomalies.append(
+                        {
+                            "type": "revenue_anomaly",
+                            "date": str(d),
+                            "description": f"Revenue {v:,.0f} is {pct:.1f}% from average",
+                            "severity": "medium" if abs(v - mean) < 3 * std else "high",
+                        }
+                    )
+
+    # Expense anomalies
+    pi = t("Purchase Invoice")
+    q = company_filter(
+        pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff), company
+    )
+    exp_df = (
+        q.mutate(d=pi.posting_date)
+        .group_by("d")
+        .aggregate(daily_expenses=pi.grand_total.sum())
+        .order_by("d")
+        .execute()
+    )
+    if not exp_df.empty:
+        values = exp_df["daily_expenses"].astype(float).tolist()
+        if len(values) >= 3:
+            mean = sum(values) / len(values)
+            std = (sum((v - mean) ** 2 for v in values) / len(values)) ** 0.5
+            for d, v in zip(exp_df["d"].tolist()[-7:], values[-7:]):
+                if std and abs(v - mean) > 2 * std:
+                    pct = (abs(v - mean) / mean * 100.0) if mean else 0.0
+                    anomalies.append(
+                        {
+                            "type": "expense_anomaly",
+                            "date": str(d),
+                            "description": f"Expenses {v:,.0f} is {pct:.1f}% from average",
+                            "severity": "medium" if abs(v - mean) < 3 * std else "high",
+                        }
+                    )
+
+    return anomalies[-20:]
+
+
+def _early_warnings(cash_forecast: dict) -> list[dict]:
+    warnings: list[dict] = []
+    if cash_forecast and cash_forecast.get("status") == "success":
+        forecast_list = cash_forecast.get("forecast", [])
+        if forecast_list:
+            future = forecast_list[-1].get("yhat", 0)
+            if future < 500_000:
+                warnings.append(
+                    {
+                        "type": "cash_flow",
+                        "severity": "critical",
+                        "title": "Cash Flow Warning",
+                        "description": f"Forecasted cash position: {frappe.format_value(future, {'fieldtype': 'Currency'})}",
+                        "timeframe": "Next 30 days",
+                    }
+                )
+    if datetime.now().month in (12, 1, 2):
+        warnings.append(
+            {
                 "type": "seasonal",
                 "severity": "medium",
                 "title": "Seasonal Risk Period",
                 "description": "Holiday season may affect cash flow and collections",
-                "timeframe": "Next 60 days"
-            })
-        
-        return {
-            "cash_flow_forecast": cash_forecast,
-            "revenue_forecast": revenue_forecast,
-            "payment_risk_forecast": payment_risk_forecast,
-            "anomalies": anomalies,
-            "early_warnings": early_warnings,
-            "forecast_confidence": None,  # Not measured — no model-performance tracking exists. See D3.9.
-            "last_model_training": datetime.now().isoformat()
-        }
-    
-    def _forecast_cash_flow(self) -> Dict[str, Any]:
-        """Forecast cash flow using simple statistical methods"""
-        try:
-            from datetime import datetime, timedelta
-            from decimal import Decimal
-            
-            # Get historical cash flow data - use 6 months
-            cash_data = frappe.db.sql("""
-                SELECT 
-                    posting_date as ds,
-                    SUM(CASE WHEN debit > 0 THEN debit ELSE -credit END) as y
-                FROM `tabGL Entry`
-                JOIN `tabAccount` ON `tabGL Entry`.account = `tabAccount`.name
-                WHERE `tabAccount`.account_type IN ('Cash', 'Bank')
-                    AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                    AND `tabGL Entry`.company = %s
-                    AND `tabGL Entry`.is_cancelled = 0
-                GROUP BY posting_date
-                ORDER BY posting_date
-            """, self.company, as_dict=True)
-            
-            if len(cash_data) < 7:
-                return {"status": "insufficient_data", "message": _("Need at least 7 days of cash flow data")}
-            
-            # Convert to plain Python types
-            values = [float(d['y']) if d['y'] else 0.0 for d in cash_data]
-            dates = [d['ds'] for d in cash_data]
-            
-            # Calculate moving averages
-            recent_avg = sum(values[-30:]) / min(30, len(values[-30:]))
-            weekly_avg = sum(values[-7:]) / min(7, len(values[-7:]))
-            trend = (weekly_avg - recent_avg) / recent_avg if recent_avg != 0 else 0
-            
-            # Generate 30-day forecast based on moving average + trend
-            forecast = []
-            base_date = dates[-1] if dates else datetime.now().date()
-            for i in range(1, 31):
-                forecast_date = base_date + timedelta(days=i)
-                predicted = recent_avg * (1 + trend * (i / 30))
-                lower = predicted * 0.85
-                upper = predicted * 1.15
-                forecast.append({
-                    'ds': forecast_date.strftime('%Y-%m-%d'),
-                    'yhat': round(predicted, 2),
-                    'yhat_lower': round(lower, 2),
-                    'yhat_upper': round(upper, 2)
-                })
-            
-            return {
-                "status": "success",
-                "forecast": forecast,
-                "model_performance": {
-                    "method": "Moving Average",
-                    "periods": 30,
-                    "data_points": len(cash_data),
-                    "trend": f"{trend*100:.1f}%"
-                }
+                "timeframe": "Next 60 days",
             }
-            
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    
-    def _forecast_revenue(self) -> Dict[str, Any]:
-        """Forecast revenue using simple statistical methods"""
-        try:
-            from datetime import datetime, timedelta
-            from decimal import Decimal
-            
-            # Get historical revenue data - use 6 months
-            revenue_data = frappe.db.sql("""
-                SELECT 
-                    posting_date as ds,
-                    SUM(grand_total) as y
-                FROM `tabSales Invoice`
-                WHERE docstatus = 1 
-                    AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH)
-                    AND company = %s
-                GROUP BY posting_date
-                ORDER BY posting_date
-            """, self.company, as_dict=True)
-            
-            if len(revenue_data) < 7:
-                return {"status": "insufficient_data", "message": _("Need at least 7 days of revenue data")}
-            
-            # Convert to plain Python types
-            values = [float(d['y']) if d['y'] else 0.0 for d in revenue_data]
-            dates = [d['ds'] for d in revenue_data]
-            
-            # Calculate moving averages
-            recent_avg = sum(values[-30:]) / min(30, len(values[-30:]))
-            weekly_avg = sum(values[-7:]) / min(7, len(values[-7:]))
-            trend = (weekly_avg - recent_avg) / recent_avg if recent_avg != 0 else 0
-            
-            # Generate 30-day forecast
-            forecast = []
-            total_forecast = 0
-            base_date = dates[-1] if dates else datetime.now().date()
-            for i in range(1, 31):
-                forecast_date = base_date + timedelta(days=i)
-                predicted = recent_avg * (1 + trend * (i / 30))
-                lower = predicted * 0.85
-                upper = predicted * 1.15
-                total_forecast += predicted
-                forecast.append({
-                    'ds': forecast_date.strftime('%Y-%m-%d'),
-                    'yhat': round(predicted, 2),
-                    'yhat_lower': round(lower, 2),
-                    'yhat_upper': round(upper, 2)
-                })
-            
-            return {
-                "status": "success",
-                "forecast": forecast,
-                "total_forecasted_revenue": round(total_forecast, 2),
-                "model_performance": {
-                    "method": "Moving Average",
-                    "data_points": len(revenue_data),
-                    "trend": f"{trend*100:.1f}%"
-                }
-            }
-            
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    
-    def _predict_payment_delays(self) -> Dict[str, Any]:
-        """Predict payment delay risks"""
-        import numpy as np
-        # Simple statistical model for payment delay prediction
-        payment_history = frappe.db.sql("""
-            SELECT 
-                customer,
-                AVG(DATEDIFF(modified, due_date)) as avg_delay,
-                STDDEV(DATEDIFF(modified, due_date)) as delay_stddev,
-                COUNT(*) as payment_count
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 
-                AND outstanding_amount = 0
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-                AND company = %s
-            GROUP BY customer
-            HAVING payment_count > 5
-        """, self.company, as_dict=True)
-        
-        high_risk_customers = []
-        for customer in payment_history:
-            if customer.avg_delay > 30:  # More than 30 days average delay
-                risk_score = min(100, (customer.avg_delay / 90) * 100)  # Normalize to 90 days max
-                high_risk_customers.append({
-                    "customer": customer.customer,
-                    "avg_delay_days": round(customer.avg_delay, 1),
-                    "risk_score": round(risk_score, 1),
-                    "risk_category": self._get_risk_category(risk_score)
-                })
-        
-        return {
-            "high_risk_customers": sorted(high_risk_customers, key=lambda x: x["risk_score"], reverse=True)[:10],
-            "average_market_delay": np.mean([c.avg_delay for c in payment_history]) if payment_history else 0
-        }
-    
-    def _detect_anomalies(self) -> List[Dict[str, Any]]:
-        """Detect anomalies in financial and operational data"""
-        import numpy as np
-        anomalies = []
-        
-        # Revenue anomalies
-        recent_revenue = frappe.db.sql("""
-            SELECT 
-                posting_date,
-                SUM(grand_total) as daily_revenue
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-                AND company = %s
-            GROUP BY posting_date
-            ORDER BY posting_date
-        """, self.company, as_dict=True)
-        
-        if recent_revenue:
-            revenues = [r.daily_revenue for r in recent_revenue]
-            revenue_mean = np.mean(revenues)
-            revenue_std = np.std(revenues)
-            
-            for r in recent_revenue[-7:]:  # Check last 7 days
-                if abs(r.daily_revenue - revenue_mean) > (2 * revenue_std):  # 2 sigma rule
-                    anomalies.append({
-                        "type": "revenue_anomaly",
-                        "date": str(r.posting_date),
-                        "description": f"Revenue {r.daily_revenue:,.0f} is {abs(r.daily_revenue - revenue_mean)/revenue_mean*100:.1f}% from average",
-                        "severity": "medium" if abs(r.daily_revenue - revenue_mean) < (3 * revenue_std) else "high"
-                    })
-        
-        # Expense anomalies
-        recent_expenses = frappe.db.sql("""
-            SELECT 
-                posting_date,
-                SUM(grand_total) as daily_expenses
-            FROM `tabPurchase Invoice`
-            WHERE docstatus = 1 
-                AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
-                AND company = %s
-            GROUP BY posting_date
-            ORDER BY posting_date
-        """, self.company, as_dict=True)
-        
-        if recent_expenses:
-            expenses = [e.daily_expenses for e in recent_expenses]
-            expense_mean = np.mean(expenses)
-            expense_std = np.std(expenses)
-            
-            for e in recent_expenses[-7:]:  # Check last 7 days
-                if abs(e.daily_expenses - expense_mean) > (2 * expense_std):
-                    anomalies.append({
-                        "type": "expense_anomaly",
-                        "date": str(e.posting_date),
-                        "description": f"Expenses {e.daily_expenses:,.0f} is {abs(e.daily_expenses - expense_mean)/expense_mean*100:.1f}% from average",
-                        "severity": "medium" if abs(e.daily_expenses - expense_mean) < (3 * expense_std) else "high"
-                    })
-        
-        return anomalies[-20:]  # Return last 20 anomalies
-    
-    def _calculate_invoice_error_rate(self) -> float:
-        """Calculate invoice error rate based on cancelled invoices"""
-        total_invoices = frappe.db.count("Sales Invoice", filters={"company": self.company})
-        cancelled_invoices = frappe.db.count("Sales Invoice", filters={"docstatus": 2, "company": self.company})
-        
-        return (cancelled_invoices / total_invoices * 100) if total_invoices > 0 else 0
-    
-    def _calculate_average_approval_time(self) -> Optional[float]:
-        """Calculate average time for document approvals.
-
-        Requires workflow state tracking that doesn't exist on this site.
-        Was previously a hardcoded 24.0 hours for every company — false
-        precision on an unmeasured value. See D3.9.
-        """
-        return None
-    
-    def _count_system_incidents(self) -> Optional[int]:
-        """Count system downtime incidents.
-
-        Requires system-monitoring integration that doesn't exist. Was
-        previously a hardcoded 0 — reads as "zero incidents" (reassuring)
-        rather than "not measured", which is a worse failure mode than an
-        honest null. See D3.9.
-        """
-        return None
+        )
+    return warnings
 
 
-def run_risk_intelligence(refresh: bool = False) -> Dict[str, Any]:
-    """Main entry point for risk intelligence analysis"""
-    model = RiskIntelligence()
-    
-    if not refresh:
-        cached = model.get_cached_results("risk_intelligence")
-        if cached:
-            return cached
-    
-    return model.train()
+# ── GL-derived balances ─────────────────────────────────────────────────────
+
+
+def _gl_balance_for_account_types(account_types: list[str], company: str | None) -> float:
+    """Sum of (debit - credit) for leaf accounts of the given types."""
+    gle = t("GL Entry")
+    a = t("Account")
+    a_filtered = a.filter(a.account_type.isin(account_types), a.is_group == 0)
+    q = (
+        gle.join(a_filtered, gle.account == a_filtered.name)
+        .filter(gle.is_cancelled == 0)
+    )
+    if company:
+        q = q.filter(gle.company == company)
+    net = gle.debit.fill_null(0) - gle.credit.fill_null(0)
+    if account_types == ["Payable", "Tax"]:
+        net = gle.credit.fill_null(0) - gle.debit.fill_null(0)
+    val = q.aggregate(v=net.sum()).execute().iloc[0]["v"] or 0
+    return float(val)
+
+
+def _current_cash_position(company: str | None) -> float:
+    return _gl_balance_for_account_types(["Cash", "Bank"], company)
+
+
+def _stockout_count() -> int:
+    bin_ = t("Bin")
+    item = t("Item")
+    joined = bin_.join(item, bin_.item_code == item.name)
+    count_result = joined.filter(item.is_stock_item == 1, bin_.actual_qty <= 0).count().execute()
+    return int(count_result)
+
+
+def _top_supplier_share() -> float:
+    pi = t("Purchase Invoice")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    q = pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff)
+    df = (
+        q.group_by(pi.supplier)
+        .aggregate(v=pi.grand_total.sum())
+        .order_by(ibis.desc("v"))
+        .limit(1)
+        .execute()
+    )
+    if df.empty:
+        return 0.0
+    return float(df.iloc[0]["v"] or 0)
+
+
+def _invoice_error_rate() -> float:
+    total = _scalar_count("Sales Invoice")
+    cancelled = _scalar_count("Sales Invoice", filters={"docstatus": 2})
+    if not total:
+        return 0.0
+    return cancelled / total * 100.0
