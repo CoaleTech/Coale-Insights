@@ -17,11 +17,7 @@ Version: 1.0.0
 import frappe
 from frappe import _
 from datetime import datetime, timedelta
-import json
-from typing import Dict, List, Any, Optional
-import base64
-import io
-from PIL import Image, ImageDraw, ImageFont
+from typing import Dict, List, Any
 import logging
 
 logger = logging.getLogger(__name__)
@@ -129,7 +125,7 @@ class PresentationModeService:
         except Exception as e:
             logger.error(f"Error generating presentation data: {e}")
             frappe.log_error(f"Presentation Generation Error: {str(e)}", "Board Presentation Service")
-            return {"error": str(e)}
+            raise
     
     def _generate_executive_slides(self, data: Dict, colors: Dict) -> List[Dict[str, Any]]:
         """Generate executive summary slides"""
@@ -634,7 +630,13 @@ class PresentationModeService:
             }
     
     def generate_pdf_export(self, presentation_data: Dict) -> Dict[str, Any]:
-        """Generate PDF export data"""
+        """Generate PDF export data.
+
+        Returns structured page data, NOT a .pdf binary — no PDF-rendering
+        library (e.g. reportlab/weasyprint) generation is implemented. Same
+        honesty fix as ``generate_powerpoint_export``. See plan-eng-review
+        D3.10.
+        """
         try:
             export_data = {
                 "format": "pdf",
@@ -647,13 +649,13 @@ class PresentationModeService:
                     "header_footer": True
                 },
                 "generated_at": frappe.utils.now(),
-                "download_ready": True
+                "download_ready": False
             }
             
             return {
                 "status": "success",
                 "data": export_data,
-                "message": "PDF export prepared"
+                "message": _("Structured page data prepared (not a downloadable .pdf file)")
             }
             
         except Exception as e:

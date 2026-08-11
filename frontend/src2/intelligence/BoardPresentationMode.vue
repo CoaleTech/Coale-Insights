@@ -292,6 +292,14 @@
               </label>
             </div>
           </div>
+
+          <p v-if="exportFormat !== 'json'" class="text-xs text-ink-gray-5">
+            Options above are recorded with the export request but not yet applied to its content.
+          </p>
+
+          <div v-if="exportError" class="rounded-lg bg-surface-red-1 border border-outline-red-2 px-3 py-2">
+            <p class="text-sm text-ink-red-4">{{ exportError }}</p>
+          </div>
         </div>
       </template>
     </Dialog>
@@ -363,6 +371,7 @@ const isFullscreen = ref(false)
 const generating = ref(false)
 const error = ref(null)
 const exporting = ref(false)
+const exportError = ref(null)
 const showExportModal = ref(false)
 const currentSlide = ref(1)
 const presentationData = ref({})
@@ -380,17 +389,17 @@ const exportFormats = [
   {
     value: 'powerpoint',
     label: 'PowerPoint (.pptx)',
-    description: 'Editable presentation slides for Microsoft PowerPoint'
+    description: 'Structured slide data for PowerPoint (not yet a downloadable .pptx file)'
   },
   {
     value: 'pdf',
     label: 'PDF Document (.pdf)',
-    description: 'Ready-to-print presentation document'
+    description: 'Structured page data for PDF (not yet a downloadable .pdf file)'
   },
   {
     value: 'html',
     label: 'Web Page (.html)',
-    description: 'Interactive web-based presentation'
+    description: 'Not yet available'
   },
   {
     value: 'json',
@@ -477,50 +486,82 @@ const goToSlide = (slideNumber) => {
 }
 
 const exportPresentation = () => {
+  exportError.value = null
   showExportModal.value = true
 }
 
 const performExport = async () => {
   exporting.value = true
+  exportError.value = null
 
   try {
+    if (exportFormat.value === 'json') {
+      // The full presentation payload is already in memory -- no backend
+      // round-trip needed, and no fabrication risk (it's the real data).
+      downloadJson(presentationData.value)
+      showExportModal.value = false
+      return
+    }
+
+    if (exportFormat.value === 'html') {
+      // No HTML document renderer exists yet -- be honest instead of
+      // downloading the JSON payload mislabeled as an .html file.
+      exportError.value = 'HTML export is not available yet. Use JSON to get the underlying presentation data.'
+      return
+    }
+
     const endpoint = exportFormat.value === 'powerpoint'
       ? 'insights.api.ml.export_presentation_powerpoint'
       : 'insights.api.ml.export_presentation_pdf'
 
     const result = await apiCall(endpoint, {
       presentation_data: presentationData.value,
-      export_options: exportOptions.value,
-      format: exportFormat.value
+      export_options: exportOptions.value
     })
 
-    if (result && result.status === 'success') {
-      downloadExportedFile(result.data, exportFormat.value)
-      showExportModal.value = false
-    } else {
-      throw new Error('Export failed')
+    if (!result || result.status !== 'success') {
+      throw new Error(result?.message || 'Export failed')
     }
+
+    if (result.data?.download_ready === false) {
+      // Backend is honest: this format has no real document generator yet.
+      exportError.value = result.message || 'This export format is not yet available as a downloadable file.'
+      return
+    }
+
+    downloadExportedFile(result.data, exportFormat.value)
+    showExportModal.value = false
   } catch (err) {
     console.error('Error exporting presentation:', err)
-    error.value = 'Failed to export: ' + (err.message || 'Unknown error')
+    exportError.value = 'Failed to export: ' + (err.message || 'Unknown error')
   } finally {
     exporting.value = false
   }
 }
 
+const downloadJson = (data) => {
+  const timestamp = new Date().getTime()
+  const filename = `presentation_${selectedDashboardType.value}_${timestamp}.json`
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
 const downloadExportedFile = (exportData, format) => {
+  // Reachable only once a backend export genuinely sets
+  // `download_ready: true` for `format` (currently never, for both
+  // powerpoint and pdf -- see presentation_service.py). Kept as the
+  // landing pad for when real binary generation is implemented.
   const timestamp = new Date().getTime()
   const ext = format === 'powerpoint' ? 'pptx' : format
   const filename = `presentation_${selectedDashboardType.value}_${timestamp}.${ext}`
-
-  let blob
-  if (format === 'html') {
-    blob = new Blob([typeof exportData === 'string' ? exportData : JSON.stringify(exportData)], { type: 'text/html' })
-  } else if (format === 'json') {
-    blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' })
-  } else {
-    blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/octet-stream' })
-  }
+  const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/octet-stream' })
 
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')

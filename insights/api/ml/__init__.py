@@ -17,7 +17,7 @@ imported and is cached for subsequent calls.
 """
 
 # Utils — safe to import eagerly (no circular refs, no heavy deps)
-from insights.api.ml.utils import parse_date_filter, get_date_filter_sql  # noqa: F401
+from insights.api.ml.utils import parse_date_filter  # noqa: F401
 
 # Lazy module map: function name -> (module_path, function_name)
 _LAZY_MAP = {
@@ -91,6 +91,8 @@ _LAZY_MAP = {
     "get_dashboard_data": ("insights.api.ml.general", "get_dashboard_data"),
     "get_ml_insights_summary": ("insights.api.ml.general", "get_ml_insights_summary"),
     "generate_presentation_data": ("insights.api.ml.general", "generate_presentation_data"),
+    "export_presentation_powerpoint": ("insights.api.ml.general", "export_presentation_powerpoint"),
+    "export_presentation_pdf": ("insights.api.ml.general", "export_presentation_pdf"),
     # ------------------------------------------------------------------ search
     "perform_cross_dashboard_search": ("insights.api.ml.search", "perform_cross_dashboard_search"),
     "get_search_suggestions": ("insights.api.ml.search", "get_search_suggestions"),

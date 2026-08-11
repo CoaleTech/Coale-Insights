@@ -6,10 +6,8 @@ General ML API Endpoints
 """
 
 import frappe
-from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
-from insights.api.serialization import sanitize_for_json
 
 
 @frappe.whitelist()
@@ -30,83 +28,43 @@ def get_ml_status() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def run_all_models() -> Dict[str, Any]:
-    """Train every ML model, inline.
+    """Train/recompute every ML model, inline.
 
-    Ran `run_all_ml_models()` inline: eight models fitted while the browser held
-    the connection. `compute_or_cache` short-circuits any model whose cache is
-    already warm, so the second call typically returns in under a second.
+    Every domain below is a pure Ibis rewrite -- one or two SQL
+    aggregates materialized as a pandas DataFrame, with no cache to
+    warm and nothing to fork. All eight calls typically finish in
+    under two seconds combined.
     """
     try:
         frappe.has_permission("Sales Invoice", "write", throw=True)
-        from insights.api.ml.utils import compute_or_cache
-        from insights.ml.customer_intelligence import CustomerIntelligence
-        from insights.ml.sales_forecasting import SalesForecasting
+        from insights.ml.customer import compute_rfm_segmentation, compute_customer_intelligence
+        from insights.ml.sales_forecasting import run_sales_forecast
         from insights.ml.payment_prediction import PaymentPrediction
-        from insights.ml.abc_xyz_classification import ABCXYZClassification
-        from insights.ml.demand_forecasting import DemandForecasting
+        # Canonical home of these classes: insights.ml.inventory_intelligence
+        from insights.ml.inventory_intelligence import (
+            ABCXYZClassification,
+            DemandForecasting,
+        )
         from insights.ml.product_recommendations import ProductRecommendations
-        from insights.ml.customer_segmentation import CustomerSegmentation
         from insights.ml.procurement_intelligence import ProcurementIntelligence
 
         jobs = [
-            (
-                "customer_segmentation",
-                "insights:customer_segmentation",
-                lambda: CustomerSegmentation().train(),
-                _("Customer segmentation"),
-            ),
-            (
-                "sales_forecast",
-                "insights:sales_forecast",
-                lambda: SalesForecasting().train(),
-                _("Sales forecast"),
-            ),
-            (
-                "payment_prediction",
-                "insights:payment_prediction",
-                lambda: PaymentPrediction().train(),
-                _("Payment prediction"),
-            ),
-            (
-                "abc_xyz_classification",
-                "insights:abc_xyz_classification",
-                lambda: ABCXYZClassification().train(),
-                _("ABC/XYZ classification"),
-            ),
-            (
-                "demand_forecast",
-                "insights:demand_forecast",
-                lambda: DemandForecasting().train(),
-                _("Demand forecast"),
-            ),
-            (
-                "product_recommendations",
-                "insights:product_recommendations",
-                lambda: ProductRecommendations().train(),
-                _("Product recommendations"),
-            ),
-            (
-                "customer_intelligence",
-                "insights:customer_intelligence:12m",
-                lambda: CustomerIntelligence(date_filter="12m").train(update_customers=True),
-                _("Customer intelligence"),
-            ),
-            (
-                "procurement_intelligence",
-                "insights:procurement_intelligence",
-                lambda: ProcurementIntelligence().train(),
-                _("Procurement intelligence"),
-            ),
+            ("customer_segmentation", lambda: compute_rfm_segmentation()),
+            ("sales_forecast", lambda: run_sales_forecast()),
+            ("payment_prediction", lambda: PaymentPrediction().train()),
+            ("abc_xyz_classification", lambda: ABCXYZClassification().train()),
+            ("demand_forecast", lambda: DemandForecasting().train()),
+            ("product_recommendations", lambda: ProductRecommendations().train()),
+            ("customer_intelligence", lambda: compute_customer_intelligence(date_filter="12m")),
+            ("procurement_intelligence", lambda: ProcurementIntelligence().train()),
         ]
 
         results = {}
-        for name, key, trainer, label in jobs:
-            frappe.cache().delete_value(key)  # type: ignore[union-attr]
-            results[name] = compute_or_cache(
-                trainer=trainer,
-                cache_key=key,
-                label=label,
-            )
+        for name, trainer in jobs:
+            try:
+                results[name] = trainer()
+            except Exception as job_error:
+                results[name] = {"status": "error", "message": str(job_error)}
         return success(results)
     except frappe.PermissionError:
         raise
@@ -116,19 +74,16 @@ def run_all_models() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def payment_risk_analysis(refresh: bool = False) -> Dict[str, Any]:
-    """Analyze payment risks. `refresh` clears the cache and retrains inline."""
+    """Analyze payment risks.
+
+    ``refresh`` is kept for backward compatibility with older frontend
+    callers; the analysis is always computed live, so it has no effect.
+    """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.api.ml.utils import compute_or_cache
         from insights.ml.payment_prediction import PaymentPrediction
 
-        cache_key = "insights:payment_prediction"
-        if refresh:
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        return sanitize_for_json(compute_or_cache(trainer=lambda: PaymentPrediction().train(),
-        cache_key=cache_key,
-        label=_("Payment prediction"),))
+        return success(PaymentPrediction().predict())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -154,25 +109,16 @@ def get_high_risk_invoices() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def demand_forecast(periods: int = 4, top_items: int = 100, refresh: bool = False) -> Dict[str, Any]:
-    """Generate demand forecast. `refresh` clears the cache and retrains inline.
+    """Generate demand forecast.
 
-    Retraining fits Holt-Winters for up to `top_items` items -- 100 model fits,
-    measured at 5.5s on a development dataset and unbounded on a real ledger.
-    The Redis cache + lock in `compute_or_cache` keep the second hit fast
-    and prevent concurrent training when multiple users open the dashboard.
+    `refresh` is kept for backward compatibility; every call computes
+    fresh from MariaDB (no cache, no background job, no fork).
     """
     try:
         frappe.has_permission("Item", "read", throw=True)
-        from insights.api.ml.utils import compute_or_cache
-        from insights.ml.demand_forecasting import DemandForecasting
+        from insights.ml.demand_forecasting import run_demand_forecast
 
-        cache_key = "insights:demand_forecast"
-        if refresh:
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        return sanitize_for_json(compute_or_cache(trainer=lambda: DemandForecasting().train(periods=periods, top_items=top_items),
-        cache_key=cache_key,
-        label=_("Demand forecast"),))
+        return success(run_demand_forecast(periods=periods, top_items=top_items))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -181,12 +127,12 @@ def demand_forecast(periods: int = 4, top_items: int = 100, refresh: bool = Fals
 
 @frappe.whitelist()
 def get_reorder_alerts() -> Dict[str, Any]:
-    """Get reorder alerts"""
+    """Get reorder alerts (top-10 slice of the demand forecast)."""
     try:
         frappe.has_permission("Item", "read", throw=True)
         from insights.ml.demand_forecasting import get_reorder_alerts as _get_reorder_alerts
-        result = _get_reorder_alerts()
-        return success(result)
+
+        return success(_get_reorder_alerts())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -195,21 +141,16 @@ def get_reorder_alerts() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def product_recommendations(refresh: bool = False) -> Dict[str, Any]:
-    """Get product recommendations, computed on request, cached 24h."""
+    """Get product recommendations.
+
+    `refresh` is kept for backward compatibility; every call computes
+    fresh (the pair table is a single grouped SQL query, no cache).
+    """
     try:
         frappe.has_permission("Item", "read", throw=True)
-        from insights.api.ml.utils import compute_or_cache
-        from insights.ml.product_recommendations import ProductRecommendations
+        from insights.ml.product_recommendations import run_recommendation_training
 
-        cache_key = "insights:product_recommendations"
-        if refresh:
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        return sanitize_for_json(compute_or_cache(
-            trainer=lambda: ProductRecommendations().train(),
-            cache_key=cache_key,
-            label=_("Product recommendations"),
-        ))
+        return success(run_recommendation_training())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -302,8 +243,59 @@ def generate_presentation_data(
 
         service = PresentationModeService()
         result = service.generate_presentation_data(dashboard_type, parsed or {}, presentation_type)
-        return result
+        return success(result)
     except frappe.PermissionError:
         raise
     except Exception as e:
-        return {"error": str(e)}
+        return error(str(e))
+
+
+@frappe.whitelist()
+def export_presentation_powerpoint(
+    presentation_data: str | dict,
+    export_options: str | dict | None = None,
+) -> Dict[str, Any]:
+    """Export presentation data in PowerPoint-oriented structured form.
+
+    Thin wrapper over ``PresentationModeService.generate_powerpoint_export``,
+    which already returns a ``{status, data, message}`` envelope (including
+    an honest ``data.download_ready: False`` -- no python-pptx binary is
+    generated) -- returned as-is rather than double-wrapped in ``success()``.
+    ``export_options`` is accepted for forward compatibility with the
+    frontend's export dialog but is not yet applied to the output.
+    """
+    try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        import json as _json
+        from insights.ml.presentation_service import PresentationModeService
+
+        parsed = _json.loads(presentation_data) if isinstance(presentation_data, str) else presentation_data
+        return PresentationModeService().generate_powerpoint_export(parsed or {})
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def export_presentation_pdf(
+    presentation_data: str | dict,
+    export_options: str | dict | None = None,
+) -> Dict[str, Any]:
+    """Export presentation data in PDF-oriented structured form.
+
+    Thin wrapper over ``PresentationModeService.generate_pdf_export``, same
+    pass-through-envelope and forward-compatible ``export_options`` note as
+    ``export_presentation_powerpoint`` above.
+    """
+    try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        import json as _json
+        from insights.ml.presentation_service import PresentationModeService
+
+        parsed = _json.loads(presentation_data) if isinstance(presentation_data, str) else presentation_data
+        return PresentationModeService().generate_pdf_export(parsed or {})
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        return error(str(e))
