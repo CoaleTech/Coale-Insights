@@ -495,7 +495,7 @@ def train_sales_intelligence():
         frappe.logger().info("Starting scheduled sales intelligence training")
         
         model = SalesIntelligence()
-        result = model.train()
+        result = model.train(refresh_forecasts=False)
         
         if result.get('status') == 'success':
             summary = result.get('summary', {})
