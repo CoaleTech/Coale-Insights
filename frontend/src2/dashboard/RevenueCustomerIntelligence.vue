@@ -14,7 +14,7 @@ import { Button, Tabs, TabButtons } from 'frappe-ui'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
 import { useRouter } from 'vue-router'
-import { apiCall, readFrappeError } from '../helpers/api'
+import { apiCallEnvelope, readFrappeError } from '../helpers/api'
 import { AlertTriangle, RefreshCcw, Loader2 } from 'lucide-vue-next'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
@@ -103,28 +103,85 @@ const atRiskCount = computed(() => {
  * models. Either half warming would render the KPI strip all-zeros, so the
  * page shows a "computing" state until both are ready. A group that errored is
  * not warming -- that is the error branch's job.
+ *
+ * Set directly by `loadSales`/`loadCustomer` from the envelope's `warming`
+ * flag, not derived from the payload: `apiCall` unwraps to bare data, so
+ * `salesData.value?.status` used to read a field that only ever existed on
+ * the envelope it had already thrown away, and this always evaluated false.
  */
+const salesWarming = ref(false)
+const custWarming = ref(false)
+
 /** True only when BOTH halves are warming — full-page "Preparing" state.
  * Per-group warming is handled inline in each tab content block so one warm
  * half still renders its data while the other computes. */
 const warming = computed(
-  () =>
-    !error.value &&
-    !isLoading.value &&
-    salesData.value?.status === 'warming' &&
-    custData.value?.status === 'warming',
+  () => !error.value && !isLoading.value && salesWarming.value && custWarming.value,
 )
-/** Per-group warming: one half computing while the other already has data. */
-const salesWarming = computed(() => !error.value && salesData.value?.status === 'warming')
-const custWarming = computed(() => !error.value && custData.value?.status === 'warming')
 
 function money(value: number | undefined | null): string {
   return formatMoney(value, baseCurrency.value)
 }
 
 // ── Data loading ───────────────────────────────────────────────────────────
+/** A cold ML cache trains in a background thread on the server -- seconds to
+ * a couple of minutes. Each group polls independently once it reports
+ * warming, so a fast Sales fit does not wait on a slower Customer
+ * segmentation pass. `forceRefresh` only applies to the request that starts
+ * the check; poll ticks always pass `false` so they cannot re-trigger a
+ * retrain on every tick and loop forever. */
+const WARMING_POLL_MS = 4000
+let salesPollTimer: ReturnType<typeof setTimeout> | null = null
+let custPollTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearPollTimers() {
+  if (salesPollTimer) {
+    clearTimeout(salesPollTimer)
+    salesPollTimer = null
+  }
+  if (custPollTimer) {
+    clearTimeout(custPollTimer)
+    custPollTimer = null
+  }
+}
+
+async function loadSales(forceRefresh = false) {
+  const { data, error: err, warming: isWarming } = await apiCallEnvelope<Record<string, unknown>>(
+    'insights.api.ml.sales_intelligence',
+    { refresh: forceRefresh, date_filter: dateFilter.value },
+  )
+  salesWarming.value = isWarming
+  if (err) {
+    salesError.value = err
+  } else if (isWarming) {
+    salesError.value = null
+    salesPollTimer = setTimeout(() => loadSales(false), WARMING_POLL_MS)
+  } else {
+    salesError.value = null
+    salesData.value = data
+  }
+}
+
+async function loadCustomer(forceRefresh = false) {
+  const { data, error: err, warming: isWarming } = await apiCallEnvelope<Record<string, unknown>>(
+    'insights.api.ml.customer_intelligence',
+    { refresh: forceRefresh, date_filter: dateFilter.value },
+  )
+  custWarming.value = isWarming
+  if (err) {
+    custError.value = err
+  } else if (isWarming) {
+    custError.value = null
+    custPollTimer = setTimeout(() => loadCustomer(false), WARMING_POLL_MS)
+  } else {
+    custError.value = null
+    custData.value = data
+  }
+}
+
 /** Parallel load of both APIs. The Sales and Customer endpoints are
- * independent, so they fire concurrently via Promise.all. */
+ * independent, so they fire concurrently and each fails, warms, or resolves
+ * on its own schedule. */
 async function loadData(refresh = false) {
   if (refresh) {
     isRefreshing.value = true
@@ -134,6 +191,7 @@ async function loadData(refresh = false) {
   error.value = null
   salesError.value = null
   custError.value = null
+  clearPollTimers()
 
   /*
    * allSettled, not all: the two endpoints are independent and customer
@@ -141,28 +199,7 @@ async function loadData(refresh = false) {
    * failure discarded the revenue half that had already loaded, blanking the
    * whole page. Each group now fails on its own.
    */
-  const [salesResult, custResult] = await Promise.allSettled([
-    apiCall<Record<string, unknown>>('insights.api.ml.sales_intelligence', {
-      refresh,
-      date_filter: dateFilter.value,
-    }),
-    apiCall<Record<string, unknown>>('insights.api.ml.customer_intelligence', {
-      refresh,
-      date_filter: dateFilter.value,
-    }),
-  ])
-
-  if (salesResult.status === 'fulfilled') {
-    salesData.value = salesResult.value
-  } else {
-    salesError.value = readFrappeError(salesResult.reason, 'Could not load revenue data').message
-  }
-
-  if (custResult.status === 'fulfilled') {
-    custData.value = custResult.value
-  } else {
-    custError.value = readFrappeError(custResult.reason, 'Could not load customer data').message
-  }
+  await Promise.allSettled([loadSales(refresh), loadCustomer(refresh)])
 
   // Only a total failure is a page-level error; one bad half still renders.
   if (salesError.value && custError.value) {
@@ -194,7 +231,7 @@ function handleDashboardRedirect(_target: string) {
 onMounted(() => loadData())
 
 onBeforeUnmount(() => {
-  // Queued computations are polled inside apiCall, so there is no timer here.
+  clearPollTimers()
 })
 
 </script>
@@ -323,7 +360,7 @@ onBeforeUnmount(() => {
           <Loader2 class="w-8 h-8 text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
           <p class="font-medium text-ink-gray-8">Computing revenue intelligence</p>
           <p class="text-sm text-ink-gray-6">This takes a few minutes the first time. Check back shortly.</p>
-          <Button variant="subtle" @click="loadData()">Refresh</Button>
+          <Button variant="subtle" @click="loadSales()">Refresh</Button>
         </div>
         <div v-else-if="salesError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
           <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />
@@ -353,7 +390,7 @@ onBeforeUnmount(() => {
           <Loader2 class="w-8 h-8 text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
           <p class="font-medium text-ink-gray-8">Computing customer intelligence</p>
           <p class="text-sm text-ink-gray-6">This takes a few minutes the first time. Check back shortly.</p>
-          <Button variant="subtle" @click="loadData()">Refresh</Button>
+          <Button variant="subtle" @click="loadCustomer()">Refresh</Button>
         </div>
         <div v-else-if="custError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
           <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />

@@ -1,5 +1,5 @@
 import { createResource } from 'frappe-ui'
-import { computed, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { readFrappeError, readInsightsEnvelope, ignoreRejection } from '../../helpers/api'
 
 /**
@@ -55,6 +55,14 @@ export interface IntelligenceDashboard<T> {
   retry: () => void
 }
 
+/** A cold ML cache trains in a background thread on the server -- seconds to
+ * a couple of minutes. Re-checking automatically means the dashboard resolves
+ * on its own; without this, "Preparing your dashboard" needed the user to
+ * click "Check again" repeatedly and would sit there indefinitely otherwise.
+ * Measured on jkmchem.coale.tech: Procurement stayed on the warming card for
+ * as long as the user watched it, because nothing ever re-fetched. */
+const WARMING_POLL_MS = 4000
+
 export function useIntelligenceDashboard<T = Record<string, unknown>>(
   options: IntelligenceDashboardOptions<T>,
 ): IntelligenceDashboard<T> {
@@ -69,6 +77,14 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
   // which for `insights.api.*` is the `{status, data}` envelope, so reading
   // `resource.data.<field>` directly renders zeros for every metric.
   const payload = ref<T | null>(null)
+
+  let warmingTimer: ReturnType<typeof setTimeout> | null = null
+  function clearWarmingTimer() {
+    if (warmingTimer) {
+      clearTimeout(warmingTimer)
+      warmingTimer = null
+    }
+  }
 
   const resource = createResource({
     url,
@@ -85,8 +101,17 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
       payload.value = decoded.error || decoded.warming ? null : (decoded.data as T)
       fetched.value = true
       refreshing.value = false
+
+      clearWarmingTimer()
+      if (decoded.warming) {
+        warmingTimer = setTimeout(() => {
+          warmingTimer = null
+          ignoreRejection(resource.reload())
+        }, WARMING_POLL_MS)
+      }
     },
     onError: (e: unknown) => {
+      clearWarmingTimer()
       const { permission, message } = readFrappeError(e, 'Could not load this dashboard')
       isPermissionError.value = permission
       warming.value = false
@@ -101,11 +126,14 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     watch(
       params,
       () => {
+        clearWarmingTimer()
         ignoreRejection(resource.reload())
       },
       { deep: true },
     )
   }
+
+  onBeforeUnmount(clearWarmingTimer)
 
   return {
     // The unwrapped payload, not `resource.data`, which is the raw envelope.
@@ -128,10 +156,12 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
      */
     hasData: computed(() => fetched.value && !error.value && payload.value !== null),
     reload: () => {
+      clearWarmingTimer()
       refreshing.value = true
       ignoreRejection(resource.reload())
     },
     retry: () => {
+      clearWarmingTimer()
       error.value = null
       isPermissionError.value = false
       // Marked refreshing so the caller can show progress. Otherwise a retry

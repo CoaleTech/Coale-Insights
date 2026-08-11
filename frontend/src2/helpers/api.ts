@@ -97,6 +97,30 @@ export async function apiCall<T>(
 }
 
 /**
+ * Like `apiCall`, but for a caller that must distinguish "cache is warming"
+ * from "no data" itself instead of collapsing both into a thrown error.
+ * `apiCall` unwraps to bare `data`, so a warming response resolves to `null`
+ * with no way to tell it apart from a real empty payload; a dashboard that
+ * renders two independent data sources (Revenue + Customers) needs its own
+ * per-source warming flag rather than one shared, thrown-away `status`.
+ * Never rejects — transport failures come back as `{error}`, same as a
+ * `{status: "error"}` response, so the caller has one shape to branch on.
+ */
+export async function apiCallEnvelope<T>(
+	method: string,
+	params?: Record<string, unknown>,
+): Promise<{ data: T | null; error: string | null; warming: boolean }> {
+	let raw: unknown
+	try {
+		raw = await call(method, params)
+	} catch (e) {
+		return { data: null, error: normalizeTransportError(e, method).message, warming: false }
+	}
+	const { data, error, warming } = readInsightsEnvelope(raw)
+	return { data: data as T | null, error, warming }
+}
+
+/**
  * `createResource.submit()` / `.reload()` report failure through `onError` *and*
  * reject the promise they return. A call site that relies on `onError` therefore
  * still leaks an unhandled rejection, which reaches the console as
