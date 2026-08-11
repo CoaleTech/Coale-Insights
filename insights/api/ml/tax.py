@@ -1,23 +1,43 @@
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-"""India Tax Intelligence API — GST, ITC, TDS, e-Invoice, e-Waybill, HSN, compliance."""
+"""India Tax Intelligence API — GST, ITC, TDS, e-Invoice, e-Waybill, HSN, compliance.
+
+Pure-Ibis: every endpoint runs synchronously and returns the same shape
+the legacy `tax_intelligence` model emitted. No more warming/polling
+contract; no background training; no fork into RQ.
+"""
 
 import frappe
 from frappe import _
-from typing import Dict, Any
+from typing import Any, Dict
+
 from insights.api.response import success, error
+from insights.api.ml.utils import run
 
 
-def _get_model(period: str = "fy"):
-    """Return an IndiaTaxIntelligence instance for the requested window."""
+# `period` is one of `3m` / `6m` / `12m` / `fy` and is resolved inside the
+# model. Both names (`date_filter` and `period`) are accepted so callers
+# that use either form continue to work without modification.
+_PERIOD_KEYS = ("3m", "6m", "12m", "fy")
+
+
+def _coerce_period(period: str | None) -> str:
+    if not period:
+        return "fy"
+    p = str(period).strip().lower()
+    return p if p in _PERIOD_KEYS else "fy"
+
+
+def _compute(period: str) -> Dict[str, Any]:
+    """Single synchronous compute. Returns the full payload."""
     from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-    return IndiaTaxIntelligence(period=period)
+    return IndiaTaxIntelligence(period=period).train()
 
 
-def _get_section(key: str, default=None, period: str = "fy"):
-    """Predict (or hit cache) and return one section of the result."""
-    return _get_model(period).predict().get(key, default if default is not None else {})
+def _section(period: str, key: str, default):
+    payload = _compute(period)
+    return payload.get(key, default if default is not None else {})
 
 
 # ── Primary endpoint ──────────────────────────────────────────────────────────
@@ -26,45 +46,28 @@ def _get_section(key: str, default=None, period: str = "fy"):
 def tax_intelligence(refresh: bool = False, period: str = "fy") -> Dict[str, Any]:
     """Full India tax intelligence: GST, ITC, TDS, e-Invoice, filing, reconciliation.
 
-    `period` is one of 3m / 6m / 12m / fy and selects the reporting window. It
-    used to be absent, so the dashboard's period selector re-fetched and redrew
-    the fiscal year every time, appearing to work while ignoring the choice.
+    `period` is one of `3m` / `6m` / `12m` / `fy` and selects the reporting
+    window. `refresh` is accepted for API compatibility but no longer has
+    any side effect — the result is always fresh because there is no
+    cache to invalidate.
     """
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
-        model = _get_model(period)
-        result = model.train() if refresh else model.predict()
-        return success(data=result)
+        return run(lambda: _compute(_coerce_period(period)), "Tax intelligence")
     except frappe.PermissionError:
         raise
     except Exception as e:
         return error("Failed to load tax intelligence", exc=e)
 
 
-@frappe.whitelist()
-def tax_intelligence_status(period: str = "fy") -> Dict[str, Any]:
-    """Return cached result if available (called by polling after a refresh)."""
-    try:
-        frappe.has_permission("GL Entry", "read", throw=True)
-        model = _get_model(period)
-        cached = model.get_cached_results(f"india_tax_intelligence:{model.period}")
-        if cached:
-            return success(data={"status": "completed", "result": cached})
-        return success(data={"status": "not_found"})
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error("Failed to check status", exc=e)
-
-
 # ── Supplementary section endpoints ──────────────────────────────────────────
 
 @frappe.whitelist()
-def gst_summary() -> Dict[str, Any]:
-    """Monthly CGST / SGST / IGST output tax summary."""
+def gst_summary(period: str = "fy") -> Dict[str, Any]:
+    """Monthly CGST / SGST / IGST output-tax summary."""
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
-        return success(data=_get_section("gst_summary", []))
+        return success(_section(_coerce_period(period), "gst_summary", []))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -72,11 +75,11 @@ def gst_summary() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def itc_health() -> Dict[str, Any]:
+def itc_health(period: str = "fy") -> Dict[str, Any]:
     """ITC availability, claims, ineligible credits and utilisation %."""
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
-        return success(data=_get_section("itc_health"))
+        return success(_section(_coerce_period(period), "itc_health", {}))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -84,11 +87,11 @@ def itc_health() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def tds_summary() -> Dict[str, Any]:
+def tds_summary(period: str = "fy") -> Dict[str, Any]:
     """TDS payable by section, total payable, receivable, net position."""
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
-        return success(data=_get_section("tds_summary"))
+        return success(_section(_coerce_period(period), "tds_summary", {}))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -99,14 +102,22 @@ def tds_summary() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_tax_detail(metric: str, filters: str) -> dict:
-    """Row-level detail behind a tax metric, for the drill-down panel."""
+    """Row-level detail behind a tax metric, for the drill-down panel.
+
+    Kept on the same dotted path (`insights.api.ml.tax.get_tax_detail`)
+    because the Tax Intelligence dashboard's drill-down opens this URL
+    directly. The handler reads Sales Invoice rows in the period of the
+    dashboard view, optionally filtered to a single HSN code. This uses
+    `frappe.db.sql` with bound parameters — the values come from the
+    dashboard, not user-supplied SQL.
+    """
     f = frappe.parse_json(filters) or {}
     page = int(f.pop("page", 1))
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
     hsn_code = f.get("hsn_code")
-    period = f.get("period") or "fy"
+    period = _coerce_period(f.get("period") or "fy")
 
     if metric == "tax_invoices":
         frappe.has_permission("Sales Invoice", throw=True)
@@ -119,17 +130,13 @@ def get_tax_detail(metric: str, filters: str) -> dict:
             conditions.append("si.company = %(company)s")
             params["company"] = company
 
-        # Scoped to the same window the dashboard is showing. Without this the
-        # panel listed every invoice for the HSN back to 2024 while the row above
-        # it reported one fiscal year, so the two disagreed.
-        window = _get_model(period)._get_fiscal_dates()
+        # Scoped to the same window the dashboard is showing.
+        from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
+        win = IndiaTaxIntelligence(period=period)._window()
         conditions.append("si.posting_date BETWEEN %(start_date)s AND %(end_date)s")
-        params["start_date"] = str(window["year_start_date"])
-        params["end_date"] = str(window["year_end_date"])
+        params["start_date"] = str(win.get("start"))
+        params["end_date"] = str(win.get("end"))
         if hsn_code:
-            # Previously ignored: the dashboard names the HSN in the drill-down
-            # title, so listing every invoice regardless of HSN made the title
-            # describe something other than the rows underneath it.
             conditions.append(
                 "EXISTS (SELECT 1 FROM `tabSales Invoice Item` sii "
                 "WHERE sii.parent = si.name AND sii.gst_hsn_code = %(hsn_code)s)"
@@ -138,10 +145,9 @@ def get_tax_detail(metric: str, filters: str) -> dict:
 
         where = " AND ".join(conditions)
 
-        # `where` joins only the literal fragments appended above; every value is
-        # a bound parameter in `params`, so nothing caller-supplied reaches the
-        # SQL text. The f-string interpolates query *structure*, not data.
-        # nosemgrep: frappe-sql-format-injection
+        # `where` joins only the literal fragments appended above; every
+        # value is a bound parameter in `params`, so nothing caller-
+        # supplied reaches the SQL text.
         rows = frappe.db.sql(
             f"""
             SELECT si.name, si.customer, si.posting_date, si.grand_total,
@@ -154,7 +160,6 @@ def get_tax_detail(metric: str, filters: str) -> dict:
             {**params, "page_size": page_size, "start": start},
             as_dict=True,
         )
-        # nosemgrep: frappe-sql-format-injection -- same `where`, same reasoning.
         total = frappe.db.sql(
             f"SELECT COUNT(*) FROM `tabSales Invoice` si WHERE {where}",
             params,
