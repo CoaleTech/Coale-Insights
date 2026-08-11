@@ -20,6 +20,7 @@ import { createToast } from '../helpers/toasts'
 import { apiCall, readFrappeError } from '../helpers/api'
 import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
+import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import { formatCount, formatDateTime } from '../utils/format'
 
 interface ModelRow {
@@ -43,7 +44,17 @@ type DataRow = {
   state: 'populated' | 'empty' | 'absent'
 }
 
-const health = useIntelligenceDashboard<{
+const {
+  data,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  hasData,
+  reload,
+  retry,
+} = useIntelligenceDashboard<{
   models: ModelRow[]
   trained: number
   total: number
@@ -55,25 +66,26 @@ const health = useIntelligenceDashboard<{
   cache: 'ml-model-health',
 })
 
-const models = computed<ModelRow[]>(() => health.data.value?.models ?? [])
-const trainedCount = computed(() => health.data.value?.trained ?? 0)
-const totalCount = computed(() => health.data.value?.total ?? 0)
+const models = computed<ModelRow[]>(() => data.value?.models ?? [])
+const trainedCount = computed(() => data.value?.trained ?? 0)
+const totalCount = computed(() => data.value?.total ?? 0)
 
 /** The runtime the models actually got, rather than the one requirements-ml.txt
  * asks for. A version mismatch between two benches is what silently changes a
  * model's behaviour, so the version is the value worth showing, not a tick. */
 const libraries = computed(() =>
-  Object.entries(health.data.value?.libraries ?? {}).map(([name, version]) => ({
+  Object.entries(data.value?.libraries ?? {}).map(([name, version]) => ({
     name,
     version,
   })),
 )
-const librariesMissing = computed(() => health.data.value?.libraries_missing ?? [])
+const librariesMissing = computed(() => data.value?.libraries_missing ?? [])
 
 /** Row counts behind each module. An empty table and an uninstalled app look
  * the same on a chart of zeros and call for opposite responses, so `absent` is
  * kept distinct from `empty`. */
-const dataRows = computed<DataRow[]>(() => health.data.value?.data ?? [])
+const dataRows = computed<DataRow[]>(() => data.value?.data ?? [])
+
 const emptySources = computed(() => dataRows.value.filter((row) => row.state !== 'populated'))
 
 const retraining = ref<string | null>(null)
@@ -132,23 +144,26 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
         variant="solid"
         theme="gray"
         icon-left="refresh-cw"
-        :loading="health.refreshing.value"
-        @click="health.reload()"
+        :loading="refreshing"
+        @click="reload()"
       >
         Refresh
       </Button>
     </header>
 
-    <div v-if="health.isPermissionError.value" class="flex items-center justify-center flex-1">
-      <div class="text-center">
-        <p class="text-base font-medium text-ink-gray-9">Access Restricted</p>
-        <p class="text-sm text-ink-gray-6 mt-2">
-          You do not have permission to view model health.
-        </p>
-      </div>
-    </div>
 
-    <div v-else class="p-6 flex flex-col gap-8">
+    <IntelligenceDashboardShell
+      :loading="loading"
+      :refreshing="refreshing"
+      :error="error"
+      :is-permission-error="isPermissionError"
+      :warming="warming"
+      :has-data="hasData"
+      subject="model health"
+      permission-hint="Ask an administrator for model health read access."
+      @retry="retry"
+    >
+    <div class="p-6 flex flex-col gap-8">
       <!-- ── Model health ─────────────────────────────────────────────── -->
       <section>
         <SectionHeader
@@ -157,12 +172,8 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
           :level="2"
         />
 
-        <p v-if="health.error.value" class="text-sm text-ink-red-6 mt-2">
-          {{ health.error.value }}
-        </p>
 
         <div
-          v-else
           class="mt-3 bg-surface-white border border-outline-gray-1 rounded-lg overflow-x-auto"
         >
           <table class="w-full text-sm">
@@ -293,5 +304,6 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
         </div>
       </section>
     </div>
+    </IntelligenceDashboardShell>
   </div>
 </template>

@@ -2,13 +2,12 @@
 import IntelligenceChart from './components/IntelligenceChart.vue'
 defineOptions({ name: 'TaxIntelligence' })
 import { Breadcrumbs, Button, Badge, Select, Tabs } from 'frappe-ui'
-import { apiCall } from '../helpers/api'
 import {
   RefreshCcw, AlertTriangle, CheckCircle, FileText,
 } from 'lucide-vue-next'
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { createToast } from '../helpers/toasts'
+import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import { severityBadge, severityFill, scoreSeverity, deltaInk, type Severity } from '../utils/status'
 import { formatCount, formatMoney, formatPercent as sharedPercent } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
@@ -43,19 +42,37 @@ interface TaxForecastRow {
   projected_net_gst: number
 }
 
+/** Top-level shape of the tax_intelligence API response. */
+interface TaxIntelligenceData {
+  base_currency?: string
+  net_gst?: number
+  compliance_score?: number
+  effective_tax_rate?: number
+  total_tax?: number
+  tax_revenue_ratio?: number
+  itc_utilization?: number
+  gst_summary?: GstSummaryRow[]
+  itc_health?: Record<string, unknown>
+  tds_summary?: { payable_by_section?: TdsSectionRow[]; total_payable?: number; receivable?: number; net_position?: number; [k: string]: unknown }
+  einvoice_status?: Record<string, unknown>
+  ewaybill_status?: Record<string, unknown>
+  filing_compliance?: Record<string, unknown>
+  reconciliation_score?: Record<string, unknown>
+  hsn_summary?: Record<string, any>[]
+  tax_forecast?: { forecast?: TaxForecastRow[]; note?: string; [k: string]: unknown }
+  advance_tax_schedule?: Record<string, any>[]
+  einvoice_compliance_info?: Record<string, unknown>
+  counterparty_risk?: Record<string, unknown>
+  [k: string]: unknown
+}
+
 const router = useRouter()
 
 const drillDown = useDrillDown()
 const TAX_ENDPOINT = 'insights.api.ml.tax.get_tax_detail'
 
-const isLoading = ref(true)
-const isRefreshing = ref(false)
-const error = ref<string | null>(null)
-const data = ref<any>(null)
 const activeTabIndex = ref(0)
 const dateFilter = ref('fy')
-
-let pollingTimer: ReturnType<typeof setTimeout> | null = null
 
 const dateRangeOptions = [
   { value: '3m', label: 'Last 3 Months' },
@@ -63,6 +80,15 @@ const dateRangeOptions = [
   { value: '12m', label: 'Last 12 Months' },
   { value: 'fy', label: 'Current FY' },
 ]
+
+const dateParams = computed(() => ({ period: dateFilter.value }))
+
+const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+  useIntelligenceDashboard<TaxIntelligenceData>({
+    url: 'insights.api.ml.tax.tax_intelligence',
+    params: dateParams,
+    cache: 'tax-intelligence',
+  })
 
 const tabs = [
   { label: 'GST Overview' },
@@ -77,17 +103,17 @@ const activeTab = computed(() => TAB_IDS[activeTabIndex.value] ?? 'gst')
 const gstSummary = computed((): GstSummaryRow[] =>
   (data.value?.gst_summary ?? []) as unknown as GstSummaryRow[]
 )
-const itcHealth = computed(() => data.value?.itc_health || {})
-const tdsSummary = computed(() => data.value?.tds_summary || {})
-const einvoiceStatus = computed(() => data.value?.einvoice_status || {})
-const ewaybillStatus = computed(() => data.value?.ewaybill_status || {})
-const filingCompliance = computed(() => data.value?.filing_compliance || {})
-const reconciliationScore = computed(() => data.value?.reconciliation_score || {})
-const hsnSummary = computed(() => data.value?.hsn_summary || [])
-const taxForecast = computed(() => data.value?.tax_forecast || {})
-const advanceTaxSchedule = computed(() => data.value?.advance_tax_schedule || [])
-const einvoiceInfo = computed(() => data.value?.einvoice_compliance_info || {})
-const counterpartyRisk = computed(() => data.value?.counterparty_risk || {})
+const itcHealth = computed((): Record<string, any> => (data.value?.itc_health ?? {}) as Record<string, any>)
+const tdsSummary = computed((): Record<string, any> => (data.value?.tds_summary ?? {}) as Record<string, any>)
+const einvoiceStatus = computed((): Record<string, any> => (data.value?.einvoice_status ?? {}) as Record<string, any>)
+const ewaybillStatus = computed((): Record<string, any> => (data.value?.ewaybill_status ?? {}) as Record<string, any>)
+const filingCompliance = computed((): Record<string, any> => (data.value?.filing_compliance ?? {}) as Record<string, any>)
+const reconciliationScore = computed((): Record<string, any> => (data.value?.reconciliation_score ?? {}) as Record<string, any>)
+const hsnSummary = computed((): Record<string, any>[] => (data.value?.hsn_summary ?? []) as Record<string, any>[])
+const taxForecast = computed((): Record<string, any> => (data.value?.tax_forecast ?? {}) as Record<string, any>)
+const advanceTaxSchedule = computed((): Record<string, any>[] => (data.value?.advance_tax_schedule ?? []) as Record<string, any>[])
+const einvoiceInfo = computed((): Record<string, any> => (data.value?.einvoice_compliance_info ?? {}) as Record<string, any>)
+const counterpartyRisk = computed((): Record<string, any> => (data.value?.counterparty_risk ?? {}) as Record<string, any>)
 
 /**
  * Open the invoice drill-down scoped to one HSN code.
@@ -126,50 +152,6 @@ function hsnRateSeverity(rate: number | undefined | null): Severity {
   return scoreSeverity(rate, { good: 18, warn: 25, higherIsBetter: false })
 }
 
-async function loadData(refresh = false) {
-  if (refresh) isRefreshing.value = true
-  else isLoading.value = true
-  error.value = null
-  try {
-    // `period` must travel with the request: without it the backend always
-    // returned the fiscal year and the selector silently did nothing.
-    const result = await apiCall('insights.api.ml.tax.tax_intelligence', {
-      refresh,
-      period: dateFilter.value,
-    })
-    if (result?.status === 'queued') {
-      createToast({ title: 'Processing', message: result.message || 'Analysis queued', variant: 'info' })
-      pollingTimer = setTimeout(checkJobStatus, 5000)
-    } else {
-      data.value = result
-    }
-  } catch (e: unknown) {
-    error.value = (e as Error).message || 'Failed to load tax intelligence'
-  } finally {
-    isLoading.value = false
-    isRefreshing.value = false
-  }
-}
-
-async function checkJobStatus() {
-  try {
-    const status = await apiCall('insights.api.ml.tax.tax_intelligence_status', {
-      period: dateFilter.value,
-    })
-    if (status?.status === 'completed') {
-      data.value = status.result
-      createToast({ title: 'Analysis Complete', message: 'Tax intelligence ready', variant: 'success' })
-    } else if (status?.status !== 'not_found') {
-      pollingTimer = setTimeout(checkJobStatus, 5000)
-    }
-  } catch {
-    // polling failure is non-critical
-  }
-}
-
-onUnmounted(() => { if (pollingTimer !== null) clearTimeout(pollingTimer) })
-watch(dateFilter, () => loadData())
-onMounted(() => loadData())
 
 /**
  * Currency and grouping come from the payload.
@@ -321,25 +303,29 @@ function handleDashboardRedirect(target: string) {
           :options="dateRangeOptions"
           class="text-sm"
         />
+
         <Button
+          :loading="refreshing"
           variant="solid"
           theme="gray"
-          :loading="isRefreshing"
-          @click="loadData(true)"
+          @click="reload"
         >
           <RefreshCcw class="w-4 h-4 mr-2" />
-          {{ isRefreshing ? 'Refreshing...' : 'Refresh Analysis' }}
+          {{ refreshing ? 'Refreshing...' : 'Refresh Analysis' }}
         </Button>
       </div>
     </div>
 
     <IntelligenceDashboardShell
-      :loading="isLoading"
-      :refreshing="isRefreshing"
+      :loading="loading"
+      :refreshing="refreshing"
       :error="error"
-      :has-data="!!data"
+      :is-permission-error="isPermissionError"
+      :warming="warming"
+      :has-data="hasData"
       subject="tax data"
-      @retry="loadData()"
+      permission-hint="Ask an administrator for tax dashboard access."
+      @retry="retry"
     >
       <!-- Kept: this surface's first screen is a six-up tile grid with a status
            line, not the default KPI strip. -->
@@ -367,7 +353,7 @@ function handleDashboardRedirect(target: string) {
           label="Effective Tax Rate"
           :value="formatPercent(data?.effective_tax_rate)"
           :severity="rateSeverity(data?.effective_tax_rate)"
-          :sublabel="data?.effective_tax_rate > 25 ? 'High' : data?.effective_tax_rate > 18 ? 'Moderate' : 'Optimal'"
+          :sublabel="(data?.effective_tax_rate ?? 0) > 25 ? 'High' : (data?.effective_tax_rate ?? 0) > 18 ? 'Moderate' : 'Optimal'"
         />
         <KpiCard
           label="ITC Utilisation"

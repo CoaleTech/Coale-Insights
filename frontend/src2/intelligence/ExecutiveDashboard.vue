@@ -4,24 +4,20 @@
     <header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h1 class="text-2xl font-bold text-ink-gray-9">CEO Executive Dashboard</h1>
-        <p v-if="lastUpdated" class="text-sm text-ink-gray-6 mt-1">
-          Updated: {{ formatDateTime(lastUpdated) }} · {{ selectedPeriod }}
-        </p>
-        <p v-else class="text-sm text-ink-gray-6 mt-1">{{ selectedPeriod }}</p>
+        <p class="text-sm text-ink-gray-6 mt-1">{{ selectedPeriod }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2 sm:gap-3">
         <!-- Period Selector -->
         <Select
           v-model="selectedPeriod"
           :options="periodOptions"
-          @change="refreshData"
         />
 
         <Button
-          :loading="isLoading"
+          :loading="refreshing"
           variant="solid"
           theme="gray"
-          @click="refreshData"
+          @click="reload"
         >
           <RefreshCw class="w-4 h-4 mr-2" />
           Refresh
@@ -39,11 +35,15 @@
 
     <!-- Main Content -->
     <IntelligenceDashboardShell
-      :loading="isLoading"
+      :loading="loading"
+      :refreshing="refreshing"
       :error="error"
-      :has-data="!!data"
+      :is-permission-error="isPermissionError"
+      :warming="warming"
+      :has-data="hasData"
       subject="executive data"
-      @retry="refreshData"
+      permission-hint="Ask an administrator for executive dashboard access."
+      @retry="retry"
     >
       <!-- Business Health Score -->
       <div class="px-6 pt-6">
@@ -288,7 +288,7 @@
 
 <script setup>
 defineOptions({ name: 'ExecutiveDashboard' })
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   RefreshCw,
   Download,
@@ -306,9 +306,9 @@ import {
   Factory
 } from 'lucide-vue-next'
 import { Button, Badge, Select, LoadingIndicator } from 'frappe-ui'
-import { apiCall } from '../helpers/api'
 import { useRouter } from 'vue-router'
 import { useDrillDown } from './composables/useDrillDown'
+import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
 import KpiCard from './components/KpiCard.vue'
@@ -337,10 +337,6 @@ function getExecMetric(label) {
   return null
 }
 
-const data = ref(null)
-const isLoading = ref(false)
-const error = ref(null)
-const lastUpdated = ref(null)
 const selectedPeriod = ref('YTD')
 const companyCurrency = ref(null)
 
@@ -350,6 +346,15 @@ const periodOptions = [
   { label: 'Year to Date', value: 'YTD' },
   { label: 'Trailing 12 Months', value: 'TTM' },
 ]
+
+const periodParams = computed(() => ({ period: selectedPeriod.value }))
+
+const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+  useIntelligenceDashboard({
+    url: 'insights.api.ml.get_executive_summary',
+    params: periodParams,
+    cache: 'executive-dashboard',
+  })
 
 const businessHealth = computed(() => data.value?.business_health_score || {})
 const alerts = computed(() => data.value?.alerts || [])
@@ -376,34 +381,9 @@ const departmentColumns = computed(() => [
   { key: 'manufacturing', label: 'Manufacturing', icon: Factory, reverseVariance: false },
 ])
 
-onMounted(() => {
-  loadData()
+watch(() => data.value?.currency, (currency) => {
+  if (currency) companyCurrency.value = currency
 })
-
-async function loadData() {
-  isLoading.value = true
-  error.value = null
-
-  try {
-    data.value = await apiCall('insights.api.ml.get_executive_summary', {
-      period: selectedPeriod.value
-    })
-    lastUpdated.value = new Date()
-
-    if (data.value?.currency) {
-      companyCurrency.value = data.value.currency
-    }
-  } catch (err) {
-    console.error('Error loading executive data:', err)
-    error.value = err.message || 'Failed to load data'
-  } finally {
-    isLoading.value = false
-  }
-}
-
-function refreshData() {
-  loadData()
-}
 
 function exportData() {
   const dataStr = JSON.stringify(data.value, null, 2)
@@ -413,11 +393,6 @@ function exportData() {
   linkElement.setAttribute('href', dataUri)
   linkElement.setAttribute('download', exportFileDefaultName)
   linkElement.click()
-}
-
-function formatDateTime(date) {
-  if (!date) return ''
-  return new Date(date).toLocaleDateString() + ' ' + new Date(date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 function formatKpiValue(value, format) {
@@ -506,4 +481,5 @@ function openAIChat() {
 function scheduleReport() {
   router.push('/executive-reports')
 }
+
 </script>

@@ -40,36 +40,19 @@
       </div>
     </header>
 
-    <div class="flex-1 overflow-y-auto px-6 py-5">
-      <!-- Permission -->
-      <div
-        v-if="isPermissionError"
-        class="rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center"
+    <div class="flex flex-1 flex-col overflow-hidden">
+      <IntelligenceDashboardShell
+        :loading="loading"
+        :refreshing="refreshing"
+        :error="error"
+        :is-permission-error="isPermissionError"
+        :warming="warming"
+        :has-data="hasData"
+        subject="CRM data"
+        permission-hint="Ask an administrator for Lead read access."
+        @retry="retry"
       >
-        <Lock class="mx-auto mb-3 h-8 w-8 text-ink-gray-5" aria-hidden="true" />
-        <p class="text-ink-gray-8">You do not have permission to view CRM data.</p>
-        <p class="mt-1 text-sm text-ink-gray-6">Ask an administrator for Lead read access.</p>
-      </div>
-
-      <!-- Error -->
-      <div
-        v-else-if="error"
-        class="rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center"
-      >
-        <TriangleAlert class="mx-auto mb-3 h-8 w-8 text-neg" aria-hidden="true" />
-        <p class="text-ink-gray-8">{{ error }}</p>
-        <Button class="mt-4" variant="solid" theme="gray" label="Try again" @click="retry" />
-      </div>
-
-      <!-- Loading -->
-      <div v-else-if="loading" class="space-y-5">
-        <div class="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-6">
-          <KpiCard v-for="n in 6" :key="n" label="Loading" value="" loading />
-        </div>
-        <SkeletonBlock class="h-64 w-full rounded-lg" />
-      </div>
-
-      <template v-else-if="hasData">
+        <div class="px-6 py-5">
         <!-- Alerts. The action list, worst first. -->
         <section v-if="alerts.length" class="mb-5 space-y-2" aria-label="Alerts">
           <article
@@ -347,8 +330,8 @@
         <section v-if="tabIndex === 4" class="mt-5">
           <LeadWinProbability />
         </section>
-      </template>
-
+        </div>
+      </IntelligenceDashboardShell>
       <IntelligenceDrillDown
         :show="drillDown.show.value"
         :loading="drillDown.loading.value"
@@ -370,14 +353,13 @@
 
 <script setup lang="ts">
 import { Badge, Button, Select, Tabs } from 'frappe-ui'
-import { Lock, TriangleAlert } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import IntelligenceChart from './components/IntelligenceChart.vue'
+import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import KpiCard from './components/KpiCard.vue'
 import LeadWinProbability from './components/LeadWinProbability.vue'
 import SectionHeader from './components/SectionHeader.vue'
-import SkeletonBlock from './components/SkeletonBlock.vue'
 import { useDrillDown } from './composables/useDrillDown'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import { chartPalette, themeColor } from '../utils/chartTheme'
@@ -460,7 +442,7 @@ const tabIndex = ref(0)
 
 const drillDown = useDrillDown()
 
-const { data, loading, refreshing, error, isPermissionError, hasData, reload, retry } =
+const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
   useIntelligenceDashboard<MarketingPayload>({
     url: 'insights.api.ml.marketing.get_marketing_overview',
     params: computed(() => ({ period: period.value })),

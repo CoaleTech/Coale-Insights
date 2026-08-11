@@ -8,7 +8,7 @@ import { useDrillDown } from '../intelligence/composables/useDrillDown'
 import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 import KpiCard from '../intelligence/components/KpiCard.vue'
-import SectionHeader from '../intelligence/components/SectionHeader.vue'
+import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import LedgerAnomalies from '../intelligence/components/LedgerAnomalies.vue'
 import {
   severityBadge, severityFill, severityAria, scoreSeverity, type Severity,
@@ -122,6 +122,7 @@ const {
   refreshing,
   error,
   isPermissionError,
+  warming,
   hasData,
   reload,
   retry,
@@ -239,24 +240,18 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
       </Button>
     </header>
 
-    <!-- Permission Error -->
-    <div v-if="isPermissionError" class="flex items-center justify-center flex-1">
-      <div class="text-center">
-        <p class="text-base font-medium text-ink-gray-9">Access Restricted</p>
-        <p class="text-sm text-ink-gray-6 mt-2">You do not have permission to view this dashboard.</p>
-      </div>
-    </div>
 
-    <!-- Generic Error -->
-    <div v-else-if="error" class="flex items-center justify-center flex-1">
-      <div class="text-center">
-        <p class="text-base font-medium text-ink-gray-9">Failed to load risk data</p>
-        <p class="text-sm text-ink-gray-6 mt-1">{{ error }}</p>
-        <Button variant="subtle" theme="gray" class="mt-4" @click="retry">Try Again</Button>
-      </div>
-    </div>
-
-    <template v-else>
+    <IntelligenceDashboardShell
+      :loading="loading"
+      :refreshing="refreshing"
+      :error="error"
+      :is-permission-error="isPermissionError"
+      :warming="warming"
+      :has-data="hasData"
+      subject="risk data"
+      permission-hint="Ask an administrator for risk read access."
+      @retry="retry"
+    >
       <!-- Summary Cards -->
       <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <KpiCard
@@ -951,7 +946,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           <LedgerAnomalies />
         </div>
       </div>
-    </template>
+    </IntelligenceDashboardShell>
 
     <!-- AI Chat Button -->
     <DashboardChatButton

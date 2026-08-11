@@ -17,19 +17,29 @@ import { call } from 'frappe-ui'
 export function readInsightsEnvelope(payload: unknown): {
 	data: unknown
 	error: string | null
+	warming: boolean
 } {
 	if (typeof payload !== 'object' || payload === null || !('status' in payload)) {
-		return { data: payload, error: null }
+		return { data: payload, error: null, warming: false }
 	}
 	if (payload.status === 'error') {
 		const message =
 			'message' in payload && typeof payload.message === 'string'
 				? payload.message
 				: 'Request failed'
-		return { data: null, error: message }
+		return { data: null, error: message, warming: false }
+	}
+	/*
+	 * A cold ML cache answers `{status: "warming"}` while a background job fits
+	 * the models.  Surfacing this as a dedicated flag lets the shell show
+	 * "Preparing your dashboard" instead of rendering zeros from a payload that
+	 * has no real data.
+	 */
+	if (payload.status === 'warming') {
+		return { data: null, error: null, warming: true }
 	}
 	if (payload.status === 'success') {
-		if ('data' in payload) return { data: payload.data, error: null }
+		if ('data' in payload) return { data: payload.data, error: null, warming: false }
 		/*
 		 * Some endpoints put `status` at the top level with the payload as its
 		 * siblings rather than nested under `data` -- `risk_intelligence` returns
@@ -42,9 +52,9 @@ export function readInsightsEnvelope(payload: unknown): {
 		 * because the cards fell back to a plausible-looking zero instead.
 		 */
 		const { status: _status, ...rest } = payload as Record<string, unknown>
-		return { data: rest, error: null }
+		return { data: rest, error: null, warming: false }
 	}
-	return { data: payload, error: null }
+	return { data: payload, error: null, warming: false }
 }
 
 /**

@@ -148,7 +148,7 @@ const MFG_ENDPOINT = 'insights.api.ml.manufacturing.get_manufacturing_detail'
 const lastUpdated = ref('')
 const productionForecast = ref<ProductionForecastData>({})
 
-const { data, loading, refreshing, error, isPermissionError, hasData, reload, retry } =
+const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
   useIntelligenceDashboard<ManufacturingPayload>({
     url: 'insights.api.ml.get_manufacturing_overview',
     cache: 'manufacturing-intelligence',
@@ -282,6 +282,7 @@ onMounted(() => {
       :refreshing="refreshing"
       :error="error"
       :is-permission-error="isPermissionError"
+      :warming="warming"
       :has-data="hasData"
       subject="manufacturing data"
       permission-hint="Ask an administrator for Work Order and BOM read access."

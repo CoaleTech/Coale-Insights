@@ -11,8 +11,8 @@
         </span>
         <Button
           variant="solid"
-          @click="refreshData"
-          :loading="loading"
+          @click="reload"
+          :loading="refreshing"
         >
           <template #prefix><RefreshCcw class="w-4 h-4" /></template>
           Refresh Analysis
@@ -21,14 +21,15 @@
     </header>
 
     <IntelligenceDashboardShell
-      :loading="loading && !hasData"
-      :error="dataError ?? undefined"
+      :loading="loading"
+      :refreshing="refreshing"
+      :error="error ?? undefined"
       :is-permission-error="isPermissionError"
       :has-data="hasData"
       :warming="warming"
       subject="procurement data"
-      :kpi-count="6"
-      @retry="refreshData"
+      permission-hint="Ask an administrator for procurement read access."
+      @retry="retry"
     >
     <!-- Summary Cards -->
     <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -39,28 +40,28 @@
         :delta-higher-is-better="false"
         sublabel="YoY"
         :loading="loading && !hasData"
-        :error="dataError ?? undefined"
+        :error="error ?? undefined"
       />
       <KpiCard
         label="Active Suppliers"
         :value="String(summary.supplierCount)"
         sublabel="In last 12 months"
         :loading="loading && !hasData"
-        :error="dataError ?? undefined"
+        :error="error ?? undefined"
       />
       <KpiCard
         label="Avg Lead Time"
         :value="`${summary.avgLeadTime} days`"
         sublabel="Order to delivery"
         :loading="loading && !hasData"
-        :error="dataError ?? undefined"
+        :error="error ?? undefined"
       />
       <KpiCard
         label="On-Time Delivery"
         :value="`${summary.avgOnTimeRate}%`"
         :severity="scoreSeverity(summary.avgOnTimeRate, { good: 90, warn: 70, higherIsBetter: true })"
         :loading="loading && !hasData"
-        :error="dataError ?? undefined"
+        :error="error ?? undefined"
       />
       <KpiCard
         label="Pending POs"
@@ -68,7 +69,7 @@
         :sublabel="formatCurrency(summary.pendingValue)"
         :clickable="true"
         :loading="loading && !hasData"
-        :error="dataError ?? undefined"
+        :error="error ?? undefined"
         @click="drillDown.open(PROC_ENDPOINT, 'Pending Purchase Orders', { metric: 'pending_pos' })"
       />
       <KpiCard
@@ -77,7 +78,7 @@
         :sublabel="getRiskLabel(summary.riskScore)"
         :severity="scoreSeverity(summary.riskScore, { good: 30, warn: 60, higherIsBetter: false })"
         :loading="loading && !hasData"
-        :error="dataError ?? undefined"
+        :error="error ?? undefined"
       />
     </div>
 
@@ -773,7 +774,7 @@
 <script setup lang="ts">
 import IntelligenceChart from '../intelligence/components/IntelligenceChart.vue'
 defineOptions({ name: 'ProcurementIntelligence' })
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed } from 'vue'
 import { Button, Badge, Tabs } from 'frappe-ui'
 import { RefreshCcw } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
@@ -785,12 +786,11 @@ import DashboardChatButton from '../components/DashboardChatButton.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
 import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
+import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 import KpiCard from '../intelligence/components/KpiCard.vue'
-import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { themeColor } from '../utils/chartTheme'
 import { formatDate, formatMoney, NO_VALUE } from '../utils/format'
 import { formatPeriod } from '../components/financial/format'
-import { apiCall, readFrappeError, ignoreRejection } from '../helpers/api'
 
 
 /** One month of spend trend from procurement_intelligence. */
@@ -931,9 +931,6 @@ const PROC_ENDPOINT = 'insights.api.ml.procurement.get_procurement_detail'
 const drillDown = useDrillDown()
 
 const tabIndex = ref(0)
-const loading = ref(false)
-const lastUpdated = ref<string | null>(null)
-const baseCurrency = ref('KES')
 
 const tabs = [
   { label: 'Spend Overview', value: 'spend' },
@@ -947,32 +944,42 @@ const tabs = [
 const tabDefs = tabs.map(t => ({ label: t.label }))
 const activeTab = computed(() => tabs[tabIndex.value]?.value ?? 'spend')
 
-// Data refs
-const spendData = ref<SpendData>({})
-const supplierData = ref<SupplierData>({})
-const purchaseData = ref<PurchaseData>({})
-const priceData = ref<PriceData>({})
-const riskData = ref<ProcurementRiskData>({})
-const forecastData = ref<ForecastData>({})
+/** Typed payload from procurement_intelligence endpoint. */
+interface ProcurementData {
+  spend_overview?: SpendData
+  supplier_performance?: SupplierData
+  purchase_analytics?: PurchaseData
+  price_intelligence?: PriceData
+  risk_analysis?: ProcurementRiskData
+  forecasts?: ForecastData
+  generated_at?: string
+  base_currency?: string
+}
 
-const fetched = ref(false)
-/**
- * A cold cache answers `{status: "warming"}` while a background job fits the
- * models. It is not `hasData`: the Shell shows a "computing" state instead of
- * the zero-filled KPI strip a normal render would produce.
- */
-const warming = ref(false)
-const hasData = computed(() => fetched.value && !warming.value)
+const {
+  data: procurementData,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  hasData,
+  reload,
+  retry,
+} = useIntelligenceDashboard<ProcurementData>({
+  url: 'insights.api.ml.procurement_intelligence',
+  cache: 'procurement-intelligence',
+})
 
-/**
- * Set when the fetch did not yield usable data.
- *
- * This dashboard previously had no error surface at all: `onError` flipped
- * `fetched` to true, `hasData` became true with every ref still `{}`, and the
- * whole page rendered zeros and empty tables as though they were findings.
- */
-const dataError = ref<string | null>(null)
-const isPermissionError = ref(false)
+// Data sub-sections are derived from the unwrapped payload; no separate refs.
+const spendData = computed(() => procurementData.value?.spend_overview ?? ({} as SpendData))
+const supplierData = computed(() => procurementData.value?.supplier_performance ?? ({} as SupplierData))
+const purchaseData = computed(() => procurementData.value?.purchase_analytics ?? ({} as PurchaseData))
+const priceData = computed(() => procurementData.value?.price_intelligence ?? ({} as PriceData))
+const riskData = computed(() => procurementData.value?.risk_analysis ?? ({} as ProcurementRiskData))
+const forecastData = computed(() => procurementData.value?.forecasts ?? ({} as ForecastData))
+const baseCurrency = computed(() => procurementData.value?.base_currency ?? 'KES')
+const lastUpdated = computed(() => procurementData.value?.generated_at ?? null)
 
 // Summary computed
 const summary = computed(() => ({
@@ -985,69 +992,6 @@ const summary = computed(() => ({
   pendingValue: (purchaseData.value.pending_value as number) || 0,
   riskScore: (riskData.value.risk_score as number) || 0,
 }))
-
-/*
- * `apiCall`, not `createResource`: it owns the one envelope decoder and the
- * transport-error translation, so every dashboard reads the payload at the same
- * level and reports a non-JSON response the same way.
- */
-async function loadProcurement(refresh = false) {
-  loading.value = true
-  try {
-    const data = (await apiCall<Record<string, unknown>>(
-      'insights.api.ml.procurement_intelligence',
-      { refresh },
-    )) as Record<string, unknown> | null
-
-    if (!data) {
-      dataError.value = 'Procurement data could not be loaded'
-      isPermissionError.value = false
-      warming.value = false
-      return
-    }
-
-    // A cold cache answers {status:"warming"} while a background job fits the
-    // models. Show the Shell's "computing" state rather than a zero-filled
-    // strip; the scheduler (and this call) have kicked the worker-side trainer.
-    if (data.status === 'warming') {
-      warming.value = true
-      dataError.value = null
-      isPermissionError.value = false
-      return
-    }
-    warming.value = false
-
-    spendData.value = (data.spend_overview as SpendData) || {}
-    supplierData.value = (data.supplier_performance as SupplierData) || {}
-    purchaseData.value = (data.purchase_analytics as PurchaseData) || {}
-    priceData.value = (data.price_intelligence as PriceData) || {}
-    riskData.value = (data.risk_analysis as ProcurementRiskData) || {}
-    forecastData.value = (data.forecasts as ForecastData) || {}
-    lastUpdated.value = (data.generated_at as string) || null
-    dataError.value = null
-    isPermissionError.value = false
-    if (data.base_currency) {
-      baseCurrency.value = data.base_currency as string
-    }
-  } catch (err: unknown) {
-    const { permission, message } = readFrappeError(err, 'Procurement data could not be loaded')
-    console.error('Procurement Intelligence error:', err)
-    dataError.value = message
-    isPermissionError.value = permission
-    warming.value = false
-  } finally {
-    fetched.value = true
-    loading.value = false
-  }
-}
-
-const refreshData = () => {
-  ignoreRejection(loadProcurement(true))
-}
-
-onMounted(() => {
-  ignoreRejection(loadProcurement(false))
-})
 
 // Formatting helpers
 const formatCurrency = (value: number | undefined) => formatMoney(value, baseCurrency.value)

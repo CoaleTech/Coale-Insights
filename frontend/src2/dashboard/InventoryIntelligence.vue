@@ -1,14 +1,14 @@
 <script setup lang="ts">
 defineOptions({ name: 'InventoryIntelligence' })
 import { Breadcrumbs, Button, Badge, Tabs, Spinner } from 'frappe-ui'
-import { apiCall } from '../helpers/api'
+import { apiCall, ignoreRejection } from '../helpers/api'
 import {
   RefreshCcw, Package, Warehouse, ArrowRightLeft, Clock,
   TrendingUp, TrendingDown, Activity, BarChart3,
   PieChart, ShoppingCart, Truck, DollarSign, Archive, Boxes,
   ArrowRight, Layers,
 } from 'lucide-vue-next'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import {
@@ -23,19 +23,15 @@ import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillD
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
+import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 
 const router = useRouter()
 
 const INV_ENDPOINT = 'insights.api.ml.inventory.get_inventory_detail'
 const drillDown = useDrillDown()
 
-// State
-const isLoading = ref(true)
-const isRefreshing = ref(false)
-const error = ref<string | null>(null)
-const data = ref<Record<string, unknown> | null>(null)
-const lastUpdated = ref('')
 const dateFilter = ref('12m')
+const lastUpdated = ref('')
 
 // Training state
 const isTraining = ref(false)
@@ -58,36 +54,48 @@ const tabDefs = [
 const tabIds = ['overview', 'turnover', 'abc-xyz', 'itemwise-be', 'aging', 'warehouses', 'procurement']
 const activeTab = computed(() => tabIds[tabIndex.value] ?? 'overview')
 
-// Itemwise BE state
+// Itemwise BE state (supplementary fetch — not the primary payload)
 const itemwiseBeData = ref<Record<string, unknown> | null>(null)
 const itemwiseBeLoading = ref(false)
 const itemwiseBeError = ref<string | null>(null)
 
-const hasData = computed(() => data.value !== null && !error.value)
-
-// Load inventory intelligence data
-async function loadData(refresh = false) {
-  if (refresh) {
-    isRefreshing.value = true
-  } else {
-    isLoading.value = true
-  }
-  error.value = null
-
-  try {
-    const result = await apiCall<Record<string, unknown>>('insights.api.ml.inventory_intelligence', {
-      refresh: refresh,
-      date_filter: dateFilter.value,
-    })
-    data.value = result
-    lastUpdated.value = new Date().toISOString()
-  } catch (e: unknown) {
-    error.value = (e instanceof Error ? e.message : String(e)) || 'Failed to load inventory intelligence'
-  } finally {
-    isLoading.value = false
-    isRefreshing.value = false
-  }
+/** Shape of the inventory_intelligence endpoint payload. */
+interface InventoryIntelligenceData {
+  stock_overview?: Record<string, unknown>
+  turnover_analysis?: Record<string, unknown>
+  aging_analysis?: Record<string, unknown>
+  aging_fifo?: Record<string, unknown>
+  warehouse_analysis?: Record<string, unknown>
+  warehouse_transfers?: Record<string, unknown>
+  transfer_recommendations?: unknown[]
+  dead_stock?: Record<string, unknown>
+  procurement_insights?: Record<string, unknown>
+  abc_xyz?: AbcXyzData
+  abc_xyz_analysis?: Record<string, unknown>
+  demand_planning?: Record<string, unknown> | null
+  [k: string]: unknown
 }
+
+const {
+  data: inventoryData,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  hasData,
+  reload,
+  retry,
+} = useIntelligenceDashboard<InventoryIntelligenceData>({
+  url: 'insights.api.ml.inventory_intelligence',
+  params: computed(() => ({ date_filter: dateFilter.value })),
+  cache: 'inventory-intelligence',
+})
+
+// Stamp lastUpdated when the primary payload lands successfully.
+watch(inventoryData, (payload) => {
+  if (payload) lastUpdated.value = new Date().toISOString()
+})
 
 // Train/refresh inventory intelligence
 async function trainInventoryIntelligence() {
@@ -98,13 +106,16 @@ async function trainInventoryIntelligence() {
     const result = await apiCall<Record<string, unknown>>('insights.api.ml.train_inventory_intelligence')
     trainingStatus.value = 'Analysis complete'
     trainingSuccess.value = true
-    data.value = result
-    lastUpdated.value = new Date().toISOString()
+    const stockOverview = (result.stock_overview as Record<string, unknown>) || {}
     createToast({
       title: 'Analysis Complete',
-      message: `Analyzed ${(result.stock_overview as Record<string, unknown>)?.total_skus || 0} SKUs across ${(result.stock_overview as Record<string, unknown>)?.warehouse_count || 0} warehouses`,
+      message: `Analyzed ${stockOverview.total_skus || 0} SKUs across ${stockOverview.warehouse_count || 0} warehouses`,
       variant: 'success',
     })
+    // Refetch the primary payload through the composable so the UI sees the
+    // freshly-trained numbers. Writing back into a now-computed `data` is no
+    // longer an option.
+    ignoreRejection(reload())
   } catch (e: unknown) {
     trainingStatus.value = `Analysis error: ${(e instanceof Error ? e.message : String(e))}`
     trainingSuccess.value = false
@@ -132,7 +143,7 @@ async function trainAbcXyz() {
       message: `Classified ${(result as Record<string, unknown>)?.total_items || 0} items`,
       variant: 'success',
     })
-    await loadData(true)
+    ignoreRejection(reload())
   } catch (e: unknown) {
     createToast({
       title: 'Classification Error',
@@ -152,21 +163,24 @@ interface AbcXyzSummary {
 /** Shape of the abc_xyz sub-object returned by inventory_intelligence. */
 interface AbcXyzData {
   summary?: AbcXyzSummary
+  abc_summary?: unknown[]
+  top_items?: unknown[]
   matrix?: Record<string, unknown>[]
   total_items?: number
   classification_date?: string
+  [k: string]: unknown
 }
 
 // Computed values
-const stockOverview = computed(() => (data.value?.stock_overview as Record<string, unknown>) || {})
-const turnoverAnalysis = computed(() => (data.value?.turnover_analysis as Record<string, unknown>) || {})
-const agingAnalysis = computed(() => (data.value?.aging_analysis as Record<string, unknown>) || {})
-const warehouseAnalysis = computed(() => (data.value?.warehouse_analysis as Record<string, unknown>) || {})
-const transferRecommendations = computed(() => (data.value?.transfer_recommendations as unknown[]) || [])
-const deadStock = computed(() => (data.value?.dead_stock as Record<string, unknown>) || {})
-const procurementInsights = computed(() => (data.value?.procurement_insights as Record<string, unknown>) || {})
-const abcXyz = computed(() => (data.value?.abc_xyz as AbcXyzData | null) ?? null)
-const demandPlanning = computed(() => (data.value?.demand_planning as Record<string, unknown> | null) ?? null)
+const stockOverview = computed(() => (inventoryData.value?.stock_overview as Record<string, unknown>) || {})
+const turnoverAnalysis = computed(() => (inventoryData.value?.turnover_analysis as Record<string, unknown>) || {})
+const agingAnalysis = computed(() => (inventoryData.value?.aging_analysis as Record<string, unknown>) || {})
+const warehouseAnalysis = computed(() => (inventoryData.value?.warehouse_analysis as Record<string, unknown>) || {})
+const transferRecommendations = computed(() => (inventoryData.value?.transfer_recommendations as unknown[]) || [])
+const deadStock = computed(() => (inventoryData.value?.dead_stock as Record<string, unknown>) || {})
+const procurementInsights = computed(() => (inventoryData.value?.procurement_insights as Record<string, unknown>) || {})
+const abcXyz = computed(() => (inventoryData.value?.abc_xyz as AbcXyzData | null) ?? null)
+const demandPlanning = computed(() => (inventoryData.value?.demand_planning as Record<string, unknown> | null) ?? null)
 
 // Max value for age bucket bars (avoids inline template Math.max)
 const maxAgeBucketValue = computed(() => {
@@ -217,16 +231,6 @@ async function loadItemwiseBe() {
   }
 }
 
-// Load on mount
-onMounted(() => {
-  loadData()
-})
-
-// Watch for date filter changes
-watch(dateFilter, () => {
-  loadData()
-})
-
 // Watch tab changes to lazy-load itemwise BE
 watch(activeTab, (tab) => {
   if (tab === 'itemwise-be') {
@@ -242,15 +246,15 @@ const breadcrumbs = [
 
 // Chat context for AI insights
 const chatContext = computed(() => ({
-  stockOverview: data.value?.stock_overview || {},
-  turnoverAnalysis: data.value?.turnover_analysis || {},
-  abcXyzAnalysis: data.value?.abc_xyz_analysis || {},
-  agingFifo: data.value?.aging_fifo || {},
-  warehouseTransfers: data.value?.warehouse_transfers || {},
-  procurementInsights: data.value?.procurement_insights || {},
-  demandPlanning: data.value?.demand_planning || {},
+  stockOverview: inventoryData.value?.stock_overview || {},
+  turnoverAnalysis: inventoryData.value?.turnover_analysis || {},
+  abcXyzAnalysis: inventoryData.value?.abc_xyz_analysis || {},
+  agingFifo: inventoryData.value?.aging_fifo || {},
+  warehouseTransfers: inventoryData.value?.warehouse_transfers || {},
+  procurementInsights: inventoryData.value?.procurement_insights || {},
+  demandPlanning: inventoryData.value?.demand_planning || {},
   activeTab: activeTab.value,
-  isLoading: isLoading.value,
+  isLoading: loading.value,
 }))
 
 // Handle navigation to other dashboards from chat suggestions
@@ -292,8 +296,8 @@ function handleDashboardRedirect(target: string) {
         </Button>
         <Button
           variant="solid"
-          :loading="isRefreshing"
-          @click="loadData(true)"
+          :loading="refreshing"
+          @click="reload"
           aria-label="Refresh inventory data"
         >
           <template #prefix><RefreshCcw class="w-4 h-4" /></template>
@@ -312,13 +316,15 @@ function handleDashboardRedirect(target: string) {
     </div>
 
     <IntelligenceDashboardShell
-      :loading="isLoading"
-      :refreshing="isRefreshing"
+      :loading="loading"
+      :refreshing="refreshing"
       :error="error"
-      :has-data="!!data"
-      :kpi-count="6"
+      :is-permission-error="isPermissionError"
+      :has-data="hasData"
+      :warming="warming"
       subject="inventory data"
-      @retry="loadData()"
+      permission-hint="Ask an administrator for inventory read access."
+      @retry="retry"
     >
     <!-- Main Content -->
     <div class="flex-1 overflow-auto p-6">

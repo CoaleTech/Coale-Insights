@@ -47,6 +47,8 @@ export interface IntelligenceDashboard<T> {
   refreshing: Ref<boolean>
   error: Ref<string | null>
   isPermissionError: Ref<boolean>
+  /** True when the API returned `{status: "warming"}` — cache is cold, background job running. */
+  warming: Ref<boolean>
   /** False until a response has landed. Gate summary cards on this, never on data alone. */
   hasData: ComputedRef<boolean>
   reload: () => void
@@ -60,6 +62,7 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
 
   const error = ref<string | null>(null)
   const isPermissionError = ref(false)
+  const warming = ref(false)
   const fetched = ref(false)
   const refreshing = ref(false)
   // Holds the UNWRAPPED payload. `createResource` exposes the raw `message`,
@@ -77,14 +80,16 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
       const decoded = readInsightsEnvelope(raw)
       // A 200 carrying `{status: "error"}` is still a failure the user must see.
       isPermissionError.value = false
+      warming.value = decoded.warming
       error.value = decoded.error
-      payload.value = decoded.error ? null : (decoded.data as T)
+      payload.value = decoded.error || decoded.warming ? null : (decoded.data as T)
       fetched.value = true
       refreshing.value = false
     },
     onError: (e: unknown) => {
       const { permission, message } = readFrappeError(e, 'Could not load this dashboard')
       isPermissionError.value = permission
+      warming.value = false
       error.value = message
       payload.value = null
       fetched.value = true
@@ -111,6 +116,7 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     refreshing,
     error,
     isPermissionError,
+    warming,
     /**
      * Requires a payload, not merely the absence of an error.
      *

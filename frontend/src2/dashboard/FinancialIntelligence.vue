@@ -14,7 +14,7 @@
 				<Button
 					variant="solid"
 					@click="refreshData"
-					:loading="loading"
+					:loading="refreshing"
 					icon-left="refresh-cw"
 				>
 					Refresh
@@ -22,192 +22,213 @@
 			</div>
 		</header>
 
-		<!-- Summary Cards: gated on hasData to prevent false zero amounts during first fetch -->
-		<div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-			<KpiCard
-				label="Net Profit (YTD)"
-				:amount="summary.netProfit"
-				:currency="baseCurrency"
-				:delta="summary.profitMargin || undefined"
-				:delta-higher-is-better="true"
-				sublabel="margin"
-				:loading="loading && !hasData"
-				:error="actualsError ?? undefined"
-			/>
-			<KpiCard
-				label="Cash Position"
-				:amount="summary.cashPosition"
-				:currency="baseCurrency"
-				:sublabel="cashRunwayLabel"
-				:clickable="true"
-				:loading="loading && !hasData"
-				:error="actualsError ?? undefined"
-				@click="drillDown.open(FIN_ENDPOINT, 'Cash Position', { metric: 'cash_accounts' })"
-			/>
-			<KpiCard
-				label="Outstanding AR"
-				:amount="summary.outstandingAR"
-				:currency="baseCurrency"
-				:sublabel="summary.avgDSO != null ? `${summary.avgDSO} days DSO` : undefined"
-				:severity="scoreSeverity(summary.avgDSO, { good: 30, warn: 60, higherIsBetter: false })"
-				:clickable="true"
-				:loading="loading && !hasData"
-				:error="actualsError ?? undefined"
-				@click="drillDown.open(FIN_ENDPOINT, 'Outstanding AR', { metric: 'outstanding_ar' })"
-			/>
-			<KpiCard
-				label="Outstanding AP"
-				:amount="summary.outstandingAP"
-				:currency="baseCurrency"
-				:sublabel="summary.avgDPO != null ? `${summary.avgDPO} days DPO` : undefined"
-				:clickable="true"
-				:loading="loading && !hasData"
-				:error="actualsError ?? undefined"
-				@click="drillDown.open(FIN_ENDPOINT, 'Outstanding AP', { metric: 'outstanding_ap' })"
-			/>
-			<KpiCard
-				label="Working Capital"
-				:amount="strategicSummary.workingCapital"
-				:currency="baseCurrency"
-				:sublabel="currentRatioLabel"
-				:loading="strategicLoading && !strategicData"
-				:error="strategicError ?? undefined"
-			/>
-			<KpiCard
-				label="Forex Exposure"
-				:amount="summary.forexExposure"
-				:currency="baseCurrency"
-				:sublabel="forexSublabel"
-				:loading="loading && !hasData"
-				:error="actualsError ?? undefined"
-			/>
-		</div>
-
-		<!-- Tabs -->
-		<div class="mx-6 flex flex-col gap-2">
-			<!--
-				Two levels, two visual weights: a filled segmented control for the
-				group (recorded facts versus projection) and underlined tabs for the
-				views inside it. Previously this row was a label that only reported
-				which group the selected tab happened to belong to.
-			-->
-			<TabButtons v-model="activeGroup" :buttons="GROUP_BUTTONS" class="self-start" />
-			<Tabs v-model="tabIndex" :tabs="tabDefs" />
-		</div>
-
-		<!-- Tab Content -->
-		<div class="flex-1 p-6 overflow-auto">
-			<!--
-				One error panel for the whole group, rather than letting each tab
-				render `|| 0` fallbacks. Fixing only the KPI strip made the page
-				contradict itself: the strip read "Unavailable" while the P&L panel
-				directly beneath it still asserted "KES 0" for revenue.
-
-				Scoped per group on purpose. The two engines fail independently, so
-				an actuals outage must not blank the planning tabs or vice versa.
-			-->
-			<div
-				v-if="activeTabError"
-				class="flex flex-col items-center justify-center gap-3 py-16 text-center"
-			>
-				<AlertTriangle class="h-8 w-8 text-warn-fill" aria-hidden="true" />
-				<p class="font-medium text-ink-gray-8">
-					{{ activeGroup === 'actuals' ? 'Actuals' : 'Planning' }} data could not be loaded
-				</p>
-				<p class="max-w-md text-sm text-ink-gray-6">{{ activeTabError }}</p>
-				<Button variant="solid" @click="refreshData">Try again</Button>
-			</div>
-
-			<!-- All tab bodies sit under one `v-else`: each is its own `v-if` chain,
-			     so without this wrapper they would render alongside the error panel
-			     above rather than instead of it. -->
-			<template v-else>
-			<!-- Actuals: Overview -->
-			<div v-if="activeTab === 'overview'" class="space-y-6">
-				<ExecutiveSummaryTab :data="strategicTyped?.executive_summary ?? null" :expense-breakdown="strategicTyped?.expense_breakdown" />
-				<OverviewTab :data="overviewData" :currency="baseCurrency" />
-			</div>
-
-			<!-- Actuals: Cash -->
-			<div v-if="activeTab === 'cashflow'">
-				<CashFlowTab :data="cashFlowData" :currency="baseCurrency" />
-			</div>
-
-			<!-- Actuals: Receivables -->
-			<div v-if="activeTab === 'receivables'">
-				<ReceivablesTab :data="receivablesData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
-			</div>
-
-			<!-- Actuals: Payables -->
-			<div v-if="activeTab === 'payables'">
-				<PayablesTab :data="payablesData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
-			</div>
-
-			<!-- Actuals: Working Capital -->
-			<div v-if="activeTab === 'working'">
-				<WorkingCapitalTab :data="strategicTyped?.working_capital" />
-			</div>
-
-			<!-- Actuals: Ratios & Trends -->
-			<div v-if="activeTab === 'ratios'">
-				<FinancialRatiosTab :data="strategicTyped?.ratio_trends" />
-			</div>
-
-			<!-- Actuals: Cost Structure -->
-			<div v-if="activeTab === 'costratios'">
-				<CostStructureTab
-					:data="strategicTyped?.cost_structure ?? null"
-					:forecast="strategicTyped?.expense_forecast ?? null"
+		<!--
+			One shell for the whole page. The actuals payload is the primary fetch,
+			so the shell's error / warming / skeleton states all key off it. The
+			planning payload is a secondary `createResource` whose failure (or
+			warming) is surfaced inline within the planning tab itself — scoped per
+			group, as before, because the two engines fail independently and a
+			planning outage must not blank the actuals tabs.
+		-->
+		<IntelligenceDashboardShell
+			:loading="loading"
+			:refreshing="refreshing"
+			:error="error ?? undefined"
+			:is-permission-error="isPermissionError"
+			:warming="warming"
+			:has-data="hasData"
+			subject="finance data"
+			permission-hint="Ask an administrator for finance read access."
+			:kpi-count="6"
+			@retry="retry"
+		>
+			<!-- Summary Cards -->
+			<div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+				<KpiCard
+					label="Net Profit (YTD)"
+					:amount="summary.netProfit"
 					:currency="baseCurrency"
+					:delta="summary.profitMargin || undefined"
+					:delta-higher-is-better="true"
+					sublabel="margin"
+					:loading="refreshing"
+					:error="error ?? undefined"
+				/>
+				<KpiCard
+					label="Cash Position"
+					:amount="summary.cashPosition"
+					:currency="baseCurrency"
+					:sublabel="cashRunwayLabel"
+					:clickable="true"
+					:loading="refreshing"
+					:error="error ?? undefined"
+					@click="drillDown.open(FIN_ENDPOINT, 'Cash Position', { metric: 'cash_accounts' })"
+				/>
+				<KpiCard
+					label="Outstanding AR"
+					:amount="summary.outstandingAR"
+					:currency="baseCurrency"
+					:sublabel="summary.avgDSO != null ? `${summary.avgDSO} days DSO` : undefined"
+					:severity="scoreSeverity(summary.avgDSO, { good: 30, warn: 60, higherIsBetter: false })"
+					:clickable="true"
+					:loading="refreshing"
+					:error="error ?? undefined"
+					@click="drillDown.open(FIN_ENDPOINT, 'Outstanding AR', { metric: 'outstanding_ar' })"
+				/>
+				<KpiCard
+					label="Outstanding AP"
+					:amount="summary.outstandingAP"
+					:currency="baseCurrency"
+					:sublabel="summary.avgDPO != null ? `${summary.avgDPO} days DPO` : undefined"
+					:clickable="true"
+					:loading="refreshing"
+					:error="error ?? undefined"
+					@click="drillDown.open(FIN_ENDPOINT, 'Outstanding AP', { metric: 'outstanding_ap' })"
+				/>
+				<KpiCard
+					label="Working Capital"
+					:amount="strategicSummary.workingCapital"
+					:currency="baseCurrency"
+					:sublabel="currentRatioLabel"
+					:loading="strategicLoading && !strategicData"
+					:error="strategicError ?? undefined"
+				/>
+				<KpiCard
+					label="Forex Exposure"
+					:amount="summary.forexExposure"
+					:currency="baseCurrency"
+					:sublabel="forexSublabel"
+					:loading="refreshing"
+					:error="error ?? undefined"
 				/>
 			</div>
 
-			<!-- Actuals: Forex Exposure -->
-			<div v-if="activeTab === 'forex'">
-				<ForexExposureTab :data="forexData" :currency="baseCurrency" />
+			<!-- Tabs -->
+			<div class="mx-6 flex flex-col gap-2">
+				<!--
+					Two levels, two visual weights: a filled segmented control for the
+					group (recorded facts versus projection) and underlined tabs for the
+					views inside it. Previously this row was a label that only reported
+					which group the selected tab happened to belong to.
+				-->
+				<TabButtons v-model="activeGroup" :buttons="GROUP_BUTTONS" class="self-start" />
+				<Tabs v-model="tabIndex" :tabs="tabDefs" />
 			</div>
 
-			<!-- Planning: Cash Forecast -->
-			<div v-if="activeTab === 'cashforecast'">
-				<CashForecastingTab :data="strategicTyped?.cash_forecast ?? null" />
-			</div>
-
-			<!-- Planning: 13-Week Cash Flow -->
-			<div v-if="activeTab === 'cashflow13'">
-				<ThirteenWeekCashFlowTab :data="strategicTyped?.thirteen_week_forecast ?? null" />
-			</div>
-
-			<!-- Planning: Capital Planning -->
-			<div v-if="activeTab === 'capital'">
-				<CapitalPlanningTab :data="strategicTyped?.capital_planning" />
-			</div>
-
-			<!-- Planning: Scenario Analysis -->
-			<div v-if="activeTab === 'scenarios'">
-				<ScenarioAnalysisTab :data="strategicTyped?.scenario_analysis" />
-			</div>
-
-			<!-- Planning: Period Comparison -->
-			<div v-if="activeTab === 'comparison'">
-				<PeriodComparisonTab :data="strategicTyped?.period_comparison" />
-			</div>
-
-			<!-- Planning: Budget Variance -->
-			<div v-if="activeTab === 'budget'">
-				<BudgetVarianceTab />
-			</div>
-
-			<!-- Planning: Break-Even Overview -->
-			<div v-if="activeTab === 'beOverview'">
-				<div v-if="beLoading" class="flex items-center justify-center py-12">
-					<LoadingIndicator class="w-8 h-8" />
+			<!-- Tab Content -->
+			<div class="flex-1 p-6 overflow-auto">
+				<!--
+					One inline error panel for the planning engine only. The actuals
+					engine's failure is now handled by the shell above, so this branch
+					is scoped to `activeGroup === 'planning'`: a planning outage must
+					not blank the actuals tabs or vice versa.
+				-->
+				<div
+					v-if="activeGroup === 'planning' && strategicError"
+					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
+				>
+					<AlertTriangle class="h-8 w-8 text-warn-fill" aria-hidden="true" />
+					<p class="font-medium text-ink-gray-8">Planning data could not be loaded</p>
+					<p class="max-w-md text-sm text-ink-gray-6">{{ strategicError }}</p>
+					<Button variant="solid" @click="fetchStrategicData(true)">Try again</Button>
 				</div>
-				<div v-else-if="beError" class="text-center py-12 text-ink-gray-6">{{ beError }}</div>
-				<BreakEvenOverviewTab v-else-if="beData" :data="beData" />
-				<div v-else class="text-center py-12 text-ink-gray-6">No break-even data available</div>
+
+				<!--
+					Tab bodies for either group. The shell has already gated the slot
+					on `hasData` for the primary (actuals) payload; the planning
+					inline error above handles the secondary's failure. Both groups
+					render the same way once those gates have passed, so the bodies
+					share a single `v-else` branch and dispatch by `activeTab`.
+				-->
+				<template v-else>
+
+				<!-- Actuals: Overview -->
+				<div v-if="activeTab === 'overview'" class="space-y-6">
+					<ExecutiveSummaryTab :data="strategicTyped?.executive_summary ?? null" :expense-breakdown="strategicTyped?.expense_breakdown" />
+					<OverviewTab :data="overviewData" :currency="baseCurrency" />
+				</div>
+
+				<!-- Actuals: Cash -->
+				<div v-if="activeTab === 'cashflow'">
+					<CashFlowTab :data="cashFlowData" :currency="baseCurrency" />
+				</div>
+
+				<!-- Actuals: Receivables -->
+				<div v-if="activeTab === 'receivables'">
+					<ReceivablesTab :data="receivablesData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+				</div>
+
+				<!-- Actuals: Payables -->
+				<div v-if="activeTab === 'payables'">
+					<PayablesTab :data="payablesData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+				</div>
+
+				<!-- Actuals: Working Capital -->
+				<div v-if="activeTab === 'working'">
+					<WorkingCapitalTab :data="strategicTyped?.working_capital" />
+				</div>
+
+				<!-- Actuals: Ratios & Trends -->
+				<div v-if="activeTab === 'ratios'">
+					<FinancialRatiosTab :data="strategicTyped?.ratio_trends" />
+				</div>
+
+				<!-- Actuals: Cost Structure -->
+				<div v-if="activeTab === 'costratios'">
+					<CostStructureTab
+						:data="strategicTyped?.cost_structure ?? null"
+						:forecast="strategicTyped?.expense_forecast ?? null"
+						:currency="baseCurrency"
+					/>
+				</div>
+
+				<!-- Actuals: Forex Exposure -->
+				<div v-if="activeTab === 'forex'">
+					<ForexExposureTab :data="forexData" :currency="baseCurrency" />
+				</div>
+
+				<!-- Planning: Cash Forecast -->
+				<div v-if="activeTab === 'cashforecast'">
+					<CashForecastingTab :data="strategicTyped?.cash_forecast ?? null" />
+				</div>
+
+				<!-- Planning: 13-Week Cash Flow -->
+				<div v-if="activeTab === 'cashflow13'">
+					<ThirteenWeekCashFlowTab :data="strategicTyped?.thirteen_week_forecast ?? null" />
+				</div>
+
+				<!-- Planning: Capital Planning -->
+				<div v-if="activeTab === 'capital'">
+					<CapitalPlanningTab :data="strategicTyped?.capital_planning" />
+				</div>
+
+				<!-- Planning: Scenario Analysis -->
+				<div v-if="activeTab === 'scenarios'">
+					<ScenarioAnalysisTab :data="strategicTyped?.scenario_analysis" />
+				</div>
+
+				<!-- Planning: Period Comparison -->
+				<div v-if="activeTab === 'comparison'">
+					<PeriodComparisonTab :data="strategicTyped?.period_comparison" />
+				</div>
+
+				<!-- Planning: Budget Variance -->
+				<div v-if="activeTab === 'budget'">
+					<BudgetVarianceTab />
+				</div>
+
+				<!-- Planning: Break-Even Overview -->
+				<div v-if="activeTab === 'beOverview'">
+					<div v-if="beLoading" class="flex items-center justify-center py-12">
+						<LoadingIndicator class="w-8 h-8" />
+					</div>
+					<div v-else-if="beError" class="text-center py-12 text-ink-gray-6">{{ beError }}</div>
+					<BreakEvenOverviewTab v-else-if="beData" :data="beData" />
+					<div v-else class="text-center py-12 text-ink-gray-6">No break-even data available</div>
+				</div>
+				</template>
 			</div>
-			</template>
-		</div>
+		</IntelligenceDashboardShell>
 
 		<!-- AI Chat Button -->
 		<DashboardChatButton
@@ -246,6 +267,8 @@ import { formatCount } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
+import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import { formatDate } from '../components/financial/format'
@@ -279,6 +302,25 @@ import BreakEvenOverviewTab from '../components/strategic-finance/BreakEvenOverv
 import { ignoreRejection } from '../helpers/api'
 
 interface FrappeResponse { status: string; message?: string; [key: string]: unknown }
+
+/**
+ * Typed envelope returned by `insights.api.ml.financial_intelligence`.
+ *
+ * The endpoint wraps the financial sub-objects in a `{status: "success", ...}`
+ * envelope; the composable strips the `status` key, so what arrives here is
+ * `{ overview, cash_flow, receivables, payables, forex, generated_at,
+ * base_currency }`. Treated as a single typed payload so the existing
+ * sub-section interfaces can be reused as-is.
+ */
+interface FinancialPayload {
+	overview?: OverviewData
+	cash_flow?: CashFlowData
+	receivables?: ReceivablesData
+	payables?: PayablesData
+	forex?: ForexData
+	generated_at?: string
+	base_currency?: string
+}
 
 // Mirrors BreakEvenOverviewTab.vue's local interfaces; declared here so beData
 // can carry the correct type for the tab prop.
@@ -361,45 +403,67 @@ const {
 /** Template and chat context key off the id, as they did before. */
 const activeTab = computed(() => activeTabDef.value?.id ?? 'overview')
 
-/**
- * Error for whichever engine feeds the active tab.
- *
- * The actuals and planning engines are separate fetches that fail
- * independently, so a single dashboard-wide error flag would blank working
- * tabs. Declared after both refs exist; see `actualsError` / `strategicError`.
- */
-const activeTabError = computed(() =>
-	activeGroup.value === 'actuals' ? actualsError.value : strategicError.value,
-)
-
-const loading = ref(false)
-const lastUpdated = ref<string | null>(null)
 const dateFilter = ref('12m')
 const baseCurrency = ref('KES')
 provide('currency', baseCurrency)
 
-// Actuals data (from insights.api.ml.financial_intelligence)
-const overviewData = ref<OverviewData>({})
-const cashFlowData = ref<CashFlowData>({})
-const receivablesData = ref<ReceivablesData>({})
-const payablesData = ref<PayablesData>({})
-const forexData = ref<ForexData>({})
-
-const fetched = ref(false)
-const hasData = computed(() => fetched.value)
-
-/**
- * Set when the actuals fetch did not yield usable data, so the KPI strip can
- * say so instead of rendering `|| 0` as a real figure.
- *
- * Two distinct paths land here. `onError` is the obvious one; the other is a
- * 200 response carrying `status !== 'success'`, which used to fall straight
- * through to `fetched = true` with every data ref still empty.
- */
-const actualsError = ref<string | null>(null)
-
 const FIN_ENDPOINT = 'insights.api.ml.financial.get_finance_detail'
 const drillDown = useDrillDown()
+
+/**
+ * Primary payload — actuals, served by `insights.api.ml.financial_intelligence`.
+ *
+ * The composable owns the fetch lifecycle: `loading` is the first-load flag the
+ * shell uses for its skeleton, `refreshing` for user-triggered refetches (the
+ * Refresh button and date-filter changes), and `warming` for a cold ML cache
+ * responding with `{status: "warming"}`. `params` is reactive, so changing
+ * `dateFilter` triggers a refetch with the new filter — no manual watcher.
+ */
+const {
+	data: financialData,
+	loading,
+	refreshing,
+	error,
+	isPermissionError,
+	warming,
+	hasData,
+	reload,
+	retry,
+} = useIntelligenceDashboard<FinancialPayload>({
+	url: 'insights.api.ml.financial_intelligence',
+	params: computed(() => ({ date_filter: dateFilter.value })),
+	cache: 'financial-intelligence',
+})
+
+/**
+ * `lastUpdated` and `baseCurrency` ride along with the actuals payload, so they
+ * track its arrival rather than being separately fetched. Provided as refs
+ * because `inject('currency')` consumers (via `useCurrency`) expect a reactive
+ * container, not a value snapshot.
+ */
+const lastUpdated = ref<string | null>(null)
+watch(
+	financialData,
+	(d) => {
+		if (!d) return
+		if (d.base_currency) baseCurrency.value = d.base_currency
+		if (d.generated_at) lastUpdated.value = d.generated_at
+	},
+	{ immediate: true },
+)
+
+/**
+ * Empty-object fallbacks for the tabs, not the real payload. The KPI strip
+ * computes its own summary from these, so a `|| 0` would still slip through
+ * there; the `summary` computed below uses the same `|| 0` pattern the
+ * existing card props already accept. The shell's `hasData` gate prevents
+ * these fallbacks from rendering during the first fetch.
+ */
+const overviewData = computed<OverviewData>(() => financialData.value?.overview ?? {})
+const cashFlowData = computed<CashFlowData>(() => financialData.value?.cash_flow ?? {})
+const receivablesData = computed<ReceivablesData>(() => financialData.value?.receivables ?? {})
+const payablesData = computed<PayablesData>(() => financialData.value?.payables ?? {})
+const forexData = computed<ForexData>(() => financialData.value?.forex ?? {})
 
 const summary = computed(() => ({
 	netProfit: (overviewData.value.ytd_profit as number) || 0,
@@ -439,41 +503,14 @@ const forexSublabel = computed(() => {
 	return `${n} ${n === 1 ? 'currency' : 'currencies'}`
 })
 
-const financialResource = createResource({
-	url: 'insights.api.ml.financial_intelligence',
-	auto: false,
-	onSuccess(data: Record<string, unknown>) {
-		if (data.status === 'success') {
-			overviewData.value = ((data.overview ?? {}) as OverviewData)
-			cashFlowData.value = ((data.cash_flow ?? {}) as CashFlowData)
-			receivablesData.value = ((data.receivables ?? {}) as ReceivablesData)
-			payablesData.value = ((data.payables ?? {}) as PayablesData)
-			forexData.value = ((data.forex ?? {}) as ForexData)
-			lastUpdated.value = (data.generated_at as string) || null
-			actualsError.value = null
-			if (data.base_currency) {
-				baseCurrency.value = data.base_currency as string
-			}
-		} else {
-			actualsError.value = (data.message as string) || 'Financial data could not be loaded'
-		}
-		fetched.value = true
-		loading.value = false
-	},
-	onError(err: unknown) {
-		console.error('Financial Intelligence error:', err)
-		actualsError.value = 'Financial data could not be loaded'
-		fetched.value = true
-		loading.value = false
-	},
-})
-
 // Planning data (from insights.api.ml.strategic_finance_intelligence) —
-// single canonical source for ratios, working capital, and every
-// forward-looking tab. Fetched in parallel with the actuals resource.
+// kept as a raw `createResource` because the planning engine is a secondary,
+// tab-scoped feed that fails independently of the actuals engine. The
+// composable's single-error shell cannot model two independent error channels,
+// so the planning error stays inline within the planning group.
 const strategicLoading = ref(false)
 const strategicData = ref<Record<string, unknown> | null>(null)
-/** Mirrors `actualsError` for the planning engine; same two failure paths. */
+/** Mirrors `error` for the planning engine; same two failure paths. */
 const strategicError = ref<string | null>(null)
 const strategicTyped = computed<StrategicFinanceData | null>(() => strategicData.value as unknown as StrategicFinanceData | null)
 
@@ -525,20 +562,24 @@ const fetchStrategicData = (refresh = false) => {
 }
 
 const refreshData = () => {
-	loading.value = true
-	ignoreRejection(financialResource.submit({ refresh: true, date_filter: dateFilter.value }))
+	reload()
 	fetchStrategicData(true)
 }
 
+/**
+ * Boot the planning fetch once. The actuals composable auto-fetches on mount
+ * (its `auto: true` default), so the primary no longer needs an `onMounted`.
+ */
 onMounted(() => {
-	loading.value = true
-	ignoreRejection(financialResource.submit({ refresh: false, date_filter: dateFilter.value }))
 	fetchStrategicData(false)
 })
 
+/**
+ * The composable's reactive `params` already refetches the primary on filter
+ * change, so only the secondary needs a manual watcher here.
+ */
 watch(dateFilter, () => {
-	loading.value = true
-	ignoreRejection(financialResource.submit({ refresh: false, date_filter: dateFilter.value }))
+	fetchStrategicData(false)
 })
 
 // Break-even state — lazy-loaded on first visit to that tab, same as the

@@ -185,7 +185,7 @@ const tabs = [
 
 const params = computed(() => ({ period: period.value as string }))
 
-const { data, loading, refreshing, error, isPermissionError, hasData, reload, retry } =
+const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
   useIntelligenceDashboard<HRPayload>({
     url: 'insights.api.ml.get_hr_overview',
     params,
@@ -334,6 +334,7 @@ function handleChatNavigation(path: string) {
       :refreshing="refreshing"
       :error="error"
       :is-permission-error="isPermissionError"
+      :warming="warming"
       :has-data="hasData"
       subject="HR data"
       permission-hint="Ask an administrator for Employee read access."
