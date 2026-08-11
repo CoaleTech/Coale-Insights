@@ -49,7 +49,11 @@ _LAZY_MAP = {
     "PaymentPrediction": "insights.ml.payment_prediction",
     "DemandForecasting": "insights.ml.demand_forecasting",
     "ProductRecommendations": "insights.ml.product_recommendations",
-    "CustomerIntelligence": "insights.ml.customer_intelligence.model",
+    # `CustomerIntelligence` removed 2026-08-11: the underlying
+    # `insights.ml.customer_intelligence.model` subpackage was deleted in the
+    # pure-Ibis rewrite and nothing in the live tree uses
+    # `from insights.ml import CustomerIntelligence` anymore. The replacement
+    # module-level function is `insights.ml.customer.compute_customer_intelligence`.
     "SalesIntelligence": "insights.ml.sales_intelligence",
     "RiskIntelligence": "insights.ml.risk_intelligence",
     "BreakevenEngine": "insights.ml.breakeven_engine",
