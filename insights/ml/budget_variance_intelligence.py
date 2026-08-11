@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Budget Variance Intelligence Module
 
@@ -16,10 +17,13 @@ Version: 1.0.0
 import frappe
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-import pandas as pd
-import numpy as np
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 import logging
 
 logger = logging.getLogger(__name__)

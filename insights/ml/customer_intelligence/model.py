@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -7,10 +8,12 @@ Houses the CustomerIntelligence class (formerly in __init__.py).
 """
 
 import frappe
-import numpy as np
-import pandas as pd
+from frappe import _
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 from insights.ml.base import BaseMLModel
 from insights.api.ml.utils import get_date_filter_sql, parse_date_filter
@@ -168,6 +171,7 @@ class CustomerIntelligence(BaseMLModel):
 
     def train(self, update_customers: bool = True) -> Dict[str, Any]:
         """Run complete customer intelligence analysis"""
+        import pandas as pd
         customer_df = self._get_customer_transactions()
         territory_df = self._get_territory_data()
         items_df = self._get_customer_items()
@@ -175,7 +179,7 @@ class CustomerIntelligence(BaseMLModel):
         quotation_df = self._get_quotation_data()
 
         if customer_df.empty:
-            return {"status": "error", "message": "No customer data found"}
+            return {"status": "error", "message": _("No customer data found")}
 
         clv_df = self.calculate_clv(customer_df)
         churn_df = self.calculate_churn_risk(customer_df, clv_df)
@@ -264,6 +268,8 @@ class CustomerIntelligence(BaseMLModel):
 
         def clean_dict_for_json(d):
             """Recursively clean dict for JSON serialization"""
+            import pandas as pd
+            import numpy as np
             if isinstance(d, dict):
                 return {k: clean_dict_for_json(v) for k, v in d.items()}
             elif isinstance(d, list):

@@ -1,9 +1,11 @@
+from __future__ import annotations
 # insights/ml/customer_intelligence/rankings.py
 """Customer ranking calculations."""
 
 import frappe
-import numpy as np
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
+if TYPE_CHECKING:
+    import numpy as np
 
 
 def get_customer_rankings(intelligence, limit: int = 20) -> Dict[str, List]:
@@ -73,6 +75,7 @@ def _calculate_consistency_scores(period_start, period_end, limit: int) -> List[
     frequency_score = months_with_orders / total_months_in_period
     spend_stability_score = 1 - coefficient_of_variation(monthly_spend)
     """
+    import numpy as np
     monthly_query = """
         SELECT si.customer, si.customer_name,
                DATE_FORMAT(si.posting_date, '%%Y-%%m') as month,

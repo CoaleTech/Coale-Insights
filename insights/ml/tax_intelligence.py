@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -13,11 +14,14 @@ Comprehensive tax analytics with ML-powered insights for:
 """
 
 import frappe
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 from insights.ml.base import BaseMLModel
 
 

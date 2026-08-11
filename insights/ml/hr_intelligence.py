@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 HR Intelligence Module
 
@@ -10,9 +11,12 @@ from frappe import _
 from frappe.utils import nowdate, add_months, add_days, flt, cint, date_diff
 from frappe.defaults import get_user_default
 from datetime import datetime, date, timedelta
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 import logging
 
 from ..analytics.data_collectors import HRDataCollector
@@ -335,7 +339,7 @@ class HRIntelligence:
                     "total_departments": len(dept_health)
                 }
             else:
-                return {"message": "No department data available"}
+                return {"message": _("No department data available")}
                 
         except Exception as e:
             logger.error(f"Error analyzing department health: {e}")
@@ -343,12 +347,13 @@ class HRIntelligence:
     
     def _analyze_compensation(self, hr_data: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze compensation competitiveness and equity"""
+        import numpy as np
         try:
             payroll_data = hr_data.get("payroll", {})
             dept_payroll = payroll_data.get("department_breakdown", [])
             
             if not dept_payroll:
-                return {"message": "No payroll data available"}
+                return {"message": _("No payroll data available")}
             
             # Calculate compensation metrics
             all_avg_salaries = [dept["avg_cost"] for dept in dept_payroll]
@@ -585,6 +590,7 @@ class HRIntelligence:
     
     def _calculate_diversity_score(self, gender_dist: List[Dict]) -> float:
         """Calculate a simple diversity score"""
+        import numpy as np
         if not gender_dist or len(gender_dist) < 2:
             return 0
         

@@ -1,29 +1,12 @@
-# Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""Lead → win probability.
-
-The only place on this site with thousands of labelled outcomes and no model.
-ERPNext's own CRM records the answer for every closed lead:
-
-    Lead.status         Converted / Lost Quotation
-    Opportunity.status  Converted / Lost
-
-Everything else in the ML layer forecasts a series or scores a rule. This is a
-straight supervised classification problem with real labels, so it is the one
-place a classifier is clearly the right tool rather than decoration.
-
-Features are deliberately only what exists at creation time plus elapsed age --
-nothing derived from the outcome. `converted_on` or a won Quotation would leak
-the label and produce a model that scores 100% and predicts nothing.
-"""
-
+from __future__ import annotations
 from frappe import _
-import pandas as pd
 from datetime import datetime
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict
 
 from insights.ml.base import BaseMLModel
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 # Below this many examples of the minority outcome a classifier memorises rather
 # than learns. Same floor and same reasoning as payment_prediction.
@@ -92,6 +75,8 @@ class LeadConversion(BaseMLModel):
         Defined here as days from creation to the decision point: `modified` for
         a closed lead, now for an open one.
         """
+        import pandas as pd
+
         df = df.copy()
         created = pd.to_datetime(df["creation"])
         closed_at = pd.to_datetime(df["modified"])
@@ -113,6 +98,8 @@ class LeadConversion(BaseMLModel):
 
     def train(self) -> Dict[str, Any]:
         """Fit on closed leads, then score the open ones. Worker-side only."""
+        import pandas as pd
+
         try:
             from sklearn.ensemble import RandomForestClassifier
             from sklearn.model_selection import train_test_split

@@ -1,17 +1,13 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""
-Payment Prediction Model
-Predicts payment delays and identifies at-risk invoices
-"""
-
+from __future__ import annotations
 import frappe
-import pandas as pd
-import numpy as np
+from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from insights.ml.base import BaseMLModel
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 # Optional ML dependencies
 try:
@@ -118,6 +114,8 @@ class PaymentPrediction(BaseMLModel):
     
     def _calculate_customer_metrics(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate customer-level payment metrics"""
+        import pandas as pd
+
         customer_metrics = df.groupby('customer').agg({
             'days_to_pay': ['mean', 'std', 'max'],
             'grand_total': ['sum', 'mean', 'count'],
@@ -142,12 +140,15 @@ class PaymentPrediction(BaseMLModel):
         ).fillna(0)
         
         return customer_metrics
-    
+
     def _prepare_features(self, df: pd.DataFrame, customer_metrics: pd.DataFrame) -> pd.DataFrame:
         """Prepare features for model training/prediction"""
+        import pandas as pd
+        import numpy as np
+
         # Merge customer metrics
         df = df.merge(customer_metrics, on='customer', how='left')
-        
+
         # Date features
         df['posting_date'] = pd.to_datetime(df['posting_date'])
         df['day_of_week'] = df['posting_date'].dt.dayofweek
@@ -182,13 +183,15 @@ class PaymentPrediction(BaseMLModel):
     
     def train(self) -> Dict[str, Any]:
         """Train payment prediction model"""
+        import pandas as pd
+
         # Get historical data
         df = self._get_payment_history()
         
         if df.empty or len(df) < 50:
             return {
                 "status": "error",
-                "message": "Insufficient payment history for training (need at least 50 invoices)"
+                "message": _("Insufficient payment history for training (need at least 50 invoices)")
             }
         
         # Filter to paid invoices for training
@@ -197,7 +200,7 @@ class PaymentPrediction(BaseMLModel):
         if len(paid_df) < 30:
             return {
                 "status": "error",
-                "message": "Insufficient paid invoices for training"
+                "message": _("Insufficient paid invoices for training")
             }
         
         # Calculate customer metrics
@@ -343,7 +346,7 @@ class PaymentPrediction(BaseMLModel):
         if outstanding.empty:
             return {
                 "status": "success",
-                "message": "No outstanding invoices",
+                "message": _("No outstanding invoices"),
                 "predictions": []
             }
         
@@ -456,6 +459,8 @@ class PaymentPrediction(BaseMLModel):
     
     def _estimate_days_to_pay(self, row: pd.Series, customer_metrics: pd.DataFrame) -> int:
         """Estimate days until payment"""
+        import pandas as pd
+
         cust_data = customer_metrics[customer_metrics['customer'] == row['customer']]
         
         if not cust_data.empty:
@@ -504,7 +509,7 @@ def get_customer_payment_risk(customer: str) -> Dict[str, Any]:
     ]
     
     if not customer_predictions:
-        return {"status": "success", "message": "No outstanding invoices for customer"}
+        return {"status": "success", "message": _("No outstanding invoices for customer")}
     
     return {
         "status": "success",

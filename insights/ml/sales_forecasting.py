@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -8,11 +9,12 @@ Supports Prophet, ARIMA, and Exponential Smoothing methods
 import frappe
 from frappe import _
 import importlib.util
-import pandas as pd
-import numpy as np
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 from insights.ml.base import BaseMLModel, get_date_range
 
 # Prophet estimates a yearly seasonal component. Fitting one from a single
@@ -109,6 +111,7 @@ class SalesForecasting(BaseMLModel):
     
     def _forecast_prophet(self, df: pd.DataFrame, periods: int = 30) -> Dict[str, Any]:
         """Forecast using Prophet with intelligent floor handling"""
+        import pandas as pd
         try:
             from prophet import Prophet
             
@@ -211,6 +214,7 @@ class SalesForecasting(BaseMLModel):
     
     def _forecast_exponential_smoothing(self, df: pd.DataFrame, periods: int = 30) -> Dict[str, Any]:
         """Forecast using Exponential Smoothing"""
+        import pandas as pd
         try:
             from statsmodels.tsa.holtwinters import ExponentialSmoothing
             
@@ -255,6 +259,7 @@ class SalesForecasting(BaseMLModel):
     
     def _forecast_moving_average(self, df: pd.DataFrame, periods: int = 30, window: int = 7) -> Dict[str, Any]:
         """Forecast using Simple Moving Average"""
+        import pandas as pd
         df = df[['ds', 'y']].copy()
         df['ds'] = pd.to_datetime(df['ds'])
         
@@ -301,7 +306,7 @@ class SalesForecasting(BaseMLModel):
         if df.empty or len(df) < 14:  # Need at least 2 weeks of data
             return {
                 "status": "error",
-                "message": "Insufficient data for forecasting (need at least 14 days)"
+                "message": _("Insufficient data for forecasting (need at least 14 days)")
             }
         
         # Select method
@@ -423,6 +428,7 @@ class SalesForecasting(BaseMLModel):
         only over the non-zero actuals where it means something.
         """
         horizon = 14
+        import numpy as np
         if len(df) < horizon * 3:
             return {}
 
@@ -471,6 +477,7 @@ class SalesForecasting(BaseMLModel):
     
     def _summarize_forecast(self, forecast: List[Dict]) -> Dict[str, Any]:
         """Summarize forecast results"""
+        import numpy as np
         if not forecast:
             return {}
         

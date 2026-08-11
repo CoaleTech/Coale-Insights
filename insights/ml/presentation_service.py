@@ -15,6 +15,7 @@ Version: 1.0.0
 """
 
 import frappe
+from frappe import _
 from datetime import datetime, timedelta
 import json
 from typing import Dict, List, Any, Optional
@@ -457,7 +458,7 @@ class PresentationModeService:
                 return f"{value:,.0f}"
             else:
                 return str(round(value, 2))
-        except:
+        except Exception:
             return str(value)
     
     def _determine_trend_direction(self, value: float) -> str:
@@ -557,11 +558,11 @@ class PresentationModeService:
                     "datasets": [{
                         "label": "Budget",
                         "data": [item.get('budget', 0) for item in monthly_data],
-                        "backgroundColor": "#3b82f6"
+                        "backgroundColor": "#3b82f6"  # blue-500 (Espresso: --chart-color-1)
                     }, {
                         "label": "Actual",
                         "data": [item.get('actual', 0) for item in monthly_data],
-                        "backgroundColor": "#ef4444"
+                        "backgroundColor": "#ef4444"  # red-500 (Espresso: --chart-color-2)
                     }]
                 }
             
@@ -622,7 +623,7 @@ class PresentationModeService:
             return {
                 "status": "success",
                 "data": export_data,
-                "message": "Structured slide data prepared (not a downloadable .pptx file)"
+                "message": _("Structured slide data prepared (not a downloadable .pptx file)")
             }
 
         except Exception as e:

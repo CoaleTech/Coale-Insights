@@ -15,6 +15,7 @@ Version: 1.0.0
 """
 
 import frappe
+from frappe import _
 from datetime import datetime, timedelta
 import json
 from typing import Dict, List, Any, Optional, Tuple
@@ -247,7 +248,7 @@ class CrossDashboardSearchService:
             return {
                 "status": "success",
                 "favorite_id": favorite.name,
-                "message": "Search saved as favorite"
+                "message": _("Search saved as favorite")
             }
             
         except Exception as e:

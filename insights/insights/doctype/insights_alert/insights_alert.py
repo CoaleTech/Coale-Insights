@@ -1,10 +1,15 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 # Copyright (c) 2023, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 import re
 from datetime import datetime
 
 import frappe
-import pandas as pd
 import telegram
 from croniter import croniter
 from frappe.model.document import Document
@@ -99,6 +104,7 @@ class InsightsAlert(Document):
         )
 
     def get_message_context(self):
+        import pandas as pd
         doc = frappe.get_doc("Insights Query v3", self.query)
         with db_connections():
             data = doc.execute()

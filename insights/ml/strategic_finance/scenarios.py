@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -7,13 +8,17 @@ Includes sensitivity analysis, Monte Carlo simulation, and period-over-period co
 """
 
 import frappe
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
 
 
 def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     """Generate scenario analysis with sensitivity and Monte Carlo"""
+    import numpy as np
     # Get baseline metrics
     fy_start = intelligence.fiscal_year["start_date"]
     today = datetime.now().strftime('%Y-%m-%d')

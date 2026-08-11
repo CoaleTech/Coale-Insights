@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Manufacturing Intelligence Module
 
@@ -9,9 +10,12 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate, add_months, add_days, flt, cint, date_diff
 from datetime import datetime, date, timedelta
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 import logging
 
 from ..analytics.data_collectors import ProductionDataCollector
@@ -149,7 +153,7 @@ class ManufacturingIntelligence:
             work_order_summary = production_data.get("work_order_summary", {})
             
             if not workstation_util:
-                return {"message": "No workstation data available for OEE calculation"}
+                return {"message": _("No workstation data available for OEE calculation")}
             
             # Calculate OEE components
             total_workstations = len(workstation_util)
@@ -223,6 +227,7 @@ class ManufacturingIntelligence:
     
     def _analyze_efficiency(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze production efficiency metrics"""
+        import numpy as np
         try:
             production_eff = production_data.get("production_efficiency", {})
             workstation_util = production_data.get("workstation_utilization", [])
@@ -263,7 +268,7 @@ class ManufacturingIntelligence:
             workstation_util = production_data.get("workstation_utilization", [])
             
             if not workstation_util:
-                return {"message": "No workstation capacity data available"}
+                return {"message": _("No workstation capacity data available")}
             
             # Calculate overall capacity utilization
             total_capacity = sum(ws.get("capacity_mins", 0) for ws in workstation_util)
@@ -301,7 +306,7 @@ class ManufacturingIntelligence:
             workstation_util = production_data.get("workstation_utilization", [])
             
             if not workstation_util:
-                return {"message": "No workstation performance data available"}
+                return {"message": _("No workstation performance data available")}
             
             # Calculate performance metrics for each workstation
             workstation_metrics = []
@@ -337,7 +342,7 @@ class ManufacturingIntelligence:
             workstation_util = production_data.get("workstation_utilization", [])
             
             if not workstation_util:
-                return {"message": "No data available for bottleneck analysis"}
+                return {"message": _("No data available for bottleneck analysis")}
             
             # Find bottlenecks (high utilization workstations)
             bottlenecks = []
@@ -403,16 +408,17 @@ class ManufacturingIntelligence:
     
     def _forecast_production(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
         """Forecast future production based on trends"""
+        import numpy as np
         try:
             monthly_trend = production_data.get("monthly_production_trend", [])
             
             if len(monthly_trend) < 3:
-                return {"message": "Insufficient data for production forecasting"}
+                return {"message": _("Insufficient data for production forecasting")}
             
             # Calculate simple trend
             quantities = [month.get("total_qty", 0) for month in monthly_trend[-6:]]  # Last 6 months
             if not quantities:
-                return {"message": "No quantity data available"}
+                return {"message": _("No quantity data available")}
             
             # Simple linear trend calculation
             avg_monthly_production = np.mean(quantities)
@@ -449,7 +455,7 @@ class ManufacturingIntelligence:
             workstation_util = production_data.get("workstation_utilization", [])
             
             if not workstation_util:
-                return {"message": "No workstation data for maintenance analysis"}
+                return {"message": _("No workstation data for maintenance analysis")}
             
             # Identify high-utilization workstations needing maintenance
             maintenance_priorities = []

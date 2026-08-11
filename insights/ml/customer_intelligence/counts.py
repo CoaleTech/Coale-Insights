@@ -1,9 +1,11 @@
+from __future__ import annotations
 # insights/ml/customer_intelligence/counts.py
 """Customer count and segmentation queries."""
 
 import frappe
-import pandas as pd
-from typing import Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def get_customer_counts(intelligence, active_cutoff_months: int = 6) -> Dict[str, Any]:

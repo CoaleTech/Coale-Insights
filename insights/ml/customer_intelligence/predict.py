@@ -36,6 +36,6 @@ def predict(intelligence, customer: Optional[str] = None, allow_train: bool = Fa
         if cust_data:
             actions = [a for a in cached.get('next_best_actions', []) if a['customer_id'] == customer]
             return {"status": "success", "customer": cust_data, "actions": actions[0] if actions else None}
-        return {"status": "error", "message": "Customer not found"}
+        return {"status": "error", "message": _("Customer not found")}
 
     return cached

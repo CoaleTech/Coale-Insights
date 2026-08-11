@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -7,9 +8,12 @@ Includes 90-day forecast, 13-week forecast, and cashflow scenario generation.
 """
 
 import frappe
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
 
 from .data import (
     get_cash_balance,
@@ -28,6 +32,7 @@ from .analysis import detect_payroll_pattern, generate_variance_analysis
 
 def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     """Generate 90-day cash flow forecast with scenarios"""
+    import numpy as np
     current_cash = get_cash_balance(intelligence)
 
     # Get historical daily cash flows (last 90 days)

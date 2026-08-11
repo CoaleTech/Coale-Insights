@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 ESG Intelligence Module
 
@@ -7,9 +8,12 @@ for sustainability reporting and corporate responsibility tracking.
 
 import frappe
 from frappe.utils import nowdate, add_months, add_days, flt, cint, date_diff, today
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 from datetime import datetime, timedelta
 import logging
 from insights.cache_management.cache_manager import CacheManager

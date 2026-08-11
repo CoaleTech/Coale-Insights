@@ -1,17 +1,13 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""
-Customer Segmentation using RFM (Recency, Frequency, Monetary) Analysis
-Segments customers into tiers based on purchase behavior
-"""
-
+from __future__ import annotations
 import frappe
-import pandas as pd
-import numpy as np
+from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from insights.ml.base import BaseMLModel, get_date_range
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 
 class CustomerSegmentation(BaseMLModel):
@@ -102,6 +98,8 @@ class CustomerSegmentation(BaseMLModel):
     
     def _calculate_rfm_scores(self, df: pd.DataFrame) -> pd.DataFrame:
         """Calculate RFM scores for each customer"""
+        import pandas as pd
+
         if df.empty:
             return df
         
@@ -168,7 +166,7 @@ class CustomerSegmentation(BaseMLModel):
         if df.empty:
             return {
                 "status": "error",
-                "message": "No customer data available",
+                "message": _("No customer data available"),
                 "segments": {}
             }
         
@@ -245,7 +243,7 @@ class CustomerSegmentation(BaseMLModel):
             for c in customers:
                 if c['customer'] == customer:
                     return {"status": "success", "customer": c}
-            return {"status": "error", "message": "Customer not found"}
+            return {"status": "error", "message": _("Customer not found")}
         
         return cached
     

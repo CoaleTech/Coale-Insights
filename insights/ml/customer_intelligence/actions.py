@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -8,10 +9,12 @@ product affinity, pareto analysis, and cohort analysis.
 """
 
 import frappe
-import numpy as np
-import pandas as pd
+from frappe import _
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 from insights.ml.territory_geo_mapper import map_territories_bulk
 
@@ -178,6 +181,7 @@ def pareto_analysis(intelligence, health_df: pd.DataFrame) -> Dict[str, Any]:
 
 def cohort_analysis(intelligence, customer_df: pd.DataFrame) -> Dict[str, Any]:
     """Customer retention cohort analysis"""
+    import pandas as pd
     df = customer_df[customer_df['invoice_id'].notna()].copy()
 
     if df.empty:
@@ -235,6 +239,7 @@ def cohort_analysis(intelligence, customer_df: pd.DataFrame) -> Dict[str, Any]:
 
 def get_next_best_actions(intelligence, health_df: pd.DataFrame) -> List[Dict[str, Any]]:
     """AI-driven next best action recommendations per customer"""
+    import pandas as pd
     actions = []
 
     for _, customer in health_df.iterrows():
@@ -331,16 +336,17 @@ def update_customer_scores(intelligence, health_df: pd.DataFrame) -> Dict[str, A
     UPDATE queries for large customer bases).
     """
     updated = 0
+    import pandas as pd
     errors = []
 
     if health_df.empty:
-        return {"status": "skipped", "message": "No data to update"}
+        return {"status": "skipped", "message": _("No data to update")}
 
     # Check if custom fields exist (only once, not per-row)
     if not frappe.db.exists("Custom Field", {"dt": "Customer", "fieldname": "custom_clv_tier"}):
         return {
             "status": "skipped",
-            "message": "Custom fields not installed. Run 'bench migrate' to create them."
+            "message": _("Custom fields not installed. Run 'bench migrate' to create them.")
         }
 
     # Process in batches of 500 to avoid overly large SQL statements

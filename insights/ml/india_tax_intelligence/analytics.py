@@ -1,15 +1,20 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
 """India Tax Intelligence — Analytics & Forecasting"""
 
-import numpy as np
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
 
 
 def get_tax_forecast(intelligence, start: str, end: str) -> Dict[str, Any]:
     """Forecast next 3 months GST liability using linear regression on monthly data."""
+    import numpy as np
     try:
         from sklearn.linear_model import LinearRegression
     except ImportError:

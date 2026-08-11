@@ -1,3 +1,9 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 # Copyright (c) 2022, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -5,7 +11,6 @@ import pathlib
 
 import chardet
 import frappe
-import pandas as pd
 from frappe.model.base_document import BaseDocument
 from frappe.website.page_renderers.template_page import TemplatePage
 
@@ -153,6 +158,7 @@ def anonymize_data(df, columns_to_anonymize, prefix_by_column=None):
     Returns:
         pandas.DataFrame: The DataFrame with the anonymized data.
     """
+    import pandas as pd
     for column in columns_to_anonymize:
         codes = pd.factorize(df[column])[0] + 1
         prefix = prefix_by_column[column] if prefix_by_column else column
@@ -162,6 +168,7 @@ def anonymize_data(df, columns_to_anonymize, prefix_by_column=None):
 
 
 def xls_to_df(file_path: str) -> list[pd.DataFrame]:
+    import pandas as pd
     file_extension = file_path.split(".")[-1].lower()
     if file_extension != "xlsx" or file_extension != "xls":
         frappe.throw(f"Unsupported file extension: {file_extension}")

@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -8,9 +9,12 @@ working capital analysis, and financial ratio trends.
 """
 
 import frappe
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, List
+from typing import Dict, Any, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
 
 from .data import format_currency
 
@@ -151,6 +155,7 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
     Auto-detect payroll schedule from historical Journal Entry and Payment Entry
     containing salary/payroll/wages keywords
     """
+    import numpy as np
     six_months_ago = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%d')
 
     # Search for payroll-related payments

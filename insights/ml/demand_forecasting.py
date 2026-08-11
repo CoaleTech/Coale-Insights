@@ -1,17 +1,13 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""
-Demand Forecasting Model
-Predicts future demand for items to optimize inventory
-"""
-
+from __future__ import annotations
 import frappe
-import pandas as pd
-import numpy as np
+from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from insights.ml.base import BaseMLModel
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 
 class DemandForecasting(BaseMLModel):
@@ -89,6 +85,8 @@ class DemandForecasting(BaseMLModel):
     
     def _aggregate_to_weekly(self, df: pd.DataFrame) -> pd.DataFrame:
         """Aggregate daily data to weekly"""
+        import pandas as pd
+
         df = df.copy()
         df['posting_date'] = pd.to_datetime(df['posting_date'])
         df['week'] = df['posting_date'].dt.to_period('W').dt.start_time
@@ -100,11 +98,11 @@ class DemandForecasting(BaseMLModel):
             'item_group': 'first',
             'stock_uom': 'first'
         }).reset_index()
-        
-        return weekly
-    
+
     def _calculate_demand_stats(self, item_df: pd.DataFrame) -> Dict[str, float]:
         """Calculate demand statistics for an item"""
+        import numpy as np
+
         if item_df.empty or len(item_df) < 2:
             return {
                 "avg_demand": 0,
@@ -138,7 +136,7 @@ class DemandForecasting(BaseMLModel):
                 second_half = qty[-weeks_per_pattern:]
                 correlation = np.corrcoef(first_half, second_half)[0, 1]
                 seasonality_strength = float(correlation) if not np.isnan(correlation) else 0
-            except:
+            except Exception:
                 pass
         
         return {
@@ -198,9 +196,11 @@ class DemandForecasting(BaseMLModel):
             }
         except Exception as e:
             return None
-    
+
     def _forecast_weighted_average(self, qty: np.ndarray, periods: int) -> Dict[str, Any]:
         """Weighted moving average forecast"""
+        import numpy as np
+
         # More weight to recent data
         if len(qty) >= 4:
             weights = [0.1, 0.2, 0.3, 0.4]
@@ -233,6 +233,8 @@ class DemandForecasting(BaseMLModel):
         service_level: float = 0.95
     ) -> Dict[str, float]:
         """Calculate reorder point and safety stock"""
+        import numpy as np
+
         # Z-score for service level
         z_scores = {0.90: 1.28, 0.95: 1.65, 0.99: 2.33}
         z = z_scores.get(service_level, 1.65)
@@ -261,7 +263,7 @@ class DemandForecasting(BaseMLModel):
         if demand_df.empty:
             return {
                 "status": "error",
-                "message": "No demand history found"
+                "message": _("No demand history found")
             }
         
         # Get stock levels and lead times

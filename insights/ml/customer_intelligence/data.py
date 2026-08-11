@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -6,7 +7,9 @@ Customer Intelligence - Data Collection
 All database query methods for gathering customer transaction data.
 """
 
-import pandas as pd
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def get_customer_transactions(intelligence) -> pd.DataFrame:

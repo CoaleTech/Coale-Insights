@@ -1,18 +1,20 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
 """
 Sales Intelligence Analytics
-Comprehensive sales analytics including revenue metrics, payment mix, rep performance, 
+Comprehensive sales analytics including revenue metrics, payment mix, rep performance,
 dimensional analysis, and margin tracking
 """
 
 import frappe
 from frappe import _
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 from collections import defaultdict
 from insights.api.ml import get_date_filter_sql
 from insights.ml.base import BaseMLModel
@@ -191,6 +193,7 @@ class SalesIntelligence(BaseMLModel):
     
     def calculate_revenue_metrics(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
         """Calculate comprehensive revenue metrics"""
+        import pandas as pd
         if sales_df.empty:
             return self._empty_revenue_metrics()
         
@@ -271,12 +274,12 @@ class SalesIntelligence(BaseMLModel):
         }
     
     # ==================== PAYMENT MIX ANALYSIS ====================
-    
     def calculate_payment_mix(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
         """Analyze cash vs credit payment ratios"""
+        import pandas as pd
         if sales_df.empty:
             return {'cash_ratio': 0, 'credit_ratio': 0, 'daily_mix': [], 'monthly_mix': []}
-        
+
         revenue_df = sales_df[sales_df['is_return'] == 0].copy()
         revenue_df['sale_date'] = pd.to_datetime(revenue_df['sale_date'])
         
@@ -331,6 +334,7 @@ class SalesIntelligence(BaseMLModel):
     
     def analyze_sales_reps(self, sales_team_df: pd.DataFrame, quotation_df: pd.DataFrame) -> Dict[str, Any]:
         """Analyze individual sales rep performance"""
+        import pandas as pd
         if sales_team_df.empty:
             return {'reps': [], 'top_performer': None, 'total_reps': 0}
         
@@ -404,6 +408,7 @@ class SalesIntelligence(BaseMLModel):
     
     def calculate_comparisons(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
         """Calculate month-over-month and year-over-year comparisons"""
+        import pandas as pd
         if sales_df.empty:
             return self._empty_comparisons()
         
@@ -689,6 +694,7 @@ class SalesIntelligence(BaseMLModel):
     
     def analyze_fulfillment(self, orders_df: pd.DataFrame, sales_df: pd.DataFrame) -> Dict[str, Any]:
         """Order fulfillment and DSO analysis"""
+        import pandas as pd
         result = {
             'fulfillment_rate': 0,
             'backlog_value': 0,
@@ -856,7 +862,7 @@ class SalesIntelligence(BaseMLModel):
         orders_df = self._get_sales_orders()
         
         if sales_df.empty:
-            return {"status": "error", "message": "No sales data found"}
+            return {"status": "error", "message": _("No sales data found")}
         
         # Run all analytics
         revenue_metrics = self.calculate_revenue_metrics(sales_df)
@@ -888,6 +894,8 @@ class SalesIntelligence(BaseMLModel):
         
         # Clean results for JSON
         def clean_for_json(obj):
+            import pandas as pd
+            import numpy as np
             if isinstance(obj, dict):
                 return {k: clean_for_json(v) for k, v in obj.items()}
             elif isinstance(obj, list):

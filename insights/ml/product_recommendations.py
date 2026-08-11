@@ -1,18 +1,14 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""
-Product Recommendations Engine
-Generates product recommendations using association rules and collaborative filtering
-"""
-
+from __future__ import annotations
 import frappe
-import pandas as pd
-import numpy as np
+from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, Set
+from typing import TYPE_CHECKING, Dict, Any, List, Optional, Set
 from collections import defaultdict
 from insights.ml.base import BaseMLModel
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 
 class ProductRecommendations(BaseMLModel):
@@ -189,6 +185,8 @@ class ProductRecommendations(BaseMLModel):
     
     def _build_item_similarity_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
         """Build item-item similarity matrix using cosine similarity"""
+        import pandas as pd
+
         # Create customer-item matrix
         customer_item = df.pivot_table(
             index='customer',
@@ -213,13 +211,15 @@ class ProductRecommendations(BaseMLModel):
     
     def train(self, min_support: float = 0.01, min_confidence: float = 0.3) -> Dict[str, Any]:
         """Train recommendation models"""
+        import numpy as np
+
         # Get data
         txn_df = self._get_transaction_data()
         
         if txn_df.empty:
             return {
                 "status": "error",
-                "message": "No transaction data found"
+                "message": _("No transaction data found")
             }
         
         # Build transaction sets
@@ -228,7 +228,7 @@ class ProductRecommendations(BaseMLModel):
         if len(transactions) < 10:
             return {
                 "status": "error",
-                "message": "Insufficient transactions for analysis (need at least 10)"
+                "message": _("Insufficient transactions for analysis (need at least 10)")
             }
         
         # Find frequent itemsets
@@ -307,7 +307,7 @@ class ProductRecommendations(BaseMLModel):
             item_code = data.get('item_code')
             top_n = data.get('top_n', 5)
         else:
-            return {"status": "error", "message": "Invalid input - expected dict with customer_id or item_code"}
+            return {"status": "error", "message": _("Invalid input - expected dict with customer_id or item_code")}
         
         # Load cached rules if not in memory
         if not self.association_rules:
@@ -321,7 +321,7 @@ class ProductRecommendations(BaseMLModel):
         elif item_code:
             return self.get_recommendations_for_item(item_code, top_n)
         else:
-            return {"status": "error", "message": "Provide customer_id or item_code"}
+            return {"status": "error", "message": _("Provide customer_id or item_code")}
     
     def _get_customer_recommendations(self, customer_id: str, top_n: int = 5) -> Dict[str, Any]:
         """Get recommendations for a customer based on their purchase history"""
@@ -336,7 +336,7 @@ class ProductRecommendations(BaseMLModel):
         purchased_set = {item['item_code'] for item in purchased}
         
         if not purchased_set:
-            return {"status": "success", "recommendations": [], "message": "No purchase history found"}
+            return {"status": "success", "recommendations": [], "message": _("No purchase history found")}
         
         recommendations = []
         seen = set()
@@ -476,7 +476,7 @@ class ProductRecommendations(BaseMLModel):
         if purchased_df.empty:
             return {
                 "status": "success",
-                "message": "No purchase history for customer",
+                "message": _("No purchase history for customer"),
                 "recommendations": []
             }
         

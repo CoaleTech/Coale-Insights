@@ -1,24 +1,13 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""
-Procurement Intelligence Model
-Comprehensive procurement analytics with ML-powered insights for:
-- Spend analysis and optimization
-- Supplier performance scoring
-- Purchase cycle analytics
-- Price intelligence and savings
-- Risk assessment
-- Procurement forecasting
-"""
-
+from __future__ import annotations
 import frappe
 from frappe import _
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from insights.ml.base import BaseMLModel
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 
 class ProcurementIntelligence(BaseMLModel):
@@ -649,6 +638,8 @@ class ProcurementIntelligence(BaseMLModel):
     
     def _generate_procurement_forecast(self) -> Dict[str, Any]:
         """Generate procurement spend forecasts"""
+        import pandas as pd
+
         # Historical monthly spend for forecasting
         historical = frappe.db.sql("""
             SELECT 
@@ -664,7 +655,7 @@ class ProcurementIntelligence(BaseMLModel):
         if len(historical) < 6:
             return {
                 "status": "insufficient_data",
-                "message": "Need at least 6 months of data for forecasting",
+                "message": _("Need at least 6 months of data for forecasting"),
                 "historical": [dict(h) for h in historical] if historical else []
             }
         

@@ -1,27 +1,15 @@
-# Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""Unsupervised anomaly detection over the general ledger.
-
-78,104 GL entries is the largest table on this site and the only one where an
-unsupervised method is clearly the right shape: there are no labels for "this
-posting was a mistake", but mistakes are rare and look unlike their neighbours,
-which is exactly what an isolation forest finds.
-
-Deliberately framed as *review candidates*, never as "fraud". An isolation
-forest ranks how unusual a row is; whether unusual is wrong is a human call, and
-a legitimate year-end adjustment is unusual by design. The output is a queue to
-look at, ordered by strangeness.
-"""
-
+from __future__ import annotations
 from datetime import datetime
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict
 
-import pandas as pd
 import frappe
 from frappe import _
 
 from insights.ml.base import BaseMLModel
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 # An isolation forest needs enough rows for "unusual" to mean anything.
 MIN_ENTRIES = 500
@@ -72,6 +60,7 @@ class GLAnomalyDetection(BaseMLModel):
         a posting to an account used twice all year is interesting; the account's
         identity is not.
         """
+        import pandas as pd
         import numpy as np
 
         amount = (df["debit"].astype(float) - df["credit"].astype(float))

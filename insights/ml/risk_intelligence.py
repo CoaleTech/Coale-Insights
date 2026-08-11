@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -12,10 +13,14 @@ Comprehensive risk assessment with ML-powered insights for:
 """
 
 import frappe
-import pandas as pd
-import numpy as np
+from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 from insights.ml.base import BaseMLModel
 
 
@@ -331,6 +336,7 @@ class RiskIntelligence(BaseMLModel):
     
     def _calculate_aggregate_compliance_risk(self) -> float:
         """Calculate overall compliance risk score (0-100)"""
+        import numpy as np
         risk_factors = []
         
         # Document completeness
@@ -408,6 +414,7 @@ class RiskIntelligence(BaseMLModel):
     
     def _analyze_credit_risk(self) -> Dict[str, Any]:
         """Analyze customer credit risk and payment behavior"""
+        import numpy as np
         # Customer risk scoring
         customer_scores = frappe.db.sql("""
             SELECT 
@@ -808,7 +815,7 @@ class RiskIntelligence(BaseMLModel):
             """, self.company, as_dict=True)
             
             if len(cash_data) < 7:
-                return {"status": "insufficient_data", "message": "Need at least 7 days of cash flow data"}
+                return {"status": "insufficient_data", "message": _("Need at least 7 days of cash flow data")}
             
             # Convert to plain Python types
             values = [float(d['y']) if d['y'] else 0.0 for d in cash_data]
@@ -868,7 +875,7 @@ class RiskIntelligence(BaseMLModel):
             """, self.company, as_dict=True)
             
             if len(revenue_data) < 7:
-                return {"status": "insufficient_data", "message": "Need at least 7 days of revenue data"}
+                return {"status": "insufficient_data", "message": _("Need at least 7 days of revenue data")}
             
             # Convert to plain Python types
             values = [float(d['y']) if d['y'] else 0.0 for d in revenue_data]
@@ -912,6 +919,7 @@ class RiskIntelligence(BaseMLModel):
     
     def _predict_payment_delays(self) -> Dict[str, Any]:
         """Predict payment delay risks"""
+        import numpy as np
         # Simple statistical model for payment delay prediction
         payment_history = frappe.db.sql("""
             SELECT 
@@ -946,6 +954,7 @@ class RiskIntelligence(BaseMLModel):
     
     def _detect_anomalies(self) -> List[Dict[str, Any]]:
         """Detect anomalies in financial and operational data"""
+        import numpy as np
         anomalies = []
         
         # Revenue anomalies

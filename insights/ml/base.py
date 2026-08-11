@@ -1,21 +1,16 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""
-Base ML Engine for Frappe Insights
-Provides common utilities and base classes for ML models
-"""
-
+from __future__ import annotations
 import frappe
 import importlib
 import json
 import os
 import re
 import tempfile
-import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Any, Optional, Tuple
 from abc import ABC, abstractmethod
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 # Kept importable from here: every ML module already reaches for
@@ -49,14 +44,9 @@ class BaseMLModel(ABC):
         `params` binds values the Frappe way. Without it callers reach for
         f-strings or `%`-formatting to get a value into the query, which is the
         `frappe-sql-format-injection` shape the standards forbid.
-
-        `frappe.db.sql` defaults `values` to the `EmptyQueryValues` sentinel, not
-        to None. Passing None explicitly is not the same thing: it switches
-        parameter interpolation on, and every existing query containing a literal
-        `%` -- `DATE_FORMAT(posting_date, '%Y-%m')` appears throughout this
-        layer -- then fails with "not all arguments converted during bytes
-        formatting". So omit the argument entirely when there is nothing to bind.
         """
+        import pandas as pd
+
         result = (
             frappe.db.sql(query, params, as_dict=True)
             if params is not None

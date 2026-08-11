@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -12,10 +13,13 @@ Comprehensive inventory analytics with ML-powered insights for:
 """
 
 import frappe
-import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 from insights.ml.base import BaseMLModel
 from insights.api.ml import get_date_filter_sql
 

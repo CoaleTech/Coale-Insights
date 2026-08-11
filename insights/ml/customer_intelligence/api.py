@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -7,8 +8,12 @@ All standalone whitelisted wrapper functions for the customer intelligence modul
 """
 
 import frappe
-import pandas as pd
-from typing import Dict, Any, List
+from frappe import _
+from typing import Dict, Any, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+
 
 
 def run_customer_intelligence(update_customers: bool = True, async_mode: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
@@ -89,7 +94,7 @@ def get_customer_intelligence_status(date_filter: str = '12m') -> Dict[str, Any]
     result = frappe.cache.get_value(f"customer_intelligence_job_result_{date_filter}")
     if result:
         return result
-    return {"status": "not_found", "message": "No recent job found"}
+    return {"status": "not_found", "message": _("No recent job found")}
 
 
 def get_customer_360_detail(customer_id: str, include_purchases: bool = True, include_recommendations: bool = True) -> Dict[str, Any]:
@@ -242,6 +247,7 @@ def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
 
 def _analyze_customer_purchase_patterns(purchase_history: List[Dict[str, Any]]) -> Dict[str, Any]:
     """Analyze purchase patterns from history"""
+    import pandas as pd
     if not purchase_history or len(purchase_history) < 2:
         return None
 
@@ -579,6 +585,7 @@ def get_purchase_patterns(top_percentile: int = 20, tier_filter: str = None) -> 
     Get purchase patterns for top customers by CLV
     Analyzes day-of-week, monthly, and seasonal patterns
     """
+    import pandas as pd
     result = get_customer_intelligence()
 
     if result.get('status') != 'success':
@@ -586,7 +593,7 @@ def get_purchase_patterns(top_percentile: int = 20, tier_filter: str = None) -> 
 
     customers = result.get('customers', [])
     if not customers:
-        return {"status": "error", "message": "No customer data available"}
+        return {"status": "error", "message": _("No customer data available")}
 
     # Filter customers by tier or top percentile by CLV
     if tier_filter:
@@ -623,7 +630,7 @@ def get_purchase_patterns(top_percentile: int = 20, tier_filter: str = None) -> 
         transactions = frappe.db.sql(query, tuple(top_customer_ids), as_dict=True)
 
         if not transactions:
-            return {"status": "success", "message": "No transaction data", "patterns": None}
+            return {"status": "success", "message": _("No transaction data"), "patterns": None}
 
         # Plain dicts, not frappe._dict, or pandas raises
         # "invalid __array_struct__" under numpy 2.4 and this whole tab renders
@@ -715,7 +722,7 @@ def get_cross_sell_opportunities(tier_filter: str = "Diamond,Platinum,Gold") -> 
     customers = [c for c in result.get('customers', []) if c.get('clv_tier') in tiers]
 
     if not customers:
-        return {"status": "success", "message": "No customers in specified tiers", "opportunities": []}
+        return {"status": "success", "message": _("No customers in specified tiers"), "opportunities": []}
 
     # Get cross-sell for each customer
     opportunities = []

@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Marketing Intelligence Module
 
@@ -9,9 +10,12 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate, add_months, add_days, flt, cint, date_diff
 from datetime import datetime, date, timedelta
-import pandas as pd
-import numpy as np
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -207,7 +211,7 @@ class MarketingIntelligence:
             opportunities = marketing_data.get("opportunities", [])
             
             if not opportunities:
-                return {"message": "No opportunities data available"}
+                return {"message": _("No opportunities data available")}
             
             total_opportunities = len(opportunities)
             total_pipeline_value = sum(opp.get("opportunity_amount", 0) for opp in opportunities)
@@ -262,7 +266,7 @@ class MarketingIntelligence:
             leads = marketing_data.get("leads", [])
             
             if not leads:
-                return {"message": "No leads data available"}
+                return {"message": _("No leads data available")}
             
             total_leads = len(leads)
             
@@ -462,7 +466,7 @@ class MarketingIntelligence:
             opportunities = marketing_data.get("opportunities", [])
             
             if not leads:
-                return {"message": "No leads data for quality scoring"}
+                return {"message": _("No leads data for quality scoring")}
             
             # Create lead quality scoring
             quality_scores = []
@@ -537,7 +541,7 @@ class MarketingIntelligence:
             campaigns = marketing_data.get("campaigns", [])
             
             if not customers:
-                return {"message": "No customer acquisition data available"}
+                return {"message": _("No customer acquisition data available")}
             
             total_customers = len(customers)
             
@@ -684,7 +688,7 @@ class MarketingIntelligence:
             opportunities = marketing_data.get("opportunities", [])
             
             if not opportunities:
-                return {"message": "Insufficient data for pipeline forecasting"}
+                return {"message": _("Insufficient data for pipeline forecasting")}
             
             # Current pipeline analysis
             total_pipeline = sum(opp.get("opportunity_amount", 0) for opp in opportunities)
@@ -730,7 +734,7 @@ class MarketingIntelligence:
             leads = marketing_data.get("leads", [])
             
             if not leads:
-                return {"message": "No leads available for scoring"}
+                return {"message": _("No leads available for scoring")}
             
             # Scoring model
             scoring_model = {

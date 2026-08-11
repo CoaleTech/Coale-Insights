@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -7,13 +8,17 @@ All _get_*() methods, _format_currency(), and sanitize_for_json().
 """
 
 import frappe
-import numpy as np
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
 
 
 def sanitize_for_json(obj):
     """Convert numpy types to native Python types for JSON serialization"""
+    import numpy as np
     if isinstance(obj, dict):
         return {k: sanitize_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, list):

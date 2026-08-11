@@ -1,3 +1,10 @@
+from __future__ import annotations
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
+
 import ast
 import time
 from datetime import date
@@ -5,8 +12,6 @@ from datetime import date
 import frappe
 from frappe import _
 import ibis
-import numpy as np
-import pandas as pd
 import sqlglot as sg
 import sqlparse
 from frappe.utils.data import flt
@@ -506,6 +511,7 @@ class IbisQueryBuilder:
         return cte_sql + raw_sql
 
     def apply_sql(self, sql_args):
+        import pandas as pd
         data_source = sql_args.data_source
         raw_sql = sql_args.raw_sql
 
@@ -695,6 +701,8 @@ def execute_ibis_query(
     reference_doctype=None,
     reference_name=None,
 ):
+    import pandas as pd
+    import numpy as np
     try:
         sql = ibis.to_sql(query)
     except ibis.common.exceptions.OperationNotDefinedError:
@@ -781,6 +789,8 @@ def cache_results(cache_key, result: pd.DataFrame, cache_expiry=3600):
 
 
 def get_cached_results(cache_key) -> pd.DataFrame:
+    import pandas as pd
+    import numpy as np
     cache_key = "insights:query_results:" + cache_key
     data = frappe.cache().get_value(cache_key)
     if not data:
@@ -858,6 +868,7 @@ class SafePandasDataFrame(pd.DataFrame):
 
 
 def get_code_results(code: str, variables=None):
+    import pandas as pd
     pandas = frappe._dict()
     pandas.DataFrame = SafePandasDataFrame
     pandas.read_csv = pd.read_csv

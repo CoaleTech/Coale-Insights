@@ -1,3 +1,4 @@
+from __future__ import annotations
 """
 Executive Intelligence Module
 
@@ -9,8 +10,11 @@ import frappe
 from frappe import _
 from frappe.utils import nowdate, add_months, add_days, flt, cstr
 from datetime import datetime, date, timedelta
-import numpy as np
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
 import logging
 from insights.utils import guarded_task
 
@@ -934,6 +938,7 @@ class ExecutiveIntelligence:
 
     def _calculate_business_health_score(self, kpis: Dict[str, Any]) -> Dict[str, Any]:
         """Calculate overall business health score from departmental KPIs"""
+        import numpy as np
         try:
             total_score = 0
             total_weight = 0

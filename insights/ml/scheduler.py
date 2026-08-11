@@ -347,7 +347,7 @@ def _send_reorder_alert(forecast_result: dict):
                     subject=f"Inventory Reorder Alert: {len(reorder_items)} items need attention",
                     message=message
                 )
-            except:
+            except Exception:
                 pass
                 
     except Exception as e:
@@ -543,7 +543,7 @@ def _send_churn_risk_alert(intelligence_result: dict):
                     subject=f"Customer Churn Alert: {len(critical)} Critical, {len(high)} High Risk",
                     message=message
                 )
-            except:
+            except Exception:
                 pass
                 
     except Exception as e:

@@ -1,19 +1,13 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
-# For license information, please see license.txt
-
-"""
-ABC/XYZ Inventory Classification
-- ABC: Classification by value (Pareto 80/20)
-- XYZ: Classification by demand variability
-- Combined matrix for inventory management strategy
-"""
-
+from __future__ import annotations
 import frappe
-import pandas as pd
-import numpy as np
+from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import TYPE_CHECKING, Dict, Any, List, Optional
 from insights.ml.base import BaseMLModel, get_date_range
+
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 
 class ABCXYZClassification(BaseMLModel):
@@ -162,7 +156,7 @@ class ABCXYZClassification(BaseMLModel):
         if df.empty:
             return {
                 "status": "error",
-                "message": "No sales data available",
+                "message": _("No sales data available"),
                 "classifications": []
             }
         
@@ -298,7 +292,7 @@ class ABCXYZClassification(BaseMLModel):
             for item in items:
                 if item['item_code'] == item_code:
                     return {"status": "success", "item": item}
-            return {"status": "error", "message": "Item not found"}
+            return {"status": "error", "message": _("Item not found")}
         
         return cached
     

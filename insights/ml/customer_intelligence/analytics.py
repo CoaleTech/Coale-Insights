@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -6,10 +7,11 @@ Customer Intelligence - Analytics
 CLV calculation, RFM segmentation, churn risk prediction, and health scoring.
 """
 
-import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, Any
+from typing import Dict, Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    import pandas as pd
+    import numpy as np
 
 
 def calculate_clv(intelligence, customer_df: pd.DataFrame) -> pd.DataFrame:
@@ -21,6 +23,8 @@ def calculate_clv(intelligence, customer_df: pd.DataFrame) -> pd.DataFrame:
     - Predictive CLV: Based on purchase patterns (BG/NBD simplified)
     - CLV Tier: Bronze/Silver/Gold/Platinum/Diamond
     """
+    import pandas as pd
+    import numpy as np
     # Calculate overdue count per customer before aggregation
     if 'payment_status' in customer_df.columns:
         overdue_df = customer_df[customer_df['payment_status'] == 'Overdue'].groupby('customer_id').size().reset_index(name='overdue_count')
@@ -177,6 +181,7 @@ def _calculate_rfm_segment(df: pd.DataFrame) -> pd.DataFrame:
     - Hibernating: Low activity all around
     - Lost: Haven't purchased in a long time
     """
+    import pandas as pd
     if df.empty:
         return df
 
@@ -273,6 +278,8 @@ def calculate_churn_risk(intelligence, customer_df: pd.DataFrame, clv_df: pd.Dat
     - Outstanding receivables
     - Recency vs. typical purchase cycle
     """
+    import pandas as pd
+    import numpy as np
     churn_data = clv_df.copy()
 
     # Get recent vs. historical patterns per customer
@@ -389,6 +396,8 @@ def calculate_health_score(intelligence, churn_df: pd.DataFrame, payment_df: pd.
     - Relationship longevity (20%)
     - Growth potential (20%)
     """
+    import pandas as pd
+    import numpy as np
     health_data = churn_df.copy()
 
     # Payment behavior scores

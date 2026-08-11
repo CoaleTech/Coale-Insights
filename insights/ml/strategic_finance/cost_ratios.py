@@ -1,3 +1,4 @@
+from __future__ import annotations
 # Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
@@ -17,10 +18,14 @@ matching the convention in `summary.py`'s gross margin calculation.
 """
 
 import frappe
-import numpy as np
+from frappe import _
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import numpy as np
+
 
 
 # ─── Account category matching ─────────────────────────────────────────────
@@ -361,6 +366,7 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
     actuals. Returns `status: "insufficient_data"` rather than fabricating a
     trend from fewer than 3 complete months — the current, still-open month
     is always excluded so a partial month never drags the trend down."""
+    import numpy as np
     company = intelligence.company
 
     rows = frappe.db.sql(
@@ -387,7 +393,7 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
     if len(history) < 3:
         return {
             "status": "insufficient_data",
-            "message": "Need at least 3 complete months of expense history to forecast.",
+            "message": _("Need at least 3 complete months of expense history to forecast."),
             "history": history,
         }
 
