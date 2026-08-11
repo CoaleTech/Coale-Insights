@@ -3,57 +3,28 @@
 
 """
 ML Scheduler Tasks
-Automated training of ML models on scheduled intervals.
+Manual training of ML models via `bench execute`.
 
-Design: standard ``frappe.enqueue`` via ``hooks.py`` ``scheduler_events``.
-Each trainer function is decorated with ``@_single_threaded`` which pins
-BLAS/OpenMP to one thread inside the RQ work-horse *after* fork — the only
-defence needed now that all heavy imports (pandas, numpy, sklearn) are lazy
-(never loaded at module level, so the RQ worker parent is fork-safe).
+Design: every trainer function is invoked directly from the foreground
+process (e.g. `bench execute insights.ml.scheduler.run_all_ml_models`).
+These functions are NO LONGER registered in `hooks.py` `scheduler_events`
+— automated training has been replaced by the per-request `compute_or_cache`
+pattern in `insights.api.ml.utils`. The functions in this module remain
+useful for one-off manual runs, cache warming, and operational tooling.
 """
 
 import frappe
-import functools
-
-
-def _single_threaded(fn):
-    """Pin BLAS/OpenMP to one thread inside the forked work-horse.
-
-    On Linux (Frappe Cloud), OpenBLAS creates a pthread pool at ``import
-    numpy`` time.  Setting the env vars **before** the first numpy import
-    in the child ensures a single-threaded pool that cannot deadlock after
-    ``os.fork()``.  All heavy imports in this app are lazy (inside function
-    bodies, never at module level), so the RQ worker parent never loads
-    numpy — making the fork safe.  This decorator is belt-and-suspenders.
-    """
-    @functools.wraps(fn)
-    def wrapper(*args, **kwargs):
-        import os
-
-        for var in (
-            "OMP_NUM_THREADS",
-            "OPENBLAS_NUM_THREADS",
-            "MKL_NUM_THREADS",
-            "VECLIB_MAXIMUM_THREADS",
-            "NUMEXPR_NUM_THREADS",
-        ):
-            os.environ[var] = "1"
-
-        return fn(*args, **kwargs)
-
-    return wrapper
 
 
 # ── Individual model trainers ──────────────────────────────────────────────
 # Each follows the same pattern:
-#   1. @_single_threaded — env-var defence
-#   2. Lazy import of the model class (inside the function body)
-#   3. model.train() → fills BaseMLModel cache (Redis + disk snapshot)
-#   4. frappe.log_error on failure (standard Frappe error logging)
-#   5. Return dict with status key
+#   1. Lazy import of the model class (inside the function body)
+#   2. model.train() → fills BaseMLModel cache (Redis + disk snapshot)
+#   3. frappe.log_error on failure (standard Frappe error logging)
+#   4. Return dict with status key
 
 
-@_single_threaded
+
 def train_customer_segmentation():
     """Daily: Train customer segmentation model"""
     try:
@@ -78,7 +49,6 @@ def train_customer_segmentation():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_sales_forecast():
     """Daily: Train sales forecasting model"""
     try:
@@ -100,7 +70,6 @@ def train_sales_forecast():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_payment_prediction():
     """Daily: Train payment prediction model"""
     try:
@@ -123,7 +92,6 @@ def train_payment_prediction():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_abc_xyz_classification():
     """Daily: Train ABC/XYZ inventory classification"""
     try:
@@ -146,7 +114,6 @@ def train_abc_xyz_classification():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_demand_forecast():
     """Daily: Train demand forecasting model"""
     try:
@@ -172,7 +139,6 @@ def train_demand_forecast():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_product_recommendations():
     """Daily: Train product recommendation model"""
     try:
@@ -289,13 +255,11 @@ def _send_churn_risk_alert(intelligence_result: dict):
 # ── Composite trainers ─────────────────────────────────────────────────────
 
 
-@_single_threaded
 def run_daily_intelligence():
     """Single daily job: trains all daily models and warms executive cache.
 
-    Called via hooks.py scheduler_events["daily"]. Uses standard
-    frappe.enqueue → RQ worker. Each sub-trainer is independent: one
-    failure must not deny the rest.
+    Manually invoked via `bench execute insights.ml.scheduler.run_daily_intelligence`.
+    Each sub-trainer is independent: one failure must not deny the rest.
     """
     results = {}
 
@@ -330,12 +294,11 @@ def run_daily_intelligence():
     return results
 
 
-@_single_threaded
 def warm_dashboard_caches():
     """Train every model the dashboards read, in this process.
 
     Entry point for ``bench --site <site> execute
-    insights.ml.scheduler.warm_dashboard_caches`` and the migrate hook.
+    insights.ml.scheduler.warm_dashboard_caches``.
     """
     warmed = []
     for name, fn in (
@@ -363,7 +326,6 @@ def warm_dashboard_caches():
     return warmed
 
 
-@_single_threaded
 def run_all_ml_models():
     """Run all ML models — can be triggered manually via bench execute."""
     results = {}
@@ -381,10 +343,9 @@ def run_all_ml_models():
     return results
 
 
-# ── Intelligence trainers (larger models) ──────────────────────────────────
+    # ── Intelligence trainers (larger models) ──────────────────────────────────
 
 
-@_single_threaded
 def train_customer_intelligence():
     """Daily: Train comprehensive customer intelligence model"""
     try:
@@ -416,7 +377,6 @@ def train_customer_intelligence():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_sales_intelligence():
     """Daily: Train comprehensive sales intelligence model"""
     try:
@@ -447,7 +407,6 @@ def train_sales_intelligence():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_procurement_intelligence():
     """Daily: Train procurement intelligence model."""
     try:
@@ -471,7 +430,6 @@ def train_procurement_intelligence():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_breakeven_engine():
     """Weekly: Train break-even engine and warm caches."""
     try:
@@ -501,7 +459,6 @@ def train_breakeven_engine():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_india_tax_intelligence():
     """Daily: Train India tax intelligence and warm caches."""
     try:
@@ -529,7 +486,6 @@ def train_india_tax_intelligence():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_lead_conversion():
     """Daily: fit the lead → win classifier on closed leads and score open ones."""
     try:
@@ -544,7 +500,6 @@ def train_lead_conversion():
         return {"status": "error", "message": str(e)}
 
 
-@_single_threaded
 def train_gl_anomaly():
     """Daily: rank ledger entries by how unlike the rest of the ledger they are."""
     try:

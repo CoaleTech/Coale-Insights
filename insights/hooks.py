@@ -164,37 +164,16 @@ scheduler_events = {
         "insights.api.data_store.sync_tables",
         "insights.analytics.ml_engine.refresh_all_dashboards",
         "insights.analytics.ml_engine.reset_ai_quota",
-        # Single daily intelligence job: trains all models + warms executive cache
-        "insights.ml.scheduler.run_daily_intelligence",
         # Executive Reports - Daily
         "insights.reports.executive_reports.generate_daily_executive_report",
-        # India Tax Intelligence - Daily refresh
-        "insights.ml.scheduler.train_india_tax_intelligence",
-        # Lead → win classifier and the ledger anomaly scan. Both fit a model,
-        # so both belong on a worker and nowhere else.
-        "insights.ml.scheduler.train_lead_conversion",
-        "insights.ml.scheduler.train_gl_anomaly",
     ],
     "hourly": [
         "insights.api.data_store.update_failed_sync_status",
-        # AI Insight Alert threshold checks (TODO: implement)
     ],
     "weekly": [
-        # ML Model Training - Weekly (resource intensive)
-        "insights.ml.scheduler.train_abc_xyz_classification",
-        "insights.ml.scheduler.train_demand_forecast",
-        "insights.ml.scheduler.train_product_recommendations",
         # Executive Reports - Weekly
         "insights.reports.executive_reports.generate_weekly_executive_report",
     ],
-    "cron": {
-        "0 2 * * 1": [
-            "insights.ml.scheduler.train_breakeven_engine"
-        ],
-        "0 3 * * *": [
-            "insights.ml.scheduler.train_india_tax_intelligence"
-        ]
-    },
     "monthly": [
         # Executive Reports - Monthly
         "insights.reports.executive_reports.generate_monthly_executive_report",

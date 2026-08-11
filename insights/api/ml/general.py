@@ -29,20 +29,84 @@ def get_ml_status() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def run_all_models() -> Dict[str, Any]:
-    """Train every ML model, on a worker.
+    """Train every ML model, inline.
 
     Ran `run_all_ml_models()` inline: eight models fitted while the browser held
-    the connection. Guaranteed to outlive any gateway read timeout.
+    the connection. `compute_or_cache` short-circuits any model whose cache is
+    already warm, so the second call typically returns in under a second.
     """
     try:
         frappe.has_permission("Sales Invoice", "write", throw=True)
-        from insights.api.ml.utils import enqueue_training
+        from insights.api.ml.utils import compute_or_cache
+        from insights.ml.customer_intelligence import CustomerIntelligence
+        from insights.ml.sales_forecasting import SalesForecasting
+        from insights.ml.payment_prediction import PaymentPrediction
+        from insights.ml.abc_xyz_classification import ABCXYZClassification
+        from insights.ml.demand_forecasting import DemandForecasting
+        from insights.ml.product_recommendations import ProductRecommendations
+        from insights.ml.customer_segmentation import CustomerSegmentation
+        from insights.ml.procurement_intelligence import ProcurementIntelligence
 
-        return enqueue_training(
-            "insights.ml.scheduler.run_all_ml_models",
-            job_id="insights_train_all_models",
-            label=_("All ML models"),
-        )
+        jobs = [
+            (
+                "customer_segmentation",
+                "insights:customer_segmentation",
+                lambda: CustomerSegmentation().train(),
+                _("Customer segmentation"),
+            ),
+            (
+                "sales_forecast",
+                "insights:sales_forecast",
+                lambda: SalesForecasting().train(),
+                _("Sales forecast"),
+            ),
+            (
+                "payment_prediction",
+                "insights:payment_prediction",
+                lambda: PaymentPrediction().train(),
+                _("Payment prediction"),
+            ),
+            (
+                "abc_xyz_classification",
+                "insights:abc_xyz_classification",
+                lambda: ABCXYZClassification().train(),
+                _("ABC/XYZ classification"),
+            ),
+            (
+                "demand_forecast",
+                "insights:demand_forecast",
+                lambda: DemandForecasting().train(),
+                _("Demand forecast"),
+            ),
+            (
+                "product_recommendations",
+                "insights:product_recommendations",
+                lambda: ProductRecommendations().train(),
+                _("Product recommendations"),
+            ),
+            (
+                "customer_intelligence",
+                "insights:customer_intelligence:12m",
+                lambda: CustomerIntelligence(date_filter="12m").train(update_customers=True),
+                _("Customer intelligence"),
+            ),
+            (
+                "procurement_intelligence",
+                "insights:procurement_intelligence:12m",
+                lambda: ProcurementIntelligence(date_filter="12m").train(),
+                _("Procurement intelligence"),
+            ),
+        ]
+
+        results = {}
+        for name, key, trainer, label in jobs:
+            frappe.cache().delete_value(key)  # type: ignore[union-attr]
+            results[name] = compute_or_cache(
+                trainer=trainer,
+                cache_key=key,
+                label=label,
+            )
+        return success(results)
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -51,22 +115,21 @@ def run_all_models() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def payment_risk_analysis(refresh: bool = False) -> Dict[str, Any]:
-    """Analyze payment risks. `refresh` retrains on a worker."""
+    """Analyze payment risks. `refresh` clears the cache and retrains inline."""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.api.ml.utils import compute_or_cache
         from insights.ml.payment_prediction import PaymentPrediction
 
+        cache_key = "insights:payment_prediction"
         if refresh:
-            from insights.api.ml.utils import enqueue_training
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-            return enqueue_training(
-                "insights.ml.scheduler.train_payment_prediction",
-                job_id="insights_train_payment_prediction",
-                label=_("Payment prediction"),
-            )
-
-        result = PaymentPrediction().predict()
-        return success(result)
+        return success(compute_or_cache(
+            trainer=lambda: PaymentPrediction().train(),
+            cache_key=cache_key,
+            label=_("Payment prediction"),
+        ))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -92,25 +155,27 @@ def get_high_risk_invoices() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def demand_forecast(periods: int = 4, top_items: int = 100, refresh: bool = False) -> Dict[str, Any]:
-    """Generate demand forecast. `refresh` retrains on a worker.
+    """Generate demand forecast. `refresh` clears the cache and retrains inline.
 
     Retraining fits Holt-Winters for up to `top_items` items -- 100 model fits,
     measured at 5.5s on a development dataset and unbounded on a real ledger.
+    The Redis cache + lock in `compute_or_cache` keep the second hit fast
+    and prevent concurrent training when multiple users open the dashboard.
     """
     try:
         frappe.has_permission("Item", "read", throw=True)
+        from insights.api.ml.utils import compute_or_cache
         from insights.ml.demand_forecasting import DemandForecasting
 
+        cache_key = "insights:demand_forecast"
         if refresh:
-            from insights.api.ml.utils import enqueue_training
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-            return enqueue_training(
-                "insights.ml.scheduler.train_demand_forecast",
-                job_id="insights_train_demand_forecast",
-                label=_("Demand forecast"),
-            )
-
-        return success(DemandForecasting().predict())
+        return success(compute_or_cache(
+            trainer=lambda: DemandForecasting().train(periods=periods, top_items=top_items),
+            cache_key=cache_key,
+            label=_("Demand forecast"),
+        ))
     except frappe.PermissionError:
         raise
     except Exception as e:

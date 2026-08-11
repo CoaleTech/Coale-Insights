@@ -261,20 +261,25 @@ def model_health() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def retrain(model: str) -> Dict[str, Any]:
-    """Queue one model's training run. Never fits in the request."""
+    """Retrain one model synchronously, computing on the request and caching 24h."""
     try:
         frappe.has_permission("Insights Settings", "write", throw=True)
         spec = next((item for item in MODELS if item["key"] == model), None)
         if not spec:
             frappe.throw(_("Unknown model: {0}").format(model))
 
-        from insights.api.ml.utils import enqueue_training
+        import importlib
+        from insights.api.ml.utils import compute_or_cache
 
-        return enqueue_training(
-            spec["trainer"],
-            job_id=f"insights_train_{spec['key']}",
+        module_path, _, attr = spec["trainer"].rpartition(".")
+        trainer_fn = getattr(importlib.import_module(module_path), attr)
+
+        cache_key = f"insights:retrain:{spec['key']}"
+        return success(compute_or_cache(
+            trainer=trainer_fn,
+            cache_key=cache_key,
             label=spec["label"],
-        )
+        ))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -286,16 +291,17 @@ def lead_conversion(refresh: bool = False) -> Dict[str, Any]:
     """Win probability for open leads, and historical win rate by source."""
     try:
         frappe.has_permission("Lead", "read", throw=True)
-        if refresh:
-            from insights.api.ml.utils import enqueue_training
-
-            return enqueue_training(
-                "insights.ml.scheduler.train_lead_conversion",
-                job_id="insights_train_lead_conversion",
-                label=_("Lead conversion"),
-            )
-
         from insights.ml.lead_conversion import LeadConversion
+        from insights.api.ml.utils import compute_or_cache
+
+        if refresh:
+            cache_key = "insights:lead_conversion"
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
+            return success(compute_or_cache(
+                trainer=lambda: LeadConversion().train(),
+                cache_key=cache_key,
+                label=_("Lead conversion"),
+            ))
 
         return success(LeadConversion().predict())
     except frappe.PermissionError:
@@ -309,16 +315,17 @@ def gl_anomalies(refresh: bool = False) -> Dict[str, Any]:
     """Ledger entries ranked by how unlike the rest of the ledger they are."""
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
-        if refresh:
-            from insights.api.ml.utils import enqueue_training
-
-            return enqueue_training(
-                "insights.ml.scheduler.train_gl_anomaly",
-                job_id="insights_train_gl_anomaly",
-                label=_("Ledger anomaly scan"),
-            )
-
         from insights.ml.gl_anomaly import GLAnomalyDetection
+        from insights.api.ml.utils import compute_or_cache
+
+        if refresh:
+            cache_key = "insights:gl_anomaly"
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
+            return success(compute_or_cache(
+                trainer=lambda: GLAnomalyDetection().train(),
+                cache_key=cache_key,
+                label=_("Ledger anomaly scan"),
+            ))
 
         return success(GLAnomalyDetection().predict())
     except frappe.PermissionError:

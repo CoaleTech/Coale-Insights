@@ -13,27 +13,27 @@ from insights.api.response import success, error
 
 @frappe.whitelist()
 def sales_forecast(periods: int = 30, refresh: bool = False) -> Dict[str, Any]:
-    """Get the cached sales forecast; `refresh` retrains on a worker.
+    """Get the cached sales forecast; `refresh` retrains inline.
 
     `SalesForecasting.train()` fits Holt-Winters over the full daily series --
-    14.1s on a development dataset. Never on the request path.
+    14.1s on a development dataset. The Redis cache + lock in
+    `compute_or_cache` keep the second hit at < 100 ms and prevent
+    concurrent training when multiple users open the dashboard at once.
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.api.ml.utils import compute_or_cache
         from insights.ml.sales_forecasting import SalesForecasting
 
-        if not refresh:
-            cached = SalesForecasting().get_cached_results("sales_forecast")
-            if cached:
-                return success(cached)
+        cache_key = "insights:sales_forecast"
+        if refresh:
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
 
-        from insights.api.ml.utils import enqueue_training
-
-        return enqueue_training(
-            "insights.ml.scheduler.train_sales_forecast",
-            job_id="insights_train_sales_forecast",
+        return success(compute_or_cache(
+            trainer=lambda: SalesForecasting().train(periods=periods),
+            cache_key=cache_key,
             label=_("Sales forecast"),
-        )
+        ))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -57,31 +57,20 @@ def get_forecast_chart_data() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive sales intelligence without training on the request.
-
-    A cold cache used to be healed inline with `predict(allow_train=True)`, but
-    the full analysis fits a Prophet model and up to 100 Holt-Winters models and
-    drags prophet, cmdstanpy and matplotlib into the gunicorn worker. On a
-    memory-capped host that pass outlives the gateway read timeout and reaches
-    the browser as a non-JSON 502.
-
-    `predict(allow_train=False)` now returns a warm cache hit, a stale on-disk
-    snapshot, or a `{"status": "warming"}` placeholder, and `serve_or_warm`
-    kicks the worker-side trainer for a cold cache or a forced refresh. The
-    scheduler also trains this nightly.
-    """
+    """Comprehensive sales intelligence — computed on request, cached 24h."""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import SalesIntelligence
-        from insights.api.ml.utils import serve_or_warm
+        from insights.api.ml.utils import compute_or_cache
 
-        model = SalesIntelligence(date_filter=date_filter)
-        return success(serve_or_warm(
-            model.predict(allow_train=False),
-            trainer="insights.ml.scheduler.train_sales_intelligence",
-            job_id="insights_train_sales_intelligence",
+        cache_key = f"insights:sales_intelligence:{date_filter}"
+        if refresh:
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
+
+        return success(compute_or_cache(
+            trainer=lambda: SalesIntelligence(date_filter=date_filter).train(refresh_forecasts=False),
+            cache_key=cache_key,
             label=_("Sales intelligence"),
-            force=refresh,
         ))
     except frappe.PermissionError:
         raise
@@ -171,20 +160,27 @@ def sales_comparisons() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
-    """Train forecasting models, on a worker.
+    """Train forecasting models, inline.
 
-    The dashboard's own button already warns this "may take several minutes",
-    which is precisely why it cannot run in the request that triggered it.
+    The dashboard's own button already warns this "may take several minutes";
+    `compute_or_cache` returns the cached result if warm, otherwise fits the
+    model in the request and caches it for the next call. `model_type` is
+    accepted for backward compatibility — only the sales forecast model is
+    trained from this endpoint today.
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.api.ml.utils import enqueue_training
+        from insights.api.ml.utils import compute_or_cache
+        from insights.ml.sales_forecasting import SalesForecasting
 
-        return enqueue_training(
-            "insights.ml.scheduler.train_sales_forecast",
-            job_id="insights_train_sales_forecast",
+        cache_key = "insights:sales_forecast"
+        frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
+
+        return success(compute_or_cache(
+            trainer=lambda: SalesForecasting().train(),
+            cache_key=cache_key,
             label=_("Sales forecast"),
-        )
+        ))
     except frappe.PermissionError:
         raise
     except Exception as e:

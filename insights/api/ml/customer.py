@@ -63,30 +63,20 @@ def get_segment_summary() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def customer_intelligence(refresh: bool = False, async_mode: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive customer intelligence without training on the request.
-
-    The heaviest dashboard payload in the app (~1.55 MB, 1,243 x 27-field rows).
-    A cold cache used to be healed inline with `predict(allow_train=True)`, but
-    that full analysis in the gunicorn worker outlives the gateway read timeout
-    on a cold cache and reaches the browser as a non-JSON 502. `async_mode` is
-    accepted for call-signature compatibility and ignored.
-
-    `predict(allow_train=False)` now returns a warm hit, a stale on-disk
-    snapshot, or a `{"status": "warming"}` placeholder, and `serve_or_warm`
-    kicks the worker-side trainer for a cold cache or a forced refresh.
-    """
+    """Comprehensive customer intelligence — computed on request, cached 24h."""
     try:
         frappe.has_permission("Customer", "read", throw=True)
         from insights.ml.customer_intelligence import CustomerIntelligence
-        from insights.api.ml.utils import serve_or_warm
+        from insights.api.ml.utils import compute_or_cache
 
-        model = CustomerIntelligence(date_filter=date_filter)
-        return success(serve_or_warm(
-            model.predict(allow_train=False),
-            trainer="insights.ml.scheduler.train_customer_intelligence",
-            job_id="insights_train_customer_intelligence",
+        cache_key = f"insights:customer_intelligence:{date_filter}"
+        if refresh:
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
+
+        return success(compute_or_cache(
+            trainer=lambda: CustomerIntelligence(date_filter=date_filter).train(update_customers=True),
+            cache_key=cache_key,
             label=_("Customer intelligence"),
-            force=refresh,
         ))
     except frappe.PermissionError:
         raise

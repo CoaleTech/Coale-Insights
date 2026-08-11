@@ -29,30 +29,20 @@ def get_procurement_insights() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
-    """Get comprehensive procurement intelligence without training on the request.
-
-    Returns the flat `{status, spend_overview, supplier_performance, ...}`
-    envelope the frontend decoder expects. A cold cache used to be healed inline
-    with `predict(allow_train=True)`, but `train()` runs ~17 sequential
-    procurement-analytics SQL queries in the gunicorn worker; cold, that pass
-    outlives the gateway read timeout and reaches the browser as a non-JSON 502.
-
-    `predict(allow_train=False)` now returns a warm hit, a stale on-disk
-    snapshot, or a `{"status": "warming"}` placeholder, and `serve_or_warm`
-    kicks the worker-side trainer for a cold cache or a forced refresh.
-    """
+    """Get comprehensive procurement intelligence, computed on request, cached 24h."""
     try:
         frappe.has_permission("Purchase Order", "read", throw=True)
         from insights.ml.procurement_intelligence import ProcurementIntelligence
-        from insights.api.ml.utils import serve_or_warm
+        from insights.api.ml.utils import compute_or_cache
 
-        model = ProcurementIntelligence()
-        result = serve_or_warm(
-            model.predict(allow_train=False),
-            trainer="insights.ml.scheduler.train_procurement_intelligence",
-            job_id="insights_train_procurement_intelligence",
+        cache_key = "insights:procurement_intelligence"
+        if refresh:
+            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
+
+        result = compute_or_cache(
+            trainer=lambda: ProcurementIntelligence().train(),
+            cache_key=cache_key,
             label=_("Procurement intelligence"),
-            force=refresh,
         )
         return sanitize_for_json(result)
     except frappe.PermissionError:
