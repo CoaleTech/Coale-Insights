@@ -9,30 +9,21 @@ import frappe
 from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
-from insights.api.serialization import sanitize_for_json
 
 
 @frappe.whitelist()
 def sales_forecast(periods: int = 30, refresh: bool = False) -> Dict[str, Any]:
-    """Get the cached sales forecast; `refresh` retrains inline.
+    """Get the sales forecast.
 
-    `SalesForecasting.train()` fits Holt-Winters over the full daily series --
-    14.1s on a development dataset. The Redis cache + lock in
-    `compute_or_cache` keep the second hit at < 100 ms and prevent
-    concurrent training when multiple users open the dashboard at once.
+    `refresh` is kept for backward compatibility with older frontend
+    callers; every call computes fresh from MariaDB (one grouped SQL
+    query, no cache, no background job, no fork).
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.api.ml.utils import compute_or_cache
-        from insights.ml.sales_forecasting import SalesForecasting
+        from insights.ml.sales_forecasting import get_sales_forecast
 
-        cache_key = "insights:sales_forecast"
-        if refresh:
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        return sanitize_for_json(compute_or_cache(trainer=lambda: SalesForecasting().train(periods=periods),
-        cache_key=cache_key,
-        label=_("Sales forecast"),))
+        return success(get_sales_forecast(periods=periods))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -44,10 +35,9 @@ def get_forecast_chart_data() -> Dict[str, Any]:
     """Get forecast data formatted for charts"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_forecasting import SalesForecasting
-        model = SalesForecasting()
-        result = model.predict()
-        return success(result)
+        from insights.ml.sales_forecasting import get_sales_forecast
+
+        return success(get_sales_forecast())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -56,19 +46,16 @@ def get_forecast_chart_data() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Comprehensive sales intelligence — computed on request, cached 24h."""
+    """Comprehensive sales intelligence.
+
+    `refresh` is kept for backward compatibility; every call computes
+    fresh (no cache, no fork).
+    """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import SalesIntelligence
-        from insights.api.ml.utils import compute_or_cache
+        from insights.ml.sales_intelligence import get_sales_intelligence
 
-        cache_key = f"insights:sales_intelligence:{date_filter}"
-        if refresh:
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        return sanitize_for_json(compute_or_cache(trainer=lambda: SalesIntelligence(date_filter=date_filter).train(refresh_forecasts=False),
-        cache_key=cache_key,
-        label=_("Sales intelligence"),))
+        return success(get_sales_intelligence(date_filter=date_filter))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -80,11 +67,9 @@ def payment_mix() -> Dict[str, Any]:
     """Analyze payment method mix"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import SalesIntelligence
-        model = SalesIntelligence()
-        full_result = model.predict()
-        result = full_result.get("payment_mix", full_result)
-        return success(result)
+        from insights.ml.sales_intelligence import calculate_payment_mix
+
+        return success(calculate_payment_mix())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -96,11 +81,9 @@ def sales_rep_performance() -> Dict[str, Any]:
     """Get sales representative performance analysis"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import SalesIntelligence
-        model = SalesIntelligence()
-        full_result = model.predict()
-        result = full_result.get("sales_reps", full_result)
-        return success(result)
+        from insights.ml.sales_intelligence import analyze_sales_reps
+
+        return success(analyze_sales_reps())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -112,11 +95,9 @@ def revenue_breakdown() -> Dict[str, Any]:
     """Get revenue breakdown by various dimensions"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import SalesIntelligence
-        model = SalesIntelligence()
-        full_result = model.predict()
-        result = full_result.get("dimensions", full_result)
-        return success(result)
+        from insights.ml.sales_intelligence import analyze_by_dimensions
+
+        return success(analyze_by_dimensions())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -128,11 +109,9 @@ def margin_analysis() -> Dict[str, Any]:
     """Analyze profit margins"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import SalesIntelligence
-        model = SalesIntelligence()
-        full_result = model.predict()
-        result = full_result.get("margins", full_result)
-        return success(result)
+        from insights.ml.sales_intelligence import analyze_margins
+
+        return success(analyze_margins())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -144,11 +123,9 @@ def sales_comparisons() -> Dict[str, Any]:
     """Compare sales across periods and dimensions"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import SalesIntelligence
-        model = SalesIntelligence()
-        full_result = model.predict()
-        result = full_result.get("comparisons", full_result)
-        return success(result)
+        from insights.ml.sales_intelligence import calculate_comparisons
+
+        return success(calculate_comparisons())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -157,25 +134,17 @@ def sales_comparisons() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
-    """Train forecasting models, inline.
+    """Recompute the sales forecast.
 
-    The dashboard's own button already warns this "may take several minutes";
-    `compute_or_cache` returns the cached result if warm, otherwise fits the
-    model in the request and caches it for the next call. `model_type` is
-    accepted for backward compatibility — only the sales forecast model is
-    trained from this endpoint today.
+    `model_type` is kept for backward compatibility and ignored -- there
+    is only one forecast model now. Every call computes fresh from
+    MariaDB (no cache to invalidate, no background job, no fork).
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.api.ml.utils import compute_or_cache
-        from insights.ml.sales_forecasting import SalesForecasting
+        from insights.ml.sales_forecasting import run_sales_forecast
 
-        cache_key = "insights:sales_forecast"
-        frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        return sanitize_for_json(compute_or_cache(trainer=lambda: SalesForecasting().train(),
-        cache_key=cache_key,
-        label=_("Sales forecast"),))
+        return success(run_sales_forecast())
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -208,7 +177,9 @@ def source_attributed_sales(date_filter: str = '12m') -> Dict[str, Any]:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_source_analytics import get_source_attributed_sales
         from insights.api.ml.utils import parse_date_filter
-        start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
+        start_dt, end_dt = parse_date_filter(date_filter)
+        start = start_dt.strftime("%Y-%m-%d") if start_dt else "2000-01-01"
+        end = end_dt.strftime("%Y-%m-%d") if end_dt else frappe.utils.nowdate()
         return success(get_source_attributed_sales(start, end))
     except frappe.PermissionError:
         raise
@@ -223,7 +194,9 @@ def quotation_analytics(date_filter: str = '12m') -> Dict[str, Any]:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_source_analytics import get_quotation_analytics
         from insights.api.ml.utils import parse_date_filter
-        start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
+        start_dt, end_dt = parse_date_filter(date_filter)
+        start = start_dt.strftime("%Y-%m-%d") if start_dt else "2000-01-01"
+        end = end_dt.strftime("%Y-%m-%d") if end_dt else frappe.utils.nowdate()
         return success(get_quotation_analytics(start, end))
     except frappe.PermissionError:
         raise
@@ -238,7 +211,9 @@ def territory_sales_performance(date_filter: str = '12m') -> Dict[str, Any]:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_source_analytics import get_territory_performance
         from insights.api.ml.utils import parse_date_filter
-        start, end = [d.strftime("%Y-%m-%d") for d in parse_date_filter(date_filter)]
+        start_dt, end_dt = parse_date_filter(date_filter)
+        start = start_dt.strftime("%Y-%m-%d") if start_dt else "2000-01-01"
+        end = end_dt.strftime("%Y-%m-%d") if end_dt else frappe.utils.nowdate()
         return success(get_territory_performance(start, end))
     except frappe.PermissionError:
         raise

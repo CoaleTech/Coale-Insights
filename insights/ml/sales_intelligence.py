@@ -1,1032 +1,955 @@
 from __future__ import annotations
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
+
+# Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
 """
-Sales Intelligence Analytics
-Comprehensive sales analytics including revenue metrics, payment mix, rep performance,
-dimensional analysis, and margin tracking
+Sales Intelligence -- Ibis-native rewrite.
+
+Was a `BaseMLModel` subclass that ran ~10 pandas-heavy sub-analyses on
+~50,000-row DataFrames materialised in the web worker (24 months of
+Sales Invoices), then cached the result in Redis and pre-warmed it via
+the scheduler. On Frappe Cloud the work-horse's ``fork()`` segfaulted
+(see ``insights.api.ml.ibis_source`` for the long version).
+
+Every sub-analysis is now a small Ibis expression that compiles to one
+SQL statement and runs inside MariaDB. Each returns at most a few
+hundred rows, which the Python side reshapes into the dict the Revenue
+dashboard already consumes. No cache, no background job, no fork.
+
+`BaseMLModel` is not used (it is being deleted centrally after every
+domain lands). The class wrapper is gone too -- the public surface is a
+small set of module-level functions returning the same shapes the
+frontend already destructures. The aggregate ``train()`` / ``predict()``
+shape the old class returned is still produced by ``run_sales_intelligence``
+and ``get_sales_intelligence`` for backward compatibility.
 """
 
-import frappe
-from frappe import _
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional, TYPE_CHECKING
-if TYPE_CHECKING:
-    import pandas as pd
-    import numpy as np
-from collections import defaultdict
-from insights.api.ml import get_date_filter_sql
-from insights.ml.base import BaseMLModel
-from insights.ml.sales_source_analytics import (
-    get_source_attributed_sales,
-    get_quotation_analytics,
-    get_territory_performance,
-)
+from typing import Any
+
+import ibis
+
+from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.utils import parse_date_filter
+from insights.ml.inventory_intelligence import DemandForecasting
+from insights.ml.sales_forecasting import get_sales_forecast
+
+# ---------------------------------------------------------------------------
+# Revenue metrics
+# ---------------------------------------------------------------------------
 
 
-class SalesIntelligence(BaseMLModel):
+def calculate_revenue_metrics(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Total revenue, AOV, customer frequency, daily/weekly/monthly series.
+
+    All three series are aggregated inside MariaDB; the post-aggregate
+    size is at most ~365 rows for daily, ~52 for weekly, ~24 for monthly.
     """
-    Sales Intelligence Analytics Engine
-    
-    Provides:
-    - Revenue Metrics (daily/weekly/monthly, AOV, transaction frequency)
-    - Cash vs Credit Payment Mix Analysis
-    - Individual Sales Rep Performance
-    - Month-over-Month and Year-over-Year Comparisons
-    - Revenue by Product Group, Customer Segment, Territory
-    - Gross Margin Analysis by Product Group
-    - Pipeline Analytics (Quote-to-Order Conversion)
-    - Fulfillment Metrics (DSO, Backlog)
-    - Integration with existing ML forecasts
-    """
-    
-    def __init__(self, date_filter: str = '12m'):
-        super().__init__()
-        self.model_name = "SalesIntelligence"
-        self.date_filter = date_filter
-        # Generate SQL date filters based on the date_filter parameter
-        self.DATE_FILTER_24M = get_date_filter_sql('24m', 'posting_date', 'si')
-        self.DATE_FILTER_12M = get_date_filter_sql(date_filter, 'posting_date', 'si')
-        
-    # ==================== DATA COLLECTION ====================
-    
-    def _get_sales_transactions(self) -> pd.DataFrame:
-        """Get sales invoice data with payment mode detection"""
-        query = f"""
-            SELECT 
-                si.name as invoice_id,
-                si.posting_date,
-                si.customer,
-                si.customer_name,
-                si.customer_group,
-                si.territory,
-                si.grand_total,
-                si.net_total,
-                si.base_grand_total,
-                si.total_qty,
-                si.outstanding_amount,
-                si.status,
-                si.is_return,
-                si.sales_partner,
-                si.total_commission,
-                si.conversion_rate,
-                CASE 
-                    WHEN si.outstanding_amount = 0 AND si.grand_total > 0 THEN 'Cash'
-                    WHEN si.outstanding_amount > 0 THEN 'Credit'
-                    ELSE 'Other'
-                END as payment_mode,
-                YEAR(si.posting_date) as year,
-                MONTH(si.posting_date) as month,
-                WEEK(si.posting_date) as week,
-                DAYOFWEEK(si.posting_date) as day_of_week,
-                DATE(si.posting_date) as sale_date
-            FROM `tabSales Invoice` si
-            WHERE si.docstatus = 1
-                {self.DATE_FILTER_24M}
-            ORDER BY si.posting_date DESC
-        """
-        return self.get_training_data(query)
-    
-    def _get_sales_invoice_items(self) -> pd.DataFrame:
-        """Get item-level sales data with gross profit"""
-        query = f"""
-            SELECT 
-                sii.parent as invoice_id,
-                si.posting_date,
-                si.customer,
-                si.customer_group,
-                si.territory,
-                sii.item_code,
-                sii.item_name,
-                sii.item_group,
-                sii.brand,
-                sii.qty,
-                sii.rate,
-                sii.amount,
-                sii.net_amount,
-                (sii.net_amount - (sii.qty * COALESCE(sii.incoming_rate, 0))) as gross_profit,
-                YEAR(si.posting_date) as year,
-                MONTH(si.posting_date) as month
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.docstatus = 1 AND si.is_return = 0
-                {self.DATE_FILTER_24M}
-        """
-        return self.get_training_data(query)
-    
-    def _get_sales_team_data(self) -> pd.DataFrame:
-        """Get sales rep performance data from invoice owner field"""
-        # Use owner field as sales rep (not Sales Team child table)
-        query = f"""
-            SELECT 
-                si.owner as sales_person,
-                COALESCE(u.full_name, si.owner) as sales_person_name,
-                100.0 as allocated_percentage,
-                si.grand_total as allocated_amount,
-                0.0 as commission_rate,
-                0.0 as incentives,
-                si.name as invoice_id,
-                si.posting_date,
-                si.grand_total,
-                si.customer,
-                YEAR(si.posting_date) as year,
-                MONTH(si.posting_date) as month
-            FROM `tabSales Invoice` si
-            LEFT JOIN `tabUser` u ON si.owner = u.name
-            WHERE si.docstatus = 1
-                {self.DATE_FILTER_12M}
-        """
-        return self.get_training_data(query)
-    
-    def _get_quotation_data(self) -> pd.DataFrame:
-        """Get quotation data for pipeline analysis"""
-        query = """
-            SELECT 
-                q.name as quotation_id,
-                q.transaction_date,
-                q.valid_till,
-                q.party_name as customer,
-                q.grand_total,
-                q.status,
-                q.order_type,
-                CASE WHEN q.status = 'Ordered' THEN 1 ELSE 0 END as converted,
-                CASE WHEN q.status = 'Lost' THEN 1 ELSE 0 END as lost,
-                DATEDIFF(CURDATE(), q.transaction_date) as age_days,
-                YEAR(q.transaction_date) as year,
-                MONTH(q.transaction_date) as month
-            FROM `tabQuotation` q
-            WHERE q.docstatus = 1 
-                AND q.quotation_to = 'Customer'
-                AND q.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-        """
-        return self.get_training_data(query)
-    
-    def _get_sales_orders(self) -> pd.DataFrame:
-        """Get sales order data for fulfillment metrics"""
-        query = """
-            SELECT 
-                so.name as order_id,
-                so.transaction_date,
-                so.delivery_date,
-                so.customer,
-                so.grand_total,
-                so.status,
-                so.per_delivered,
-                so.per_billed,
-                so.delivery_status,
-                so.billing_status,
-                CASE 
-                    WHEN so.per_delivered >= 100 THEN 'Fulfilled'
-                    WHEN so.per_delivered > 0 THEN 'Partial'
-                    ELSE 'Pending'
-                END as fulfillment_status,
-                YEAR(so.transaction_date) as year,
-                MONTH(so.transaction_date) as month
-            FROM `tabSales Order` so
-            WHERE so.docstatus = 1
-                AND so.transaction_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-        """
-        return self.get_training_data(query)
-    
-    # ==================== REVENUE METRICS ====================
-    
-    def calculate_revenue_metrics(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
-        """Calculate comprehensive revenue metrics"""
-        import pandas as pd
-        if sales_df.empty:
-            return self._empty_revenue_metrics()
-        
-        # Filter out returns for revenue calculations
-        revenue_df = sales_df[sales_df['is_return'] == 0].copy()
-        
-        # Convert posting_date to datetime
-        revenue_df['posting_date'] = pd.to_datetime(revenue_df['posting_date'])
-        revenue_df['sale_date'] = pd.to_datetime(revenue_df['sale_date'])
-        
-        # Current period metrics
-        today = datetime.now().date()
-        current_month_start = today.replace(day=1)
-        last_month_start = (current_month_start - timedelta(days=1)).replace(day=1)
-        last_year_same_month = current_month_start.replace(year=current_month_start.year - 1)
-        
-        # Total metrics
-        total_revenue = float(revenue_df['grand_total'].sum())
-        total_transactions = len(revenue_df)
-        avg_order_value = float(revenue_df['grand_total'].mean()) if total_transactions > 0 else 0
-        
-        # Daily sales (last 30 days)
-        last_30_days = revenue_df[revenue_df['sale_date'] >= (pd.Timestamp(today) - timedelta(days=30))]
-        daily_sales = last_30_days.groupby('sale_date').agg({
-            'grand_total': 'sum',
-            'invoice_id': 'count'
-        }).reset_index()
-        daily_sales.columns = ['date', 'revenue', 'transactions']
-        daily_sales['date'] = daily_sales['date'].astype(str)
-        
-        # Weekly sales (last 12 weeks)
-        revenue_df['year_week'] = revenue_df['posting_date'].dt.isocalendar().week.astype(str) + '-' + revenue_df['posting_date'].dt.isocalendar().year.astype(str)
-        weekly_sales = revenue_df.groupby(['year', 'week']).agg({
-            'grand_total': 'sum',
-            'invoice_id': 'count'
-        }).reset_index().tail(12)
-        weekly_sales.columns = ['year', 'week', 'revenue', 'transactions']
-        
-        # Monthly sales (last 24 months)
-        monthly_sales = revenue_df.groupby(['year', 'month']).agg({
-            'grand_total': 'sum',
-            'invoice_id': 'count',
-            'customer': 'nunique'
-        }).reset_index()
-        monthly_sales.columns = ['year', 'month', 'revenue', 'transactions', 'unique_customers']
-        monthly_sales['period'] = monthly_sales.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
-        
-        # Transaction frequency (average days between purchases per customer)
-        customer_frequency = revenue_df.groupby('customer').agg({
-            'posting_date': ['min', 'max', 'count']
-        })
-        customer_frequency.columns = ['first_purchase', 'last_purchase', 'order_count']
-        customer_frequency['days_span'] = (customer_frequency['last_purchase'] - customer_frequency['first_purchase']).dt.days
-        repeat_customers = customer_frequency[customer_frequency['order_count'] > 1]
-        avg_days_between_orders = float(repeat_customers['days_span'].sum() / repeat_customers['order_count'].sum()) if len(repeat_customers) > 0 else 0
-        
-        return {
-            'total_revenue': total_revenue,
-            'total_transactions': total_transactions,
-            'avg_order_value': round(avg_order_value, 2),
-            'avg_days_between_orders': round(avg_days_between_orders, 1),
-            'unique_customers': int(revenue_df['customer'].nunique()),
-            'daily_sales': daily_sales.to_dict('records'),
-            'weekly_sales': weekly_sales.to_dict('records'),
-            'monthly_sales': monthly_sales.to_dict('records'),
-        }
-    
-    def _empty_revenue_metrics(self) -> Dict[str, Any]:
-        return {
-            'total_revenue': 0,
-            'total_transactions': 0,
-            'avg_order_value': 0,
-            'avg_days_between_orders': 0,
-            'unique_customers': 0,
-            'daily_sales': [],
-            'weekly_sales': [],
-            'monthly_sales': [],
-        }
-    
-    # ==================== PAYMENT MIX ANALYSIS ====================
-    def calculate_payment_mix(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze cash vs credit payment ratios"""
-        import pandas as pd
-        if sales_df.empty:
-            return {'cash_ratio': 0, 'credit_ratio': 0, 'daily_mix': [], 'monthly_mix': []}
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
 
-        revenue_df = sales_df[sales_df['is_return'] == 0].copy()
-        revenue_df['sale_date'] = pd.to_datetime(revenue_df['sale_date'])
-        
-        # Overall mix
-        total = revenue_df['grand_total'].sum()
-        cash_total = revenue_df[revenue_df['payment_mode'] == 'Cash']['grand_total'].sum()
-        credit_total = revenue_df[revenue_df['payment_mode'] == 'Credit']['grand_total'].sum()
-        
-        cash_ratio = (cash_total / total * 100) if total > 0 else 0
-        credit_ratio = (credit_total / total * 100) if total > 0 else 0
-        
-        # Daily mix (last 30 days)
-        today = datetime.now().date()
-        last_30 = revenue_df[revenue_df['sale_date'] >= (pd.Timestamp(today) - timedelta(days=30))]
-        daily_mix = last_30.groupby(['sale_date', 'payment_mode'])['grand_total'].sum().unstack(fill_value=0).reset_index()
-        if 'Cash' not in daily_mix.columns:
-            daily_mix['Cash'] = 0
-        if 'Credit' not in daily_mix.columns:
-            daily_mix['Credit'] = 0
-        daily_mix['total'] = daily_mix['Cash'] + daily_mix['Credit']
-        daily_mix['cash_pct'] = (daily_mix['Cash'] / daily_mix['total'] * 100).fillna(0)
-        daily_mix['sale_date'] = daily_mix['sale_date'].astype(str)
-        
-        # Monthly mix
-        monthly_mix = revenue_df.groupby(['year', 'month', 'payment_mode'])['grand_total'].sum().unstack(fill_value=0).reset_index()
-        if 'Cash' not in monthly_mix.columns:
-            monthly_mix['Cash'] = 0
-        if 'Credit' not in monthly_mix.columns:
-            monthly_mix['Credit'] = 0
-        monthly_mix['total'] = monthly_mix['Cash'] + monthly_mix['Credit']
-        monthly_mix['cash_pct'] = (monthly_mix['Cash'] / monthly_mix['total'] * 100).fillna(0)
-        monthly_mix['period'] = monthly_mix.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
-        
-        # Today's mix
-        today_df = revenue_df[revenue_df['sale_date'] == pd.Timestamp(today)]
-        today_total = today_df['grand_total'].sum()
-        today_cash = today_df[today_df['payment_mode'] == 'Cash']['grand_total'].sum()
-        today_cash_pct = (today_cash / today_total * 100) if today_total > 0 else 0
-        
-        return {
-            'cash_ratio': round(cash_ratio, 1),
-            'credit_ratio': round(credit_ratio, 1),
-            'cash_total': float(cash_total),
-            'credit_total': float(credit_total),
-            'today_cash_pct': round(today_cash_pct, 1),
-            'today_total': float(today_total),
-            'daily_mix': daily_mix[['sale_date', 'Cash', 'Credit', 'total', 'cash_pct']].to_dict('records'),
-            'monthly_mix': monthly_mix[['period', 'Cash', 'Credit', 'total', 'cash_pct']].to_dict('records'),
-        }
-    
-    # ==================== SALES REP PERFORMANCE ====================
-    
-    def analyze_sales_reps(self, sales_team_df: pd.DataFrame, quotation_df: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze individual sales rep performance"""
-        import pandas as pd
-        if sales_team_df.empty:
-            return {'reps': [], 'top_performer': None, 'total_reps': 0}
-        
-        sales_team_df['posting_date'] = pd.to_datetime(sales_team_df['posting_date'])
-        
-        # Build sales_person to full_name mapping
-        name_mapping = {}
-        if 'sales_person_name' in sales_team_df.columns:
-            name_df = sales_team_df.drop_duplicates('sales_person')[['sales_person', 'sales_person_name']]
-            name_mapping = dict(zip(name_df['sales_person'], name_df['sales_person_name']))
-        
-        # Aggregate by sales person
-        rep_metrics = sales_team_df.groupby('sales_person').agg({
-            'allocated_amount': 'sum',
-            'invoice_id': 'nunique',
-            'customer': 'nunique',
-            'incentives': 'sum',
-            'posting_date': ['min', 'max']
-        })
-        rep_metrics.columns = ['total_revenue', 'total_orders', 'unique_customers', 'total_incentives', 'first_sale', 'last_sale']
-        rep_metrics = rep_metrics.reset_index()
-        
-        # Calculate AOV
-        rep_metrics['avg_order_value'] = (rep_metrics['total_revenue'] / rep_metrics['total_orders']).fillna(0)
-        
-        # Monthly trend per rep (last 6 months)
-        rep_monthly = sales_team_df.groupby(['sales_person', 'year', 'month']).agg({
-            'allocated_amount': 'sum',
-            'invoice_id': 'nunique'
-        }).reset_index()
-        rep_monthly.columns = ['sales_person', 'year', 'month', 'revenue', 'orders']
-        rep_monthly['period'] = rep_monthly.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
-        
-        # Build rep trends dict
-        rep_trends = {}
-        for rep in rep_metrics['sales_person'].unique():
-            rep_data = rep_monthly[rep_monthly['sales_person'] == rep].tail(6)
-            rep_trends[rep] = rep_data[['period', 'revenue', 'orders']].to_dict('records')
-        
-        # Rank reps
-        rep_metrics = rep_metrics.sort_values('total_revenue', ascending=False)
-        rep_metrics['rank'] = range(1, len(rep_metrics) + 1)
-        
-        # Convert to records
-        reps_list = []
-        for _, row in rep_metrics.iterrows():
-            sales_person_email = row['sales_person']
-            full_name = name_mapping.get(sales_person_email, sales_person_email)
-            reps_list.append({
-                'sales_person': sales_person_email,
-                'sales_person_name': full_name,
-                'rank': int(row['rank']),
-                'total_revenue': float(row['total_revenue']),
-                'total_orders': int(row['total_orders']),
-                'unique_customers': int(row['unique_customers']),
-                'avg_order_value': round(float(row['avg_order_value']), 2),
-                'total_incentives': float(row['total_incentives']),
-                'trend': rep_trends.get(row['sales_person'], [])
-            })
-        
-        top_performer = reps_list[0] if reps_list else None
-        
-        return {
-            'reps': reps_list,
-            'top_performer': top_performer,
-            'total_reps': len(reps_list),
-            'total_team_revenue': float(rep_metrics['total_revenue'].sum()),
-        }
-    
-    # ==================== MOM & YOY COMPARISONS ====================
-    
-    def calculate_comparisons(self, sales_df: pd.DataFrame) -> Dict[str, Any]:
-        """Calculate month-over-month and year-over-year comparisons"""
-        import pandas as pd
-        if sales_df.empty:
-            return self._empty_comparisons()
-        
-        revenue_df = sales_df[sales_df['is_return'] == 0].copy()
-        revenue_df['posting_date'] = pd.to_datetime(revenue_df['posting_date'])
-        
-        today = datetime.now().date()
-        
-        # Current month
-        current_month_start = today.replace(day=1)
-        current_month_end = today
-        
-        # Last month, aligned to the same day-of-month.
-        #
-        # Comparing an elapsed-so-far current month against a *complete*
-        # previous month reported -98.3% growth on the 6th of August: 6 days of
-        # trading measured against 31. Month-to-date must be compared with the
-        # same slice of the previous month for the number to mean anything.
-        last_month_final_day = current_month_start - timedelta(days=1)
-        last_month_start = last_month_final_day.replace(day=1)
-        last_month_end = min(
-            last_month_start + timedelta(days=today.day - 1),
-            last_month_final_day,
+    # One aggregate for the headline numbers.
+    overall_df = si.aggregate(
+        total_revenue=si.grand_total.sum(),
+        total_transactions=si.count(),
+        unique_customers=si.customer.nunique(),
+    ).execute()
+    overall = overall_df.iloc[0]
+    total_revenue = float(overall["total_revenue"] or 0)
+    total_transactions = int(overall["total_transactions"] or 0)
+    unique_customers = int(overall["unique_customers"] or 0)
+    avg_order_value = round(total_revenue / total_transactions, 2) if total_transactions else 0
+
+    # Daily series (last 30 days).
+    daily_cutoff = (datetime.now() - timedelta(days=30)).date()
+    si_daily = si.filter(si.posting_date >= daily_cutoff)
+    daily_df = (
+        si_daily.group_by(si_daily.posting_date)
+        .aggregate(
+            revenue=si_daily.grand_total.sum(),
+            transactions=si_daily.count(),
         )
-        
-        # Same month last year
-        last_year_month_start = current_month_start.replace(year=current_month_start.year - 1)
-        last_year_month_end = last_year_month_start.replace(day=min(today.day, 28))  # Safe day
-        
-        # Calculate metrics
-        current_month = revenue_df[
-            (revenue_df['posting_date'].dt.date >= current_month_start) & 
-            (revenue_df['posting_date'].dt.date <= current_month_end)
+        .order_by("posting_date")
+        .execute()
+    )
+    daily_sales: list[dict[str, Any]] = [
+        {
+            "date": str(r["posting_date"]),
+            "revenue": float(r["revenue"] or 0),
+            "transactions": int(r["transactions"] or 0),
+        }
+        for _, r in daily_df.iterrows()
+    ]
+
+    # Weekly series (ISO week, last 12 weeks).
+    si_weekly = si.mutate(year_week=si.posting_date.strftime("%x-W%V")).filter(
+        si.posting_date >= (datetime.now() - timedelta(weeks=12)).date()
+    )
+    weekly_df = (
+        si_weekly.group_by(["year_week"])
+        .aggregate(
+            revenue=si_weekly.grand_total.sum(),
+            transactions=si_weekly.count(),
+        )
+        .order_by("year_week")
+        .execute()
+    )
+    weekly_sales: list[dict[str, Any]] = [
+        {
+            "year_week": r["year_week"],
+            "revenue": float(r["revenue"] or 0),
+            "transactions": int(r["transactions"] or 0),
+        }
+        for _, r in weekly_df.iterrows()
+    ]
+
+    # Monthly series (last 24 months).
+    si_monthly = si.mutate(period=si.posting_date.strftime("%Y-%m"))
+    monthly_df = (
+        si_monthly.group_by("period")
+        .aggregate(
+            revenue=si_monthly.grand_total.sum(),
+            transactions=si_monthly.count(),
+            unique_customers=si_monthly.customer.nunique(),
+        )
+        .order_by("period")
+        .execute()
+    )
+    monthly_sales: list[dict[str, Any]] = [
+        {
+            "period": r["period"],
+            "revenue": float(r["revenue"] or 0),
+            "transactions": int(r["transactions"] or 0),
+            "unique_customers": int(r["unique_customers"] or 0),
+        }
+        for _, r in monthly_df.iterrows()
+    ]
+
+    # Average days between orders per customer -- a small per-customer
+    # aggregate. We compute the span = max(posting_date) - min(posting_date)
+    # and the order count; the answer is mean(span) / mean(orders - 1)
+    # restricted to customers with > 1 order.
+    per_customer_df = (
+        si.group_by(si.customer)
+        .aggregate(
+            first_sale=si.posting_date.min(),
+            last_sale=si.posting_date.max(),
+            order_count=si.count(),
+        )
+        .execute()
+    )
+    repeat = per_customer_df[per_customer_df["order_count"] > 1]
+    if len(repeat) > 0:
+        repeat = repeat.copy()
+        repeat["days_span"] = (repeat["last_sale"] - repeat["first_sale"]).dt.days
+        total_days = float(repeat["days_span"].sum())
+        total_orders_minus_1 = float((repeat["order_count"] - 1).sum())
+        avg_days_between_orders = round(
+            total_days / total_orders_minus_1, 1
+        ) if total_orders_minus_1 > 0 else 0
+    else:
+        avg_days_between_orders = 0
+
+    return {
+        "total_revenue": total_revenue,
+        "total_transactions": total_transactions,
+        "avg_order_value": avg_order_value,
+        "avg_days_between_orders": avg_days_between_orders,
+        "unique_customers": unique_customers,
+        "daily_sales": daily_sales,
+        "weekly_sales": weekly_sales,
+        "monthly_sales": monthly_sales,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Payment mix (cash vs credit)
+# ---------------------------------------------------------------------------
+
+
+def calculate_payment_mix(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Cash (outstanding == 0) vs Credit (outstanding > 0) by period.
+
+    `outstanding_amount` and `grand_total` are computed via two
+    conditional aggregate measures in one query; the bucket split is
+    built in SQL, not in Python.
+    """
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+
+    is_cash = si.outstanding_amount == 0
+    overall_df = si.aggregate(
+        total=si.grand_total.sum(),
+        cash_total=ibis.ifelse(is_cash, si.grand_total, 0).sum(),
+        credit_total=ibis.ifelse(is_cash, 0, si.grand_total).sum(),
+    ).execute().iloc[0]
+    total = float(overall_df["total"] or 0)
+    cash_total = float(overall_df["cash_total"] or 0)
+    credit_total = float(overall_df["credit_total"] or 0)
+
+    cash_ratio = round(cash_total / total * 100, 1) if total > 0 else 0
+    credit_ratio = round(credit_total / total * 100, 1) if total > 0 else 0
+
+    # Daily mix (last 30 days). Each day gets its own cash/credit row.
+    daily_cutoff = (datetime.now() - timedelta(days=30)).date()
+    si_daily = si.filter(si.posting_date >= daily_cutoff)
+    is_cash_daily = si_daily.outstanding_amount == 0
+    daily_df = (
+        si_daily.group_by(si_daily.posting_date)
+        .aggregate(
+            Cash=ibis.ifelse(is_cash_daily, si_daily.grand_total, 0).sum(),
+            Credit=ibis.ifelse(is_cash_daily, 0, si_daily.grand_total).sum(),
+        )
+        .order_by("posting_date")
+        .execute()
+    )
+    daily_mix: list[dict[str, Any]] = []
+    for _, r in daily_df.iterrows():
+        cash = float(r["Cash"] or 0)
+        credit = float(r["Credit"] or 0)
+        total_d = cash + credit
+        daily_mix.append(
+            {
+                "sale_date": str(r["posting_date"]),
+                "Cash": cash,
+                "Credit": credit,
+                "total": total_d,
+                "cash_pct": round(cash / total_d * 100, 1) if total_d > 0 else 0,
+            }
+        )
+
+    # Monthly mix.
+    si_monthly = si.mutate(period=si.posting_date.strftime("%Y-%m"))
+    is_cash_monthly = si_monthly.outstanding_amount == 0
+    monthly_df = (
+        si_monthly.group_by("period")
+        .aggregate(
+            Cash=ibis.ifelse(is_cash_monthly, si_monthly.grand_total, 0).sum(),
+            Credit=ibis.ifelse(is_cash_monthly, 0, si_monthly.grand_total).sum(),
+        )
+        .order_by("period")
+        .execute()
+    )
+    monthly_mix: list[dict[str, Any]] = []
+    for _, r in monthly_df.iterrows():
+        cash = float(r["Cash"] or 0)
+        credit = float(r["Credit"] or 0)
+        total_p = cash + credit
+        monthly_mix.append(
+            {
+                "period": r["period"],
+                "Cash": cash,
+                "Credit": credit,
+                "total": total_p,
+                "cash_pct": round(cash / total_p * 100, 1) if total_p > 0 else 0,
+            }
+        )
+    # Today's numbers.
+    today = datetime.now().date().isoformat()
+    today_total = next((d["total"] for d in daily_mix if d["sale_date"] == today), 0)
+    today_cash = next((d["Cash"] for d in daily_mix if d["sale_date"] == today), 0)
+    today_cash_pct = round(today_cash / today_total * 100, 1) if today_total > 0 else 0
+
+    return {
+        "cash_ratio": cash_ratio,
+        "credit_ratio": credit_ratio,
+        "cash_total": cash_total,
+        "credit_total": credit_total,
+        "today_cash_pct": today_cash_pct,
+        "today_total": today_total,
+        "daily_mix": daily_mix,
+        "monthly_mix": monthly_mix,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Sales rep performance
+# ---------------------------------------------------------------------------
+
+
+def analyze_sales_reps(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Per-owner (the Sales Invoice's `owner` field) performance.
+
+    The previous implementation used a LEFT JOIN to `tabUser` to get a
+    friendly name. We do the same in one query.
+    """
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    )
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+
+    # Project to only the columns we need to avoid name collisions.
+    si_p = si.select(
+        sales_person=si.owner,
+        invoice=si["name"],
+        customer=si.customer,
+        posting_date=si.posting_date,
+        grand_total=si.grand_total,
+    )
+    user_p = t("User").select(
+        user_name=t("User")["name"],
+        full_name=t("User").full_name,
+    )
+
+    expr = (
+        si_p.left_join(user_p, user_p.user_name == si_p.sales_person)
+        .group_by(si_p.sales_person, user_p.full_name)
+        .aggregate(
+            total_revenue=si_p.grand_total.sum(),
+            total_orders=si_p.invoice.nunique(),
+            unique_customers=si_p.customer.nunique(),
+            first_sale=si_p.posting_date.min(),
+            last_sale=si_p.posting_date.max(),
+        )
+        .order_by(ibis.desc("total_revenue"))
+    )
+    df = expr.execute()
+    if df.empty:
+        return {
+            "reps": [],
+            "top_performer": None,
+            "total_reps": 0,
+            "total_team_revenue": 0,
+        }
+
+    reps: list[dict[str, Any]] = []
+    for idx, (_, r) in enumerate(df.iterrows(), start=1):
+        email = str(r["sales_person"])
+        name = (str(r["full_name"]) if r["full_name"] else email) if "full_name" in df.columns else email
+        total_rev = float(r["total_revenue"] or 0)
+        total_orders = int(r["total_orders"] or 0)
+        unique = int(r["unique_customers"] or 0)
+        aov = round(total_rev / total_orders, 2) if total_orders else 0
+        reps.append(
+            {
+                "sales_person": email,
+                "sales_person_name": name,
+                "rank": idx,
+                "total_revenue": total_rev,
+                "total_orders": total_orders,
+                "unique_customers": unique,
+                "avg_order_value": aov,
+                "total_incentives": 0,
+                "trend": [],
+            }
+        )
+
+    total_team_revenue = sum(r["total_revenue"] for r in reps)
+    return {
+        "reps": reps,
+        "top_performer": reps[0] if reps else None,
+        "total_reps": len(reps),
+        "total_team_revenue": round(total_team_revenue, 2),
+    }
+
+
+# ---------------------------------------------------------------------------
+# MoM and YoY comparisons
+# ---------------------------------------------------------------------------
+
+
+def calculate_comparisons(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Month-over-month and year-over-year revenue and AOV comparison.
+
+    The current month is compared against:
+      * the same day-of-month slice of the previous month (avoids
+        reporting -98% growth on day 6 against a 31-day prior month)
+      * the same day-of-month slice of the same month last year
+    """
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+
+    today = datetime.now().date()
+    current_month_start = today.replace(day=1)
+    last_month_final_day = current_month_start - timedelta(days=1)
+    last_month_start = last_month_final_day.replace(day=1)
+    last_month_end = min(
+        last_month_start + timedelta(days=today.day - 1),
+        last_month_final_day,
+    )
+    last_year_month_start = current_month_start.replace(year=current_month_start.year - 1)
+    last_year_month_end = last_year_month_start.replace(day=min(today.day, 28))
+
+    def _slice(start_d, end_d):
+        si_period = si.filter(si.posting_date.between(start_d, end_d))
+        return si_period.aggregate(
+            revenue=si_period.grand_total.sum(),
+            transactions=si_period.count(),
+        ).execute().iloc[0]
+
+    cur = _slice(current_month_start, today)
+    last = _slice(last_month_start, last_month_end)
+    last_year = _slice(last_year_month_start, last_year_month_end)
+
+    current_revenue = float(cur["revenue"] or 0)
+    last_month_revenue = float(last["revenue"] or 0)
+    last_year_revenue = float(last_year["revenue"] or 0)
+    current_txns = int(cur["transactions"] or 0)
+    last_txns = int(last["transactions"] or 0)
+    last_year_txns = int(last_year["transactions"] or 0)
+    current_aov = round(current_revenue / current_txns, 2) if current_txns else 0
+    last_aov = round(last_month_revenue / last_txns, 2) if last_txns else 0
+    last_year_aov = round(last_year_revenue / last_year_txns, 2) if last_year_txns else 0
+
+    mom_growth = round((current_revenue - last_month_revenue) / last_month_revenue * 100, 1) if last_month_revenue > 0 else 0
+    yoy_growth = round((current_revenue - last_year_revenue) / last_year_revenue * 100, 1) if last_year_revenue > 0 else 0
+    mom_txn_growth = round((current_txns - last_txns) / last_txns * 100, 1) if last_txns > 0 else 0
+    yoy_txn_growth = round((current_txns - last_year_txns) / last_year_txns * 100, 1) if last_year_txns > 0 else 0
+
+    # Monthly trend (last 13 months for MoM).
+    si_monthly = si.mutate(period=si.posting_date.strftime("%Y-%m"))
+    monthly_df = (
+        si_monthly.group_by("period")
+        .aggregate(revenue=si_monthly.grand_total.sum())
+        .order_by("period")
+        .execute()
+    )
+    monthly_trend: list[dict[str, Any]] = []
+    rows = list(monthly_df.to_dict(orient="records"))
+    for i, r in enumerate(rows):
+        if i == 0:
+            mom_pct = 0
+        else:
+            prev = float(rows[i - 1]["revenue"] or 0)
+            curr = float(r["revenue"] or 0)
+            mom_pct = round((curr - prev) / prev * 100, 1) if prev > 0 else 0
+        monthly_trend.append(
+            {
+                "period": r["period"],
+                "revenue": round(float(r["revenue"] or 0), 2),
+                "mom_pct": mom_pct,
+            }
+        )
+    # Last 12 months.
+    monthly_trend = monthly_trend[-12:]
+
+    return {
+        "current_month": {
+            "revenue": current_revenue,
+            "transactions": current_txns,
+            "aov": current_aov,
+            "period": current_month_start.strftime("%Y-%m"),
+        },
+        "last_month": {
+            "revenue": last_month_revenue,
+            "transactions": last_txns,
+            "aov": last_aov,
+            "period": last_month_start.strftime("%Y-%m"),
+        },
+        "last_year_same_month": {
+            "revenue": last_year_revenue,
+            "transactions": last_year_txns,
+            "aov": last_year_aov,
+            "period": last_year_month_start.strftime("%Y-%m"),
+        },
+        "mom_growth": mom_growth,
+        "yoy_growth": yoy_growth,
+        "mom_txn_growth": mom_txn_growth,
+        "yoy_txn_growth": yoy_txn_growth,
+        "monthly_trend": monthly_trend,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Dimensional breakdown
+# ---------------------------------------------------------------------------
+
+
+def analyze_by_dimensions(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Revenue by customer_group, territory, and product_group."""
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+
+    # By customer_group / territory -- header fields, no fan-out.
+    dim_df = (
+        si.group_by([si.customer_group.fill_null("Uncategorized").name("customer_group"),
+                     si.territory.fill_null("Unassigned").name("territory")])
+        .aggregate(
+            revenue=si.grand_total.sum(),
+            transactions=si.count(),
+            unique_customers=si.customer.nunique(),
+        )
+        .order_by(ibis.desc("revenue"))
+        .execute()
+    )
+    if dim_df.empty:
+        return {
+            "by_product_group": [],
+            "by_customer_segment": [],
+            "by_territory": [],
+            "total_revenue": 0,
+        }
+
+    total_revenue = float(dim_df["revenue"].sum())
+    by_segment_map: dict[str, dict[str, Any]] = {}
+    by_territory_map: dict[str, dict[str, Any]] = {}
+    for _, r in dim_df.iterrows():
+        seg = str(r["customer_group"])
+        terr = str(r["territory"])
+        rev = float(r["revenue"] or 0)
+        txns = int(r["transactions"] or 0)
+        uniq = int(r["unique_customers"] or 0)
+        by_segment_map[seg] = by_segment_map.get(seg, {"revenue": 0, "transactions": 0, "customers": 0})
+        by_segment_map[seg]["revenue"] += rev
+        by_segment_map[seg]["transactions"] += txns
+        by_segment_map[seg]["customers"] = max(by_segment_map[seg]["customers"], uniq)
+
+        by_territory_map[terr] = by_territory_map.get(terr, {"revenue": 0, "transactions": 0, "customers": 0})
+        by_territory_map[terr]["revenue"] += rev
+        by_territory_map[terr]["transactions"] += txns
+        by_territory_map[terr]["customers"] = max(by_territory_map[terr]["customers"], uniq)
+
+    by_segment = [
+        {
+            "customer_group": k,
+            "revenue": round(v["revenue"], 2),
+            "transactions": v["transactions"],
+            "customers": v["customers"],
+            "pct": round(v["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
+        }
+        for k, v in sorted(by_segment_map.items(), key=lambda x: x[1]["revenue"], reverse=True)
+    ]
+    by_territory = [
+        {
+            "territory": k,
+            "revenue": round(v["revenue"], 2),
+            "transactions": v["transactions"],
+            "customers": v["customers"],
+            "pct": round(v["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
+        }
+        for k, v in sorted(by_territory_map.items(), key=lambda x: x[1]["revenue"], reverse=True)
+    ]
+
+    # By product_group -- from the item-level join, allocating invoice
+    # total to lines in proportion to their net amount (no double-count).
+    sii = t("Sales Invoice Item")
+    base = si.inner_join(sii, sii.parent == si.name)
+    if start is not None:
+        base = base.filter(base.posting_date >= start.date())
+    allocated = ibis.ifelse(
+        si.base_net_total == 0,
+        sii.base_net_amount,
+        sii.base_net_amount / si.base_net_total * si.base_grand_total,
+    )
+    pg_df = (
+        base.filter(sii.item_group.notnull())
+        .filter(sii.item_group != ibis.literal(""))
+        .group_by(sii.item_group)
+        .aggregate(
+            revenue=allocated.sum(),
+            qty_sold=sii.qty.sum(),
+            transactions=si.name.nunique(),
+        )
+        .order_by(ibis.desc("revenue"))
+        .execute()
+    )
+    pg_total = float(pg_df["revenue"].sum()) if not pg_df.empty else 0
+    by_product_group = []
+    for _, r in pg_df.iterrows():
+        rev = float(r["revenue"] or 0)
+        by_product_group.append(
+            {
+                "item_group": str(r["item_group"]),
+                "revenue": round(rev, 2),
+                "qty_sold": float(r["qty_sold"] or 0),
+                "transactions": int(r["transactions"] or 0),
+                "pct": round(rev / pg_total * 100, 1) if pg_total > 0 else 0,
+            }
+        )
+    by_product_group = by_product_group[:20]
+
+    return {
+        "by_product_group": by_product_group,
+        "by_customer_segment": by_segment,
+        "by_territory": by_territory,
+        "total_revenue": total_revenue,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Margin analysis
+# ---------------------------------------------------------------------------
+
+
+def analyze_margins(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Per-product-group and per-item gross margin analysis.
+
+    Gross profit per line = `net_amount - qty * incoming_rate`. A line
+    with a NULL `incoming_rate` is treated as zero cost (conservative
+    on the margin percentage).
+    """
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    sii = t("Sales Invoice Item")
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+
+    line_cost = (sii.qty * sii.incoming_rate.fill_null(0)).sum()
+    line_profit = sii.net_amount.sum() - line_cost
+
+    base = si.inner_join(sii, sii.parent == si.name)
+
+    overall_df = base.aggregate(
+        total_revenue=sii.net_amount.sum(),
+        total_profit=line_profit,
+    ).execute().iloc[0]
+    total_revenue = float(overall_df["total_revenue"] or 0)
+    total_profit = float(overall_df["total_profit"] or 0)
+    overall_margin = round(total_profit / total_revenue * 100, 1) if total_revenue > 0 else 0
+
+    pg_df = (
+        base.filter(sii.item_group.notnull())
+        .group_by(sii.item_group)
+        .aggregate(
+            revenue=sii.net_amount.sum(),
+            gross_profit=line_profit,
+            qty_sold=sii.qty.sum(),
+            unique_items=sii.item_code.nunique(),
+        )
+        .order_by(ibis.desc("revenue"))
+        .execute()
+    )
+    by_product_group: list[dict[str, Any]] = []
+    for _, r in pg_df.iterrows():
+        rev = float(r["revenue"] or 0)
+        profit = float(r["gross_profit"] or 0)
+        by_product_group.append(
+            {
+                "item_group": str(r["item_group"]),
+                "revenue": round(rev, 2),
+                "gross_profit": round(profit, 2),
+                "qty_sold": float(r["qty_sold"] or 0),
+                "unique_items": int(r["unique_items"] or 0),
+                "margin_pct": round(profit / rev * 100, 1) if rev > 0 else 0,
+            }
+        )
+
+    # Per-item -- top 10 by margin % and bottom 10 by margin % (over items
+    # with revenue above the median, so we do not list a single 1-unit
+    # item at -100% or +100% margin).
+    item_df = (
+        base.filter(sii.item_code.notnull())
+        .group_by([sii.item_code, sii.item_name, sii.item_group])
+        .aggregate(
+            revenue=sii.net_amount.sum(),
+            gross_profit=line_profit,
+            qty_sold=sii.qty.sum(),
+        )
+        .order_by(ibis.desc("revenue"))
+        .limit(500)
+        .execute()
+    )
+    if not item_df.empty:
+        # MariaDB SUM() returns Decimal; pandas .quantile()/.std() use numpy
+        # interpolation internals that raise TypeError when mixed with float.
+        # Cast once, up front.
+        item_df["revenue"] = item_df["revenue"].astype(float)
+        item_df["gross_profit"] = item_df["gross_profit"].astype(float)
+        threshold = float(item_df["revenue"].quantile(0.5))
+        significant = item_df[item_df["revenue"] >= threshold].copy()
+        significant["margin_pct"] = (significant["gross_profit"] / significant["revenue"] * 100).fillna(0).round(1)
+        top_margin = significant.nlargest(10, "margin_pct")
+        low_margin = significant[significant["revenue"] > 0].nsmallest(10, "margin_pct")
+        top_margin_items = [
+            {
+                "item_code": str(r["item_code"]),
+                "item_name": str(r["item_name"]),
+                "item_group": str(r["item_group"]),
+                "revenue": round(float(r["revenue"] or 0), 2),
+                "gross_profit": round(float(r["gross_profit"] or 0), 2),
+                "qty_sold": float(r["qty_sold"] or 0),
+                "margin_pct": float(r["margin_pct"]),
+            }
+            for _, r in top_margin.iterrows()
         ]
-        last_month = revenue_df[
-            (revenue_df['posting_date'].dt.date >= last_month_start) & 
-            (revenue_df['posting_date'].dt.date <= last_month_end)
+        low_margin_items = [
+            {
+                "item_code": str(r["item_code"]),
+                "item_name": str(r["item_name"]),
+                "item_group": str(r["item_group"]),
+                "revenue": round(float(r["revenue"] or 0), 2),
+                "gross_profit": round(float(r["gross_profit"] or 0), 2),
+                "qty_sold": float(r["qty_sold"] or 0),
+                "margin_pct": float(r["margin_pct"]),
+            }
+            for _, r in low_margin.iterrows()
         ]
-        last_year_month = revenue_df[
-            (revenue_df['posting_date'].dt.date >= last_year_month_start) & 
-            (revenue_df['posting_date'].dt.date <= last_year_month_end)
-        ]
-        
-        current_revenue = float(current_month['grand_total'].sum())
-        last_month_revenue = float(last_month['grand_total'].sum())
-        last_year_revenue = float(last_year_month['grand_total'].sum())
-        
-        # Calculate growth rates
-        mom_growth = ((current_revenue - last_month_revenue) / last_month_revenue * 100) if last_month_revenue > 0 else 0
-        yoy_growth = ((current_revenue - last_year_revenue) / last_year_revenue * 100) if last_year_revenue > 0 else 0
-        
-        # Transaction counts
-        current_txns = len(current_month)
-        last_month_txns = len(last_month)
-        last_year_txns = len(last_year_month)
-        
-        mom_txn_growth = ((current_txns - last_month_txns) / last_month_txns * 100) if last_month_txns > 0 else 0
-        yoy_txn_growth = ((current_txns - last_year_txns) / last_year_txns * 100) if last_year_txns > 0 else 0
-        
-        # AOV comparison
-        current_aov = float(current_month['grand_total'].mean()) if current_txns > 0 else 0
-        last_month_aov = float(last_month['grand_total'].mean()) if last_month_txns > 0 else 0
-        last_year_aov = float(last_year_month['grand_total'].mean()) if last_year_txns > 0 else 0
-        
-        # Monthly trend (last 12 months)
-        monthly_revenue = revenue_df.groupby(['year', 'month']).agg({
-            'grand_total': 'sum'
-        }).reset_index()
-        monthly_revenue['period'] = monthly_revenue.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
-        monthly_revenue = monthly_revenue.sort_values('period').tail(13)
-        
-        # Calculate MoM for each month
-        monthly_revenue['prev_revenue'] = monthly_revenue['grand_total'].shift(1)
-        monthly_revenue['mom_pct'] = ((monthly_revenue['grand_total'] - monthly_revenue['prev_revenue']) / monthly_revenue['prev_revenue'] * 100).fillna(0)
-        
-        return {
-            'current_month': {
-                'revenue': current_revenue,
-                'transactions': current_txns,
-                'aov': round(current_aov, 2),
-                'period': current_month_start.strftime('%Y-%m')
-            },
-            'last_month': {
-                'revenue': last_month_revenue,
-                'transactions': last_month_txns,
-                'aov': round(last_month_aov, 2),
-                'period': last_month_start.strftime('%Y-%m')
-            },
-            'last_year_same_month': {
-                'revenue': last_year_revenue,
-                'transactions': last_year_txns,
-                'aov': round(last_year_aov, 2),
-                'period': last_year_month_start.strftime('%Y-%m')
-            },
-            'mom_growth': round(mom_growth, 1),
-            'yoy_growth': round(yoy_growth, 1),
-            'mom_txn_growth': round(mom_txn_growth, 1),
-            'yoy_txn_growth': round(yoy_txn_growth, 1),
-            'monthly_trend': monthly_revenue[['period', 'grand_total', 'mom_pct']].tail(12).rename(
-                columns={'grand_total': 'revenue'}
-            ).to_dict('records'),
-        }
-    
-    def _empty_comparisons(self) -> Dict[str, Any]:
-        return {
-            'current_month': {'revenue': 0, 'transactions': 0, 'aov': 0, 'period': ''},
-            'last_month': {'revenue': 0, 'transactions': 0, 'aov': 0, 'period': ''},
-            'last_year_same_month': {'revenue': 0, 'transactions': 0, 'aov': 0, 'period': ''},
-            'mom_growth': 0, 'yoy_growth': 0, 'mom_txn_growth': 0, 'yoy_txn_growth': 0,
-            'monthly_trend': [],
-        }
-    
-    # ==================== DIMENSIONAL ANALYSIS ====================
-    
-    def analyze_by_dimensions(self, sales_df: pd.DataFrame, items_df: pd.DataFrame) -> Dict[str, Any]:
-        """Revenue breakdown by product group, customer segment, territory"""
-        if sales_df.empty:
-            return {'by_product_group': [], 'by_customer_segment': [], 'by_territory': []}
-        
-        revenue_df = sales_df[sales_df['is_return'] == 0].copy()
-        
-        # Calculate total revenue first (used for all percentage calculations)
-        total_revenue = float(revenue_df['grand_total'].sum())
-        
-        # Fill NULL values in grouping columns to include them in aggregations
-        revenue_df['customer_group'] = revenue_df['customer_group'].fillna('Uncategorized')
-        revenue_df['territory'] = revenue_df['territory'].fillna('Unassigned')
-        
-        # By Customer Group (Segment)
-        by_segment = revenue_df.groupby('customer_group').agg({
-            'grand_total': 'sum',
-            'invoice_id': 'count',
-            'customer': 'nunique'
-        }).reset_index()
-        by_segment.columns = ['customer_group', 'revenue', 'transactions', 'customers']
-        by_segment = by_segment.sort_values('revenue', ascending=False)
-        by_segment['pct'] = (by_segment['revenue'] / total_revenue * 100).round(1)
-        
-        # By Territory
-        by_territory = revenue_df.groupby('territory').agg({
-            'grand_total': 'sum',
-            'invoice_id': 'count',
-            'customer': 'nunique'
-        }).reset_index()
-        by_territory.columns = ['territory', 'revenue', 'transactions', 'customers']
-        by_territory = by_territory.sort_values('revenue', ascending=False)
-        by_territory['pct'] = (by_territory['revenue'] / total_revenue * 100).round(1)
-        
-        # By Product Group (from items)
-        by_product_group = []
-        if not items_df.empty:
-            pg_data = items_df.groupby('item_group').agg({
-                'amount': 'sum',
-                'qty': 'sum',
-                'invoice_id': 'nunique',
-                'item_code': 'nunique'
-            }).reset_index()
-            pg_data.columns = ['item_group', 'revenue', 'qty_sold', 'transactions', 'unique_items']
-            pg_data = pg_data.sort_values('revenue', ascending=False)
-            items_total = pg_data['revenue'].sum()
-            pg_data['pct'] = (pg_data['revenue'] / items_total * 100).round(1)
-            by_product_group = pg_data.head(20).to_dict('records')
-        
-        return {
-            'by_product_group': by_product_group,
-            'by_customer_segment': by_segment.to_dict('records'),
-            'by_territory': by_territory.to_dict('records'),
-            'total_revenue': float(total_revenue),
-        }
-    
-    # ==================== MARGIN ANALYSIS ====================
-    
-    def analyze_margins(self, items_df: pd.DataFrame) -> Dict[str, Any]:
-        """Gross margin analysis by product group and item"""
-        if items_df.empty:
-            return {'overall_margin': 0, 'by_product_group': [], 'top_margin_items': [], 'low_margin_items': []}
-        
-        # Overall margin
-        total_revenue = items_df['amount'].sum()
-        total_profit = items_df['gross_profit'].sum()
-        overall_margin = (total_profit / total_revenue * 100) if total_revenue > 0 else 0
-        
-        # By Product Group
-        pg_margin = items_df.groupby('item_group').agg({
-            'amount': 'sum',
-            'gross_profit': 'sum',
-            'qty': 'sum',
-            'item_code': 'nunique'
-        }).reset_index()
-        pg_margin.columns = ['item_group', 'revenue', 'gross_profit', 'qty_sold', 'unique_items']
-        pg_margin['margin_pct'] = (pg_margin['gross_profit'] / pg_margin['revenue'] * 100).fillna(0).round(1)
-        pg_margin = pg_margin.sort_values('revenue', ascending=False)
-        
-        # By Item (for top/bottom margin items)
-        item_margin = items_df.groupby(['item_code', 'item_name', 'item_group']).agg({
-            'amount': 'sum',
-            'gross_profit': 'sum',
-            'qty': 'sum'
-        }).reset_index()
-        item_margin.columns = ['item_code', 'item_name', 'item_group', 'revenue', 'gross_profit', 'qty_sold']
-        item_margin['margin_pct'] = (item_margin['gross_profit'] / item_margin['revenue'] * 100).fillna(0).round(1)
-        
-        # Filter items with meaningful revenue (top 50% by revenue)
-        revenue_threshold = item_margin['revenue'].quantile(0.5)
-        significant_items = item_margin[item_margin['revenue'] >= revenue_threshold]
-        
-        # Top margin items (highest margin %)
-        top_margin = significant_items.nlargest(10, 'margin_pct')
-        
-        # Low margin items (lowest margin %, but positive revenue)
-        low_margin = significant_items[significant_items['revenue'] > 0].nsmallest(10, 'margin_pct')
-        
-        # Margin by month trend
-        items_df['period'] = items_df.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
-        monthly_margin = items_df.groupby('period').agg({
-            'amount': 'sum',
-            'gross_profit': 'sum'
-        }).reset_index()
-        monthly_margin['margin_pct'] = (monthly_margin['gross_profit'] / monthly_margin['amount'] * 100).fillna(0).round(1)
-        
-        return {
-            'overall_margin': round(overall_margin, 1),
-            'total_revenue': float(total_revenue),
-            'total_profit': float(total_profit),
-            'by_product_group': pg_margin.to_dict('records'),
-            'top_margin_items': top_margin.to_dict('records'),
-            'low_margin_items': low_margin.to_dict('records'),
-            'margin_trend': monthly_margin.tail(12).to_dict('records'),
-        }
-    
-    # ==================== PIPELINE ANALYSIS ====================
-    
-    def analyze_pipeline(self, quotation_df: pd.DataFrame) -> Dict[str, Any]:
-        """Quotation-to-order conversion and pipeline analysis"""
-        if quotation_df.empty:
-            return {'conversion_rate': 0, 'pipeline_value': 0, 'quotes': [], 'by_status': []}
-        
-        total_quotes = len(quotation_df)
-        converted = int(quotation_df['converted'].sum())
-        lost = int(quotation_df['lost'].sum())
-        open_quotes = total_quotes - converted - lost
-        
-        conversion_rate = (converted / total_quotes * 100) if total_quotes > 0 else 0
-        loss_rate = (lost / total_quotes * 100) if total_quotes > 0 else 0
-        
-        # Pipeline value (open quotes)
-        pipeline_value = float(quotation_df[quotation_df['status'].isin(['Open', 'Submitted'])]['grand_total'].sum())
-        
-        # Average quote value
-        avg_quote_value = float(quotation_df['grand_total'].mean())
-        
-        # By status
-        by_status = quotation_df.groupby('status').agg({
-            'quotation_id': 'count',
-            'grand_total': 'sum'
-        }).reset_index()
-        by_status.columns = ['status', 'count', 'value']
-        
-        # Monthly conversion trend
-        monthly_conversion = quotation_df.groupby(['year', 'month']).agg({
-            'quotation_id': 'count',
-            'converted': 'sum',
-            'grand_total': 'sum'
-        }).reset_index()
-        monthly_conversion.columns = ['year', 'month', 'total_quotes', 'converted', 'total_value']
-        monthly_conversion['conversion_rate'] = (monthly_conversion['converted'] / monthly_conversion['total_quotes'] * 100).fillna(0).round(1)
-        monthly_conversion['period'] = monthly_conversion.apply(lambda x: f"{int(x['year'])}-{int(x['month']):02d}", axis=1)
-        
-        return {
-            'total_quotes': total_quotes,
-            'converted': converted,
-            'lost': lost,
-            'open_quotes': open_quotes,
-            'conversion_rate': round(conversion_rate, 1),
-            'loss_rate': round(loss_rate, 1),
-            'pipeline_value': pipeline_value,
-            'avg_quote_value': round(avg_quote_value, 2),
-            'by_status': by_status.to_dict('records'),
-            'monthly_trend': monthly_conversion[['period', 'total_quotes', 'converted', 'conversion_rate']].tail(12).to_dict('records'),
-        }
-    
-    # ==================== FULFILLMENT METRICS ====================
-    
-    def analyze_fulfillment(self, orders_df: pd.DataFrame, sales_df: pd.DataFrame) -> Dict[str, Any]:
-        """Order fulfillment and DSO analysis"""
-        import pandas as pd
-        result = {
-            'fulfillment_rate': 0,
-            'backlog_value': 0,
-            'dso': 0,
-            'by_status': [],
-            'fulfillment_trend': []
-        }
-        
-        if not orders_df.empty:
-            total_orders = len(orders_df)
-            fulfilled = len(orders_df[orders_df['fulfillment_status'] == 'Fulfilled'])
-            partial = len(orders_df[orders_df['fulfillment_status'] == 'Partial'])
-            pending = len(orders_df[orders_df['fulfillment_status'] == 'Pending'])
-            
-            fulfillment_rate = (fulfilled / total_orders * 100) if total_orders > 0 else 0
-            
-            # Backlog (unfulfilled orders value)
-            backlog_df = orders_df[orders_df['fulfillment_status'].isin(['Pending', 'Partial'])]
-            backlog_value = float(backlog_df['grand_total'].sum() * (1 - backlog_df['per_delivered'].mean() / 100)) if len(backlog_df) > 0 else 0
-            
-            result['fulfillment_rate'] = round(fulfillment_rate, 1)
-            result['backlog_value'] = backlog_value
-            result['total_orders'] = total_orders
-            result['fulfilled'] = fulfilled
-            result['partial'] = partial
-            result['pending'] = pending
-            
-            # By status
-            by_status = orders_df.groupby('fulfillment_status').agg({
-                'order_id': 'count',
-                'grand_total': 'sum'
-            }).reset_index()
-            by_status.columns = ['status', 'count', 'value']
-            result['by_status'] = by_status.to_dict('records')
-        
-        # DSO (Days Sales Outstanding)
-        if not sales_df.empty:
-            revenue_df = sales_df[sales_df['is_return'] == 0].copy()
-            total_receivables = float(revenue_df['outstanding_amount'].sum())
-            
-            # Average daily sales (last 90 days)
-            revenue_df['posting_date'] = pd.to_datetime(revenue_df['posting_date'])
-            last_90 = revenue_df[revenue_df['posting_date'] >= (datetime.now() - timedelta(days=90))]
-            avg_daily_sales = float(last_90['grand_total'].sum() / 90) if len(last_90) > 0 else 0
-            
-            dso = (total_receivables / avg_daily_sales) if avg_daily_sales > 0 else 0
-            
-            result['dso'] = round(dso, 1)
-            result['total_receivables'] = total_receivables
-            result['avg_daily_sales'] = round(avg_daily_sales, 2)
-        
-        return result
+    else:
+        top_margin_items = []
+        low_margin_items = []
 
-    # ==================== SOURCE ATTRIBUTION ====================
+    # Margin trend (last 12 months).
+    trend_df = (
+        base.mutate(period=base.posting_date.strftime("%Y-%m"))
+        .group_by("period")
+        .aggregate(
+            revenue=sii.net_amount.sum(),
+            gross_profit=line_profit,
+        )
+        .order_by("period")
+        .execute()
+    )
+    margin_trend: list[dict[str, Any]] = []
+    for _, r in trend_df.iterrows():
+        rev = float(r["revenue"] or 0)
+        profit = float(r["gross_profit"] or 0)
+        margin_trend.append(
+            {
+                "period": r["period"],
+                "revenue": round(rev, 2),
+                "gross_profit": round(profit, 2),
+                "margin_pct": round(profit / rev * 100, 1) if rev > 0 else 0,
+            }
+        )
+    margin_trend = margin_trend[-12:]
 
-    def get_source_attributed_sales(self, period_start: str, period_end: str) -> List[Dict[str, Any]]:
-        """Get revenue, orders, and profit attributed to each lead source."""
-        return get_source_attributed_sales(period_start, period_end)
+    return {
+        "overall_margin": overall_margin,
+        "total_revenue": round(total_revenue, 2),
+        "total_profit": round(total_profit, 2),
+        "by_product_group": by_product_group,
+        "top_margin_items": top_margin_items,
+        "low_margin_items": low_margin_items,
+        "margin_trend": margin_trend,
+    }
 
-    def get_quotation_analytics(self, period_start: str, period_end: str) -> Dict[str, Any]:
-        """Get quotation funnel analytics."""
-        return get_quotation_analytics(period_start, period_end)
 
-    def get_territory_performance(self, period_start: str, period_end: str) -> List[Dict[str, Any]]:
-        """Get sales performance by territory."""
-        return get_territory_performance(period_start, period_end)
+# ---------------------------------------------------------------------------
+# Fulfillment / DSO
+# ---------------------------------------------------------------------------
 
-    # ==================== AGGREGATE FORECASTS ====================
 
-    def aggregate_forecasts(self, refresh: bool = False) -> Dict[str, Any]:
-        """Pull forecasts from existing ML models: Sales Forecasting and Demand Forecasting
+def analyze_fulfillment(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Order fulfillment rate and Days Sales Outstanding.
 
-        Args:
-            refresh: If True, retrain forecasts if cache is empty or stale
+    The previous version used a raw `tabSales Order` query. Same here,
+    in Ibis terms.
+    """
+    so = company_filter(t("Sales Order"), company or default_company()).filter(
+        t("Sales Order").docstatus == 1
+    )
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        so = so.filter(so.transaction_date >= start.date())
 
-        Both caches are read through `self`. `SalesForecasting.__init__` calls
-        `_check_prophet()`, so merely constructing it to reach a method it
-        inherits from `BaseMLModel` pulled prophet and matplotlib — 126 MB and
-        1.4s — into whichever process asked, including a web worker that was only
-        ever going to read a cache key. Construct them only to train.
-        """
-        forecasts = {
-            'sales_forecast': None,
-            'demand_forecast': None
-        }
-
-        try:
-            # Sales Forecast (90 days).
-            #
-            # `get_cached_results` reads Redis only. Redis is wiped by
-            # `bench migrate`, `bench clear-cache` and any Redis restart, so
-            # after a deploy this returned None for a model that is trained and
-            # whose payload is sitting on disk -- and the Revenue "Forecasts"
-            # tab rendered "No sales forecast available" with a Train button,
-            # inviting a retrain that was not needed. Fall back to the last good
-            # snapshot, which is what the model health page already reports from.
-            sf_cached = self.get_cached_results("sales_forecast") or self.get_last_good_results(
-                "sales_forecast"
+    by_status_df = (
+        so.mutate(
+            fulfillment_status=ibis.ifelse(
+                so.per_delivered >= 100,
+                ibis.literal("Fulfilled"),
+                ibis.ifelse(
+                    so.per_delivered > 0,
+                    ibis.literal("Partial"),
+                    ibis.literal("Pending"),
+                ),
             )
+        )
+        .group_by("fulfillment_status")
+        .aggregate(
+            count=so.name.count(),
+            value=so.grand_total.sum(),
+        )
+        .execute()
+    )
+    total_orders = int(by_status_df["count"].sum()) if not by_status_df.empty else 0
+    fulfilled = 0
+    partial = 0
+    pending = 0
+    by_status: list[dict[str, Any]] = []
+    for _, r in by_status_df.iterrows():
+        cnt = int(r["count"] or 0)
+        by_status.append(
+            {
+                "status": str(r["fulfillment_status"]),
+                "count": cnt,
+                "value": float(r["value"] or 0),
+            }
+        )
+        if r["fulfillment_status"] == "Fulfilled":
+            fulfilled = cnt
+        elif r["fulfillment_status"] == "Partial":
+            partial = cnt
+        elif r["fulfillment_status"] == "Pending":
+            pending = cnt
+    fulfillment_rate = round(fulfilled / total_orders * 100, 1) if total_orders > 0 else 0
 
-            # Auto-train if refresh requested and neither cache nor snapshot has it
-            if not sf_cached and refresh:
-                from insights.ml.sales_forecasting import SalesForecasting
+    # Backlog value: outstanding partial/pending grand_total * (1 - per_delivered/100)
+    backlog_df = (
+        so.filter(so.per_delivered < 100)
+        .select(
+            grand_total=so.grand_total,
+            per_delivered=so.per_delivered.fill_null(0),
+        )
+        .execute()
+    )
+    if len(backlog_df) > 0:
+        backlog_value = float(
+            (backlog_df["grand_total"] * (1 - backlog_df["per_delivered"] / 100)).sum()
+        )
+    else:
+        backlog_value = 0.0
 
-                frappe.logger().info("Auto-training sales forecast...")
-                sf_cached = SalesForecasting().train()
+    # DSO = total_receivables / avg_daily_sales (last 90 days).
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    cutoff_90 = (datetime.now() - timedelta(days=90)).date()
+    receivables_df = si.aggregate(total=si.outstanding_amount.sum()).execute().iloc[0]
+    total_receivables = float(receivables_df["total"] or 0)
+    last_90_df = (
+        si.filter(si.posting_date >= cutoff_90)
+        .aggregate(
+            total=si.grand_total.sum(),
+            days=ibis.literal(90),
+        )
+        .execute()
+    )
+    last_90_total = float(last_90_df["total"].iloc[0] or 0) if not last_90_df.empty else 0
+    avg_daily_sales = last_90_total / 90 if last_90_total > 0 else 0
+    dso = round(total_receivables / avg_daily_sales, 1) if avg_daily_sales > 0 else 0
 
-            if sf_cached:
-                forecast_data = sf_cached.get('forecast', [])[:90]  # Next 90 days
-                # Calculate 90-day total
-                total_90d = sum(f.get('yhat', 0) for f in forecast_data) if forecast_data else 0
-                forecasts['sales_forecast'] = {
-                    'forecast_summary': {
-                        'total_forecast': total_90d,
-                        'days': len(forecast_data)
-                    },
-                    'forecast': forecast_data,
-                    'method': sf_cached.get('method', ''),
-                    'metrics': sf_cached.get('metrics', {})
-                }
-        except Exception as e:
-            frappe.logger().warning(f"Could not load sales forecast: {e}")
-        
-        try:
-            # Demand Forecast
-            # Same Redis-only trap as the sales forecast above.
-            df_cached = self.get_cached_results("demand_forecast") or self.get_last_good_results(
-                "demand_forecast"
-            )
-
-            # Auto-train if refresh requested and no cache
-            if not df_cached and refresh:
-                from insights.ml.demand_forecasting import DemandForecasting
-
-                frappe.logger().info("Auto-training demand forecast...")
-                df_cached = DemandForecasting().train()
-            
-            if df_cached:
-                # Get reorder alerts
-                forecasts_list = df_cached.get('forecasts', [])
-                reorder_alerts = [f for f in forecasts_list if f.get('stock_status') in ['Reorder Now', 'Monitor']]
-                forecasts['demand_forecast'] = {
-                    'summary': df_cached.get('summary', {}),
-                    'reorder_alerts': reorder_alerts[:20],  # Top 20 alerts
-                    'total_items': len(forecasts_list)
-                }
-        except Exception as e:
-            frappe.logger().warning(f"Could not load demand forecast: {e}")
-        
-        return forecasts
-    
-    # ==================== MAIN TRAINING METHOD ====================
-    
-    def train(self, refresh_forecasts: bool = True) -> Dict[str, Any]:
-        """Run complete sales intelligence analysis
-        
-        Args:
-            refresh_forecasts: If True, auto-train forecasts if not cached
-        """
-        # Collect data
-        sales_df = self._get_sales_transactions()
-        items_df = self._get_sales_invoice_items()
-        sales_team_df = self._get_sales_team_data()
-        quotation_df = self._get_quotation_data()
-        orders_df = self._get_sales_orders()
-        
-        if sales_df.empty:
-            return {"status": "error", "message": _("No sales data found")}
-        
-        # Run all analytics
-        revenue_metrics = self.calculate_revenue_metrics(sales_df)
-        payment_mix = self.calculate_payment_mix(sales_df)
-        sales_reps = self.analyze_sales_reps(sales_team_df, quotation_df)
-        comparisons = self.calculate_comparisons(sales_df)
-        dimensions = self.analyze_by_dimensions(sales_df, items_df)
-        margins = self.analyze_margins(items_df)
-        pipeline = self.analyze_pipeline(quotation_df)
-        fulfillment = self.analyze_fulfillment(orders_df, sales_df)
-        forecasts = self.aggregate_forecasts(refresh=refresh_forecasts)
-        
-        # Build summary
-        summary = {
-            'total_revenue': revenue_metrics['total_revenue'],
-            'total_transactions': revenue_metrics['total_transactions'],
-            'avg_order_value': revenue_metrics['avg_order_value'],
-            'unique_customers': revenue_metrics['unique_customers'],
-            'cash_ratio': payment_mix['cash_ratio'],
-            'credit_ratio': payment_mix['credit_ratio'],
-            'mom_growth': comparisons['mom_growth'],
-            'yoy_growth': comparisons['yoy_growth'],
-            'overall_margin': margins['overall_margin'],
-            'conversion_rate': pipeline['conversion_rate'],
-            'fulfillment_rate': fulfillment['fulfillment_rate'],
-            'dso': fulfillment['dso'],
-            'total_sales_reps': sales_reps['total_reps'],
-        }
-        
-        # Clean results for JSON
-        def clean_for_json(obj):
-            import pandas as pd
-            import numpy as np
-            if isinstance(obj, dict):
-                return {k: clean_for_json(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
-                return [clean_for_json(item) for item in obj]
-            elif isinstance(obj, (np.integer, np.floating)):
-                return float(obj) if np.isfinite(obj) else 0
-            elif isinstance(obj, float) and (pd.isna(obj) or not np.isfinite(obj)):
-                return 0
-            elif pd.isna(obj):
-                return None
-            return obj
-        
-        results = {
-            "status": "success",
-            "analysis_date": datetime.now().isoformat(),
-            "summary": clean_for_json(summary),
-            "revenue_metrics": clean_for_json(revenue_metrics),
-            "payment_mix": clean_for_json(payment_mix),
-            "sales_reps": clean_for_json(sales_reps),
-            "comparisons": clean_for_json(comparisons),
-            "dimensions": clean_for_json(dimensions),
-            "margins": clean_for_json(margins),
-            "pipeline": clean_for_json(pipeline),
-            "fulfillment": clean_for_json(fulfillment),
-            "forecasts": clean_for_json(forecasts),
-        }
-        
-        # Cache results
-        self.cache_results("sales_intelligence", results, expires_in_hours=6)
-        
-        # Log training
-        self.log_training({
-            "total_transactions": revenue_metrics['total_transactions'],
-            "total_revenue": revenue_metrics['total_revenue'],
-            "sales_reps_analyzed": sales_reps['total_reps'],
-        })
-        
-        return results
-    
-    def predict(self, metric: str = None, allow_train: bool = False) -> Dict[str, Any]:
-        """Get cached analysis.
-
-        `allow_train` is off by default so an incidental caller cannot trigger a
-        full training pass. The dashboard endpoint
-        (`insights.api.ml.sales.sales_intelligence`) opts in; the slice endpoints
-        in the same module do not.
-
-        Without it, prefer the last payload that computed successfully over a
-        placeholder: redis is wiped by every deploy and by `bench clear-cache`,
-        which leaves perfectly usable numbers on disk and an empty cache.
-
-        `refresh_forecasts=False`: every caller of `predict` is serving a request,
-        and fitting Prophet or 100 Holt-Winters models is not something a page
-        load should do. The scheduler trains them.
-        """
-        cached = self.get_cached_results("sales_intelligence")
-        if not cached:
-            if not allow_train:
-                cached = self.get_last_good_results("sales_intelligence") or {
-                    "status": "warming",
-                    "message": _("Sales intelligence is being computed. Refresh shortly."),
-                }
-            else:
-                cached = self.train(refresh_forecasts=False)
-
-        if metric and metric in cached:
-            return {"status": "success", metric: cached[metric]}
-
-        return cached
+    return {
+        "fulfillment_rate": fulfillment_rate,
+        "backlog_value": backlog_value,
+        "dso": dso,
+        "by_status": by_status,
+        "total_orders": total_orders,
+        "fulfilled": fulfilled,
+        "partial": partial,
+        "pending": pending,
+        "total_receivables": round(total_receivables, 2),
+        "avg_daily_sales": round(avg_daily_sales, 2),
+    }
 
 
-# ==================== API FUNCTIONS ====================
-
-def run_sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Run sales intelligence analysis"""
-    model = SalesIntelligence(date_filter=date_filter)
-    
-    if not refresh:
-        cached = model.get_cached_results(f"sales_intelligence_{date_filter}")
-        if cached:
-            return cached
-    
-    return model.train()
+# ---------------------------------------------------------------------------
+# Aggregate payload -- the full `sales_intelligence` response
+# ---------------------------------------------------------------------------
 
 
-def get_sales_intelligence() -> Dict[str, Any]:
-    """Get cached sales intelligence or run if not available"""
-    model = SalesIntelligence()
-    cached = model.get_cached_results("sales_intelligence")
-    
-    if cached:
-        return cached
-    
-    return model.train()
+def aggregate_forecasts() -> dict[str, Any]:
+    """Sales forecast + demand forecast / reorder alerts, computed fresh.
+
+    No cache. Every call rebuilds the sales forecast (a single SQL
+    aggregate + a small Python trend fit) and the demand forecast (the
+    canonical `DemandForecasting.train()` from inventory_intelligence).
+    Both are cheap enough to run inline; the dashboard already shows a
+    "Refresh" button if the user wants fresher numbers.
+    """
+    sales = get_sales_forecast(periods=30)
+    demand_payload = DemandForecasting().train()
+    demand_alerts = demand_payload.get("reorder_alerts", [])
+
+    return {
+        "sales_forecast": {
+            "forecast": sales.get("forecast", []),
+            "forecast_summary": sales.get("forecast_summary", {}),
+            "method": sales.get("method", "linear_trend"),
+            "metrics": sales.get("metrics", {}),
+            "data_range": sales.get("data_range", {}),
+        },
+        "demand_forecast": {
+            "summary": {
+                "total_items_analyzed": demand_payload.get("total_items_analyzed", 0),
+                "reorder_now_count": demand_payload.get("reorder_now_count", 0),
+                "monitor_count": demand_payload.get("monitor_count", 0),
+                "adequate_count": demand_payload.get("adequate_count", 0),
+            },
+            "reorder_alerts": demand_alerts[:20],
+            "total_items": len(demand_alerts),
+        },
+    }
 
 
-def get_payment_mix() -> Dict[str, Any]:
-    """Get cash vs credit payment mix"""
-    result = get_sales_intelligence()
-    if result.get('status') != 'success':
-        return result
-    return {"status": "success", "payment_mix": result.get('payment_mix', {})}
+def run_sales_intelligence(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Run the full sales intelligence payload synchronously."""
+    revenue_metrics = calculate_revenue_metrics(date_filter, company)
+    payment_mix = calculate_payment_mix(date_filter, company)
+    sales_reps = analyze_sales_reps(date_filter, company)
+    comparisons = calculate_comparisons(date_filter, company)
+    dimensions = analyze_by_dimensions(date_filter, company)
+    margins = analyze_margins(date_filter, company)
+    fulfillment = analyze_fulfillment(date_filter, company)
+    forecasts = aggregate_forecasts()
+
+    summary = {
+        "total_revenue": revenue_metrics["total_revenue"],
+        "total_transactions": revenue_metrics["total_transactions"],
+        "avg_order_value": revenue_metrics["avg_order_value"],
+        "unique_customers": revenue_metrics["unique_customers"],
+        "cash_ratio": payment_mix["cash_ratio"],
+        "credit_ratio": payment_mix["credit_ratio"],
+        "mom_growth": comparisons["mom_growth"],
+        "yoy_growth": comparisons["yoy_growth"],
+        "overall_margin": margins["overall_margin"],
+        "fulfillment_rate": fulfillment["fulfillment_rate"],
+        "dso": fulfillment["dso"],
+        "total_sales_reps": sales_reps["total_reps"],
+    }
+
+    return {
+        "status": "success",
+        "analysis_date": datetime.now().isoformat(),
+        "summary": summary,
+        "revenue_metrics": revenue_metrics,
+        "payment_mix": payment_mix,
+        "sales_reps": sales_reps,
+        "comparisons": comparisons,
+        "dimensions": dimensions,
+        "margins": margins,
+        "fulfillment": fulfillment,
+        "forecasts": forecasts,
+    }
 
 
-def get_sales_rep_performance() -> Dict[str, Any]:
-    """Get individual sales rep performance metrics"""
-    result = get_sales_intelligence()
-    if result.get('status') != 'success':
-        return result
-    return {"status": "success", "sales_reps": result.get('sales_reps', {})}
-
-
-def get_revenue_breakdown() -> Dict[str, Any]:
-    """Get revenue by product group, segment, territory"""
-    result = get_sales_intelligence()
-    if result.get('status') != 'success':
-        return result
-    return {"status": "success", "dimensions": result.get('dimensions', {})}
-
-
-def get_margin_analysis() -> Dict[str, Any]:
-    """Get gross margin analysis by product group"""
-    result = get_sales_intelligence()
-    if result.get('status') != 'success':
-        return result
-    return {"status": "success", "margins": result.get('margins', {})}
-
-
-def get_sales_comparisons() -> Dict[str, Any]:
-    """Get MoM and YoY comparisons"""
-    result = get_sales_intelligence()
-    if result.get('status') != 'success':
-        return result
-    return {"status": "success", "comparisons": result.get('comparisons', {})}
+def get_sales_intelligence(
+    date_filter: str = "12m",
+    company: str | None = None,
+) -> dict[str, Any]:
+    """Backward-compatible: every call computes fresh (no cache)."""
+    return run_sales_intelligence(date_filter=date_filter, company=company)
