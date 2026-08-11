@@ -30,8 +30,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
-from insights.api.response import success, error
-
+from insights.api.response import error, success
 
 # Each department's rollup surfaces a different doctype's data. The
 # frontend selects via ``department=``; this map is the one place that

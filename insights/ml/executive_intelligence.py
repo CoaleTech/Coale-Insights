@@ -238,7 +238,6 @@ def _financial_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
         # later; this is a sensible default for an empty-data site too).
         mtd_revenue = _f(data.get("mtd_revenue"))
         mtd_profit = _f(data.get("mtd_profit"))
-        mtd_expenses = _f(data.get("mtd_expenses"))
         net_margin = (mtd_profit / mtd_revenue * 100) if mtd_revenue else 0.0
 
         # Cash runway: from the cash flow sub-section, if present
@@ -290,10 +289,7 @@ def _sales_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
         growth_rate = mom_growth if mom_growth else yoy_growth
         # AOV from revenue metrics
         rev_metrics = data.get("revenue_metrics", {}) or {}
-        aov = _f(rev_metrics.get("avg_order_value", summary.get("avg_order_value")))
         pipeline_value = _f(rev_metrics.get("total_revenue", summary.get("total_revenue")))
-        conversion_rate = _f(summary.get("quote_conversion_rate"))
-        dso = _f(fulfillment.get("dso"))
         fulfillment_rate = _f(fulfillment.get("fulfillment_rate"))
 
         return {
@@ -418,7 +414,6 @@ def _risk_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
             return _f(comp.get("score"))
 
         credit = _score("credit_risk")
-        cashflow = _score("cashflow_risk")
         operational = _score("operational_risk")
         compliance = _score("compliance_risk")
 
