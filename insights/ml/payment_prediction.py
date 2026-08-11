@@ -7,16 +7,16 @@ from insights.ml.base import BaseMLModel
 
 if TYPE_CHECKING:
     import pandas as pd
-    import numpy as np
 
-# Optional ML dependencies
-try:
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.model_selection import train_test_split
-    from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-    HAS_SKLEARN = True
-except ImportError:
-    HAS_SKLEARN = False
+# sklearn is imported lazily inside the methods that need it (train, predict)
+# to avoid loading numpy/OpenBLAS in the RQ worker parent before fork.
+# _check_sklearn() tests availability at call time.
+def _check_sklearn():
+    try:
+        import sklearn  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 # Minimum examples of *each* outcome before a classifier is worth fitting.
 # At the time of writing this site has 127 overdue invoices against 3,704
@@ -217,7 +217,7 @@ class PaymentPrediction(BaseMLModel):
             'avg_invoice_value'
         ]
         
-        if not HAS_SKLEARN:
+        if not _check_sklearn():
             return {
                 "status": "error",
                 "message": "scikit-learn not installed. Run: pip install insights[ml]"
