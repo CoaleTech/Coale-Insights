@@ -43,21 +43,30 @@ from typing import Any
 
 # Public name -> module that defines it.
 _LAZY_MAP = {
-    "CustomerSegmentation": "insights.ml.customer_segmentation",
-    "ABCXYZClassification": "insights.ml.abc_xyz_classification",
-    "SalesForecasting": "insights.ml.sales_forecasting",
     "PaymentPrediction": "insights.ml.payment_prediction",
     "DemandForecasting": "insights.ml.demand_forecasting",
     "ProductRecommendations": "insights.ml.product_recommendations",
+    "BreakevenEngine": "insights.ml.breakeven_engine",
+    "IndiaTaxIntelligence": "insights.ml.india_tax_intelligence.model",
     # `CustomerIntelligence` removed 2026-08-11: the underlying
     # `insights.ml.customer_intelligence.model` subpackage was deleted in the
     # pure-Ibis rewrite and nothing in the live tree uses
     # `from insights.ml import CustomerIntelligence` anymore. The replacement
     # module-level function is `insights.ml.customer.compute_customer_intelligence`.
-    "SalesIntelligence": "insights.ml.sales_intelligence",
-    "RiskIntelligence": "insights.ml.risk_intelligence",
-    "BreakevenEngine": "insights.ml.breakeven_engine",
-    "IndiaTaxIntelligence": "insights.ml.india_tax_intelligence.model",
+    #
+    # `CustomerSegmentation` and `ABCXYZClassification` removed the same day:
+    # `insights.ml.customer_segmentation` and `insights.ml.abc_xyz_classification`
+    # were both deleted. RFM segmentation now lives at
+    # `insights.ml.customer.compute_rfm_segmentation`; ABC/XYZ classification's
+    # canonical home is the `ABCXYZClassification` class in
+    # `insights.ml.inventory_intelligence`.
+    #
+    # `SalesForecasting`, `SalesIntelligence`, and `RiskIntelligence` removed the
+    # same day: all three domains were rewritten from `BaseMLModel` subclasses to
+    # plain functions with no equivalent class. Use
+    # `insights.ml.sales_forecasting.run_sales_forecast`,
+    # `insights.ml.sales_intelligence.run_sales_intelligence`, and
+    # `insights.ml.risk_intelligence.run_risk_intelligence` instead.
 }
 
 __all__ = list(_LAZY_MAP)
