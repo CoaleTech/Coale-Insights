@@ -14,16 +14,56 @@ import functools
 def _single_threaded(fn):
     """Run a forked ML job with BLAS/OpenMP pinned to one thread.
 
-    Belt-and-suspenders with the env pins in ``insights/__init__``: every
-    function here is enqueued as ``insights.ml.scheduler.<name>`` and executed
-    in rq's forked work-horse, where a live multi-thread OpenBLAS pool riding
-    the fork segfaults as "waitpid returned 139 (signal 11)". Entering
-    ``threadpool_limits(1)`` before the first array op reconfigures the pool
-    in-process, so the job is safe even if numpy loaded multi-threaded upstream.
-    Degrades to a plain call when threadpoolctl is absent — the env pins hold.
+    Three layers of fork-safety, innermost first:
+
+    1. **Env vars (forced, not setdefault).** ``OPENBLAS_NUM_THREADS=1`` etc.
+       are set *before* the decorator imports numpy/pandas, so OpenBLAS on
+       Linux never creates a multi-thread pool.  ``insights/__init__.py``
+       already does this, but only when ``insights`` is imported — if a
+       third-party app or a pre-import pulled numpy in first, those vars
+       arrived too late.  Setting them here covers that gap because the
+       decorator runs *after* the fork, *before* any model code.
+
+    2. **Pre-import numpy/pandas.** Importing them here (after the env vars
+       are pinned) means the BLAS pool is created single-threaded in the
+       child.  If the job function then imports them again, Python reuses
+       the cached module — no second initialization, no new pool.
+
+    3. **threadpool_limits(1).** Belt-and-suspenders: if a library created
+       a pool despite the env vars, this clamps it to one thread in-process.
+       Degrades to a plain call when threadpoolctl is absent.
+
+    On Linux (Frappe Cloud), OpenBLAS creates a pthread pool at ``import
+    numpy`` time.  That pool cannot survive ``rq``'s ``os.fork()`` — the
+    work-horse dies as ``waitpid returned 139 (signal 11)`` with no Python
+    traceback.  On macOS, numpy uses Accelerate which does not create a
+    pool, so the fork is always safe and the crash never reproduces
+    locally.  Layer 1 is the fix that actually matters on Linux; 2 and 3
+    are defense-in-depth.
     """
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
+        import os
+
+        # Layer 1 — force env vars before any numpy import in this child.
+        for _var in (
+            "OMP_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "VECLIB_MAXIMUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+        ):
+            os.environ[_var] = "1"
+
+        # Layer 2 — import numpy/pandas here so BLAS initialises single-
+        # threaded in the child, before the job function touches them.
+        try:
+            import numpy  # noqa: F401 — side effect: init BLAS with 1 thread
+            import pandas  # noqa: F401
+        except Exception:
+            pass
+
+        # Layer 3 — clamp any pool that slipped through.
         try:
             from threadpoolctl import threadpool_limits
         except Exception:
@@ -32,6 +72,59 @@ def _single_threaded(fn):
             return fn(*args, **kwargs)
 
     return wrapper
+
+def _crash_marker_path(job_name: str) -> str:
+    """On-disk marker file that proves a job started but did not finish.
+
+    A SIGSEGV (signal 11) kills the work-horse before Python's ``except``
+    runs, so ``frappe.log_error`` never fires and the failure is invisible —
+    the job simply vanishes from the RQ dashboard as "failed" with no
+    traceback.  Writing a marker *before* the job starts and removing it on
+    *success* leaves evidence: if the marker exists on the next run, the
+    previous run crashed.  The next run logs that fact to Error Log so the
+    operator can see it in Desk.
+    """
+    import os
+    directory = os.path.join(frappe.get_site_path(), "private", "files", "ml_crash_markers")
+    os.makedirs(directory, exist_ok=True)
+    return os.path.join(directory, f"{job_name}.crash")
+
+
+def _mark_crash_start(job_name: str):
+    """Record that a job is starting — to be cleared on success."""
+    import json
+    import os
+    from datetime import datetime
+    path = _crash_marker_path(job_name)
+    try:
+        # If a marker from a previous run exists, the previous run crashed.
+        if os.path.exists(path):
+            with open(path) as f:
+                prev = json.load(f)
+            frappe.log_error(
+                f"ML job '{job_name}' appears to have crashed on its previous run "
+                f"(started {prev.get('started_at', 'unknown')}). "
+                f"This is likely a signal-11 (SIGSEGV) fork crash — the work-horse "
+                f"was killed before Python could log the error. "
+                f"Check worker.error.log on the server for 'waitpid returned 139'.",
+                "ML Scheduler — crash detected",
+            )
+    except Exception:
+        pass
+    try:
+        with open(path, "w") as f:
+            json.dump({"job": job_name, "started_at": datetime.now().isoformat()}, f)
+    except Exception:
+        pass
+
+
+def _clear_crash_marker(job_name: str):
+    """Remove the crash marker — the job finished successfully."""
+    import os
+    try:
+        os.unlink(_crash_marker_path(job_name))
+    except Exception:
+        pass
 
 
 @_single_threaded
@@ -368,20 +461,21 @@ def run_all_ml_models():
 @_single_threaded
 def train_customer_intelligence():
     """Daily: Train comprehensive customer intelligence model"""
+    _mark_crash_start("train_customer_intelligence")
     try:
         from insights.ml.customer_intelligence import CustomerIntelligence
-        
+
         frappe.logger().info("Starting scheduled customer intelligence training")
-        
+
         model = CustomerIntelligence()
-        
+
         # Train inline. This function already runs on the `long` worker (the
         # dashboard's serve_or_warm and the daily scheduler enqueue it), so the
         # old >5000-customer re-enqueue only added a second, un-deduplicated
         # heavy job -- repeated board opens stacked concurrent customer trains
         # and OOM'd the work-horse, killing the queue.
         result = model.train(update_customers=True)
-        
+
         if result.get('status') == 'success':
             summary = result.get('summary', {})
             at_risk = len(result.get('at_risk_customers', []))
@@ -389,7 +483,7 @@ def train_customer_intelligence():
                 f"Customer intelligence completed: {summary.get('total_customers', 0)} customers analyzed, "
                 f"{at_risk} at risk"
             )
-            
+
             # Send alert if high-risk customers detected
             if at_risk > 0:
                 _send_churn_risk_alert(result)
@@ -397,9 +491,10 @@ def train_customer_intelligence():
             frappe.logger().warning(
                 f"Customer intelligence failed: {result.get('message', 'Unknown error')}"
             )
-        
+
+        _clear_crash_marker("train_customer_intelligence")
         return result
-        
+
     except Exception as e:
         frappe.log_error(f"Scheduled customer intelligence failed: {str(e)}", "ML Scheduler")
         return {"status": "error", "message": str(e)}
@@ -489,14 +584,15 @@ def train_breakeven_engine():
 @_single_threaded
 def train_sales_intelligence():
     """Daily: Train comprehensive sales intelligence model"""
+    _mark_crash_start("train_sales_intelligence")
     try:
         from insights.ml.sales_intelligence import SalesIntelligence
-        
+
         frappe.logger().info("Starting scheduled sales intelligence training")
-        
+
         model = SalesIntelligence()
         result = model.train(refresh_forecasts=False)
-        
+
         if result.get('status') == 'success':
             summary = result.get('summary', {})
             frappe.logger().info(
@@ -509,9 +605,10 @@ def train_sales_intelligence():
             frappe.logger().warning(
                 f"Sales intelligence failed: {result.get('message', 'Unknown error')}"
             )
-        
+
+        _clear_crash_marker("train_sales_intelligence")
         return result
-        
+
     except Exception as e:
         frappe.log_error(f"Scheduled sales intelligence failed: {str(e)}", "ML Scheduler")
         return {"status": "error", "message": str(e)}
