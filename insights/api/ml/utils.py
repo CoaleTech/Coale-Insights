@@ -8,7 +8,7 @@ ML API modules.
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
 import frappe
@@ -26,20 +26,14 @@ def enqueue_training(method: str, job_id: str, label: str, **kwargs) -> Dict[str
     Returns the ordinary `{"status": "success", "message": ...}` envelope, so
     callers need no queued/polling special case.
     """
-    from frappe.utils.background_jobs import get_job_status
-
     from insights.api.response import success
 
-    # Ask before enqueuing, not after: `deduplicate=True` skips silently when a
-    # job with this id is already QUEUED or STARTED, so checking afterwards
-    # always reports "already running" -- including for the run we just started.
-    try:
-        already_running = get_job_status(job_id) in ("queued", "started")
-    except Exception:
-        already_running = False
-
-    if already_running:
-        return success(message=_("{0}: training is already running in the background.").format(label))
+    # A work-horse killed by OOM, SIGSEGV, or a deploy leaves its RQ job STARTED
+    # in redis with no worker running it. `deduplicate=True` then silently skips
+    # every later enqueue, so the queue stays empty and the dashboard warms
+    # forever -- the exact "workers idle, nothing queued" wedge. Delete that
+    # corpse first, mirroring migrate._enqueue_once, so this enqueue takes.
+    _reap_dead_job(job_id)
 
     frappe.enqueue(
         method,
@@ -52,6 +46,65 @@ def enqueue_training(method: str, job_id: str, label: str, **kwargs) -> Dict[str
     return success(
         message=_("{0}: training started in the background. Refresh in a few minutes.").format(label)
     )
+
+
+def _reap_dead_job(job_id: str) -> None:
+    """Delete a job wedged STARTED in redis by a killed work-horse.
+
+    A STARTED job that no live worker is running is a corpse: a work-horse
+    killed by a signal, OOM, or a deploy never marked it finished. Leaving it
+    makes `deduplicate=True` skip every future enqueue for this id. A genuinely
+    running job (a live worker owns it) and a still-pending QUEUED job are both
+    left untouched, so this never kills real work.
+    """
+    try:
+        from frappe.utils.background_jobs import get_job
+
+        job = get_job(job_id)
+    except Exception:
+        return
+    if not job:
+        return
+    try:
+        if job.get_status(refresh=True) != "started":
+            return
+        if _job_has_no_live_worker(job):
+            job.delete()
+    except Exception:
+        pass
+
+
+def _job_has_no_live_worker(job) -> bool:
+    """True when no live RQ worker is executing `job` -- i.e. it is a corpse.
+
+    A worker killed by a signal only leaves the worker registry once its
+    heartbeat TTL lapses, so a freshly dead job can still look owned; fall back
+    to age, since a STARTED job older than its own timeout cannot still be
+    running.
+    """
+    try:
+        from frappe.utils.background_jobs import get_redis_conn
+        from rq import Worker
+
+        conn = get_redis_conn()
+        for worker in Worker.all(connection=conn):
+            try:
+                if worker.get_current_job_id() == job.id:
+                    return False
+            except Exception:
+                continue
+        return True
+    except Exception:
+        try:
+            started = job.started_at
+            if not started:
+                return True
+            if started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            age = (datetime.now(timezone.utc) - started).total_seconds()
+            return age > 1500
+        except Exception:
+            return False
 
 
 def serve_or_warm(

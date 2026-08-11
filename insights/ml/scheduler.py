@@ -341,22 +341,11 @@ def train_customer_intelligence():
         
         model = CustomerIntelligence()
         
-        # Check customer count for async decision
-        customer_count = frappe.db.count("Customer", {"disabled": 0})
-        
-        if customer_count > model.CUSTOMER_THRESHOLD:
-            # Run async for large datasets
-            frappe.enqueue(
-                "insights.ml.customer_intelligence.api._run_customer_intelligence_job",
-                queue="long",
-                timeout=3600,
-                update_customers=True
-            )
-            frappe.logger().info(
-                f"Customer intelligence queued for async processing ({customer_count} customers)"
-            )
-            return {"status": "queued", "customers": customer_count}
-        
+        # Train inline. This function already runs on the `long` worker (the
+        # dashboard's serve_or_warm and the daily scheduler enqueue it), so the
+        # old >5000-customer re-enqueue only added a second, un-deduplicated
+        # heavy job -- repeated board opens stacked concurrent customer trains
+        # and OOM'd the work-horse, killing the queue.
         result = model.train(update_customers=True)
         
         if result.get('status') == 'success':
