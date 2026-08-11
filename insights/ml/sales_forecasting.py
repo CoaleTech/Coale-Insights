@@ -5,9 +5,9 @@
 Sales Forecasting using Time Series Analysis
 Supports Prophet, ARIMA, and Exponential Smoothing methods
 """
-
 import frappe
 from frappe import _
+import importlib.util
 import pandas as pd
 import numpy as np
 from collections import defaultdict
@@ -45,14 +45,23 @@ class SalesForecasting(BaseMLModel):
         self.model_name = "SalesForecasting"
         self.method = method
         self.prophet_available = self._check_prophet()
-        
-    def _check_prophet(self) -> bool:
-        """Check if Prophet is available"""
-        try:
-            from prophet import Prophet
-            return True
-        except ImportError:
-            return False
+
+    @staticmethod
+    def _check_prophet() -> bool:
+        """Report whether Prophet is installed without importing it.
+
+        ``from prophet import Prophet`` loads cmdstanpy, which links Intel TBB
+        (libtbb). That native thread pool cannot survive ``rq``'s per-job
+        ``fork()`` -- the work-horse dies as ``waitpid returned 139 (signal 11)``
+        with no Python traceback. Constructing a ``SalesForecasting`` to read a
+        cache key (which the scheduler, the warm-up, and the dashboard all do)
+        used to import Prophet in the worker *parent*, so the next fork segfaulted.
+        ``find_spec`` answers "is it installed?" without executing the import,
+        so Prophet stays out of the parent. The only code that imports it is
+        ``_forecast_prophet``, which runs in the forked child after BLAS is
+        pinned, and never re-forks.
+        """
+        return importlib.util.find_spec("prophet") is not None
     
     def _get_daily_sales(self) -> pd.DataFrame:
         """Get daily sales data (excluding returns)"""
