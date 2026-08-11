@@ -8,8 +8,33 @@ Automated training of ML models on scheduled intervals
 
 import frappe
 from datetime import datetime
+import functools
 
 
+def _single_threaded(fn):
+    """Run a forked ML job with BLAS/OpenMP pinned to one thread.
+
+    Belt-and-suspenders with the env pins in ``insights/__init__``: every
+    function here is enqueued as ``insights.ml.scheduler.<name>`` and executed
+    in rq's forked work-horse, where a live multi-thread OpenBLAS pool riding
+    the fork segfaults as "waitpid returned 139 (signal 11)". Entering
+    ``threadpool_limits(1)`` before the first array op reconfigures the pool
+    in-process, so the job is safe even if numpy loaded multi-threaded upstream.
+    Degrades to a plain call when threadpoolctl is absent — the env pins hold.
+    """
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        try:
+            from threadpoolctl import threadpool_limits
+        except Exception:
+            return fn(*args, **kwargs)
+        with threadpool_limits(limits=1):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+@_single_threaded
 def train_customer_segmentation():
     """Daily: Train customer segmentation model"""
     try:
@@ -36,6 +61,7 @@ def train_customer_segmentation():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_sales_forecast():
     """Daily: Train sales forecasting model"""
     try:
@@ -62,6 +88,7 @@ def train_sales_forecast():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_payment_prediction():
     """Daily: Train payment prediction model"""
     try:
@@ -96,6 +123,7 @@ def train_payment_prediction():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_abc_xyz_classification():
     """Weekly: Train ABC/XYZ inventory classification"""
     try:
@@ -122,6 +150,7 @@ def train_abc_xyz_classification():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_demand_forecast():
     """Weekly: Train demand forecasting model"""
     try:
@@ -156,6 +185,7 @@ def train_demand_forecast():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_product_recommendations():
     """Weekly: Train product recommendation model"""
     try:
@@ -231,6 +261,7 @@ def _send_reorder_alert(forecast_result: dict):
         frappe.log_error(f"Failed to send reorder alert: {str(e)}", "ML Scheduler")
 
 
+@_single_threaded
 def run_daily_intelligence():
     """Single daily job: trains all daily models and warms executive cache.
 
@@ -278,6 +309,7 @@ def run_daily_intelligence():
     return results
 
 
+@_single_threaded
 def warm_dashboard_caches():
     """Train every model the dashboards read, in this process.
 
@@ -314,6 +346,7 @@ def warm_dashboard_caches():
     return warmed
 
 
+@_single_threaded
 def run_all_ml_models():
     """Run all ML models - can be triggered manually"""
     results = {}
@@ -332,6 +365,7 @@ def run_all_ml_models():
     return results
 
 
+@_single_threaded
 def train_customer_intelligence():
     """Daily: Train comprehensive customer intelligence model"""
     try:
@@ -421,6 +455,7 @@ def _send_churn_risk_alert(intelligence_result: dict):
         frappe.log_error(f"Failed to send churn risk alert: {str(e)}", "ML Scheduler")
 
 
+@_single_threaded
 def train_breakeven_engine():
     """Weekly: Train break-even engine and warm caches."""
     try:
@@ -451,6 +486,7 @@ def train_breakeven_engine():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_sales_intelligence():
     """Daily: Train comprehensive sales intelligence model"""
     try:
@@ -482,6 +518,7 @@ def train_sales_intelligence():
 
 
 
+@_single_threaded
 def train_procurement_intelligence():
     """Daily: Train procurement intelligence model.
 
@@ -517,6 +554,7 @@ def train_procurement_intelligence():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_india_tax_intelligence():
     """Daily: Train India tax intelligence and warm caches."""
     try:
@@ -545,6 +583,7 @@ def train_india_tax_intelligence():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_lead_conversion():
     """Daily: fit the lead → win classifier on closed leads and score open ones."""
     try:
@@ -559,6 +598,7 @@ def train_lead_conversion():
         return {"status": "error", "message": str(e)}
 
 
+@_single_threaded
 def train_gl_anomaly():
     """Daily: rank ledger entries by how unlike the rest of the ledger they are."""
     try:

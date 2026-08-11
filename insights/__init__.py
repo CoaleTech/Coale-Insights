@@ -5,7 +5,11 @@
 # means no pool exists to corrupt. numpy only enters this process through an
 # `insights.*` module, and importing any of them runs this file first, so this
 # is the one placement our own import order cannot race.
-# setdefault: an operator who tuned these keeps their value.
+#
+# Forced, not setdefault: a forking work-horse has no safe multi-thread value.
+# Frappe Cloud exports these vars sized to the container's CPUs, so setdefault
+# quietly kept that multi-thread count and the segfault survived — which is why
+# it only ever reproduced on Cloud, never on a local bench where they're unset.
 import os
 
 for _var in (
@@ -15,6 +19,6 @@ for _var in (
     "VECLIB_MAXIMUM_THREADS",
     "NUMEXPR_NUM_THREADS",
 ):
-    os.environ.setdefault(_var, "1")
+    os.environ[_var] = "1"
 
 __version__ = "3.2.0-dev"
