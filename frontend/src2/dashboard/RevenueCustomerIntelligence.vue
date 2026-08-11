@@ -104,11 +104,19 @@ const atRiskCount = computed(() => {
  * page shows a "computing" state until both are ready. A group that errored is
  * not warming -- that is the error branch's job.
  */
+/** True only when BOTH halves are warming — full-page "Preparing" state.
+ * Per-group warming is handled inline in each tab content block so one warm
+ * half still renders its data while the other computes. */
 const warming = computed(
   () =>
     !error.value &&
-    (salesData.value?.status === 'warming' || custData.value?.status === 'warming'),
+    !isLoading.value &&
+    salesData.value?.status === 'warming' &&
+    custData.value?.status === 'warming',
 )
+/** Per-group warming: one half computing while the other already has data. */
+const salesWarming = computed(() => !error.value && salesData.value?.status === 'warming')
+const custWarming = computed(() => !error.value && custData.value?.status === 'warming')
 
 function money(value: number | undefined | null): string {
   return formatMoney(value, baseCurrency.value)
@@ -259,33 +267,33 @@ onBeforeUnmount(() => {
           label="Total Revenue"
           :value="money(salesSummary.total_revenue)"
           :delta="salesSummary.mom_growth"
-          :loading="!salesData"
+          :loading="!salesData || salesWarming"
         />
         <KpiCard
           label="Customers"
           :value="formatCount(custSummary.total_customers as number)"
-          :loading="!custData"
+          :loading="!custData || custWarming"
         />
         <KpiCard
           label="Avg Order Value"
           :value="money(salesSummary.avg_order_value)"
-          :loading="!salesData"
+          :loading="!salesData || salesWarming"
         />
         <KpiCard
           label="Gross Margin"
           :value="formatPercent(salesSummary.overall_margin)"
-          :loading="!salesData"
+          :loading="!salesData || salesWarming"
         />
         <KpiCard
           label="At Risk"
           :value="String(atRiskCount)"
           :severity="atRiskCount > 0 ? 'high' : 'none'"
-          :loading="!custData"
+          :loading="!custData || custWarming"
         />
         <KpiCard
           label="YoY Growth"
           :value="`${(salesSummary.yoy_growth ?? 0) >= 0 ? '+' : ''}${formatPercent(salesSummary.yoy_growth)}`"
-          :loading="!salesData"
+          :loading="!salesData || salesWarming"
           :severity="scoreSeverity(salesSummary.yoy_growth, { good: 0, warn: -10 })"
         />
       </div>
@@ -301,7 +309,7 @@ onBeforeUnmount(() => {
       <!-- Tab content: Revenue group -->
       <div v-if="activeGroup === 'revenue'" class="p-6">
         <RevenueSections
-          v-if="salesData"
+          v-if="salesData && !salesWarming"
           :data="salesData"
           :active-tab="activeTab.id"
           :date-filter="dateFilter"
@@ -309,6 +317,14 @@ onBeforeUnmount(() => {
           :drill-down-endpoint="'insights.api.ml.sales.get_sales_detail'"
           @drill-down="drillDown.open"
         />
+        <!-- Warming: the cache is cold and a background job is computing.
+             Distinct from error — the data is coming, not broken. -->
+        <div v-else-if="salesWarming" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
+          <Loader2 class="w-8 h-8 text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <p class="font-medium text-ink-gray-8">Computing revenue intelligence</p>
+          <p class="text-sm text-ink-gray-6">This takes a few minutes the first time. Check back shortly.</p>
+          <Button variant="subtle" @click="loadData()">Refresh</Button>
+        </div>
         <div v-else-if="salesError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
           <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />
           <p class="text-sm text-ink-gray-6">{{ salesError }}</p>
@@ -322,7 +338,7 @@ onBeforeUnmount(() => {
       <!-- Tab content: Customer group -->
       <div v-if="activeGroup === 'customers'" class="p-6">
         <CustomerSections
-          v-if="custData"
+          v-if="custData && !custWarming"
           :data="custData"
           :active-tab="activeTab.id"
           :date-filter="dateFilter"
@@ -331,6 +347,14 @@ onBeforeUnmount(() => {
           @drill-down="drillDown.open"
           @view-customer="(id: string) => router.push(`/customer/${id}`)"
         />
+        <!-- Warming: the cache is cold and a background job is computing.
+             Distinct from error — the data is coming, not broken. -->
+        <div v-else-if="custWarming" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
+          <Loader2 class="w-8 h-8 text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+          <p class="font-medium text-ink-gray-8">Computing customer intelligence</p>
+          <p class="text-sm text-ink-gray-6">This takes a few minutes the first time. Check back shortly.</p>
+          <Button variant="subtle" @click="loadData()">Refresh</Button>
+        </div>
         <div v-else-if="custError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
           <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />
           <p class="text-sm text-ink-gray-6">{{ custError }}</p>
