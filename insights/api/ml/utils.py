@@ -11,6 +11,22 @@ the warming state and renders data when it arrives.
 
 Caching is handled by ``BaseMLModel.get_cached_results`` (Redis, 24h TTL)
 with ``BaseMLModel.get_last_good_results`` (disk snapshot) as fallback.
+
+Sync fallback
+~~~~~~~~~~~~~
+On Frappe Cloud the RQ worker uses ``bench worker`` which always forks.
+If ``os.fork()`` hits a multi-threaded parent (OpenBLAS, GC threads),
+the work-horse dies with signal 11 (SIGSEGV) and the cache stays cold
+forever.  After ``SYNC_THRESHOLD`` consecutive warming responses without
+data, ``serve_or_warm`` runs the trainer **synchronously in the web
+worker** (gunicorn).  Gunicorn workers are already forked from the
+master — no second fork happens — so numpy/OpenBLAS loads safely.  The
+``@_single_threaded`` decorator on each trainer pins BLAS to one thread
+as belt-and-suspenders.
+
+This fallback is **not** a substitute for the Procfile NOFORK fix.  It
+is a safety net so dashboards render data while the worker command is
+still ``bench worker`` instead of ``bench worker-pool --nofork``.
 """
 
 import re
@@ -19,6 +35,11 @@ from typing import Any, Dict, Optional, Tuple
 
 import frappe
 from frappe import _
+
+
+# After this many consecutive warming responses, run the trainer
+# synchronously in the web worker instead of enqueuing to RQ.
+SYNC_THRESHOLD = 3
 
 
 def enqueue_training(method: str, job_id: str, label: str, **kwargs) -> Dict[str, Any]:
@@ -42,6 +63,36 @@ def enqueue_training(method: str, job_id: str, label: str, **kwargs) -> Dict[str
     )
 
 
+def _warming_counter_key(job_id: str) -> str:
+    return f"insights_ml_warm:{job_id}"
+
+
+def _increment_warming(job_id: str) -> int:
+    """Increment warming counter in Redis; returns new count."""
+    try:
+        from frappe.utils.background_jobs import get_redis_conn
+
+        conn = get_redis_conn()
+        key = _warming_counter_key(job_id)
+        raw_count: Any = conn.incr(key)
+        count = int(raw_count)
+        conn.expire(key, 3600)  # 1-hour TTL — resets naturally
+        return count
+    except Exception:
+        return 0
+
+
+def _reset_warming(job_id: str) -> None:
+    """Reset warming counter after cache is filled."""
+    try:
+        from frappe.utils.background_jobs import get_redis_conn
+
+        conn = get_redis_conn()
+        conn.delete(_warming_counter_key(job_id))
+    except Exception:
+        pass
+
+
 def serve_or_warm(
     result: Dict[str, Any],
     trainer: str,
@@ -57,15 +108,80 @@ def serve_or_warm(
     - A stale on-disk snapshot (last successful training, any age)
     - A ``{"status": "warming"}`` placeholder (nothing cached anywhere)
 
-    When the cache is cold or the caller forced a refresh, enqueue the
-    trainer on the ``long`` queue so the next page load gets data.
-    ``deduplicate=True`` in ``enqueue_training`` collapses concurrent
-    opens onto one job.
+    Flow::
+
+        Cache warm?  → return data, reset warming counter
+        Cache cold?  → increment warming counter
+                       If counter < SYNC_THRESHOLD → enqueue RQ job, return warming
+                       If counter >= SYNC_THRESHOLD → run trainer synchronously
+                         Success → return real data, reset counter
+                         Failure → return warming, keep counter
     """
     is_warming = isinstance(result, dict) and result.get("status") == "warming"
-    if force or is_warming:
-        enqueue_training(trainer, job_id=job_id, label=label)
+
+    # Cache hit — reset the failure counter and return data.
+    if not is_warming and not force:
+        _reset_warming(job_id)
+        return result
+
+    # Cache cold (or forced refresh).  Count consecutive warming responses.
+    count = _increment_warming(job_id)
+
+    if count >= SYNC_THRESHOLD:
+        # The RQ worker has failed to fill the cache after multiple attempts.
+        # Run the trainer synchronously in the web worker (safe — no fork).
+        sync_result = _run_sync(trainer, job_id, label)
+        if sync_result is not None:
+            return sync_result
+        # Sync run failed — fall through to enqueue and return warming.
+
+    enqueue_training(trainer, job_id=job_id, label=label)
     return result
+
+
+def _run_sync(trainer: str, job_id: str, label: str) -> Optional[Dict[str, Any]]:
+    """Run the trainer synchronously in the web worker.
+
+    Returns the cached result on success, None on failure.  Resets the
+    warming counter so subsequent requests serve from cache.
+    """
+    try:
+        frappe.logger().info(
+            f"Sync fallback: running {label} in web worker "
+            f"(RQ job {job_id} failed {SYNC_THRESHOLD}+ times)"
+        )
+
+        # Import and call the trainer function directly.
+        module_path, func_name = trainer.rsplit(".", 1)
+        import importlib
+        module = importlib.import_module(module_path)
+        fn = getattr(module, func_name)
+        train_result = fn()
+
+        if isinstance(train_result, dict) and train_result.get("status") == "success":
+            _reset_warming(job_id)
+            frappe.logger().info(
+                f"Sync fallback: {label} completed successfully in web worker"
+            )
+            return train_result
+
+        # Training returned but wasn't successful — still useful data?
+        if isinstance(train_result, dict) and train_result.get("status") != "error":
+            _reset_warming(job_id)
+            return train_result
+
+        frappe.logger().warning(
+            f"Sync fallback: {label} returned error: "
+            f"{train_result.get('message', 'unknown') if isinstance(train_result, dict) else train_result}"
+        )
+        return None
+
+    except Exception as e:
+        frappe.log_error(
+            f"Sync fallback failed for {label}: {e}",
+            "ML Sync Fallback",
+        )
+        return None
 
 
 def parse_date_filter(date_filter: str = "12m") -> Tuple[Optional[datetime], Optional[datetime]]:
