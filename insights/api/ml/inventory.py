@@ -2,185 +2,205 @@
 # For license information, please see license.txt
 
 """
-Inventory Intelligence API Endpoints
+Inventory Intelligence API Endpoints — Ibis rewrite.
+
+Each endpoint builds one or two Ibis expressions (which compile to SQL
+and execute inside MariaDB) and wraps the result in the standard
+`success` envelope via `insights.api.ml.utils.run`. There is no cache,
+no background job, no fork. `refresh` is accepted but ignored; the
+query is always fresh.
+
+Drill-down endpoints (`get_inventory_detail`) are unchanged -- they
+already use `frappe.get_list` and don't touch the ML stack.
 """
+
+from typing import Any, Dict, List
 
 import frappe
 from frappe import _
-from typing import Dict, Any, List
-from insights.api.response import success, error
+
+from insights.api.ml.utils import run
+
+
+# ---------------------------------------------------------------------------
+# Composite endpoints
+# ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
-def inventory_classification(refresh: bool = False) -> Dict[str, Any]:
-    """Classify inventory using ABC/XYZ analysis"""
+def inventory_intelligence(date_filter: str = "12m", refresh: bool = False) -> Dict[str, Any]:
+    """Get comprehensive inventory intelligence."""
+    frappe.has_permission("Item", "read", throw=True)
+    return run(
+        lambda: _inventory_intelligence(date_filter, refresh),
+        "inventory_intelligence",
+    )
+
+
+def _inventory_intelligence(date_filter: str, refresh: bool) -> Dict[str, Any]:
+    from insights.ml.inventory_intelligence import (
+        InventoryIntelligence,
+        ABCXYZClassification,
+        DemandForecasting,
+    )
+
+    inv = InventoryIntelligence(date_filter=date_filter)
+    base = inv.train()
+    if base.get("status") != "success":
+        return base
+
+    # ABC/XYZ + demand-forecast are nested computations the old code
+    # included in the inventory payload. They are now plain in-process
+    # calls (no cache, no training) and run in a few seconds each.
     try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.abc_xyz_classification import ABCXYZClassification
-    
-        model = ABCXYZClassification()
-    
-        if not refresh:
-            cached = model.get_cached_results("inventory_classification")
-            if cached:
-                return success(cached)
-    
-        result = model.train()
-        return success(result)
-    except frappe.PermissionError:
-        raise
+        abc_xyz = ABCXYZClassification().train()
+        base["abc_xyz"] = {
+            "classification_date": abc_xyz.get("analysis_date"),
+            "total_items": abc_xyz.get("total_items", 0),
+            "summary": abc_xyz.get("summary", {}),
+            "abc_summary": abc_xyz.get("abc_summary", []),
+            "xyz_summary": abc_xyz.get("xyz_summary", []),
+            "matrix": abc_xyz.get("combined_summary", []),
+            "top_items": abc_xyz.get("top_items", []),
+        }
     except Exception as e:
-        return error(str(e))
+        frappe.log_error(frappe.get_traceback(), "abc_xyz in inventory_intelligence")
+        base["abc_xyz"] = None
 
-
-@frappe.whitelist()
-def get_inventory_recommendations() -> Dict[str, Any]:
-    """Get inventory optimization recommendations"""
     try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.abc_xyz_classification import ABCXYZClassification
-    
-        model = ABCXYZClassification()
-        result = model.get_reorder_recommendations()
-        return success(result)
-    except frappe.PermissionError:
-        raise
+        demand = DemandForecasting().train()
+        base["demand_planning"] = {
+            "forecast_date": demand.get("forecast_date"),
+            "reorder_alerts": demand.get("reorder_alerts", []),
+            "summary": {
+                "total_items": demand.get("total_items_analyzed", 0),
+                "reorder_now_count": demand.get("reorder_now_count", 0),
+                "monitor_count": demand.get("monitor_count", 0),
+                "adequate_count": demand.get("adequate_count", 0),
+            },
+        }
     except Exception as e:
-        return error(str(e))
+        frappe.log_error(frappe.get_traceback(), "demand in inventory_intelligence")
+        base["demand_planning"] = None
 
-
-@frappe.whitelist()
-def inventory_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Get comprehensive inventory intelligence"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence(date_filter=date_filter)
-    
-        if not refresh:
-            cached = model.get_cached_results("inventory_intelligence")
-            if cached:
-                return success(cached)
-    
-        result = model.train()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    return base
 
 
 @frappe.whitelist()
 def train_inventory_intelligence() -> Dict[str, Any]:
-    """Train inventory intelligence models"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence()
-        result = model.train()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Synchronously re-compute inventory intelligence. No 'training'."""
+    frappe.has_permission("Item", "read", throw=True)
+    return run(
+        lambda: _inventory_intelligence("12m", True),
+        "train_inventory_intelligence",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Granular endpoints (one per sub-section)
+# ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
 def get_stock_overview() -> Dict[str, Any]:
-    """Get stock overview and key metrics"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence()
-        result = model._calculate_stock_overview()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get stock overview and key metrics."""
+    frappe.has_permission("Item", "read", throw=True)
+    from insights.ml.inventory_intelligence import InventoryIntelligence
+
+    return run(
+        lambda: InventoryIntelligence()._stock_overview(),
+        "get_stock_overview",
+    )
 
 
 @frappe.whitelist()
 def get_turnover_analysis() -> Dict[str, Any]:
-    """Get inventory turnover analysis"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence()
-        result = model._calculate_turnover_analysis()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get inventory turnover analysis."""
+    frappe.has_permission("Item", "read", throw=True)
+    from insights.ml.inventory_intelligence import InventoryIntelligence
+
+    return run(
+        lambda: InventoryIntelligence()._turnover_analysis(),
+        "get_turnover_analysis",
+    )
 
 
 @frappe.whitelist()
 def get_aging_analysis() -> Dict[str, Any]:
-    """Get inventory aging analysis"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence()
-        result = model._calculate_aging_analysis()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get inventory aging analysis."""
+    frappe.has_permission("Item", "read", throw=True)
+    from insights.ml.inventory_intelligence import InventoryIntelligence
+
+    return run(
+        lambda: InventoryIntelligence()._aging_analysis(),
+        "get_aging_analysis",
+    )
 
 
 @frappe.whitelist()
 def get_warehouse_analysis() -> Dict[str, Any]:
-    """Get warehouse performance analysis"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence()
-        result = model._calculate_warehouse_analysis()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get warehouse performance analysis."""
+    frappe.has_permission("Item", "read", throw=True)
+    from insights.ml.inventory_intelligence import InventoryIntelligence
+
+    return run(
+        lambda: InventoryIntelligence()._warehouse_analysis(),
+        "get_warehouse_analysis",
+    )
 
 
 @frappe.whitelist()
 def get_transfer_recommendations() -> Dict[str, Any]:
-    """Get stock transfer recommendations"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence()
-        result = model._generate_transfer_recommendations()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Get stock transfer recommendations."""
+    frappe.has_permission("Item", "read", throw=True)
+    from insights.ml.inventory_intelligence import InventoryIntelligence
+
+    return run(
+        lambda: InventoryIntelligence()._transfer_recommendations(),
+        "get_transfer_recommendations",
+    )
 
 
 @frappe.whitelist()
 def get_dead_stock() -> Dict[str, Any]:
-    """Identify dead stock items"""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-    
-        model = InventoryIntelligence()
-        result = model._identify_dead_stock()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Identify dead-stock items."""
+    frappe.has_permission("Item", "read", throw=True)
+    from insights.ml.inventory_intelligence import InventoryIntelligence
+
+    return run(
+        lambda: InventoryIntelligence()._dead_stock(),
+        "get_dead_stock",
+    )
+
+
+# ---------------------------------------------------------------------------
+# ABC/XYZ classification
+# ---------------------------------------------------------------------------
+
+
+@frappe.whitelist()
+def inventory_classification(refresh: bool = False) -> Dict[str, Any]:
+    """Classify inventory using ABC/XYZ analysis."""
+    frappe.has_permission("Item", "read", throw=True)
+    return run(
+        lambda: ABCXYZClassification().train(),
+        "inventory_classification",
+    )
+
+
+@frappe.whitelist()
+def get_inventory_recommendations() -> Dict[str, Any]:
+    """Get inventory optimization recommendations."""
+    frappe.has_permission("Item", "read", throw=True)
+    return run(
+        lambda: ABCXYZClassification().get_reorder_recommendations(),
+        "get_inventory_recommendations",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Item breakeven (delegated to breakeven engine; unchanged contract)
+# ---------------------------------------------------------------------------
 
 
 @frappe.whitelist()
@@ -188,17 +208,21 @@ def item_breakeven(period: str = "Quarterly", fiscal_year: str = None, item_grou
     """Get item-level break-even analysis."""
     try:
         frappe.has_permission("Item", "read", throw=True)
-        from insights.ml.breakeven_engine import BreakevenEngine
-    
-        engine = BreakevenEngine(period=period, fiscal_year=fiscal_year)
-        result = engine.calculate_item_breakeven(item_group=item_group)
-        return success(result)
     except frappe.PermissionError:
         raise
-    except Exception as e:
-        return error(str(e), exc=e)
+    from insights.ml.breakeven_engine import BreakevenEngine
 
-# ─── Drill-Down ───────────────────────────────────────────────────────────────
+    engine = BreakevenEngine(period=period, fiscal_year=fiscal_year)
+    return run(
+        lambda: engine.calculate_item_breakeven(item_group=item_group),
+        "item_breakeven",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drill-down (unchanged — uses frappe.get_list, not the ML stack)
+# ---------------------------------------------------------------------------
+
 
 @frappe.whitelist()
 def get_inventory_detail(metric: str, filters: str) -> dict:
@@ -231,9 +255,6 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
 
     if metric == "low_stock_items":
         frappe.has_permission("Bin", throw=True)
-        # reorder_level does not exist on Bin; it lives in the
-        # "Item Reorder" child table as warehouse_reorder_level.
-        # Join Bin ↔ Item Reorder on (item_code, warehouse).
         Bin = frappe.qb.DocType("Bin")
         ItemReorder = frappe.qb.DocType("Item Reorder")
         join_cond = (Bin.item_code == ItemReorder.parent) & (Bin.warehouse == ItemReorder.warehouse)

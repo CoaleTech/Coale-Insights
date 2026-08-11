@@ -1,304 +1,272 @@
-# Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
+# Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
 """
-Customer Intelligence API Endpoints
+Customer Intelligence API Endpoints (Ibis-native).
+
+Every endpoint here answers synchronously -- no `enqueue`, no background
+job, no Redis cache for the ML results. The underlying compute is a chain
+of Ibis aggregates that compile to one SQL statement each, so a request
+returns in the same latency budget as any other Insights query.
+
+Names + kwarg signatures are preserved exactly so the frontend (which calls
+these by string through ``frappe.call``) keeps working.
 """
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
 
 import frappe
-from frappe import _
-from typing import Dict, Any, List
-from insights.api.response import success, error
-from insights.api.serialization import sanitize_for_json
 
+from insights.api.ml.utils import run
+
+
+# ---------------------------------------------------------------------------
+# Segment summary / RFM segmentation
+# ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def customer_segmentation(refresh: bool = False) -> Dict[str, Any]:
-    """Get customer segmentation results"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_segmentation import CustomerSegmentation
-    
-        model = CustomerSegmentation()
-    
-        if not refresh:
-            cached = model.get_cached_results("customer_segmentation")
-            if cached:
-                return success(cached)
-    
-        result = model.train()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def customer_segmentation(refresh: bool = False, company: Optional[str] = None) -> Dict[str, Any]:
+    """RFM segmentation of all customers. `refresh` is accepted but no
+    longer controls any cache -- every call is fresh.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_rfm_segmentation
+    return run(lambda: compute_rfm_segmentation(company=company), "Customer segmentation")
 
 
 @frappe.whitelist()
 def get_segment_summary() -> Dict[str, Any]:
-    """Get summary of customer segments"""
-    try:
-        result = customer_segmentation()
-    
-        if result.get('status') != 'success':
-            return result
-    
-        summary = result.get('segment_summary', {})
-    
-        return success({
-            "segments": [
-                {
-                    "segment": seg,
-                    "customer_count": data.get('count', 0),
-                    "total_revenue": data.get('total_revenue', 0),
-                    "avg_revenue": data.get('avg_revenue', 0)
-                }
-                for seg, data in summary.items()
-            ]
-        })
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
-
-
-@frappe.whitelist()
-def customer_intelligence(refresh: bool = False, async_mode: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Comprehensive customer intelligence — computed on request, cached 24h."""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import CustomerIntelligence
-        from insights.api.ml.utils import compute_or_cache
-
-        cache_key = f"insights:customer_intelligence:{date_filter}"
-        if refresh:
-            frappe.cache().delete_value(cache_key)  # type: ignore[union-attr]
-
-        return sanitize_for_json(compute_or_cache(trainer=lambda: CustomerIntelligence(date_filter=date_filter).train(update_customers=True),
-        cache_key=cache_key,
-        label=_("Customer intelligence"),))
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "customer_intelligence error")
-        return error(str(e))
-
-
-@frappe.whitelist()
-def customer_intelligence_status(date_filter: str = '12m') -> Dict[str, Any]:
-    """Get customer intelligence processing status.
-
-    Fixed 2026-08-04: previously always returned {"status": "completed"}
-    regardless of actual job state -- a fabricated response matching the
-    other stub-data findings in this review. Now delegates to the real
-    cache-checking implementation (also fixed: its cache key didn't match
-    what the background job writes).
+    """Segment counts/averages, pulled from the same RFM compute the
+    segmentation endpoint uses. The previous code expected a `segment_summary`
+    key shaped `{segment_name: {count, total_revenue, avg_revenue}}` -- we
+    match that shape from the new `segments` list so the API contract is
+    unchanged.
     """
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence.api import get_customer_intelligence_status
-        result = get_customer_intelligence_status(date_filter)
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_rfm_segmentation
 
+    def _summarize():
+        result = compute_rfm_segmentation()
+        seg_map: Dict[str, Dict[str, Any]] = {}
+        for row in result.get("segments", []):
+            seg = row.get("segment", "")
+            seg_map[seg] = {
+                "count": row.get("customer_count", 0),
+                "total_revenue": row.get("total_revenue", 0),
+                "avg_revenue": row.get("avg_revenue", 0),
+            }
+        return {"segments": seg_map, "analysis_date": result.get("analysis_date")}
+
+    return run(_summarize, "Segment summary")
+
+
+# ---------------------------------------------------------------------------
+# Main customer_intelligence payload
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist()
+def customer_intelligence(refresh: bool = False,
+                          async_mode: bool = False,
+                          date_filter: str = "12m",
+                          company: Optional[str] = None) -> Dict[str, Any]:
+    """Comprehensive customer intelligence. `refresh` and `async_mode` are
+    accepted for API compatibility but ignored -- there is no cache and no
+    background job. The full payload returns synchronously.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_intelligence
+    return run(lambda: compute_customer_intelligence(date_filter=date_filter, company=company),
+               "Customer intelligence")
+
+
+@frappe.whitelist()
+def customer_intelligence_status(date_filter: str = "12m") -> Dict[str, Any]:
+    """Customer intelligence processing status. With no background job
+    there's never a pending/warming state -- the compute is synchronous and
+    always ready.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    return run(lambda: {"status": "ready",
+                        "message": "Customer intelligence runs synchronously"},
+               "Customer intelligence status")
+
+
+# ---------------------------------------------------------------------------
+# Customer 360 / detail view
+# ---------------------------------------------------------------------------
 
 @frappe.whitelist()
 def customer_360(customer_id: str) -> Dict[str, Any]:
-    """Get 360-degree customer view"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import get_customer_360_detail
-    
-        result = get_customer_360_detail(customer_id)
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+    """Convenience alias for customer_360_detail without the purchase /
+    recommendation sub-objects -- the original endpoint signature.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_360
+    return run(lambda: compute_customer_360(customer_id,
+                                            include_purchases=False,
+                                            include_recommendations=False),
+               "Customer 360")
 
 
 @frappe.whitelist()
-def customer_360_detail(customer_id: str, include_purchases: bool = True, include_recommendations: bool = True) -> Dict[str, Any]:
-    """Get detailed 360-degree customer view"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import get_customer_360_detail
-    
-        result = get_customer_360_detail(customer_id, include_purchases, include_recommendations)
-        # The payload carries its own currency so the detail view never has to
-        # guess. Without it the frontend fell back to a hardcoded default and
-        # rendered INR figures with a Kenyan Shilling symbol.
+def customer_360_detail(customer_id: str,
+                        include_purchases: bool = True,
+                        include_recommendations: bool = True,
+                        company: Optional[str] = None) -> Dict[str, Any]:
+    """Detailed 360-degree customer view. The base_currency field is
+    injected at the payload root (not inside `customer`) because that's
+    where the frontend reads it.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_360, _base_currency
+
+    def _with_currency():
+        result = compute_customer_360(customer_id,
+                                      include_purchases=include_purchases,
+                                      include_recommendations=include_recommendations,
+                                      company=company)
         if isinstance(result, dict):
-            result.setdefault(
-                "base_currency",
-                frappe.get_cached_value(
-                    "Company",
-                    frappe.defaults.get_user_default("company")
-                    or frappe.db.get_single_value("Global Defaults", "default_company"),
-                    "default_currency",
-                ),
-            )
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+            result.setdefault("base_currency", _base_currency(company))
+        return result
+
+    return run(_with_currency, "Customer 360 detail")
+
+
+# ---------------------------------------------------------------------------
+# Purchase patterns / cross-sell / at-risk / geographic / next actions
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist()
+def purchase_patterns(top_percentile: int = 20,
+                      company: Optional[str] = None) -> Dict[str, Any]:
+    """Day-of-week, monthly, and quarterly patterns for the top customers
+    by CLV.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_purchase_patterns
+    return run(lambda: compute_purchase_patterns(top_percentile=int(top_percentile),
+                                                company=company),
+               "Purchase patterns")
 
 
 @frappe.whitelist()
-def purchase_patterns(top_percentile: int = 20) -> Dict[str, Any]:
-    """Analyze customer purchase patterns"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import get_purchase_patterns
-    
-        result = get_purchase_patterns(top_percentile)
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def cross_sell_opportunities(tier_filter: str = "Diamond,Platinum",
+                             company: Optional[str] = None) -> Dict[str, Any]:
+    """Cross-sell opportunities for top-tier customers. Default tier list is
+    "Diamond,Platinum" to match the original signature.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_cross_sell_opportunities
+    return run(lambda: compute_cross_sell_opportunities(tier_filter=tier_filter,
+                                                       company=company),
+               "Cross-sell opportunities")
 
 
 @frappe.whitelist()
-def cross_sell_opportunities(tier_filter: str = "Diamond,Platinum") -> Dict[str, Any]:
-    """Identify cross-sell opportunities"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import get_cross_sell_opportunities
-    
-        result = get_cross_sell_opportunities(tier_filter)
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def at_risk_customers(company: Optional[str] = None) -> Dict[str, Any]:
+    """Customers with churn risk High or Critical."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_at_risk_customers
+    return run(lambda: compute_at_risk_customers(company=company),
+               "At-risk customers")
 
 
 @frappe.whitelist()
-def at_risk_customers() -> Dict[str, Any]:
-    """Identify customers at risk of churning"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import get_at_risk_customers
-    
-        result = get_at_risk_customers()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def geographic_insights(company: Optional[str] = None) -> Dict[str, Any]:
+    """Territory + customer-group rollups with the TerritoryMap projection."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_geographic_insights
+    return run(lambda: compute_geographic_insights(company=company),
+               "Geographic insights")
 
 
 @frappe.whitelist()
-def geographic_insights() -> Dict[str, Any]:
-    """Get geographic customer insights"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import get_geographic_insights
-    
-        result = get_geographic_insights()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def next_best_actions(company: Optional[str] = None) -> Dict[str, Any]:
+    """Rule-based next-best-action recommendations per customer."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_next_best_actions
+    return run(lambda: compute_next_best_actions(company=company),
+               "Next best actions")
+
+
+# ---------------------------------------------------------------------------
+# refresh_scores: no cache to refresh; the compute is synchronous and the
+# endpoint just runs the same payload as customer_intelligence.
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist()
+def refresh_scores(company: Optional[str] = None) -> Dict[str, Any]:
+    """Re-run the customer intelligence compute. With no cache, this is
+    equivalent to a fresh customer_intelligence() call.
+    """
+    frappe.has_permission("Customer", "write", throw=True)
+    from insights.ml.customer import compute_customer_intelligence
+    return run(lambda: compute_customer_intelligence(date_filter="12m", company=company),
+               "Refresh customer scores")
+
+
+# ---------------------------------------------------------------------------
+# Counts / revenue split / rankings / variance
+# ---------------------------------------------------------------------------
+
+@frappe.whitelist()
+def customer_counts(date_filter: str = "12m",
+                    active_cutoff_months: int = 6,
+                    company: Optional[str] = None) -> Dict[str, Any]:
+    """KPI-strip counts: total, new, existing, active, inactive, advance
+    payment, manufacturers, traders.
+    """
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_counts
+    return run(lambda: compute_customer_counts(date_filter=date_filter,
+                                               active_cutoff_months=int(active_cutoff_months),
+                                               company=company),
+               "Customer counts")
 
 
 @frappe.whitelist()
-def next_best_actions() -> Dict[str, Any]:
-    """Get next best actions for customers"""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import get_next_actions
-    
-        result = get_next_actions()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def customer_revenue_split(date_filter: str = "12m",
+                           company: Optional[str] = None) -> Dict[str, Any]:
+    """Revenue split between new and existing customers."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_revenue_split
+    return run(lambda: compute_customer_revenue_split(date_filter=date_filter, company=company),
+               "Customer revenue split")
 
 
 @frappe.whitelist()
-def refresh_scores() -> Dict[str, Any]:
-    """Refresh customer intelligence scores"""
-    try:
-        frappe.has_permission("Customer", "write", throw=True)
-        from insights.ml.customer_intelligence import refresh_customer_scores as _refresh
-    
-        result = _refresh()
-        return success(result)
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def customer_rankings(date_filter: str = "12m",
+                      limit: int = 20,
+                      company: Optional[str] = None) -> Dict[str, Any]:
+    """Top customers by revenue, gross profit, margin %, consistency."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_rankings
+    return run(lambda: compute_customer_rankings(date_filter=date_filter,
+                                                 limit=int(limit),
+                                                 company=company),
+               "Customer rankings")
 
 
 @frappe.whitelist()
-def customer_counts(date_filter: str = '12m', active_cutoff_months: int = 6) -> Dict[str, Any]:
-    """Get customer count metrics."""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import CustomerIntelligence
-        model = CustomerIntelligence(date_filter=date_filter)
-        return success(model.get_customer_counts(int(active_cutoff_months)))
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
+def customer_variance(date_filter: str = "12m",
+                      company: Optional[str] = None) -> Dict[str, Any]:
+    """Per-customer actual revenue vs territory target."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_variance
+    return run(lambda: {"variance": compute_customer_variance(date_filter=date_filter, company=company)},
+               "Customer variance")
 
 
-@frappe.whitelist()
-def customer_revenue_split(date_filter: str = '12m') -> Dict[str, Any]:
-    """Get revenue split between new and existing customers."""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import CustomerIntelligence
-        model = CustomerIntelligence(date_filter=date_filter)
-        return success(model.get_customer_revenue_split())
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
-
-
-@frappe.whitelist()
-def customer_rankings(date_filter: str = '12m', limit: int = 20) -> Dict[str, Any]:
-    """Get customer rankings by revenue, profit, margin, consistency."""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import CustomerIntelligence
-        model = CustomerIntelligence(date_filter=date_filter)
-        return success(model.get_customer_rankings(int(limit)))
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        frappe.log_error(frappe.get_traceback(), "customer_rankings error")
-        return error(str(e))
-
-
-@frappe.whitelist()
-def customer_variance(date_filter: str = '12m') -> Dict[str, Any]:
-    """Get customer target vs actual variance."""
-    try:
-        frappe.has_permission("Customer", "read", throw=True)
-        from insights.ml.customer_intelligence import CustomerIntelligence
-        model = CustomerIntelligence(date_filter=date_filter)
-        return success(model.get_customer_variance())
-    except frappe.PermissionError:
-        raise
-    except Exception as e:
-        return error(str(e))
-
-
-# ─── Drill-Down ───────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Drill-Down (unchanged from the original file -- it was already direct
+# frappe.get_list / frappe.db.sql, not model-based)
+# ---------------------------------------------------------------------------
 
 @frappe.whitelist()
 def get_customer_detail(metric: str, filters: str) -> dict:
+    from frappe import _
+
     f = frappe.parse_json(filters) or {}
     page = int(f.pop("page", 1))
     page_size = 50
