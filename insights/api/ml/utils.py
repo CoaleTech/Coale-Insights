@@ -7,19 +7,24 @@ ML API utilities — compute-on-request with aggressive caching.
 Every intelligence dashboard calls ``compute_or_cache`` which:
 
 1. Returns a Redis-cached result if warm (< 24 h old).
-2. Otherwise trains the model **synchronously in the web worker**
-   (gunicorn — no fork, so numpy/OpenBLAS loads safely), caches the
-   result, and returns it.  First load takes 5-12 s; subsequent loads
-   are < 100 ms.
+2. If cache is cold **and** this is a web request, spawns a daemon thread
+   to train in the background and immediately returns
+   ``{"status": "warming"}``.  The frontend already handles this state.
+3. If cache is cold **and** this is a CLI call (``bench execute``), trains
+   synchronously and returns the result.
 
-No background jobs.  No RQ.  No fork.  No SIGSEGV.
+No RQ.  No fork.  No SIGSEGV.
 
-A Redis lock prevents concurrent training when multiple users open the
-same dashboard at once: the first request trains, the rest get a
-``{status: "computing"}`` placeholder and refresh to find the cache warm.
+Why threads, not RQ?  Frappe's RQ worker (``bench worker``) forks each
+job via ``os.fork()``.  When numpy/OpenBLAS is loaded in the parent
+(via ibis-framework dependency chain), the forked child inherits
+corrupted thread state → SIGSEGV (signal 11).  The Procfile NOFORK
+fix (``bench worker-pool``) requires Procfile access, which Frappe
+Cloud does not expose.  Daemon threads avoid fork entirely.
 """
 
 import re
+import threading
 from datetime import datetime
 from collections.abc import Callable
 from typing import Any, Dict, Optional, Tuple
@@ -41,44 +46,104 @@ def compute_or_cache(
     cache_key: str,
     label: str,
 ) -> Dict[str, Any]:
-    """Return cached ML results, or compute them synchronously.
+    """Return cached ML results, or start background computation.
+
+    Web requests return ``{"status": "warming"}`` immediately and train
+    in a daemon thread.  CLI calls (``bench execute``) train synchronously.
 
     Args:
         trainer:   Zero-arg callable that trains the model and returns a
-                   result dict (e.g. ``lambda: SalesIntelligence(date_filter='12m').train()``).
-        cache_key: Redis key for the result (e.g. ``"insights:sales_intelligence:12m"``).
-        label:     Human label for log messages (e.g. ``"Sales intelligence"``).
-
-    Returns:
-        The model result dict (from cache or freshly computed).
+                   result dict.
+        cache_key: Redis key for the result.
+        label:     Human label for log messages.
     """
-    # 1. Cache hit - fast path.
     cache = frappe.cache()
+
+    # 1. Cache hit — fast path (< 1 ms).
     cached = cache.get_value(cache_key)  # type: ignore[union-attr]
     if cached and isinstance(cached, dict) and cached.get("status") != "error":
         return cached
 
-    # 2. Another request is already training — return computing placeholder.
+    # 2. Another thread is already training.
     lock_key = f"{cache_key}:lock"
     if cache.get_value(lock_key):  # type: ignore[union-attr]
         return {"status": "warming", "message": _("{0} is being computed. Refresh in a moment.").format(label)}
 
-    # 3. Train synchronously in the web worker.
+    # 3. CLI (bench execute) — train synchronously so the caller gets data.
+    if not getattr(frappe.local, "request", None):
+        return _train_sync(trainer, cache_key, lock_key, label, cache)
+
+    # 4. Web request — train in a background thread, return immediately.
+    _train_in_thread(
+        trainer, cache_key, lock_key, label,
+        site=frappe.local.site,
+        sites_path=getattr(frappe.local, "sites_path", None) or ".",
+    )
+    return {"status": "warming", "message": _("{0} is being computed. Refresh in a moment.").format(label)}
+
+
+def _train_sync(
+    trainer: Callable[[], Dict[str, Any]],
+    cache_key: str,
+    lock_key: str,
+    label: str,
+    cache: Any,
+) -> Dict[str, Any]:
+    """Train synchronously — used by ``bench execute`` and CLI calls."""
     cache.set_value(lock_key, "1", expires_in_sec=LOCK_TTL)  # type: ignore[union-attr]
     try:
         result = trainer()
-
         if isinstance(result, dict) and result.get("status") != "error":
             cache.set_value(cache_key, result, expires_in_sec=CACHE_TTL)  # type: ignore[union-attr]
-
         return result
-
     except Exception as e:
         frappe.log_error(f"ML compute failed for {label}: {e}", "ML Analytics")
         return {"status": "error", "message": str(e)}
-
     finally:
         cache.delete_value(lock_key)  # type: ignore[union-attr]
+
+
+def _train_in_thread(
+    trainer: Callable[[], Dict[str, Any]],
+    cache_key: str,
+    lock_key: str,
+    label: str,
+    site: str,
+    sites_path: str | None,
+) -> None:
+    """Spawn a daemon thread that trains the model and caches the result.
+
+    Each thread gets its own ``frappe.local`` and DB connection — no
+    shared state with the web-request thread.  The thread is a daemon so
+    it won't prevent gunicorn worker shutdown.
+    """
+
+    def _run() -> None:
+        try:
+            frappe.init(site=site, sites_path=sites_path)
+            frappe.connect()
+
+            cache = frappe.cache()
+            cache.set_value(lock_key, "1", expires_in_sec=LOCK_TTL)  # type: ignore[union-attr]
+
+            result = trainer()
+
+            if isinstance(result, dict) and result.get("status") != "error":
+                cache.set_value(cache_key, result, expires_in_sec=CACHE_TTL)  # type: ignore[union-attr]
+                frappe.logger("ML Analytics").info(f"Computed {label} in background thread")
+
+        except Exception:
+            frappe.log_error(f"ML background compute failed for {label}", "ML Analytics")
+        finally:
+            try:
+                cache = frappe.cache()
+                cache.delete_value(lock_key)  # type: ignore[union-attr]
+            except Exception:
+                pass
+            frappe.destroy()
+
+    thread = threading.Thread(target=_run, daemon=True, name=f"ml-{cache_key}")
+    thread.start()
 
 
 def parse_date_filter(date_filter: str = "12m") -> Tuple[Optional[datetime], Optional[datetime]]:
