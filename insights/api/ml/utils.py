@@ -127,11 +127,76 @@ def serve_or_warm(
     nothing warm exists yet, so opening the dashboard on a cold cache kicks the
     background fit instead of blocking the request. `deduplicate=True` in
     `enqueue_training` collapses concurrent opens onto one job.
+
+    **Sync fallback:** if the RQ job has failed 3+ times (the work-horse keeps
+    crashing with signal 11), run the trainer synchronously in this web
+    worker. This is slower (the request blocks for 5-15s) but it guarantees
+    the dashboard always gets data — better a slow page load than a permanent
+    "Preparing" spinner. The failure count is tracked in redis with a 1-hour
+    TTL so transient failures don't trigger the fallback forever.
     """
     is_warming = isinstance(result, dict) and result.get("status") == "warming"
     if force or is_warming:
+        if _job_has_repeatedly_failed(job_id):
+            frappe.logger().warning(
+                f"ML job {job_id} has failed repeatedly — running {trainer} "
+                f"synchronously as fallback (RQ worker may be crashing with signal 11)"
+            )
+            try:
+                fn = frappe.get_attr(trainer)
+                return fn()
+            except Exception as e:
+                frappe.log_error(
+                    f"Sync fallback for {trainer} also failed: {e}",
+                    "ML Scheduler — sync fallback",
+                )
+                return result
         enqueue_training(trainer, job_id=job_id, label=label)
     return result
+
+
+def _job_has_repeatedly_failed(job_id: str, threshold: int = 3) -> bool:
+    """True when the RQ job for `job_id` has failed `threshold` times recently.
+
+    Tracks failures in redis under `insights_ml_fail:{job_id}` with a 1-hour
+    TTL. Each call to this function increments the counter when the job is not
+    found in a successful state. Once the threshold is reached, the caller
+    should fall back to synchronous execution.
+    """
+    try:
+        from frappe.utils.background_jobs import get_job, get_redis_conn
+
+        # If the job is currently queued or started, it hasn't failed yet
+        job = get_job(job_id)
+        if job and job.get_status(refresh=True) in ("queued", "started"):
+            return False
+
+        # If the job succeeded, reset the counter
+        if job and job.get_status(refresh=True) == "finished":
+            _reset_failure_count(job_id)
+            return False
+
+        # Job is failed or missing — increment failure counter.
+        # `conn.incr` returns int on the sync Redis client that get_redis_conn
+        # yields; Pyright sees the async union from the redis stubs, so cast.
+        conn = get_redis_conn()
+        key = f"insights_ml_fail:{job_id}"
+        raw_count: Any = conn.incr(key)
+        conn.expire(key, 3600)  # 1-hour TTL
+        return int(raw_count) >= threshold
+    except Exception:
+        return False
+
+
+def _reset_failure_count(job_id: str):
+    """Reset the failure counter after a successful job."""
+    try:
+        from frappe.utils.background_jobs import get_redis_conn
+
+        conn = get_redis_conn()
+        conn.delete(f"insights_ml_fail:{job_id}")
+    except Exception:
+        pass
 
 
 def parse_date_filter(date_filter: str = "12m") -> Tuple[Optional[datetime], Optional[datetime]]:
