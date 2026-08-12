@@ -8,17 +8,20 @@ Risk Intelligence API Endpoints
 import frappe
 from frappe import _
 from typing import Dict, Any
-from insights.api.response import success, error
+from insights.api.ml.utils import cached_run
 from insights.api.serialization import sanitize_for_json
 
 
 @frappe.whitelist()
 def risk_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
-    """Get risk intelligence analysis"""
+    """Get risk intelligence analysis, cached for 1 hour."""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.risk_intelligence import run_risk_intelligence
-        return sanitize_for_json(run_risk_intelligence(refresh=refresh))
+        return cached_run(
+            lambda: sanitize_for_json(run_risk_intelligence(refresh=refresh)),
+            cache_key="insights_ml_risk_intelligence",
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

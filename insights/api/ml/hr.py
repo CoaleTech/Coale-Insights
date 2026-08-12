@@ -23,7 +23,7 @@ from typing import Any, Dict
 import frappe
 from frappe import _
 
-from insights.api.ml.utils import run
+from insights.api.ml.utils import cached_run, run
 
 # ────────────────────────────────────────────────────────────────────────────
 # Whitelisted endpoints
@@ -33,21 +33,26 @@ from insights.api.ml.utils import run
 @frappe.whitelist()
 def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
     """Comprehensive HR overview -- headcount, attrition, payroll, comp.
+    Cached for 1 hour per period.
 
     Permission: BOTH ``Employee`` AND ``Salary Slip`` (see module docstring).
     """
     frappe.has_permission("Employee", "read", throw=True)
     frappe.has_permission("Salary Slip", "read", throw=True)
-    from insights.ml.hr_intelligence import HRIntelligence
 
-    result = run(lambda: HRIntelligence(period=period).train(), "HR overview")
-    if result.get("status") == "success":
-        company = frappe.defaults.get_user_default("Company")
-        result.setdefault("data", {})
-        result["data"]["currency"] = (
-            frappe.db.get_value("Company", company, "default_currency") if company else None
-        ) or frappe.db.get_default("currency") or ""
-    return result
+    def _compute() -> Dict[str, Any]:
+        from insights.ml.hr_intelligence import HRIntelligence
+
+        result = run(lambda: HRIntelligence(period=period).train(), "HR overview")
+        if result.get("status") == "success":
+            company = frappe.defaults.get_user_default("Company")
+            result.setdefault("data", {})
+            result["data"]["currency"] = (
+                frappe.db.get_value("Company", company, "default_currency") if company else None
+            ) or frappe.db.get_default("currency") or ""
+        return result
+
+    return cached_run(_compute, cache_key=f"insights_ml_hr_overview:{period}")
 
 
 @frappe.whitelist()

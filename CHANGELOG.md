@@ -6,6 +6,24 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-08-12
 
+### Fixed — every dashboard endpoint is now cached, not just `get_executive_summary`
+
+`get_executive_summary()`'s 502 (fixed 2026-08-10, see below) was one symptom of a
+wider gap: only that endpoint had a cache. The other 10 top-level dashboard payloads
+(`sales_intelligence`, `customer_intelligence`, `financial_intelligence`,
+`tax_intelligence`, `procurement_intelligence`, `risk_intelligence`,
+`strategic_finance_intelligence`, `get_hr_overview`, `get_marketing_overview`,
+`inventory_intelligence`) recomputed their full Ibis pipeline -- some fanning out to
+2-3 nested sub-computations -- on every single request, with no cache at all. Added
+`insights.api.ml.utils.cached_run`, a read-through Redis cache (1h TTL, matching the
+executive summary contract) that gates on a fresh permission check every call but
+skips the compute on a warm hit; errors are never cached, so a transient failure
+retries fresh next request instead of serving (or locking in) an error for the full
+TTL. All 10 endpoints wrapped, cache keys scoped per (date_filter/period, company)
+where the underlying compute actually uses those parameters. Verified with a direct
+cache-hit/miss/error-path probe (`cached_run` called twice: second call is a cache
+hit, zero re-invocation; error results re-run every time) and the full test suite.
+
 ### Changed — the ML layer is pure Ibis now; `BaseMLModel` and the async queue are gone
 
 Every intelligence domain (customer, executive, financial, strategic finance, procurement,

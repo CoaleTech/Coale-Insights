@@ -6,9 +6,11 @@ Inventory Intelligence API Endpoints — Ibis rewrite.
 
 Each endpoint builds one or two Ibis expressions (which compile to SQL
 and execute inside MariaDB) and wraps the result in the standard
-`success` envelope via `insights.api.ml.utils.run`. There is no cache,
-no background job, no fork. `refresh` is accepted but ignored; the
-query is always fresh.
+`success` envelope via `insights.api.ml.utils.run`. No background job, no
+fork. `refresh` is accepted but ignored; the query is always fresh.
+`inventory_intelligence` (the full dashboard payload) fans out to three
+such computations in one request and is cached for 1 hour per date_filter
+via `insights.api.ml.utils.cached_run`; everything else here has no cache.
 
 Drill-down endpoints (`get_inventory_detail`) are unchanged -- they
 already use `frappe.get_list` and don't touch the ML stack.
@@ -20,7 +22,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import functions as qb_functions
 
-from insights.api.ml.utils import run
+from insights.api.ml.utils import cached_run, run
 
 
 # ---------------------------------------------------------------------------
@@ -30,11 +32,11 @@ from insights.api.ml.utils import run
 
 @frappe.whitelist()
 def inventory_intelligence(date_filter: str = "12m", refresh: bool = False) -> Dict[str, Any]:
-    """Get comprehensive inventory intelligence."""
+    """Get comprehensive inventory intelligence, cached for 1 hour per date_filter."""
     frappe.has_permission("Item", "read", throw=True)
-    return run(
-        lambda: _inventory_intelligence(date_filter, refresh),
-        "inventory_intelligence",
+    return cached_run(
+        lambda: run(lambda: _inventory_intelligence(date_filter, refresh), "inventory_intelligence"),
+        cache_key=f"insights_ml_inventory_intelligence:{date_filter}",
     )
 
 

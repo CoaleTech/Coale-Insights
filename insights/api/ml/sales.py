@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
+from insights.api.ml.utils import cached_run, run
 
 
 @frappe.whitelist()
@@ -46,16 +47,20 @@ def get_forecast_chart_data() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Comprehensive sales intelligence.
+    """Comprehensive sales intelligence, cached for 1 hour per date_filter.
 
-    `refresh` is kept for backward compatibility; every call computes
-    fresh (no cache, no fork).
+    `refresh` is kept for backward compatibility; the underlying compute is
+    still fresh every hour (or immediately after a cache miss/expiry), just
+    not on every single call -- see `insights.api.ml.utils.cached_run`.
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import get_sales_intelligence
 
-        return success(get_sales_intelligence(date_filter=date_filter))
+        return cached_run(
+            lambda: run(lambda: get_sales_intelligence(date_filter=date_filter), "sales_intelligence"),
+            cache_key=f"insights_ml_sales_intelligence:{date_filter}",
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

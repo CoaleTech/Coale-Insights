@@ -13,8 +13,10 @@ The two-line ``from insights.api.ml.utils import run`` import at the top of
 ``try / except / return success-or-error`` block did for every endpoint
 elsewhere: a single synchronous call, a single ``success()`` envelope, with
 ``frappe.PermissionError`` re-raised unchanged and any other exception
-turned into a logged ``error()`` response. The "warming" half of the
-envelope is gone -- there is no background job, no fork, no warm cache.
+turned into a logged ``error()`` response. There is no background job, no
+fork. ``get_marketing_overview`` (the full dashboard payload) is cached
+for 1 hour per period via ``cached_run``; everything else here has no
+cache.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ import ibis
 from frappe import _
 
 from insights.api.ml.ibis_source import t
-from insights.api.ml.utils import run
+from insights.api.ml.utils import cached_run, run
 from insights.api.response import success
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -317,9 +319,9 @@ def get_marketing_overview(period: str = "YTD") -> Dict[str, Any]:
     frappe.has_permission("Lead", "read", throw=True)
 
     start = _period_start(period)
-    return run(
-        lambda: _compute_marketing_overview(start, period),
-        "Marketing overview",
+    return cached_run(
+        lambda: run(lambda: _compute_marketing_overview(start, period), "Marketing overview"),
+        cache_key=f"insights_ml_marketing_overview:{period}",
     )
 
 

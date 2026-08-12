@@ -5,7 +5,10 @@
 Financial Intelligence API Endpoints (Ibis-backed)
 
 All endpoints are synchronous, computed fresh per call, against the site's
-own MariaDB through Ibis. No background jobs, no cache, no fork.
+own MariaDB through Ibis. No background jobs, no fork. `financial_intelligence`
+(the full dashboard payload) is cached for 1 hour per date_filter via
+`cached_run` -- see `insights.api.ml.utils` for why. Everything else here
+has no cache.
 """
 
 from __future__ import annotations
@@ -13,17 +16,20 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import frappe
-from insights.api.ml.utils import run
+from insights.api.ml.utils import cached_run, run
 
 
 @frappe.whitelist()
 def financial_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
-    """Get comprehensive financial intelligence."""
+    """Get comprehensive financial intelligence, cached for 1 hour per date_filter."""
     frappe.has_permission("GL Entry", "read", throw=True)
     from insights.ml.financial_intelligence import FinancialIntelligence
-    return run(
-        lambda: FinancialIntelligence(date_filter=date_filter).train(),
-        "financial_intelligence",
+    return cached_run(
+        lambda: run(
+            lambda: FinancialIntelligence(date_filter=date_filter).train(),
+            "financial_intelligence",
+        ),
+        cache_key=f"insights_ml_financial_intelligence:{date_filter}",
     )
 
 

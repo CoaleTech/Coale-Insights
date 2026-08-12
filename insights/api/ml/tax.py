@@ -13,7 +13,7 @@ from frappe import _
 from typing import Any, Dict
 
 from insights.api.response import success, error
-from insights.api.ml.utils import run
+from insights.api.ml.utils import cached_run, run
 
 
 # `period` is one of `3m` / `6m` / `12m` / `fy` and is resolved inside the
@@ -48,12 +48,16 @@ def tax_intelligence(refresh: bool = False, period: str = "fy") -> Dict[str, Any
 
     `period` is one of `3m` / `6m` / `12m` / `fy` and selects the reporting
     window. `refresh` is accepted for API compatibility but no longer has
-    any side effect — the result is always fresh because there is no
-    cache to invalidate.
+    any side effect. Cached for 1 hour per period -- see
+    `insights.api.ml.utils.cached_run`.
     """
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
-        return run(lambda: _compute(_coerce_period(period)), "Tax intelligence")
+        coerced = _coerce_period(period)
+        return cached_run(
+            lambda: run(lambda: _compute(coerced), "Tax intelligence"),
+            cache_key=f"insights_ml_tax_intelligence:{coerced}",
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

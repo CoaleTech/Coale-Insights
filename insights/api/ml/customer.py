@@ -5,9 +5,13 @@
 Customer Intelligence API Endpoints (Ibis-native).
 
 Every endpoint here answers synchronously -- no `enqueue`, no background
-job, no Redis cache for the ML results. The underlying compute is a chain
-of Ibis aggregates that compile to one SQL statement each, so a request
-returns in the same latency budget as any other Insights query.
+job, no fork. The underlying compute is a chain of Ibis aggregates that
+compile to one SQL statement each, so most requests return in the same
+latency budget as any other Insights query. `customer_intelligence` (the
+full dashboard payload) is the exception -- it fans out across several of
+those chains in one request and is cached for 1 hour per
+(date_filter, company) via `insights.api.ml.utils.cached_run`; everything
+else here has no cache.
 
 Names + kwarg signatures are preserved exactly so the frontend (which calls
 these by string through ``frappe.call``) keeps working.
@@ -18,7 +22,7 @@ from typing import Any, Dict, Optional
 
 import frappe
 
-from insights.api.ml.utils import run
+from insights.api.ml.utils import cached_run, run
 
 
 # ---------------------------------------------------------------------------
@@ -71,13 +75,16 @@ def customer_intelligence(refresh: bool = False,
                           date_filter: str = "12m",
                           company: Optional[str] = None) -> Dict[str, Any]:
     """Comprehensive customer intelligence. `refresh` and `async_mode` are
-    accepted for API compatibility but ignored -- there is no cache and no
-    background job. The full payload returns synchronously.
+    accepted for API compatibility but ignored -- there is no background
+    job. Cached for 1 hour per (date_filter, company).
     """
     frappe.has_permission("Customer", "read", throw=True)
     from insights.ml.customer import compute_customer_intelligence
-    return run(lambda: compute_customer_intelligence(date_filter=date_filter, company=company),
-               "Customer intelligence")
+    return cached_run(
+        lambda: run(lambda: compute_customer_intelligence(date_filter=date_filter, company=company),
+                    "Customer intelligence"),
+        cache_key=f"insights_ml_customer_intelligence:{date_filter}:{company or 'all'}",
+    )
 
 
 @frappe.whitelist()

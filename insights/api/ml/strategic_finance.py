@@ -9,15 +9,24 @@ import frappe
 from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
+from insights.api.ml.utils import cached_run
 
 
 @frappe.whitelist()
 def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
-    """Get strategic finance intelligence analysis"""
+    """Get strategic finance intelligence analysis, cached for 1 hour.
+
+    `date_filter` is accepted for frontend API compatibility but the
+    underlying compute does not use it (see `run_strategic_finance_intelligence`),
+    so the cache key is static, not keyed on it.
+    """
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
         from insights.ml.strategic_finance_intelligence import run_strategic_finance_intelligence
-        return run_strategic_finance_intelligence(refresh=refresh)
+        return cached_run(
+            lambda: run_strategic_finance_intelligence(refresh=refresh),
+            cache_key="insights_ml_strategic_finance_intelligence",
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:
