@@ -237,46 +237,45 @@ class ProcurementIntelligence:
         suppliers = suppliers.sort_values("total_value", ascending=False).head(50)
 
         # Avg lead time per supplier: average (PR.posting_date - PO.transaction_date)
-        # for PRs that came after the PO from the same supplier.
-        # This is the production-cost-cheap version: per-supplier mean.
-        po_with_pr = (
+        # for PRs that came after the PO from the same supplier. Pushed into a
+        # single SQL GROUP BY (previously fetched every PO x PR row into pandas
+        # and reduced it with a nested Python for-loop over ``.iterrows()``).
+        lead_time_agg = (
             PO.filter(PO.transaction_date >= cutoff)
-            .left_join(
+            .inner_join(
                 PR,
                 (PR.supplier == PO.supplier) & (PR.posting_date >= PO.transaction_date),
             )
-            .select(PO.supplier, PO.transaction_date, PR.posting_date)
+            .group_by(PO.supplier)
+            .aggregate(avg_lead=(PR.posting_date - PO.transaction_date).cast("int32").mean())
             .execute()
         )
-        lead_time_map: dict[str, float] = {}
-        for sup, grp in po_with_pr.groupby("supplier"):
-            diffs = []
-            for _, r in grp.iterrows():
-                if r["posting_date"] is not None and not (r["posting_date"] != r["posting_date"]):  # not NaN
-                    diffs.append((r["posting_date"] - r["transaction_date"]).days)
-            if diffs:
-                lead_time_map[sup] = round(sum(diffs) / len(diffs), 1)
-            else:
-                lead_time_map[sup] = 0.0
+        lead_time_map: dict[str, float] = {
+            str(row["supplier"]): (round(float(row["avg_lead"]), 1) if row["avg_lead"] is not None else 0.0)
+            for _, row in lead_time_agg.iterrows()
+        }
+        # Suppliers with no matching PR are absent from lead_time_agg; the
+        # lookup below already defaults missing keys to 0.0.
 
-        # On-time delivery: count of (PO with schedule_date, PR by same supplier with pr.posting_date <= po.schedule_date)
-        on_time = (
-            PO.filter(
-                (PO.transaction_date >= cutoff)
-                & (PO.schedule_date.notnull())
+        # On-time delivery: count of (PO with schedule_date, PR by same supplier
+        # with pr.posting_date <= po.schedule_date). Same SQL-side pattern.
+        on_time_agg = (
+            PO.filter((PO.transaction_date >= cutoff) & (PO.schedule_date.notnull()))
+            .left_join(PR, (PR.supplier == PO.supplier) & (PR.docstatus == 1))
+            .group_by(PO.supplier)
+            .aggregate(
+                total_orders=PO.name.count(),
+                on_time_count=((PR.posting_date <= PO.schedule_date) & PR.posting_date.notnull()).sum(),
             )
-            .left_join(
-                PR,
-                (PR.supplier == PO.supplier) & (PR.docstatus == 1),
-            )
-            .select(PO.supplier, PO.schedule_date, PR.posting_date)
             .execute()
         )
-        on_time_map: dict[str, dict[str, int]] = {}
-        for sup, grp in on_time.groupby("supplier"):
-            total = len(grp)
-            ontime = int(((grp["posting_date"] <= grp["schedule_date"]) & grp["posting_date"].notna()).sum())
-            on_time_map[sup] = {"total_orders": total, "on_time_count": ontime}
+        on_time_map: dict[str, dict[str, int]] = {
+            str(row["supplier"]): {
+                "total_orders": int(row["total_orders"]),
+                "on_time_count": int(row["on_time_count"] or 0),
+            }
+            for _, row in on_time_agg.iterrows()
+        }
 
         # Company-wide return value (Material Transfer / Return)
         rej = SE.filter(
@@ -387,34 +386,49 @@ class ProcurementIntelligence:
             .to_dict("records")
         )
 
-        # Average cycle times
-        cycle_df = (
+        # Average cycle times — three independently-scoped aggregates, each
+        # a single SQL AVG(). The previous version chained POI -> MR -> PRI
+        # -> PR -> PII -> PI into one join and fetched every combinatorial
+        # row into pandas: a PO with 5 items and 3 partial receipts produced
+        # 15+ duplicate rows before any averaging happened, which was both
+        # the dominant cost of this endpoint (~60% of a 37s total) and wrong
+        # (multi-item/multi-receipt POs were over-weighted vs. single-line
+        # POs). Each stage below only joins the two tables it measures.
+        def _mean_days(expr, later_col: str, earlier_col: str) -> float:
+            agg = expr.aggregate(
+                avg_days=(expr[later_col] - expr[earlier_col]).cast("int32").mean()
+            ).execute()
+            value = agg["avg_days"].iloc[0] if len(agg) else None
+            return round(float(value), 1) if value is not None else 0.0
+
+        # Each join chains two hops (e.g. PO -> POI -> MR), so an explicit
+        # ``select()`` is required before aggregating: ibis's join "finish"
+        # step raises IntegrityError on unresolved name collisions (every
+        # Frappe doctype table shares name/owner/creation/modified/docstatus/
+        # etc.) once a second join is chained on top of the first.
+        mr_to_po_expr = (
             PO.filter(PO.transaction_date >= cutoff)
-            .left_join(POI, POI.parent == PO.name)
-            .left_join(MR, MR.name == POI.material_request)
-            .left_join(PRI, PRI.purchase_order == PO.name)
-            .left_join(PR, (PR.name == PRI.parent) & (PR.docstatus == 1))
-            .left_join(PII, PII.purchase_receipt == PR.name)
-            .left_join(PI, (PI.name == PII.parent) & (PI.docstatus == 1))
-            .select(
-                PO.transaction_date,
-                MR.transaction_date.name("mr_date"),
-                PR.posting_date.name("pr_date"),
-                PI.posting_date.name("pi_date"),
-            )
-            .execute()
+            .inner_join(POI, POI.parent == PO.name)
+            .inner_join(MR, POI.material_request == MR.name)
+            .select(later=PO.transaction_date, earlier=MR.transaction_date)
         )
-        mr_to_po = (cycle_df["transaction_date"] - cycle_df["mr_date"]).dt.days
-        po_to_grn = (cycle_df["pr_date"] - cycle_df["transaction_date"]).dt.days
-        grn_to_inv = (cycle_df["pi_date"] - cycle_df["pr_date"]).dt.days
+        avg_mr_to_po = _mean_days(mr_to_po_expr, "later", "earlier")
 
-        def _avg(s):
-            s = s.dropna()
-            return round(float(s.mean()), 1) if len(s) else 0.0
+        po_to_grn_expr = (
+            PO.filter(PO.transaction_date >= cutoff)
+            .inner_join(PRI, PRI.purchase_order == PO.name)
+            .inner_join(PR, (PRI.parent == PR.name) & (PR.docstatus == 1))
+            .select(later=PR.posting_date, earlier=PO.transaction_date)
+        )
+        avg_po_to_grn = _mean_days(po_to_grn_expr, "later", "earlier")
 
-        avg_mr_to_po = _avg(mr_to_po)
-        avg_po_to_grn = _avg(po_to_grn)
-        avg_grn_to_inv = _avg(grn_to_inv)
+        grn_to_inv_expr = (
+            PR.filter(PR.posting_date >= cutoff)
+            .inner_join(PII, PII.purchase_receipt == PR.name)
+            .inner_join(PI, (PII.parent == PI.name) & (PI.docstatus == 1))
+            .select(later=PI.posting_date, earlier=PR.posting_date)
+        )
+        avg_grn_to_inv = _mean_days(grn_to_inv_expr, "later", "earlier")
 
         # Monthly PO trend
         monthly = (
@@ -430,16 +444,24 @@ class ProcurementIntelligence:
             .to_dict("records")
         )
 
-        # GRN completion rate
-        grn_df = (
+        # GRN completion rate — single SQL aggregate (COUNT(DISTINCT ...)),
+        # no row-level fetch (previously pulled every PO x PRI x PR row into
+        # pandas just to call nunique() on two columns). ``received_pos`` must
+        # count distinct PO names with >=1 submitted receipt, not distinct PR
+        # names -- a PO received across several partial receipts would
+        # otherwise inflate the numerator past ``total_pos``.
+        grn_selected = (
             PO.filter(PO.transaction_date >= today - timedelta(days=180))
             .left_join(PRI, PRI.purchase_order == PO.name)
-            .left_join(PR, PR.name == PRI.parent)
-            .select(PO.name, PR.docstatus)
-            .execute()
+            .left_join(PR, (PRI.parent == PR.name) & (PR.docstatus == 1))
+            .select(po_name=PO.name, pr_name=PR.name)
         )
-        total_pos = int(grn_df["name"].nunique())
-        received = int(grn_df[grn_df["docstatus"] == 1]["name"].nunique())
+        grn_agg = grn_selected.aggregate(
+            total_pos=grn_selected.po_name.nunique(),
+            received_pos=grn_selected.po_name.nunique(where=grn_selected.pr_name.notnull()),
+        ).execute()
+        total_pos = int(grn_agg["total_pos"].iloc[0]) if len(grn_agg) else 0
+        received = int(grn_agg["received_pos"].iloc[0]) if len(grn_agg) else 0
         grn_completion = round((received / total_pos * 100), 1) if total_pos > 0 else 0
 
         return {

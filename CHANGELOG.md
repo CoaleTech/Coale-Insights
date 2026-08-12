@@ -99,6 +99,22 @@ by design (Ibis columns resolve at runtime).
   there is no cache left to fill; this recomputes the model the same way the domain dashboard
   that owns it already does, on demand.
 
+- **`procurement_intelligence.py` — `_supplier_performance` and `_purchase_cycles` fetched full
+  row-level fan-outs into pandas before aggregating, mis-weighting the results.**
+  `_supplier_performance`'s lead-time and on-time-delivery calcs pulled every `PO`×`PR` row into
+  a DataFrame and reduced it with a nested `.groupby()`/`.iterrows()` double-loop;
+  `_purchase_cycles`'s three cycle-time averages chained `POI → MR → PRI → PR → PII → PI` into
+  one join, so a PO with 5 items and 3 partial receipts produced 15+ duplicate rows before any
+  averaging happened — both slow (`_purchase_cycles` 22.94s + `_supplier_performance` 8.75s =
+  84% of the module's 37.8s) and wrong (multi-item/multi-receipt POs were over-weighted vs.
+  single-line POs). Rewrote both as SQL-side `.group_by().aggregate()` calls and three
+  independently-scoped two-table joins, matching the `.aggregate()` idiom already used
+  everywhere else in this file; module total dropped 37.8s → 11.4s (71%). Also fixed GRN
+  completion rate, which could read >100%: it counted distinct *receipt* names instead of
+  distinct *PO* names with ≥1 receipt, so a PO split across several partial receipts inflated
+  the numerator past the denominator — switched to `nunique(where=...)` scoped to PO names.
+  `procurement_intelligence()` end-to-end: 9.85s.
+
 ### Fixed — the test suite still exercised the deleted architecture
 
 - **`test_ml_permission_gates.py` — 4 tests mocked classes and methods the rewrite deleted**:
