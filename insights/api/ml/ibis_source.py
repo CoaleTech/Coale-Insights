@@ -34,6 +34,8 @@ import frappe
 import frappe.defaults
 from frappe.utils import cstr, get_table_name
 
+from insights.api.ml.permissions import permitted
+
 if TYPE_CHECKING:
     import ibis
     import ibis.expr.types as ir
@@ -63,12 +65,18 @@ def connection() -> ibis.BaseBackend:
 
 
 def t(doctype: str) -> ir.Table:
-    """Ibis table expression for a DocType, by its real MariaDB table name.
+    """Ibis table expression for a DocType, restricted to what the caller may read.
 
     Example: ``t("Sales Invoice")`` -> the ``tabSales Invoice`` table, lazy
-    (no query runs until you call ``.execute()`` on the final expression).
+    (no query runs until you call ``.execute()`` on the final expression),
+    already carrying the current user's row and column permissions.
+
+    The restriction lives here because this is the only way the 43 modules
+    under `insights/api/ml/` and `insights/analytics/` reach the database. A
+    caller that genuinely needs the unfiltered table can reach for
+    `connection().table()`, which says so in the diff.
     """
-    return connection().table(get_table_name(doctype))
+    return permitted(connection().table(get_table_name(doctype)), doctype)
 
 
 def company_filter(table: ir.Table, company: str | None) -> ir.Table:

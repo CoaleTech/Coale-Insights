@@ -106,7 +106,36 @@ def get_agent_for_dashboard(dashboard_type: str):
 
     frappe.throw(_(f"No agent available for dashboard type: {dashboard_type}"))
 
+def _no_session() -> Dict[str, Any]:
+    """The one refusal every session endpoint gives.
 
+    A session that exists but is not yours reports "not found", the same as one
+    that does not exist. "Access denied" would confirm the id is real, which is
+    a free enumeration oracle over other people's conversations.
+    """
+    return {"success": False, "error": "Session not found"}
+
+
+def _own_session(session_id: str | None):
+    """Load a chat session the caller is entitled to, else None.
+
+    Ownership is the whole permission model here: a session is one user's
+    conversation, and `Dashboard Chat Session` grants blanket read/write to
+    System Manager with no `if_owner` rule, so the check cannot come from the
+    doctype. Seven endpoints take a `session_id` straight from the client;
+    four compared it against `frappe.session.user` and three -- `send_message`,
+    `send_message_streaming`, `update_session_context` -- loaded whatever id
+    arrived. Posting to, streaming into, or re-contexting another user's
+    conversation needed only their session id.
+    """
+    if not session_id or not frappe.db.exists("Dashboard Chat Session", session_id):
+        return None
+
+    session = frappe.get_doc("Dashboard Chat Session", session_id)
+    if session.user != frappe.session.user and frappe.session.user != "Administrator":
+        return None
+
+    return session
 @frappe.whitelist()
 def get_recent_session(dashboard_type: str) -> Dict[str, Any]:
     """
@@ -242,10 +271,9 @@ def send_message(session_id: str | None = None, query: str | None = None, contex
                 ctx = {}
 
         # Get session
-        if not frappe.db.exists("Dashboard Chat Session", session_id):
-            return {"success": False, "error": "Session not found"}
-
-        session = frappe.get_doc("Dashboard Chat Session", session_id)
+        session = _own_session(session_id)
+        if session is None:
+            return _no_session()
         dashboard_type = session.dashboard_type
 
         # Get agent
@@ -318,20 +346,9 @@ def get_session(session_id: str) -> Dict[str, Any]:
         Dict with session data
     """
     try:
-        if not frappe.db.exists("Dashboard Chat Session", session_id):
-            return {
-                "success": False,
-                "error": "Session not found"
-            }
-        
-        session = frappe.get_doc("Dashboard Chat Session", session_id)
-        
-        # Check ownership
-        if session.user != frappe.session.user and frappe.session.user != "Administrator":
-            return {
-                "success": False,
-                "error": "Access denied"
-            }
+        session = _own_session(session_id)
+        if session is None:
+            return _no_session()
         
         return {
             "success": True,
@@ -439,13 +456,9 @@ def update_session_context(session_id: str, context: str) -> Dict[str, Any]:
         Dict with success status
     """
     try:
-        if not frappe.db.exists("Dashboard Chat Session", session_id):
-            return {
-                "success": False,
-                "error": "Session not found"
-            }
-        
-        session = frappe.get_doc("Dashboard Chat Session", session_id)
+        session = _own_session(session_id)
+        if session is None:
+            return _no_session()
         
         # Parse and compress context
         ctx = json.loads(context) if isinstance(context, str) else context
@@ -472,12 +485,8 @@ def update_session_context(session_id: str, context: str) -> Dict[str, Any]:
 def delete_session(session_id: str) -> Dict[str, Any]:
     """Delete a chat session and all its data."""
     try:
-        if not frappe.db.exists("Dashboard Chat Session", session_id):
-            return {"success": False, "error": "Session not found"}
-
-        session = frappe.get_doc("Dashboard Chat Session", session_id)
-        if session.user != frappe.session.user and frappe.session.user != "Administrator":
-            return {"success": False, "error": "Access denied"}
+        if _own_session(session_id) is None:
+            return _no_session()
 
         frappe.delete_doc("Dashboard Chat Session", session_id, ignore_permissions=True)
         frappe.db.commit()
@@ -491,12 +500,9 @@ def delete_session(session_id: str) -> Dict[str, Any]:
 def rename_session(session_id: str, title: str) -> Dict[str, Any]:
     """Set a display title for a chat session."""
     try:
-        if not frappe.db.exists("Dashboard Chat Session", session_id):
-            return {"success": False, "error": "Session not found"}
-
-        session = frappe.get_doc("Dashboard Chat Session", session_id)
-        if session.user != frappe.session.user and frappe.session.user != "Administrator":
-            return {"success": False, "error": "Access denied"}
+        session = _own_session(session_id)
+        if session is None:
+            return _no_session()
 
         session.session_title = (title or "").strip()[:140]
         session.save(ignore_permissions=True)
@@ -520,12 +526,9 @@ def export_session(session_id: str, fmt: str = "markdown") -> Dict[str, Any]:
         Dict with exported content string
     """
     try:
-        if not frappe.db.exists("Dashboard Chat Session", session_id):
-            return {"success": False, "error": "Session not found"}
-
-        session = frappe.get_doc("Dashboard Chat Session", session_id)
-        if session.user != frappe.session.user and frappe.session.user != "Administrator":
-            return {"success": False, "error": "Access denied"}
+        session = _own_session(session_id)
+        if session is None:
+            return _no_session()
 
         messages = session.get_messages()
         lines = []
@@ -684,10 +687,9 @@ def send_message_streaming(session_id: str | None = None, query: str | None = No
         except json.JSONDecodeError:
             ctx = {}
 
-    if not frappe.db.exists("Dashboard Chat Session", session_id):
-        return {"success": False, "error": "Session not found"}
-
-    session = frappe.get_doc("Dashboard Chat Session", session_id)
+    session = _own_session(session_id)
+    if session is None:
+        return _no_session()
     dashboard_type = session.dashboard_type
     agent = get_agent_for_dashboard(dashboard_type)
 

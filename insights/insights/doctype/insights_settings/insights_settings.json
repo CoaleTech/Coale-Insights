@@ -531,7 +531,8 @@
    "label": "Enable Data Store"
   },
   {
-   "default": "0",
+   "default": "1",
+   "description": "Filter query results by each viewer's User Permissions. Turning this off shows every user the whole table.",
    "fieldname": "apply_user_permissions",
    "fieldtype": "Check",
    "label": "Apply User Permissions"

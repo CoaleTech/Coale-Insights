@@ -8,8 +8,9 @@ Abstract base class for ERPNext module-specific data collectors.
 
 from typing import Dict, Any, Optional
 
-import frappe
 from frappe.utils import nowdate, add_months
+
+from insights.api.ml.permissions import permitted_company
 
 
 class BaseCollector:
@@ -17,13 +18,13 @@ class BaseCollector:
 
     def __init__(self, filters: Optional[Dict] = None):
         self.filters = filters or {}
-        self.company = (
-            (filters.get("company") if filters else None)
-            or frappe.defaults.get_user_default("Company")
-        )
-        self.from_date = (
-            filters.get("from_date") if filters else add_months(nowdate(), -12)
-        )
+        # `company` used to arrive as client-supplied JSON and go straight into
+        # the query, falling back to a site-wide default when absent. Both are
+        # resolved here now, against the companies this user may actually see,
+        # so every collector is covered by construction rather than by each
+        # entry point remembering to check.
+        self.company = permitted_company(self.filters)
+        self.from_date = filters.get("from_date") if filters else add_months(nowdate(), -12)
         self.to_date = filters.get("to_date") if filters else nowdate()
 
     def collect(self) -> Dict[str, Any]:

@@ -18,6 +18,7 @@ from insights.analytics.collectors.inventory import InventoryDataCollector
 from insights.analytics.collectors.production import ProductionDataCollector
 from insights.analytics.collectors.customer import CustomerDataCollector
 from insights.analytics.collectors.hr import HRDataCollector
+from insights.api.ml.permissions import authorize_dashboard
 
 _COLLECTORS: Dict[str, type] = {
     "financial": FinancialDataCollector,
@@ -31,10 +32,18 @@ _COLLECTORS: Dict[str, type] = {
 
 
 def get_collector(collector_type: str, filters: Optional[Dict] = None) -> BaseCollector:
-    """Return an instantiated collector for the given type."""
+    """Return an instantiated collector for the given type.
+
+    Every dashboard path reaches its data through here -- `get_analytics_data`
+    and `get_all_analytics_data` below, and `MLAnalyticsEngine.get_dashboard_data`
+    -- so this is where the caller is asked whether they may read what the
+    collector is about to read. Asking in the endpoints instead would mean six
+    copies of the same question, and six copies can disagree.
+    """
     collector_class = _COLLECTORS.get(collector_type)
     if not collector_class:
         raise ValueError(f"Unknown collector type: {collector_type}")
+    authorize_dashboard(collector_type)
     return collector_class(filters)
 
 
