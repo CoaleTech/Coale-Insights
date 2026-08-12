@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 
 import frappe
 from frappe import _
+from frappe.query_builder import functions as qb_functions
 
 from insights.api.ml.utils import run
 
@@ -182,6 +183,8 @@ def get_dead_stock() -> Dict[str, Any]:
 def inventory_classification(refresh: bool = False) -> Dict[str, Any]:
     """Classify inventory using ABC/XYZ analysis."""
     frappe.has_permission("Item", "read", throw=True)
+    from insights.ml.inventory_intelligence import ABCXYZClassification
+
     return run(
         lambda: ABCXYZClassification().train(),
         "inventory_classification",
@@ -190,12 +193,17 @@ def inventory_classification(refresh: bool = False) -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_inventory_recommendations() -> Dict[str, Any]:
-    """Get inventory optimization recommendations."""
+    """Get inventory optimization recommendations (reorder alerts).
+
+    Delegates to the same canonical demand-forecast payload as
+    ``insights.api.ml.general.get_reorder_alerts`` -- there is no
+    separate "recommendations" model, ABC/XYZ classification has no
+    ``get_reorder_recommendations`` method.
+    """
     frappe.has_permission("Item", "read", throw=True)
-    return run(
-        lambda: ABCXYZClassification().get_reorder_recommendations(),
-        "get_inventory_recommendations",
-    )
+    from insights.ml.demand_forecasting import get_reorder_alerts
+
+    return run(get_reorder_alerts, "get_inventory_recommendations")
 
 
 # ---------------------------------------------------------------------------
@@ -280,7 +288,7 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
         )
         total_result = (
             base_q
-            .select(frappe.qb.functions.Count("*").as_("total"))
+            .select(qb_functions.Count("*").as_("total"))
             .run()
         )
         total = total_result[0][0] if total_result else 0
