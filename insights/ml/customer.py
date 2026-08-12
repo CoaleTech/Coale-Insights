@@ -149,7 +149,7 @@ def compute_rfm_segmentation(company: Optional[str] = None) -> Dict[str, Any]:
     filtered = si.filter((si.docstatus == 1) & si.customer.notnull() & (si.customer != ""))
 
     per_customer = filtered.group_by(filtered.customer).aggregate(
-        customer_name=filtered.customer_name.first(),
+        customer_name=filtered.customer_name.min(),
         last_purchase_date=filtered.posting_date.max(),
         first_purchase_date=filtered.posting_date.min(),
         frequency=filtered.count(),
@@ -353,9 +353,9 @@ def compute_customer_intelligence(
     # group_by.aggregate() -- the column "belongs to another relation" per
     # the same gotcha the shared contract documents.
     per_customer = si.group_by(si.customer).aggregate(
-        customer_name=si.customer_name.first(),
-        customer_group=si.customer_group.first(),
-        territory=si.territory.first(),
+        customer_name=si.customer_name.min(),
+        customer_group=si.customer_group.min(),
+        territory=si.territory.min(),
         historical_clv=si.grand_total.sum(),
         avg_order_value=si.grand_total.mean(),
         order_count=si.count(),
@@ -363,10 +363,9 @@ def compute_customer_intelligence(
         last_purchase=si.posting_date.max(),
         outstanding_amount=si.outstanding_amount.sum(),
     )
-    overdue_per_customer = (
-        si.filter(overdue_cond)
-        .group_by(si.customer)
-        .aggregate(overdue_count=si.count())
+    overdue_si = si.filter(overdue_cond)
+    overdue_per_customer = overdue_si.group_by(overdue_si.customer).aggregate(
+        overdue_count=overdue_si.count()
     )
     overdue_df = overdue_per_customer.execute()
     df = per_customer.execute()
@@ -663,17 +662,40 @@ def _product_affinity(start, end, company, per_customer):
     sii = t("Sales Invoice Item")
     si = t("Sales Invoice")
     item = t("Item")
-    sales = sii.join(si, sii.parent == si.name).join(item, sii.item_code == item.name, how="left")
-    sales = sales.filter(si.docstatus == 1)
-    if company:
-        sales = sales.filter(si.company == company)
-    if start and end:
-        sales = sales.filter(si.posting_date.between(start.date(), end.date()))
 
-    per_cust_item = sales.group_by([si.customer, sii.item_code, sii.item_name, item.item_group, item.brand]).aggregate(
-        total_qty=sii.qty.sum(),
-        total_amount=sii.amount.sum(),
-        order_count=sii.count(),
+    si_filtered = si.filter(si.docstatus == 1)
+    if company:
+        si_filtered = si_filtered.filter(si_filtered.company == company)
+    if start and end:
+        si_filtered = si_filtered.filter(si_filtered.posting_date.between(start.date(), end.date()))
+
+    # Select immediately after each join to drop the overlapping Frappe
+    # meta columns (name/owner/creation/modified/docstatus/idx and any
+    # shared custom fields) before the next join -- Ibis's plain join()
+    # raises an IntegrityError on those collisions otherwise.
+    line_sales = sii.join(si_filtered, sii.parent == si_filtered.name).select(
+        item_code=sii.item_code,
+        item_name=sii.item_name,
+        qty=sii.qty,
+        amount=sii.amount,
+        customer=si_filtered.customer,
+    )
+    sales = line_sales.join(item, line_sales.item_code == item.name, how="left").select(
+        line_sales.item_code,
+        line_sales.item_name,
+        line_sales.qty,
+        line_sales.amount,
+        line_sales.customer,
+        item_group=item.item_group,
+        brand=item.brand,
+    )
+
+    per_cust_item = sales.group_by(
+        [sales.customer, sales.item_code, sales.item_name, sales.item_group, sales.brand]
+    ).aggregate(
+        total_qty=sales.qty.sum(),
+        total_amount=sales.amount.sum(),
+        order_count=sales.count(),
     ).execute()
     if per_cust_item.empty:
         return {"tier_preferences": [], "top_categories": [], "brand_analysis": []}
@@ -763,9 +785,12 @@ def _cohort_analysis(start, end, company):
     per_cust = si.group_by(si.customer).aggregate(
         first_purchase=si.posting_date.min(),
     )
-    per_cust_month = si.mutate(
-        txn_month=si.posting_date.truncate("M")
-    ).group_by([si.customer, si.txn_month]).aggregate(c=si.count()).execute()
+    per_cust_txn = si.mutate(txn_month=si.posting_date.truncate("M"))
+    per_cust_month = (
+        per_cust_txn.group_by([per_cust_txn.customer, per_cust_txn.txn_month])
+        .aggregate(c=per_cust_txn.count())
+        .execute()
+    )
     if per_cust_month.empty:
         return {"cohort_retention": [], "average_retention": {}, "cohort_count": 0}
 
@@ -823,7 +848,8 @@ def _quotation_conversion(start, end, company):
     if company:
         q = q.filter(q.company == company)
     total = _scalar_int(q.aggregate(total=q.count()))
-    converted = _scalar_int(q.filter(q.status == "Ordered").aggregate(converted=q.count()))
+    q_converted = q.filter(q.status == "Ordered")
+    converted = _scalar_int(q_converted.aggregate(converted=q_converted.count()))
     rate = round((converted / total * 100) if total else 0, 1)
     return rate, total, converted
 
@@ -933,9 +959,9 @@ def compute_customer_360(customer_id: str,
     today_date = datetime.now().date()
     overdue_cond = (si.due_date < today_date) & (si.outstanding_amount > 0)
     base = si.group_by(si.customer).aggregate(
-        customer_name=si.customer_name.first(),
-        customer_group=si.customer_group.first(),
-        territory=si.territory.first(),
+        customer_name=si.customer_name.min(),
+        customer_group=si.customer_group.min(),
+        territory=si.territory.min(),
         historical_clv=si.grand_total.sum(),
         avg_order_value=si.grand_total.mean(),
         order_count=si.count(),
@@ -1366,9 +1392,10 @@ def compute_customer_rankings(date_filter: str = "12m", limit: int = 20,
     )
 
     # consistency
-    monthly = si.mutate(month=si.posting_date.truncate("M")).group_by(
-        [si.customer, si.customer_name, si.month]
-    ).aggregate(monthly_spend=si.grand_total.sum()).execute()
+    si_monthly = si.mutate(month=si.posting_date.truncate("M"))
+    monthly = si_monthly.group_by(
+        [si_monthly.customer, si_monthly.customer_name, si_monthly.month]
+    ).aggregate(monthly_spend=si_monthly.grand_total.sum()).execute()
     consistency = []
     if not monthly.empty:
         total_months = max(((end.year - start.year) * 12 + (end.month - start.month)), 1)
