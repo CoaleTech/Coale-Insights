@@ -84,6 +84,10 @@ def customer_intelligence(refresh: bool = False,
         lambda: run(lambda: compute_customer_intelligence(date_filter=date_filter, company=company),
                     "Customer intelligence"),
         cache_key=f"insights_ml_customer_intelligence:{date_filter}:{company or 'all'}",
+        warm=(
+            "insights.api.ml.customer.customer_intelligence",
+            {"date_filter": date_filter, "company": company},
+        ),
     )
 
 

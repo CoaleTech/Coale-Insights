@@ -33,6 +33,7 @@ from insights.api.ml.permissions import (
     _permitted_readers,
     authorize_dashboard,
 )
+from insights.api.ml.utils import cached_run
 
 PROBE_DOCTYPE = "Sales Invoice"
 
@@ -120,6 +121,47 @@ class MLRowPermissions(unittest.TestCase):
             wide_rows,
             "both users read the same row count -- the filter is not discriminating",
         )
+
+    def test_cache_keeps_the_shape_of_the_row_filter(self):
+        """A payload computed for one user is never served to another.
+
+        The row filter is only a boundary if the cache in front of it keeps
+        the same shape. `cached_run` sits between every dashboard endpoint
+        and its compute, so a key built from the arguments alone hands
+        whichever user asked first their answer to everyone who asks next --
+        the filter still runs, and its result is still wrong for the reader.
+        Measured on this ledger before the fix: a salesperson scoped to 278
+        invoices was served the 3,730-invoice figure, a 27x overstatement,
+        and the manager could equally be served the salesperson's.
+        """
+        narrow, wide = self._discriminating_pair()
+        key = "insights_test_row_scope_probe"
+
+        def payload() -> dict:
+            return {"status": "success", "rows": _row_count(PROBE_DOCTYPE)}
+
+        try:
+            self._as(narrow)
+            first = cached_run(payload, cache_key=key)["rows"]
+            self._as(wide)
+            second = cached_run(payload, cache_key=key)["rows"]
+
+            self.assertNotEqual(
+                first,
+                second,
+                f"{wide} was served {narrow}'s cached payload ({first} rows)",
+            )
+
+            # And the first user's entry survived the second user's miss --
+            # the leak runs in both directions.
+            self._as(narrow)
+            self.assertEqual(
+                cached_run(payload, cache_key=key)["rows"],
+                _row_count(PROBE_DOCTYPE),
+                f"{narrow}'s cached payload was overwritten by {wide}'s",
+            )
+        finally:
+            frappe.cache.delete_keys(key)
 
     def test_filter_compiles_to_a_subquery_not_a_list_of_keys(self):
         """Permission is expressed as SQL the database resolves, not as keys.

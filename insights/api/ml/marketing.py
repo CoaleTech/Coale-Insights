@@ -322,6 +322,7 @@ def get_marketing_overview(period: str = "YTD") -> Dict[str, Any]:
     return cached_run(
         lambda: run(lambda: _compute_marketing_overview(start, period), "Marketing overview"),
         cache_key=f"insights_ml_marketing_overview:{period}",
+        warm=("insights.api.ml.marketing.get_marketing_overview", {"period": period}),
     )
 
 

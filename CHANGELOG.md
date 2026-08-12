@@ -6,6 +6,52 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-08-12
 
+### Fixed — a cache keyed only on arguments served one user's rows to another
+
+`cached_run` (below) keyed on the endpoint's arguments alone. But
+`insights.api.ml.permissions.permitted()` filters rows out of every read according to
+the caller's User Permissions, so two callers passing byte-identical arguments compute
+materially different payloads. Whoever missed the cache first had their payload served
+to everyone who asked next. Measured on this ledger: a salesperson restricted by
+`custom_sales_person` sees 278 Sales Invoices and should total ₹6,763,075 across 210
+transactions; through the shared cache they were served the manager's ₹182,105,991
+across 2,229 — a **27x overstatement and a confidentiality breach**. It runs both ways:
+load order decides, so the manager could equally be served the salesperson's figures
+and silently under-report. This is the same class of defect as the row/column
+permission fix, one layer up — the row filter is only a boundary if the cache in front
+of it keeps the same shape. Cache keys are now scoped per user. Regression test
+`test_cache_keeps_the_shape_of_the_row_filter` discovers a discriminating pair of real
+users on the bench and asserts neither is served the other's payload; it fails on the
+pre-fix key (`AssertionError: 278 == 278`).
+
+### Fixed — cold dashboards 502'd permanently because the cache could not fill itself
+
+Every ML dashboard endpoint returned `502 Bad Gateway` on production while returning
+correct, fast `403`s to unauthenticated probes — the worker, routing and imports were
+all healthy. bench runs gunicorn with `-t 120` behind nginx `proxy_read_timeout 120`,
+and a cold compute that overruns that is killed mid-flight: the browser gets an
+empty-bodied 502 (which also crashed the frontend's error decoder, since it parses the
+body as JSON) *and nothing is written to the cache*, so the next request starts cold
+and repeats it. A cache that can only be filled by a request that dies before filling
+it never populates — the 1h TTL was irrelevant because it was never reached. Measured
+cold, single-user, on a warm local DB: 102.1s across the 9 endpoints, up to ~46s for a
+single one, before any production contention.
+
+`cached_run` now distinguishes who is paying. Off-request callers (scheduler,
+background job, `bench execute`, tests) have no gateway over them and still compute
+inline. A *web request* that misses hands the work to `insights.api.ml.warm.warm_key`
+on the `long` queue (timeout 1800s, `deduplicate` + a redis lock so a 4s poll cycle
+cannot stack jobs) and answers `{"status": "warming"}` — a contract the frontend
+already renders as "Preparing your dashboard" and re-polls. The job re-enters the very
+same whitelisted endpoint as the very same user, so there is no second implementation
+to drift and the payload matches the per-user key it is stored under. If warming stops
+making progress for 180s the next request computes inline instead, so a broken worker
+degrades the dashboard rather than removing it. Note this reintroduces a background job
+but *not* the `os.fork()` crash below: the SIGSEGV came from numpy/OpenBLAS thread
+pools inherited across `fork()`, and the Ibis rewrite removed numpy, pandas and sklearn
+from the compute path entirely — verified by importing all 9 endpoints in a worker and
+confirming zero native-threaded libraries load.
+
 ### Fixed — every dashboard endpoint is now cached, not just `get_executive_summary`
 
 `get_executive_summary()`'s 502 (fixed 2026-08-10, see below) was one symptom of a

@@ -52,7 +52,11 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
             ) or frappe.db.get_default("currency") or ""
         return result
 
-    return cached_run(_compute, cache_key=f"insights_ml_hr_overview:{period}")
+    return cached_run(
+        _compute,
+        cache_key=f"insights_ml_hr_overview:{period}",
+        warm=("insights.api.ml.hr.get_hr_overview", {"period": period}),
+    )
 
 
 @frappe.whitelist()

@@ -35,6 +35,7 @@ def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
     return cached_run(
         lambda: run(lambda: ProcurementIntelligence().train(), "procurement_intelligence"),
         cache_key="insights_ml_procurement_intelligence",
+        warm=("insights.api.ml.procurement.procurement_intelligence", {}),
     )
 
 

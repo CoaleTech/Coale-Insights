@@ -30,6 +30,7 @@ def financial_intelligence(refresh: bool = False, date_filter: str = "12m") -> D
             "financial_intelligence",
         ),
         cache_key=f"insights_ml_financial_intelligence:{date_filter}",
+        warm=("insights.api.ml.financial.financial_intelligence", {"date_filter": date_filter}),
     )
 
 
