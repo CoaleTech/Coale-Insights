@@ -41,7 +41,7 @@ class TestMLPermissionGates(FrappeTestCase):
         alone doesn't imply salary visibility. See outside-voice finding 4."""
         with patch.object(frappe, "has_permission") as mock_has_perm, \
              patch("insights.ml.hr_intelligence.HRIntelligence") as MockHR:
-            MockHR.return_value.get_hr_overview.return_value = {}
+            MockHR.return_value.train.return_value = {}
             hr_api.get_hr_overview()
             mock_has_perm.assert_any_call("Employee", "read", throw=True)
             mock_has_perm.assert_any_call("Salary Slip", "read", throw=True)
@@ -127,16 +127,21 @@ class TestOutsideVoiceFixes(FrappeTestCase):
         """A single fixed 'Sales Invoice' gate let a Sales-only user pass
         department='hr' and read payroll data through get_department_insights
         -- the gate must match the doctype the requested department actually
-        exposes. See outside-voice finding 2."""
+        exposes. See outside-voice finding 2.
+
+        get_department_insights now slices its department block out of the
+        pure-Ibis get_executive_summary() rollup (no ExecutiveIntelligence
+        class, no cache) -- mock that function directly."""
         with patch.object(frappe, "has_permission") as mock_has_perm, \
-             patch("insights.ml.executive_intelligence.ExecutiveIntelligence") as MockEI:
-            MockEI.return_value.get_department_deep_dive.return_value = {}
+             patch("insights.ml.executive_intelligence.get_executive_summary",
+                   return_value={"kpis": {}, "alerts": []}) as mock_summary:
             executive_api.get_department_insights(department="hr")
             mock_has_perm.assert_called_once_with("Salary Slip", "read", throw=True)
+            mock_summary.assert_called_once_with("YTD")
 
         with patch.object(frappe, "has_permission") as mock_has_perm, \
-             patch("insights.ml.executive_intelligence.ExecutiveIntelligence") as MockEI:
-            MockEI.return_value.get_department_deep_dive.return_value = {}
+             patch("insights.ml.executive_intelligence.get_executive_summary",
+                   return_value={"kpis": {}, "alerts": []}):
             executive_api.get_department_insights(department="manufacturing")
             mock_has_perm.assert_called_once_with("Work Order", "read", throw=True)
 
@@ -152,25 +157,23 @@ class TestOutsideVoiceFixes(FrappeTestCase):
             with self.assertRaises(frappe.PermissionError):
                 executive_api.get_department_insights(department="hr")
 
-    def test_payment_risk_analysis_never_trains_in_the_request(self):
-        """refresh=True used to call PaymentPrediction.train() inline, which fitted a
-        RandomForest while the browser held the connection. It now queues the fit on
-        a worker and answers immediately."""
+    def test_payment_risk_analysis_always_computes_live_ignores_refresh_flag(self):
+        """The old behavior queued PaymentPrediction.train() on a worker when
+        refresh=True and answered immediately. That cache/train split is gone:
+        payment_risk_analysis now always calls predict() synchronously and the
+        refresh flag is accepted only for backward compatibility with older
+        frontend callers (see insights/api/ml/general.py docstring) -- it must
+        never train inline and must never enqueue a background job."""
         with patch.object(frappe, "has_permission"), \
              patch("insights.ml.payment_prediction.PaymentPrediction") as MockPP, \
-             patch("frappe.utils.background_jobs.get_job_status", return_value=None), \
              patch("frappe.enqueue") as mock_enqueue:
             instance = MockPP.return_value
+            instance.predict.return_value = {"predictions": [], "summary": {}}
             result = general_api.payment_risk_analysis(refresh=True)
 
             instance.train.assert_not_called()
-            instance.predict.assert_not_called()
-            mock_enqueue.assert_called_once()
-            self.assertEqual(
-                mock_enqueue.call_args[0][0],
-                "insights.ml.scheduler.train_payment_prediction",
-            )
-            self.assertEqual(mock_enqueue.call_args[1]["queue"], "long")
+            instance.predict.assert_called_once()
+            mock_enqueue.assert_not_called()
             self.assertEqual(result["status"], "success")
 
     def test_payment_risk_analysis_returns_predictions_shape(self):
@@ -186,18 +189,20 @@ class TestOutsideVoiceFixes(FrappeTestCase):
             instance.predict.assert_called_once()
             self.assertEqual(result["data"], {"predictions": [], "summary": {}})
 
-    def test_cross_dashboard_search_sales_domain_uses_predict_not_train(self):
-        """The sales branch of _get_domain_data was written new in this
-        review and initially called .train() unconditionally on every search
-        hit -- same cache-bypass bug as the sales.py dashboard endpoints it
-        was meant to be consistent with. See outside-voice finding 7."""
+    def test_cross_dashboard_search_sales_domain_is_a_direct_bounded_read_not_an_ml_call(self):
+        """The sales branch of domain search previously instantiated
+        SalesIntelligence and called .train()/.predict() per keystroke -- both
+        slow and, in an earlier bug, retraining on every search hit. sales_intelligence.py
+        is now pure Ibis functions (no SalesIntelligence class at all), and domain
+        search was rewritten to a single capped frappe.get_all with zero ML
+        involvement. See outside-voice finding 7."""
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
         service = CrossDashboardSearchService()
-        with patch("insights.ml.sales_intelligence.SalesIntelligence") as MockSI:
-            MockSI.return_value.predict.return_value = {}
-            service._get_domain_data("sales")
-            MockSI.return_value.predict.assert_called_once()
-            MockSI.return_value.train.assert_not_called()
+        with patch.object(frappe, "get_all", return_value=[]) as mock_get_all:
+            result = service._search_domain("sales", {"keywords": ["acme"]})
+            mock_get_all.assert_called_once()
+            self.assertEqual(mock_get_all.call_args.args[0], "Sales Invoice")
+        self.assertEqual(result["results"], [])
 
     def test_duplicate_ml_module_functions_are_no_longer_whitelisted(self):
         """The critical finding: insights/ml/*.py had its own @frappe.whitelist()
