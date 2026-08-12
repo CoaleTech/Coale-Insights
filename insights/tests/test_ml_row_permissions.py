@@ -58,7 +58,7 @@ class MLRowPermissions(unittest.TestCase):
         )
 
     def tearDown(self):
-        frappe.set_user(self.original_user)
+        frappe.set_user(self.original_user or "Administrator")
         frappe.local.insights_ml_permissions = {}
 
     def _as(self, user: str):
@@ -144,8 +144,8 @@ class MLRowPermissions(unittest.TestCase):
 
         self.assertRegex(
             text,
-            r"EXISTS\s*\(\s*SELECT",
-            "no correlated subquery in the compiled SQL -- the row filter is either missing or materialised",
+            r"(?:EXISTS|IN)\s*\(\s*SELECT",
+            "no subquery in the compiled SQL -- the row filter is either missing or materialised",
         )
 
         literals = re.findall(r"'[^']*'", text)

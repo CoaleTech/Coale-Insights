@@ -89,7 +89,13 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
   const resource = createResource({
     url,
     cache,
-    auto,
+    // frappe-ui's own `if (options.auto) out.fetch()` (resources.js) fires an
+    // un-awaited fetch with no `.catch()`: on a gateway failure `out.fetch()`'s
+    // promise rejects exactly like every other reload here, but nothing catches
+    // *this* invocation, so it reached the console as an unhandled rejection
+    // before `onError` below even ran. Trigger the initial fetch ourselves,
+    // below, wrapped the same way every reload/retry already is.
+    auto: false,
     initialData,
     makeParams: () => (params ? { ...params.value } : {}),
     onSuccess: (raw: unknown) => {
@@ -121,6 +127,10 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
       refreshing.value = false
     },
   })
+
+  if (auto) {
+    ignoreRejection(resource.fetch())
+  }
 
   if (params) {
     watch(

@@ -26,8 +26,15 @@ off is not a fix.
 `frappe.get_list(pluck="name")` and testing `t.name.isin(that_list)`: every
 permitted primary key crosses into Python and back out as a literal in the SQL
 text. On a table with a million permitted rows that is a million literals, per
-table, per request. Passing the *unexecuted* permission query to `semi_join`
-compiles to one subquery and never materialises a key.
+table, per request. Here `t.name.isin(...)` takes the *unexecuted* permission
+query's own `name` column, not a Python list -- one subquery, no key ever
+crosses into Python. That also matters for *which* subquery shape: MariaDB
+only builds an indexed temp table (its "materialization" strategy) for
+`name IN (SELECT ...)`; the equivalent correlated `EXISTS`, which is what
+`semi_join` compiles to, gets re-scanned per outer row instead. For a child
+table permitted through a UNION ALL of every parent doctype it could belong
+to, that difference is the gap between an index lookup and a multi-second
+scan at dashboard scale.
 
 **Undecidable means filter.** Upstream skips the row filter when it cannot find
 a `WHERE` in the permission query, and treats a parse failure as "no WHERE" --
@@ -67,13 +74,27 @@ def permitted(t: ir.Table, doctype: str) -> ir.Table:
     if columns is None or query is None:
         return _empty(t)
 
-    # Rows first: the row filter joins on `name`, and the column projection
+    # Rows first: the row filter narrows on `name`, and the column projection
     # below can only remove columns. Filtering first means the two can never
     # interact.
     if not _provably_unrestricted(query):
         if "name" not in t.columns:
             frappe.throw(f"Cannot apply user permissions to `{doctype}`: it has no `name` column.")
-        t = t.semi_join(t.sql(query).select("name"), "name")
+        # `isin` against the subquery's own column (never a materialised
+        # Python list -- see module docstring) reads identically to
+        # `semi_join` but compiles to `name IN (SELECT ...)` instead of a
+        # correlated `EXISTS`. That distinction is not cosmetic: for a child
+        # table, `query` is a UNION ALL across every parent doctype it could
+        # belong to (`_permission_query`), and MariaDB will only build an
+        # indexed temp table for that union -- its "materialization"
+        # strategy -- for the `IN` shape. The `EXISTS` shape it plans as a
+        # correlated re-scan of the full union per outer row; on a
+        # multi-parent child joined at dashboard scale that is millions of
+        # comparisons for what should be an index lookup (measured: a single
+        # tax-intelligence bucket over ~1,200 permitted Purchase Invoices
+        # joined to Purchase Taxes and Charges went from a multi-second
+        # correlated scan to an indexed `eq_ref`).
+        t = t.filter(t["name"].isin(t.sql(query)["name"]))
 
     # `columns` carries fieldnames, including virtual fields that have no
     # column at all; intersecting against the real columns drops those too.
