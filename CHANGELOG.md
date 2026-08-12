@@ -13,7 +13,8 @@ risk, HR, product recommendations, marketing, inventory) is rewritten from a `Ba
 subclass — `train()` fits a model, `predict()` serves an hourly Redis cache, sklearn/pandas
 do the heavy lifting — to a synchronous Ibis expression compiled to one SQL statement per
 endpoint. There is no cache, no background job, no fork; every whitelisted endpoint computes
-fresh, synchronously, inside the gunicorn web worker that received the request.
+fresh, synchronously, inside the gunicorn web worker that received the request — with one
+documented exception, `get_executive_summary()`, see "Fixed" below.
 
 `insights/ml/base.py` is trimmed to `ensure_dependencies()` (the one live caller left,
 `model_ops.py`'s `model_health` diagnostic). `esg_intelligence.py` (1,488 lines) and
@@ -157,6 +158,30 @@ typing, trailing whitespace). A final targeted re-run of the 20 endpoints this e
 `get_payables_analysis`, `get_forex_exposure`; `get_purchase_analytics`,
 `get_price_intelligence`, `get_procurement_risks`, `get_procurement_forecast` — returns
 `status: success` on every one against the live jkm site: **20/20**.
+
+### Fixed — `get_executive_summary()` recomputed all nine domains on every call, ~60s
+
+`ExecutiveDashboard.vue` calls `get_executive_summary()` on load. The endpoint fans out to
+`_load_sales`/`_load_customer`/`_load_inventory`/`_load_procurement`/`_load_financial`/
+`_load_risk`/`_load_hr`/`_load_manufacturing`/`_load_marketing` — nine full domain Ibis
+pipelines — on every single call, with no cache (see the "no cache" note above). Measured
+cold on the live jkm DB: the nine loaders sum to ~57s, the full rollup ~62s — well past most
+gateway/reverse-proxy timeouts. This is what "the intelligent dashboard is still loading"
+actually was.
+
+Two scheduler functions, `run_daily_intelligence` and `warm_dashboard_caches`, already called
+`get_executive_summary(period)` for all four periods (`MTD`/`QTD`/`YTD`/`TTM`) with comments
+describing a "1h TTL" that had been deleted along with the rest of the cache layer — restored
+it: a synchronous read-through Redis cache (`insights_ml_executive_summary:{period}`, 1h TTL),
+populated inline on a miss inside the same request. No background job, no fork — the one
+narrow exception to the "no cache" rule above, scoped to the one endpoint that fans out to all
+nine domains at once, using the same `frappe.cache.get_value`/`set_value` convention already
+in `model_ops.py`. A failed compute is never cached, so a transient error retries fresh on the
+next request instead of serving (or locking in) an error for an hour.
+
+Verified end-to-end against the live jkm DB: cold 60.6s → warm cache hit 0.003s, byte-identical
+payload; a different period (`MTD`) still misses correctly (no cache-key collision). 75/75
+tests still pass.
 
 ## [Unreleased] — 2026-08-10
 

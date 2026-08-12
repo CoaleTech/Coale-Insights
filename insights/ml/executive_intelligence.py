@@ -813,9 +813,30 @@ def _narrative(kpis: Dict[str, Any], health: Dict[str, Any], period: str) -> str
 
 
 def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
-    """Compute the executive summary rollup. Pure-Ibis, no cache, no
-    background job. Every domain call runs synchronously and returns in
-    well under a second on a warm site."""
+    """Compute the executive summary rollup, cached for 1 hour.
+
+    Every other endpoint in this app is a single domain's Ibis pipeline and
+    computes fresh on every call by design (see module docstrings across
+    ``insights/ml/``). This function is the one exception: it fans out to
+    *nine* of those pipelines in one request (sales, customer, inventory,
+    procurement, financial, risk, hr, manufacturing, marketing) to build
+    KPIs, and each one runs its own full computation -- there is no
+    lighter-weight "KPIs only" path into any of them. Measured cold on the
+    live jkm DB: 9 loaders sum to ~57s, the full rollup ~62s -- past most
+    gateway/reverse-proxy timeouts, and it was recomputing that from
+    scratch on *every* dashboard load. A synchronous read-through cache
+    (compute happens inline, in this request, on a miss -- no background
+    job, no fork) turns repeat loads within the TTL into a Redis read. The
+    1h TTL matches ``insights.ml.scheduler.run_daily_intelligence`` and
+    ``warm_dashboard_caches``, which both warm this cache for every period
+    ("MTD", "QTD", "YTD", "TTM") -- see their "Warm executive summary
+    cache (separate 1h TTL)" comments.
+    """
+    cache_key = f"insights_ml_executive_summary:{period}"
+    cached = frappe.cache.get_value(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         sales = _load_sales(period)
         customer = _load_customer(period)
@@ -846,7 +867,7 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
         trends = _trend_sparklines(period)
         narrative = _narrative(kpis, health, period)
 
-        return {
+        result = {
             "period": period,
             "generated_at": _now_iso(),
             "currency": _base_currency(),
@@ -856,6 +877,10 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
             "narrative": narrative,
             "business_health_score": health,
         }
+        # Cache only on success -- a transient failure should retry fresh on
+        # the next request, not serve (or lock in) an error for an hour.
+        frappe.cache.set_value(cache_key, result, expires_in_sec=3600)
+        return result
     except Exception as e:
         frappe.log_error(f"Executive summary failed: {e}", "Executive Intelligence")
         return {
