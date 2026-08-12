@@ -37,7 +37,6 @@ def inventory_intelligence(date_filter: str = "12m", refresh: bool = False) -> D
     return cached_run(
         lambda: run(lambda: _inventory_intelligence(date_filter, refresh), "inventory_intelligence"),
         cache_key=f"insights_ml_inventory_intelligence:{date_filter}",
-        warm=("insights.api.ml.inventory.inventory_intelligence", {"date_filter": date_filter}),
     )
 
 

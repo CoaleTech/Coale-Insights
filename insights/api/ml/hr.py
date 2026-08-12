@@ -55,7 +55,6 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
     return cached_run(
         _compute,
         cache_key=f"insights_ml_hr_overview:{period}",
-        warm=("insights.api.ml.hr.get_hr_overview", {"period": period}),
     )
 
 

@@ -24,33 +24,47 @@ of it keeps the same shape. Cache keys are now scoped per user. Regression test
 users on the bench and asserts neither is served the other's payload; it fails on the
 pre-fix key (`AssertionError: 278 == 278`).
 
-### Fixed — cold dashboards 502'd permanently because the cache could not fill itself
+### Fixed — cold dashboards 502'd because nothing capped how many ran at once
 
 Every ML dashboard endpoint returned `502 Bad Gateway` on production while returning
 correct, fast `403`s to unauthenticated probes — the worker, routing and imports were
 all healthy. bench runs gunicorn with `-t 120` behind nginx `proxy_read_timeout 120`,
 and a cold compute that overruns that is killed mid-flight: the browser gets an
 empty-bodied 502 (which also crashed the frontend's error decoder, since it parses the
-body as JSON) *and nothing is written to the cache*, so the next request starts cold
-and repeats it. A cache that can only be filled by a request that dies before filling
-it never populates — the 1h TTL was irrelevant because it was never reached. Measured
-cold, single-user, on a warm local DB: 102.1s across the 9 endpoints, up to ~46s for a
-single one, before any production contention.
+body as JSON) *and nothing is written to the cache*, so the next request starts cold and
+repeats it forever. The 1h TTL was irrelevant because it was never reached.
 
-`cached_run` now distinguishes who is paying. Off-request callers (scheduler,
-background job, `bench execute`, tests) have no gateway over them and still compute
-inline. A *web request* that misses hands the work to `insights.api.ml.warm.warm_key`
-on the `long` queue (timeout 1800s, `deduplicate` + a redis lock so a 4s poll cycle
-cannot stack jobs) and answers `{"status": "warming"}` — a contract the frontend
-already renders as "Preparing your dashboard" and re-polls. The job re-enters the very
-same whitelisted endpoint as the very same user, so there is no second implementation
-to drift and the payload matches the per-user key it is stored under. If warming stops
-making progress for 180s the next request computes inline instead, so a broken worker
-degrades the dashboard rather than removing it. Note this reintroduces a background job
-but *not* the `os.fork()` crash below: the SIGSEGV came from numpy/OpenBLAS thread
-pools inherited across `fork()`, and the Ibis rewrite removed numpy, pandas and sklearn
-from the compute path entirely — verified by importing all 9 endpoints in a worker and
-confirming zero native-threaded libraries load.
+What let a single ~46s compute overrun a 120s budget is that nothing bounded how many
+ran at once: each pinned a web thread for its full duration, and contention inflated
+them all until they crossed the limit together — which is why cheap endpoints died
+alongside expensive ones. Upstream Insights already solves exactly this, and this fork
+had dropped it: `ibis_utils._execute_live_query` is wrapped in Frappe's
+`concurrent_limit(wait_timeout=0)`, whose upstream comment reads *"a blocked request
+holds on to a web thread, so waiting here is what starves the pool when a dashboard
+executes all of its charts at once. The frontend retries on the 503."* This fork had no
+`concurrent_limit` anywhere.
+
+The ML compute path now carries the same cap. `limit` is set to 2 rather than left to
+default: the default derives from gunicorn's worker count (16 here), which measures how
+many *cheap* requests can be in flight, and these computes are three orders of magnitude
+slower. Measured cold as a row-filtered (non-Administrator) user: 46s alone, 65s with two
+in flight — two keeps ~55s of headroom under the 120s gateway, three would start spending
+it. Cache *hits* are not gated, only misses, and the limiter disengages entirely
+off-request, so the scheduler, `bench execute` and the test suite are unaffected.
+
+A rejected caller now gets a real `503 ServiceUnavailableError`, which
+`useIntelligenceDashboard` retries with jittered exponential backoff (8 attempts, 1s→8s)
+rather than surfacing — the same contract as upstream's `scheduleQueryExecution`. Four of
+the ten endpoints wrapped `cached_run` in `except Exception: return error(...)`, which
+swallowed the 503 into a `200 {status: "error"}` and would have killed the retry
+silently; they now re-raise it alongside `PermissionError`.
+
+Verified over real HTTP as a restricted user, four concurrent cold requests: two returned
+`200 success` (69.9s, holding both slots), two returned `503 ServiceUnavailableError`, and
+a following request was a 0.02s cache hit. This replaces the background-warming approach
+briefly taken here, which reintroduced a queue, a redis lock, a patience window and a
+`{"status": "warming"}` polling contract to work around the timeout — a second
+implementation of what the 503 contract already provides.
 
 ### Fixed — every dashboard endpoint is now cached, not just `get_executive_summary`
 

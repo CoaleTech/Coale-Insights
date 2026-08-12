@@ -21,9 +21,8 @@ def risk_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[s
         return cached_run(
             lambda: sanitize_for_json(run_risk_intelligence(refresh=refresh)),
             cache_key="insights_ml_risk_intelligence",
-            warm=("insights.api.ml.risk.risk_intelligence", {}),
         )
-    except frappe.PermissionError:
+    except (frappe.PermissionError, frappe.ServiceUnavailableError):
         raise
     except Exception as e:
         return {"status": "error", "message": str(e)}

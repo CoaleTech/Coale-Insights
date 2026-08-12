@@ -26,9 +26,8 @@ def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12
         return cached_run(
             lambda: run_strategic_finance_intelligence(refresh=refresh),
             cache_key="insights_ml_strategic_finance_intelligence",
-            warm=("insights.api.ml.strategic_finance.strategic_finance_intelligence", {}),
         )
-    except frappe.PermissionError:
+    except (frappe.PermissionError, frappe.ServiceUnavailableError):
         raise
     except Exception as e:
         return error(str(e))

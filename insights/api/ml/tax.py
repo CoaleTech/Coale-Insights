@@ -57,9 +57,8 @@ def tax_intelligence(refresh: bool = False, period: str = "fy") -> Dict[str, Any
         return cached_run(
             lambda: run(lambda: _compute(coerced), "Tax intelligence"),
             cache_key=f"insights_ml_tax_intelligence:{coerced}",
-            warm=("insights.api.ml.tax.tax_intelligence", {"period": coerced}),
         )
-    except frappe.PermissionError:
+    except (frappe.PermissionError, frappe.ServiceUnavailableError):
         raise
     except Exception as e:
         return error("Failed to load tax intelligence", exc=e)

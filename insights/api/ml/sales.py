@@ -60,9 +60,8 @@ def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[
         return cached_run(
             lambda: run(lambda: get_sales_intelligence(date_filter=date_filter), "sales_intelligence"),
             cache_key=f"insights_ml_sales_intelligence:{date_filter}",
-            warm=("insights.api.ml.sales.sales_intelligence", {"date_filter": date_filter}),
         )
-    except frappe.PermissionError:
+    except (frappe.PermissionError, frappe.ServiceUnavailableError):
         raise
     except Exception as e:
         return error(str(e))

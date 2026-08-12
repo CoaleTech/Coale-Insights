@@ -55,13 +55,35 @@ export interface IntelligenceDashboard<T> {
   retry: () => void
 }
 
-/** A cold ML cache trains in a background thread on the server -- seconds to
- * a couple of minutes. Re-checking automatically means the dashboard resolves
- * on its own; without this, "Preparing your dashboard" needed the user to
- * click "Check again" repeatedly and would sit there indefinitely otherwise.
- * Measured on jkmchem.coale.tech: Procurement stayed on the warming card for
- * as long as the user watched it, because nothing ever re-fetched. */
+/** The envelope can still carry `warming: true` if something is filling the
+ * cache out of band. A dashboard that receives it must re-check on its own;
+ * without this, "Preparing your dashboard" needed the user to click "Check
+ * again" repeatedly and would sit there indefinitely otherwise. */
 const WARMING_POLL_MS = 4000
+
+/**
+ * Heavy dashboard computes are capped server-side with Frappe's
+ * `concurrent_limit`, which rejects the overflow immediately with a 503 instead
+ * of letting it queue and hold a web thread -- holding threads is what took the
+ * whole dashboard surface down at once. So a 503 here means "come back later",
+ * not "this failed", and is retried rather than surfaced.
+ *
+ * Backed off and jittered so two dashboards on one page don't retry in
+ * lockstep. Same contract as standard Insights' `scheduleQueryExecution`.
+ */
+const BUSY_MAX_ATTEMPTS = 8
+const BUSY_BASE_DELAY_MS = 1000
+const BUSY_MAX_DELAY_MS = 8000
+
+function isServerBusyError(e: unknown) {
+  const err = e as { status?: number; exc_type?: string } | null
+  return err?.status === 503 && err?.exc_type === 'ServiceUnavailableError'
+}
+
+function busyRetryDelay(attempt: number) {
+  const delay = Math.min(BUSY_BASE_DELAY_MS * 2 ** (attempt - 1), BUSY_MAX_DELAY_MS)
+  return delay * (0.5 + Math.random())
+}
 
 export function useIntelligenceDashboard<T = Record<string, unknown>>(
   options: IntelligenceDashboardOptions<T>,
@@ -73,17 +95,35 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
   const warming = ref(false)
   const fetched = ref(false)
   const refreshing = ref(false)
+  // True between a busy rejection and its retry. Without it the gap reads as
+  // "not loading, no error, no data" and the page flashes its empty state.
+  const busyRetrying = ref(false)
   // Holds the UNWRAPPED payload. `createResource` exposes the raw `message`,
   // which for `insights.api.*` is the `{status, data}` envelope, so reading
   // `resource.data.<field>` directly renders zeros for every metric.
   const payload = ref<T | null>(null)
 
-  let warmingTimer: ReturnType<typeof setTimeout> | null = null
-  function clearWarmingTimer() {
-    if (warmingTimer) {
-      clearTimeout(warmingTimer)
-      warmingTimer = null
+  // At most one pending auto-refetch, whether scheduled by a warming response
+  // or by a busy rejection.
+  let pollTimer: ReturnType<typeof setTimeout> | null = null
+  let busyAttempt = 0
+  function clearPollTimer() {
+    if (pollTimer) {
+      clearTimeout(pollTimer)
+      pollTimer = null
     }
+  }
+  function resetRetries() {
+    clearPollTimer()
+    busyAttempt = 0
+    busyRetrying.value = false
+  }
+  function scheduleRefetch(delay: number) {
+    clearPollTimer()
+    pollTimer = setTimeout(() => {
+      pollTimer = null
+      ignoreRejection(resource.reload())
+    }, delay)
   }
 
   const resource = createResource({
@@ -108,16 +148,21 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
       fetched.value = true
       refreshing.value = false
 
-      clearWarmingTimer()
+      resetRetries()
       if (decoded.warming) {
-        warmingTimer = setTimeout(() => {
-          warmingTimer = null
-          ignoreRejection(resource.reload())
-        }, WARMING_POLL_MS)
+        scheduleRefetch(WARMING_POLL_MS)
       }
     },
     onError: (e: unknown) => {
-      clearWarmingTimer()
+      // Load shedding, not failure: hold the current view and come back. Only
+      // once the retries are spent does it become an error worth showing.
+      if (isServerBusyError(e) && busyAttempt < BUSY_MAX_ATTEMPTS) {
+        busyAttempt += 1
+        busyRetrying.value = true
+        scheduleRefetch(busyRetryDelay(busyAttempt))
+        return
+      }
+      resetRetries()
       const { permission, message } = readFrappeError(e, 'Could not load this dashboard')
       isPermissionError.value = permission
       warming.value = false
@@ -136,21 +181,23 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     watch(
       params,
       () => {
-        clearWarmingTimer()
+        resetRetries()
         ignoreRejection(resource.reload())
       },
       { deep: true },
     )
   }
 
-  onBeforeUnmount(clearWarmingTimer)
+  onBeforeUnmount(clearPollTimer)
 
   return {
     // The unwrapped payload, not `resource.data`, which is the raw envelope.
     data: computed(() => payload.value),
     // Distinguishing first load from refresh is what lets the caller show a
     // skeleton once instead of blanking the page on every filter change.
-    loading: computed(() => Boolean(resource.loading) && !fetched.value),
+    loading: computed(
+      () => (Boolean(resource.loading) || busyRetrying.value) && !fetched.value,
+    ),
     refreshing,
     error,
     isPermissionError,
@@ -166,12 +213,12 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
      */
     hasData: computed(() => fetched.value && !error.value && payload.value !== null),
     reload: () => {
-      clearWarmingTimer()
+      resetRetries()
       refreshing.value = true
       ignoreRejection(resource.reload())
     },
     retry: () => {
-      clearWarmingTimer()
+      resetRetries()
       error.value = null
       isPermissionError.value = false
       // Marked refreshing so the caller can show progress. Otherwise a retry
