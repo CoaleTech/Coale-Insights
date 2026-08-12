@@ -262,7 +262,11 @@ def model_health() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def retrain(model: str) -> Dict[str, Any]:
-    """Retrain one model synchronously, computing on the request and caching 24h."""
+    """Retrain one model synchronously and return its fresh result.
+
+    There is no cache to fill; this recomputes the model the same way the
+    domain dashboard that owns it would, on demand.
+    """
     try:
         frappe.has_permission("Insights Settings", "write", throw=True)
         spec = next((item for item in MODELS if item["key"] == model), None)
@@ -270,17 +274,13 @@ def retrain(model: str) -> Dict[str, Any]:
             frappe.throw(_("Unknown model: {0}").format(model))
 
         import importlib
-        from insights.api.ml.utils import compute_or_cache
+
+        from insights.api.ml.utils import run
 
         module_path, _sep, attr = spec["trainer"].rpartition(".")
         trainer_fn = getattr(importlib.import_module(module_path), attr)
 
-        cache_key = f"insights:retrain:{spec['key']}"
-        return sanitize_for_json(compute_or_cache(
-            trainer=trainer_fn,
-            cache_key=cache_key,
-            label=spec["label"],
-        ))
+        return sanitize_for_json(run(trainer_fn, spec["label"]))
     except frappe.PermissionError:
         raise
     except Exception as e:

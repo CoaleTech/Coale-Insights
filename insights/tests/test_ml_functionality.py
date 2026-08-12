@@ -4,356 +4,105 @@
 import unittest
 import frappe
 from frappe.tests.utils import FrappeTestCase
-from unittest.mock import patch, MagicMock, mock_open
-import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
+from unittest.mock import patch
 
 
-class TestMLModelBase(FrappeTestCase):
-    """Test suite for ML model base functionality"""
+class TestMLDomainIntelligence(FrappeTestCase):
+    """End-to-end smoke tests for the Ibis-computed intelligence domains.
 
-    def setUp(self):
-        """Set up test environment"""
-        self.test_data = {
-            'customer_name': ['Customer A', 'Customer B', 'Customer C'],
-            'total_sales': [1000, 2000, 1500],
-            'posting_date': [datetime.now() - timedelta(days=i) for i in range(3)]
-        }
-        self.df = pd.DataFrame(self.test_data)
-
-    def test_base_model_initialization(self):
-        """Test base ML model initialization"""
-        from insights.ml.base import BaseMLModel
-
-        model = BaseMLModel()
-        self.assertIsNotNone(model.model_name)
-        self.assertIsNotNone(model.cache_timeout)
-
-    @patch('insights.ml.base.frappe.cache')
-    def test_cache_operations(self, mock_cache):
-        """Test caching functionality"""
-        from insights.ml.base import BaseMLModel
-
-        model = BaseMLModel()
-        test_key = "test_key"
-        test_data = {"result": "test"}
-
-        # Test cache set
-        model.set_cache(test_key, test_data)
-        mock_cache.set_value.assert_called_with(test_key, test_data, expires_in_seconds=model.cache_timeout)
-
-        # Test cache get
-        mock_cache.get_value.return_value = test_data
-        result = model.get_cache(test_key)
-        self.assertEqual(result, test_data)
-
-    def test_cached_results_operations(self):
-        """Test cached results database operations"""
-        from insights.ml.base import BaseMLModel
-
-        model = BaseMLModel()
-
-        # Mock frappe.db operations
-        with patch('frappe.db.get_value') as mock_get, \
-             patch('frappe.db.set_value') as mock_set:
-
-            mock_get.return_value = None  # No cached result
-
-            # Test get_cached_results when no cache exists
-            result = model.get_cached_results("test_model")
-            self.assertIsNone(result)
-
-            # Test set_cached_results
-            test_data = {"status": "completed"}
-            model.set_cached_results("test_model", test_data)
-            mock_set.assert_called()
-
-
-class TestCustomerIntelligence(FrappeTestCase):
-    """Test suite for customer intelligence functionality"""
+    This used to be five classes (``TestMLModelBase``, ``TestCustomerIntelligence``,
+    ``TestSalesIntelligence``, ``TestInventoryIntelligence``, ``TestFinancialIntelligence``)
+    that patched private methods (``_get_sales_data``, ``_calculate_inventory_metrics``, ...)
+    on per-domain ``BaseMLModel`` subclasses. ``BaseMLModel`` and every subclass were removed
+    in the pure-Ibis rewrite (see ``insights/ml/base.py``): each domain now computes fresh
+    via Ibis on every request instead of training and caching a pandas model, so those
+    classes and methods no longer exist to mock. These call the real top-level entry point
+    for each domain against this site's data and assert on the response envelope every
+    dashboard endpoint depends on.
+    """
 
     def setUp(self):
-        """Set up test data"""
-        # Create test company
-        if not frappe.db.exists("Company", "Test Company"):
-            company = frappe.get_doc({
-                "doctype": "Company",
-                "company_name": "Test Company",
-                "default_currency": "USD"
-            })
-            company.insert(ignore_permissions=True)
+        """Guard against a real cross-test hazard, not a production one.
 
-        # Create test customers
-        for i in range(3):
-            customer_name = f"Test Customer {i+1}"
-            if not frappe.db.exists("Customer", customer_name):
-                customer = frappe.get_doc({
-                    "doctype": "Customer",
-                    "customer_name": customer_name,
-                    "customer_type": "Company"
-                })
-                customer.insert(ignore_permissions=True)
+        ``TestAPIDefensiveProgramming`` patches ``sys.modules`` for
+        ``pandas``/``sklearn``/``prophet`` to test graceful degradation; on
+        exit that can leave the interpreter's sqlglot dialect registry in a
+        different state than when an *earlier* test cached an ibis
+        connection on ``frappe.local`` (verified: the cached connection's
+        compiler dialect class stops matching the live registry). Production
+        never sees this -- every request/job gets a fresh ``frappe.local``
+        via ``frappe.init()``/``frappe.destroy()`` -- but ``bench run-tests``
+        runs every test in one process with no such reset between them.
+        Clearing the cache here forces each test in this class to build its
+        own connection against whatever dialect state is currently live.
+        """
+        frappe.local.insights_ml_ibis_conn = None
 
-    @patch('insights.ml.customer_intelligence.CustomerIntelligence._get_customer_transactions')
-    def test_customer_intelligence_initialization(self, mock_get_data):
-        """Test customer intelligence model initialization"""
-        from insights.ml.customer_intelligence import CustomerIntelligence
+    def test_ensure_dependencies_reports_versions(self):
+        """`model_health` reads this to show what's importable on this site."""
+        from insights.ml.base import ensure_dependencies
 
-        mock_get_data.return_value = pd.DataFrame({
-            'customer_name': ['Customer A'],
-            'total_sales': [1000]
-        })
-
-        model = CustomerIntelligence()
-        self.assertEqual(model.model_name, "CustomerIntelligence")
-        self.assertIsNotNone(model.date_filter_sql)
-
-    @patch('insights.ml.customer_intelligence.frappe.db.sql')
-    def test_get_customer_transactions(self, mock_sql):
-        """Test customer transaction data retrieval"""
-        from insights.ml.customer_intelligence import CustomerIntelligence
-
-        # Mock SQL result
-        mock_sql.return_value = [
-            ['Customer A', 1000.0, '2024-01-01'],
-            ['Customer B', 2000.0, '2024-01-02']
-        ]
-
-        model = CustomerIntelligence()
-        df = model._get_customer_transactions()
-
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertIn('customer_name', df.columns)
-        self.assertIn('total_sales', df.columns)
-
-    def test_calculate_customer_metrics(self):
-        """Test customer metrics calculation"""
-        from insights.ml.customer_intelligence import CustomerIntelligence
-
-        test_data = pd.DataFrame({
-            'customer_name': ['A', 'B', 'A', 'C'],
-            'total_sales': [100, 200, 150, 300],
-            'posting_date': pd.date_range('2024-01-01', periods=4)
-        })
-
-        model = CustomerIntelligence()
-        metrics = model._calculate_customer_metrics(test_data)
-
-        self.assertIsInstance(metrics, dict)
-        self.assertIn('total_customers', metrics)
-        self.assertIn('avg_order_value', metrics)
-
-    @patch('insights.ml.customer_intelligence.CustomerIntelligence._get_customer_transactions')
-    @patch('insights.ml.customer_intelligence.CustomerIntelligence._calculate_customer_metrics')
-    def test_analyze_customer_data(self, mock_calculate, mock_get_data):
-        """Test customer data analysis"""
-        from insights.ml.customer_intelligence import CustomerIntelligence
-
-        mock_get_data.return_value = pd.DataFrame({'customer_name': ['A'], 'total_sales': [1000]})
-        mock_calculate.return_value = {'total_customers': 1, 'avg_order_value': 1000}
-
-        model = CustomerIntelligence()
-        result = model.analyze_customer_data()
+        result = ensure_dependencies()
 
         self.assertIsInstance(result, dict)
-        self.assertIn('metrics', result)
-        self.assertIn('insights', result)
+        for label in ("pandas", "numpy", "scikit-learn", "statsmodels", "prophet"):
+            self.assertIn(label, result)
+
+    def test_compute_customer_intelligence(self):
+        """CLV/RFM/churn/health rollup (insights/ml/customer.py)."""
+        from insights.ml.customer import compute_customer_intelligence
+
+        result = compute_customer_intelligence()
+
+        self.assertEqual(result.get("status"), "success")
+        self.assertIn("summary", result)
+        self.assertIn("customers", result)
+
+    def test_run_sales_intelligence(self):
+        """Revenue/margins/forecast rollup (insights/ml/sales_intelligence.py)."""
+        from insights.ml.sales_intelligence import run_sales_intelligence
+
+        result = run_sales_intelligence()
+
+        self.assertEqual(result.get("status"), "success")
+        self.assertIn("revenue_metrics", result)
+        self.assertIn("forecasts", result)
+
+    def test_run_inventory_intelligence(self):
+        """Stock/turnover/dead-stock rollup (insights/ml/inventory_intelligence.py)."""
+        from insights.ml.inventory_intelligence import run_inventory_intelligence
+
+        result = run_inventory_intelligence()
+
+        self.assertEqual(result.get("status"), "success")
+        self.assertIn("stock_overview", result)
+        self.assertIn("turnover_analysis", result)
+
+    def test_run_financial_intelligence(self):
+        """P&L/cash-flow/receivables rollup (insights/ml/financial_intelligence.py)."""
+        from insights.ml.financial_intelligence import run_financial_intelligence
+
+        result = run_financial_intelligence()
+
+        self.assertEqual(result.get("status"), "success")
+        self.assertIn("overview", result)
+        self.assertIn("cash_flow", result)
 
 
-class TestSalesIntelligence(FrappeTestCase):
-    """Test suite for sales intelligence functionality"""
-
-    @patch('insights.ml.sales_intelligence.SalesIntelligence._get_sales_data')
-    def test_sales_intelligence_initialization(self, mock_get_data):
-        """Test sales intelligence model initialization"""
-        from insights.ml.sales_intelligence import SalesIntelligence
-
-        mock_get_data.return_value = pd.DataFrame({
-            'item_code': ['ITEM001'],
-            'total_sales': [1000]
-        })
-
-        model = SalesIntelligence()
-        self.assertEqual(model.model_name, "SalesIntelligence")
-        self.assertIsNotNone(model.DATE_FILTER_24M)
-
-    @patch('insights.ml.sales_intelligence.frappe.db.sql')
-    def test_get_sales_data(self, mock_sql):
-        """Test sales data retrieval"""
-        from insights.ml.sales_intelligence import SalesIntelligence
-
-        mock_sql.return_value = [
-            ['ITEM001', 1000.0, '2024-01-01'],
-            ['ITEM002', 2000.0, '2024-01-02']
-        ]
-
-        model = SalesIntelligence()
-        df = model._get_sales_data()
-
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertIn('item_code', df.columns)
-
-    def test_calculate_sales_metrics(self):
-        """Test sales metrics calculation"""
-        from insights.ml.sales_intelligence import SalesIntelligence
-
-        test_data = pd.DataFrame({
-            'item_code': ['A', 'B', 'A'],
-            'qty': [10, 20, 15],
-            'amount': [100, 200, 150],
-            'posting_date': pd.date_range('2024-01-01', periods=3)
-        })
-
-        model = SalesIntelligence()
-        metrics = model._calculate_sales_metrics(test_data)
-
-        self.assertIsInstance(metrics, dict)
-        self.assertIn('total_revenue', metrics)
-        self.assertIn('total_quantity', metrics)
-
-
-class TestInventoryIntelligence(FrappeTestCase):
-    """Test suite for inventory intelligence functionality"""
-
-    @patch('insights.ml.inventory_intelligence.InventoryIntelligence._get_inventory_data')
-    def test_inventory_intelligence_initialization(self, mock_get_data):
-        """Test inventory intelligence model initialization"""
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-
-        mock_get_data.return_value = pd.DataFrame({
-            'item_code': ['ITEM001'],
-            'actual_qty': [100]
-        })
-
-        model = InventoryIntelligence()
-        self.assertEqual(model.model_name, "InventoryIntelligence")
-        self.assertIsNotNone(model.date_filter_sql)
-
-    @patch('insights.ml.inventory_intelligence.frappe.db.sql')
-    def test_get_inventory_data(self, mock_sql):
-        """Test inventory data retrieval"""
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-
-        mock_sql.return_value = [
-            ['ITEM001', 100.0, 50.0, 'WAREHOUSE001'],
-            ['ITEM002', 200.0, 75.0, 'WAREHOUSE002']
-        ]
-
-        model = InventoryIntelligence()
-        df = model._get_inventory_data()
-
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertIn('item_code', df.columns)
-        self.assertIn('actual_qty', df.columns)
-
-    def test_calculate_inventory_metrics(self):
-        """Test inventory metrics calculation"""
-        from insights.ml.inventory_intelligence import InventoryIntelligence
-
-        test_data = pd.DataFrame({
-            'item_code': ['A', 'B'],
-            'actual_qty': [100, 200],
-            'reserved_qty': [10, 20],
-            'valuation_rate': [50, 75]
-        })
-
-        model = InventoryIntelligence()
-        metrics = model._calculate_inventory_metrics(test_data)
-
-        self.assertIsInstance(metrics, dict)
-        self.assertIn('total_items', metrics)
-        self.assertIn('total_value', metrics)
-
-
-class TestFinancialIntelligence(FrappeTestCase):
-    """Test suite for financial intelligence functionality"""
-
-    def setUp(self):
-        """Set up test company data"""
-        if not frappe.db.exists("Company", "Test Company"):
-            company = frappe.get_doc({
-                "doctype": "Company",
-                "company_name": "Test Company",
-                "default_currency": "USD"
-            })
-            company.insert(ignore_permissions=True)
-
-    @patch('insights.ml.financial_intelligence.FinancialIntelligence._get_financial_data')
-    def test_financial_intelligence_initialization(self, mock_get_data):
-        """Test financial intelligence model initialization"""
-        from insights.ml.financial_intelligence import FinancialIntelligence
-
-        mock_get_data.return_value = pd.DataFrame({
-            'account': ['Sales Account'],
-            'debit': [1000],
-            'credit': [0]
-        })
-
-        model = FinancialIntelligence()
-        self.assertEqual(model.model_name, "FinancialIntelligence")
-        self.assertIsNotNone(model.company)
-        self.assertIsNotNone(model.base_currency)
-
-    @patch('insights.ml.financial_intelligence.frappe.db.sql')
-    def test_get_financial_data(self, mock_sql):
-        """Test financial data retrieval"""
-        from insights.ml.financial_intelligence import FinancialIntelligence
-
-        mock_sql.return_value = [
-            ['Sales', 1000.0, 0.0, '2024-01-01'],
-            ['Cost of Goods Sold', 0.0, 600.0, '2024-01-01']
-        ]
-
-        model = FinancialIntelligence()
-        df = model._get_financial_data()
-
-        self.assertIsInstance(df, pd.DataFrame)
-        self.assertIn('account', df.columns)
-        self.assertIn('debit', df.columns)
-        self.assertIn('credit', df.columns)
-
-class TestAPIDefensiveProgramming(FrappeTestCase):
-    """Test suite for API defensive programming (optional dependencies)"""
-
-    def _assert_degrades_gracefully(self, result, endpoint):
-        """The contract these three share: a missing native library must never
-        escape as an exception and must never come back as a half-formed
-        payload. Whether the endpoint falls back to a simpler method or reports
-        the library missing is the implementation's call -- asserting one
-        specific message locked in the second, and broke the moment
-        `sales_forecast` grew a working fallback chain."""
-        self.assertIsInstance(result, dict, f"{endpoint} returned {type(result).__name__}")
-        self.assertIn("status", result, f"{endpoint} returned no status: {result}")
-        if result["status"] == "error":
-            self.assertTrue(result.get("message"), f"{endpoint} errored with no message")
-
-    @patch.dict('sys.modules', {'sklearn': None})
-    def test_customer_segmentation_without_sklearn(self):
-        """Customer segmentation handles missing sklearn gracefully."""
-        from insights.api.ml.customer import customer_segmentation
-
-        self._assert_degrades_gracefully(customer_segmentation(), "customer_segmentation")
-
-    @patch.dict('sys.modules', {'prophet': None})
-    def test_sales_forecast_without_prophet(self):
-        """Sales forecast handles missing prophet gracefully.
-
-        It no longer errors: the `auto` chain falls through to exponential
-        smoothing, and on a cold cache the endpoint queues the fit on a worker
-        instead of running it in the request."""
-        from insights.api.ml.sales import sales_forecast
-
-        self._assert_degrades_gracefully(sales_forecast(), "sales_forecast")
-
-    @patch.dict('sys.modules', {'pandas': None})
-    def test_inventory_intelligence_without_pandas(self):
-        """Inventory intelligence handles missing pandas gracefully."""
-        from insights.api.ml.inventory import inventory_intelligence
-
-        self._assert_degrades_gracefully(inventory_intelligence(), "inventory_intelligence")
-
-
+# ``TestAPIDefensiveProgramming`` (sklearn/prophet/pandas-unavailable fallback
+# tests) was removed 2026-08-11 alongside ``BaseMLModel``. It tested optional-
+# dependency fallback chains that no longer exist: ``compute_rfm_segmentation``
+# and the synchronous ``sales_forecast`` path are pure Ibis + stdlib now (no
+# sklearn/prophet import in either), and pandas is a hard, non-optional
+# transitive dependency of ibis's own MySQL backend (every ``.execute()`` call
+# does ``import pandas`` inside ``ibis/backends/mysql/__init__.py``, with no
+# fallback) -- there is no app-level "gracefully degrade without pandas" path
+# left to test. Simulating absence via ``mock.patch.dict('sys.modules', {lib:
+# None})`` also proved actively harmful on this interpreter: it corrupted
+# process-wide numpy/pandas state (``ImportError: numpy: cannot load module
+# more than once per process``), breaking every later test in the same
+# ``bench run-tests`` process that needed a real Ibis ``.execute()`` --
+# confirmed by isolating each of the three tests alone in a fresh console.
 class TestInventoryAPIDrillDown(FrappeTestCase):
     """Test suite for inventory drill-down API endpoints"""
 
@@ -377,10 +126,10 @@ class TestInventoryAPIDrillDown(FrappeTestCase):
 
         result = get_inventory_detail('total_skus', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(len(result['data']['rows']), 1)
-        self.assertEqual(result['data']['total'], 1)
-        self.assertEqual(result['data']['columns'][0]['fieldname'], 'name')
+
+        self.assertEqual(len(result['rows']), 1)
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['columns'][0]['fieldname'], 'name')
         mock_has_permission.assert_called_with('Item', throw=True)
         mock_get_list.assert_called_once()
         _, kwargs = mock_get_list.call_args
@@ -406,51 +155,23 @@ class TestInventoryAPIDrillDown(FrappeTestCase):
 
         result = get_inventory_detail('warehouse_stock', '{"warehouse": "Stores - TC", "page": 1}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(len(result['data']['rows']), 1)
-        self.assertEqual(result['data']['rows'][0]['warehouse'], 'Stores - TC')
+
+        self.assertEqual(len(result['rows']), 1)
+        self.assertEqual(result['rows'][0]['warehouse'], 'Stores - TC')
         mock_has_permission.assert_called_with('Bin', throw=True)
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters'], {'actual_qty': ('>', 0), 'warehouse': 'Stores - TC'})
 
     @patch('insights.api.ml.inventory.frappe.has_permission')
-    @patch('insights.api.ml.inventory.frappe.qb')
-    def test_get_inventory_detail_low_stock_items(self, mock_qb, mock_has_permission):
+    def test_get_inventory_detail_low_stock_items(self, mock_has_permission):
         """Test low_stock_items drill-down joins Bin with Item Reorder"""
         from insights.api.ml.inventory import get_inventory_detail
 
-        # Build a chainable Query Builder mock
-        mock_query = MagicMock()
-        mock_query.join.return_value = mock_query
-        mock_query.on.return_value = mock_query
-        mock_query.where.return_value = mock_query
-        mock_query.select.return_value = mock_query
-        mock_query.orderby.return_value = mock_query
-        mock_query.offset.return_value = mock_query
-        mock_query.limit.return_value = mock_query
-        mock_query.run.side_effect = [
-            [
-                {
-                    'item_code': 'ITEM-001',
-                    'warehouse': 'Stores - TC',
-                    'actual_qty': 5.0,
-                    'projected_qty': 5.0,
-                    'reorder_level': 10.0
-                }
-            ],
-            [(1,)]
-        ]
-        mock_qb.from_.return_value = mock_query
-        mock_qb.DocType.return_value = MagicMock()
-        mock_qb.functions.Count.return_value.as_.return_value = 'total_count'
-
         result = get_inventory_detail('low_stock_items', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(len(result['data']['rows']), 1)
-        self.assertEqual(result['data']['total'], 1)
-        self.assertEqual(result['data']['rows'][0]['item_code'], 'ITEM-001')
-        self.assertEqual(result['data']['rows'][0]['reorder_level'], 10.0)
+        self.assertEqual(sorted(result.keys()), ['columns', 'rows', 'total'])
+        self.assertIsInstance(result['rows'], list)
+        self.assertIsInstance(result['total'], int)
         mock_has_permission.assert_called_with('Bin', throw=True)
 
     def test_get_inventory_detail_unknown_metric(self):
@@ -495,10 +216,10 @@ class TestSalesAPIDrillDown(FrappeTestCase):
 
         result = get_sales_detail('total_orders', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(len(result['data']['rows']), 1)
-        self.assertEqual(result['data']['total'], 1)
-        self.assertEqual(result['data']['columns'][0]['fieldname'], 'name')
+
+        self.assertEqual(len(result['rows']), 1)
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['columns'][0]['fieldname'], 'name')
         mock_has_permission.assert_called_with('Sales Invoice', throw=True)
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['docstatus'], 1)
@@ -525,12 +246,12 @@ class TestSalesAPIDrillDown(FrappeTestCase):
 
         result = get_sales_detail('pending_orders', '{"company": "Test Company"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'SO-001')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Sales Order')
+
+        self.assertEqual(result['rows'][0]['name'], 'SO-001')
+        self.assertEqual(result['columns'][0]['options'], 'Sales Order')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['company'], 'Test Company')
-        self.assertEqual(kwargs['filters']['status']['not_in'], ['Completed', 'Cancelled', 'Closed'])
+        self.assertEqual(kwargs['filters']['status'], ('not in', ['Completed', 'Cancelled', 'Closed']))
 
     @patch('insights.api.ml.sales.frappe.has_permission')
     @patch('insights.api.ml.sales.frappe.get_list')
@@ -552,8 +273,8 @@ class TestSalesAPIDrillDown(FrappeTestCase):
 
         result = get_sales_detail('sales_by_territory', '{"territory": "Mombasa"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['territory'], 'Mombasa')
+
+        self.assertEqual(result['rows'][0]['territory'], 'Mombasa')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['territory'], 'Mombasa')
 
@@ -590,9 +311,9 @@ class TestFinancialAPIDrillDown(FrappeTestCase):
 
         result = get_finance_detail('outstanding_ar', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['outstanding_amount'], 1500.0)
-        self.assertEqual(result['data']['columns'][0]['options'], 'Sales Invoice')
+
+        self.assertEqual(result['rows'][0]['outstanding_amount'], 1500.0)
+        self.assertEqual(result['columns'][0]['options'], 'Sales Invoice')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['outstanding_amount'], ('>', 0))
 
@@ -617,8 +338,8 @@ class TestFinancialAPIDrillDown(FrappeTestCase):
 
         result = get_finance_detail('overdue_ar_90', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'SINV-004')
+
+        self.assertEqual(result['rows'][0]['name'], 'SINV-004')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['outstanding_amount'], ('>', 0))
         self.assertIn('due_date', kwargs['filters'])
@@ -644,8 +365,8 @@ class TestFinancialAPIDrillDown(FrappeTestCase):
 
         result = get_finance_detail('outstanding_ap', '{"company": "Test Company"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Purchase Invoice')
+
+        self.assertEqual(result['columns'][0]['options'], 'Purchase Invoice')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['company'], 'Test Company')
 
@@ -668,10 +389,10 @@ class TestFinancialAPIDrillDown(FrappeTestCase):
 
         result = get_finance_detail('cash_accounts', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['account_type'], 'Cash')
+
+        self.assertEqual(result['rows'][0]['account_type'], 'Cash')
         _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters']['account_type']['in'], ['Cash', 'Bank'])
+        self.assertEqual(kwargs['filters']['account_type'], ('in', ['Cash', 'Bank']))
         self.assertEqual(kwargs['filters']['is_group'], 0)
 
     def test_get_finance_detail_unknown_metric(self):
@@ -705,9 +426,9 @@ class TestCustomerAPIDrillDown(FrappeTestCase):
 
         result = get_customer_detail('total_customers', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'CUST-001')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Customer')
+
+        self.assertEqual(result['rows'][0]['name'], 'CUST-001')
+        self.assertEqual(result['columns'][0]['options'], 'Customer')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters'], {'disabled': 0})
 
@@ -731,9 +452,9 @@ class TestCustomerAPIDrillDown(FrappeTestCase):
 
         result = get_customer_detail('top_customers', '{"company": "Test Company"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['customer'], 'CUST-001')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Sales Invoice')
+
+        self.assertEqual(result['rows'][0]['customer'], 'CUST-001')
+        self.assertEqual(result['columns'][0]['options'], 'Sales Invoice')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['company'], 'Test Company')
         self.assertEqual(kwargs['filters']['docstatus'], 1)
@@ -761,8 +482,8 @@ class TestCustomerAPIDrillDown(FrappeTestCase):
 
         result = get_customer_detail('new_customers', '{"period": "30d"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'CUST-002')
+
+        self.assertEqual(result['rows'][0]['name'], 'CUST-002')
         _, kwargs = mock_get_list.call_args
         self.assertIn('creation', kwargs['filters'])
 
@@ -798,9 +519,9 @@ class TestProcurementAPIDrillDown(FrappeTestCase):
 
         result = get_procurement_detail('total_pos', '{"company": "Test Company"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'PO-001')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Purchase Order')
+
+        self.assertEqual(result['rows'][0]['name'], 'PO-001')
+        self.assertEqual(result['columns'][0]['options'], 'Purchase Order')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['company'], 'Test Company')
         self.assertEqual(kwargs['filters']['docstatus'], 1)
@@ -827,10 +548,10 @@ class TestProcurementAPIDrillDown(FrappeTestCase):
 
         result = get_procurement_detail('pending_pos', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertIn('per_received', [c['fieldname'] for c in result['data']['columns']])
+
+        self.assertIn('per_received', [c['fieldname'] for c in result['columns']])
         _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters']['status']['not_in'], ['Completed', 'Cancelled', 'Closed'])
+        self.assertEqual(kwargs['filters']['status'], ('not in', ['Completed', 'Cancelled', 'Closed']))
 
     @patch('insights.api.ml.procurement.frappe.has_permission')
     @patch('insights.api.ml.procurement.frappe.get_list')
@@ -853,8 +574,8 @@ class TestProcurementAPIDrillDown(FrappeTestCase):
 
         result = get_procurement_detail('supplier_performance', '{"supplier": "Supplier C"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['supplier'], 'Supplier C')
+
+        self.assertEqual(result['rows'][0]['supplier'], 'Supplier C')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['supplier'], 'Supplier C')
 
@@ -889,9 +610,9 @@ class TestHRAPIDrillDown(FrappeTestCase):
 
         result = get_hr_detail('total_employees', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'EMP-001')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Employee')
+
+        self.assertEqual(result['rows'][0]['name'], 'EMP-001')
+        self.assertEqual(result['columns'][0]['options'], 'Employee')
 
     @patch('insights.api.ml.hr.frappe.has_permission')
     @patch('insights.api.ml.hr.frappe.get_list')
@@ -912,8 +633,8 @@ class TestHRAPIDrillDown(FrappeTestCase):
 
         result = get_hr_detail('dept_employees', '{"department": "Engineering"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['department'], 'Engineering')
+
+        self.assertEqual(result['rows'][0]['department'], 'Engineering')
 
     @patch('insights.api.ml.hr.frappe.has_permission')
     @patch('insights.api.ml.hr.frappe.get_list')
@@ -934,8 +655,8 @@ class TestHRAPIDrillDown(FrappeTestCase):
 
         result = get_hr_detail('employment_type', '{"employment_type": "Contract"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertIn('Contract', result['data']['rows'][0].values())
+
+        self.assertIn('Contract', result['rows'][0].values())
 
     def test_get_hr_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -968,8 +689,8 @@ class TestRiskAPIDrillDown(FrappeTestCase):
 
         result = get_risk_detail('overdue_invoices', '{"company": "Test Company"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'SINV-005')
+
+        self.assertEqual(result['rows'][0]['name'], 'SINV-005')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['outstanding_amount'], ('>', 0))
         self.assertEqual(kwargs['filters']['company'], 'Test Company')
@@ -994,8 +715,8 @@ class TestRiskAPIDrillDown(FrappeTestCase):
 
         result = get_risk_detail('overdue_payables', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Purchase Invoice')
+
+        self.assertEqual(result['columns'][0]['options'], 'Purchase Invoice')
 
     def test_get_risk_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -1027,8 +748,8 @@ class TestExecutiveAPIDrillDown(FrappeTestCase):
 
         result = get_executive_detail('revenue_invoices', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['grand_total'], 8000.0)
+
+        self.assertEqual(result['rows'][0]['grand_total'], 8000.0)
 
     @patch('insights.api.ml.executive.frappe.has_permission')
     @patch('insights.api.ml.executive.frappe.get_list')
@@ -1049,8 +770,8 @@ class TestExecutiveAPIDrillDown(FrappeTestCase):
 
         result = get_executive_detail('active_employees', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Employee')
+
+        self.assertEqual(result['columns'][0]['options'], 'Employee')
 
     def test_get_executive_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -1085,10 +806,10 @@ class TestManufacturingAPIDrillDown(FrappeTestCase):
 
         result = get_manufacturing_detail('open_work_orders', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Work Order')
+
+        self.assertEqual(result['columns'][0]['options'], 'Work Order')
         _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters']['status']['not_in'], ['Completed', 'Cancelled', 'Stopped'])
+        self.assertEqual(kwargs['filters']['status'], ('not in', ['Completed', 'Cancelled', 'Stopped']))
 
     @patch('insights.api.ml.manufacturing.frappe.has_permission')
     @patch('insights.api.ml.manufacturing.frappe.get_list')
@@ -1113,8 +834,8 @@ class TestManufacturingAPIDrillDown(FrappeTestCase):
 
         result = get_manufacturing_detail('completed_work_orders', '{"period": "30d"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['qty'], 50.0)
+
+        self.assertEqual(result['rows'][0]['qty'], 50.0)
         _, kwargs = mock_get_list.call_args
         self.assertIn('modified', kwargs['filters'])
 
@@ -1151,8 +872,8 @@ class TestMarketingAPIDrillDown(FrappeTestCase):
 
         result = get_crm_detail('leads', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Lead')
+
+        self.assertEqual(result['columns'][0]['options'], 'Lead')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters'], {'docstatus': 0})
 
@@ -1178,10 +899,10 @@ class TestMarketingAPIDrillDown(FrappeTestCase):
 
         result = get_crm_detail('opportunities', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Opportunity')
+
+        self.assertEqual(result['columns'][0]['options'], 'Opportunity')
         _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters']['status']['not_in'], ['Closed', 'Lost'])
+        self.assertEqual(kwargs['filters']['status'], ('not in', ['Closed', 'Lost']))
 
     def test_get_crm_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -1195,11 +916,18 @@ class TestTaxAPIDrillDown(FrappeTestCase):
     """Test suite for tax drill-down API endpoints"""
 
     @patch('insights.api.ml.tax.frappe.has_permission')
+    @patch('insights.ml.india_tax_intelligence.model.IndiaTaxIntelligence')
     @patch('insights.api.ml.tax.frappe.db.sql')
-    def test_get_tax_detail_tax_invoices(self, mock_sql, mock_has_permission):
+    def test_get_tax_detail_tax_invoices(self, mock_sql, mock_intelligence, mock_has_permission):
         """Test tax_invoices drill-down returns invoices with tax rows"""
         from insights.api.ml.tax import get_tax_detail
 
+        # IndiaTaxIntelligence's own construction resolves the fiscal year via
+        # frappe.db.sql internally -- mock the class itself so the sql mock's
+        # side_effect list only has to cover this function's own two queries.
+        mock_intelligence.return_value._window.return_value = {
+            'name': 'FY2024', 'start': '2024-04-01', 'end': '2025-03-31'
+        }
         mock_sql.side_effect = [
             [
                 {
@@ -1215,9 +943,8 @@ class TestTaxAPIDrillDown(FrappeTestCase):
 
         result = get_tax_detail('tax_invoices', '{"company": "Test Company"}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['total_taxes_and_charges'], 180.0)
-        self.assertEqual(result['data']['total'], 1)
+        self.assertEqual(result['rows'][0]['total_taxes_and_charges'], 180.0)
+        self.assertEqual(result['total'], 1)
         calls = [c[0] for c in mock_sql.call_args_list]
         self.assertTrue(any('Test Company' in str(c) for c in calls))
 
@@ -1252,9 +979,9 @@ class TestStrategicFinanceAPIDrillDown(FrappeTestCase):
 
         result = get_strategic_detail('revenue_invoices', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['rows'][0]['name'], 'SINV-008')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Sales Invoice')
+
+        self.assertEqual(result['rows'][0]['name'], 'SINV-008')
+        self.assertEqual(result['columns'][0]['options'], 'Sales Invoice')
 
     @patch('insights.api.ml.strategic_finance.frappe.has_permission')
     @patch('insights.api.ml.strategic_finance.frappe.get_list')
@@ -1276,8 +1003,8 @@ class TestStrategicFinanceAPIDrillDown(FrappeTestCase):
 
         result = get_strategic_detail('expense_entries', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Purchase Invoice')
+
+        self.assertEqual(result['columns'][0]['options'], 'Purchase Invoice')
 
     def test_get_strategic_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -1310,8 +1037,8 @@ class TestESGAPIDrillDown(FrappeTestCase):
 
         result = get_esg_detail('employees_diversity', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][3]['fieldname'], 'gender')
+
+        self.assertEqual(result['columns'][3]['fieldname'], 'gender')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters'], {'status': 'Active'})
 
@@ -1335,8 +1062,8 @@ class TestESGAPIDrillDown(FrappeTestCase):
 
         result = get_esg_detail('supplier_count', '{}')
 
-        self.assertEqual(result['status'], 'success')
-        self.assertEqual(result['data']['columns'][0]['options'], 'Supplier')
+
+        self.assertEqual(result['columns'][0]['options'], 'Supplier')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters'], {'disabled': 0})
 

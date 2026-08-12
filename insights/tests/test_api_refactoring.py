@@ -2,10 +2,8 @@
 # For license information, please see license.txt
 
 import unittest
-import frappe
 from frappe.tests.utils import FrappeTestCase
-from unittest.mock import patch, MagicMock
-import json
+from unittest.mock import patch
 
 
 class TestAPIResponseHelpers(FrappeTestCase):
@@ -35,13 +33,15 @@ class TestAPIResponseHelpers(FrappeTestCase):
         self.assertEqual(result["message"], message)
 
     def test_success_response_no_data(self):
-        """Test success response without data"""
+        """Test success response without data -- the key is omitted
+        entirely, not set to ``None`` (mirrors ``test_success_response_with_message``
+        omitting ``"message"`` when none is given)."""
         from insights.api.response import success
 
         result = success()
 
         self.assertEqual(result["status"], "success")
-        self.assertIsNone(result["data"])
+        self.assertNotIn("data", result)
         self.assertNotIn("message", result)
 
     def test_error_response_with_message(self):
@@ -159,9 +159,8 @@ class TestModularAPIImports(FrappeTestCase):
     def test_shared_utilities_import(self):
         """Test shared utilities are accessible"""
         try:
-            from insights.api.ml import parse_date_filter, get_date_filter_sql
+            from insights.api.ml import parse_date_filter
             self.assertTrue(callable(parse_date_filter))
-            self.assertTrue(callable(get_date_filter_sql))
         except ImportError as e:
             self.fail(f"Failed to import shared utilities: {e}")
 
@@ -195,28 +194,13 @@ class TestDateFilterUtilities(FrappeTestCase):
         self.assertIsNone(start_date)
         self.assertIsNone(end_date)
 
-    def test_get_date_filter_sql_with_dates(self):
-        """Test SQL generation with date range"""
-        from insights.api.ml import get_date_filter_sql
-
-        sql = get_date_filter_sql('12m', 'posting_date')
-        self.assertIn('posting_date', sql)
-        self.assertIn('BETWEEN', sql)
-
-    def test_get_date_filter_sql_all_dates(self):
-        """Test SQL generation for all dates"""
-        from insights.api.ml import get_date_filter_sql
-
-        sql = get_date_filter_sql('all', 'posting_date')
-        self.assertEqual(sql, "")
-
-    def test_get_date_filter_sql_with_alias(self):
-        """Test SQL generation with table alias"""
-        from insights.api.ml import get_date_filter_sql
-
-        sql = get_date_filter_sql('6m', 'posting_date', 'si')
-        self.assertIn('si.posting_date', sql)
-        self.assertIn('BETWEEN', sql)
+    # ``test_get_date_filter_sql_with_dates/_all_dates/_with_alias`` were
+    # removed 2026-08-11. ``get_date_filter_sql`` no longer exists -- see
+    # ``TestDataValidation.test_sql_injection_prevention``'s removal note in
+    # ``test_api_integration.py`` for why: its replacement, ``parse_date_filter``,
+    # returns ``(start_date, end_date)`` as ``datetime`` objects (tested above
+    # by ``test_parse_date_filter_months/_days/_all``) and every call site
+    # binds them through Ibis instead of formatting SQL text.
 
 
 if __name__ == '__main__':

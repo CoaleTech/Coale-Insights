@@ -216,17 +216,19 @@ class ProductRecommendations:
         sii = t("Sales Invoice Item")
         si = t("Sales Invoice")
         # Join line items to invoices so we can filter by docstatus.
-        joined = sii.join(si, sii.parent == si.name).view()
-        submitted = joined.filter(joined.docstatus == 1).select(
-            parent=joined.parent,
-            item_code=joined.item_code,
+        joined = sii.join(si, sii.parent == si.name)
+        submitted = joined.filter(sii.docstatus == 1).select(
+            parent=sii.parent,
+            item_code=sii.item_code,
+            row_id=sii.name,
         )
 
-        # Self-join on the same parent; ``sii.name < sii2.name`` keeps
-        # one row per unordered pair.
+        # Self-join on the same parent; ``row_id`` (the line item's own
+        # primary key, aliased to dodge the ``sii.name``/``si.name``
+        # collision after the join) keeps one row per unordered pair.
         a = submitted
         b = submitted.view()
-        pairs = a.join(b, (a.parent == b.parent) & (a.name < b.name)).view()
+        pairs = a.join(b, (a.parent == b.parent) & (a.row_id < b.row_id))
         # Canonical ordering: smaller name first, larger second.
         item_a = ibis.least(a.item_code, b.item_code)
         item_b = ibis.greatest(a.item_code, b.item_code)
@@ -393,14 +395,15 @@ class ProductRecommendations:
         """
         sii = t("Sales Invoice Item")
         si = t("Sales Invoice")
-        joined = sii.join(si, sii.parent == si.name).view()
-        submitted = joined.filter(joined.docstatus == 1).select(
-            parent=joined.parent,
-            item_code=joined.item_code,
+        joined = sii.join(si, sii.parent == si.name)
+        submitted = joined.filter(sii.docstatus == 1).select(
+            parent=sii.parent,
+            item_code=sii.item_code,
+            row_id=sii.name,
         )
         a = submitted
         b = submitted.view()
-        pairs = a.join(b, (a.parent == b.parent) & (a.name < b.name)).view()
+        pairs = a.join(b, (a.parent == b.parent) & (a.row_id < b.row_id))
         item_a = ibis.least(a.item_code, b.item_code)
         item_b = ibis.greatest(a.item_code, b.item_code)
         filtered = pairs.filter(

@@ -87,7 +87,7 @@ def _base_currency(company: Optional[str]) -> str:
         if cur:
             return cur
     return (
-        frappe.db.get_single_value("System Settings", "default_currency")
+        frappe.db.get_single_value("Global Defaults", "default_currency")
         or "USD"
     )
 

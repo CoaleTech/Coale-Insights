@@ -4,6 +4,144 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-12
+
+### Changed — the ML layer is pure Ibis now; `BaseMLModel` and the async queue are gone
+
+Every intelligence domain (customer, executive, financial, strategic finance, procurement,
+risk, HR, product recommendations, marketing, inventory) is rewritten from a `BaseMLModel`
+subclass — `train()` fits a model, `predict()` serves an hourly Redis cache, sklearn/pandas
+do the heavy lifting — to a synchronous Ibis expression compiled to one SQL statement per
+endpoint. There is no cache, no background job, no fork; every whitelisted endpoint computes
+fresh, synchronously, inside the gunicorn web worker that received the request.
+
+`insights/ml/base.py` is trimmed to `ensure_dependencies()` (the one live caller left,
+`model_ops.py`'s `model_health` diagnostic). `esg_intelligence.py` (1,488 lines) and
+`tax_intelligence.py` (1,187 lines) are deleted — zero remaining importers.
+`strategic_finance/model.py` was the last subclass; it now computes and returns directly,
+`predict()` is a `train()` alias.
+
+`executive_intelligence.py` (1,888 → 1,048 lines) no longer re-implements every department
+KPI in pandas; it calls the already-rewritten domain modules and pulls KPIs out of their live
+payloads, composing `business_health_score` via a weighted RAG-mean with no numpy.
+`executive.py`'s 17 whitelisted endpoints are now thin wrappers: permission gate, delegate to
+the rollup, return the standard envelope — no lazy-compute helper, no "compute or fall back to
+stale cache" branch anywhere.
+
+`MLAnalyticsEngine._get_ml_predictions()` was the last caller still importing the deleted
+subclasses (`CustomerSegmentation`, `SalesForecasting`, `PaymentPrediction`,
+`ABCXYZClassification`, `ProductRecommendations`) and their removed
+`get_cached_results()`/`train()` cache contract. All 5 branches
+(customer/sales/financial/procurement/production) are rewired to the live module-level
+functions, each behind its own `try`/`except` so one failing domain doesn't blank the panel.
+
+### Fixed — real bugs the rewrite left behind, found by exercising every endpoint against the live jkm DB
+
+Ibis raises structural errors MariaDB never would, so most of these only surfaced under a real
+run against the live site, not under `ruff` or `pyright` — the ML domain is dynamically typed
+by design (Ibis columns resolve at runtime).
+
+- **`customer.py` — 5 broken Ibis expressions.** `.first()` has no MariaDB compilation rule in
+  this Ibis version; 7 call sites picking a representative
+  `customer_name`/`customer_group`/`territory` used it and crashed — replaced with `.min()`.
+  `_product_affinity` joined `sii.join(si).join(item)` and collided on shared Frappe meta
+  columns (`name`, `owner`, `creation`, `docstatus`); fixed by filtering `si` before the join
+  and selecting explicit named columns between stages. `_cohort_analysis` and
+  `compute_customer_rankings` called `si.mutate(x=...)` then referenced the pre-mutate `si.x`
+  (`AttributeError` — `x` only exists on the mutated relation). `_quotation_conversion`
+  aggregated `q.count()` from the pre-filter relation inside an aggregate whose parent was the
+  filtered one (Ibis `IntegrityError`). Fixed by binding every transformed relation to its own
+  variable and chaining off that, never the table it was derived from.
+- **`product_recommendations.py` — 4 relation-binding bugs across the two self-join methods**
+  (`_pair_table`, `get_recommendations_for_item`). `a.join(b, ... a.name < b.name ...)`
+  compared `name` after a prior join that made it ambiguous between `Sales Invoice Item.name`
+  and `Sales Invoice.name`; aliased to an explicit `row_id` column instead. Separately,
+  `pairs = a.join(b, ...).view()` followed by `pairs.filter((a.item_code == …) | (b.item_code
+  == …))` raised `Cannot add <Or> to filter, they belong to another relation` — `.view()` forks
+  a new relation identity Ibis no longer considers the same lineage as `a`/`b`. Dropping the
+  trailing `.view()` on both self-joins fixes it; `recommend_for_item`, `recommend_for_cart`,
+  and `recommend_for_customer` verified end-to-end against real invoice history afterward.
+- **`marketing.py`'s `_compute_marketing_overview` — the same relation-binding bug repeated
+  across 8 aggregate blocks.** Each block filtered `lead`/`quote`
+  (`.filter(lead["docstatus"] < 2)`) inline and then referenced the *original* unfiltered
+  `lead`/`quote` table inside the `.group_by()`/`.aggregate()` that followed. `quote_by_source
+  _df`'s `won_value` compounded this with a second bug: `quote["base_grand_total"].case()
+  .when(...).else_(...).end()` — the wrong API (column-level `.case()` builds a different
+  chain than `ibis.cases(...)`, and here compared a boolean expression against the searched
+  case's implicit base column). Fixed by binding each filtered relation to its own name
+  (`lead_total`, `quote_total`, `lead_trend`) once and referencing only that name downstream,
+  and switching to `ibis.cases(...)`. Also removed the dead `_scalar()` helper and a
+  `lead_totals_row` block computing a value the code immediately below it overwrote — both
+  orphaned by an earlier partial fix. Re-verified `get_marketing_overview`, `source_metrics`,
+  `cost_per_lead`, `territory_leads`, and `get_crm_detail` end-to-end.
+- **12 files read `System Settings.default_currency`, a field that does not exist on that
+  doctype** (confirmed live: `frappe.get_meta("System Settings").get_field("default_currency")`
+  is `None`; the call raised `ValidationError`). The correct site-wide fallback is `Global
+  Defaults.default_currency` (`INR` on this site, matching `Company.default_currency`) — every
+  other currency-resolution site in the codebase already used it. Fixed identically in
+  `analytics/ml_engine.py`, `api/ml/executive.py`, `ml/customer.py`,
+  `ml/executive_intelligence.py`, `ml/financial_intelligence.py`, `ml/gl_anomaly.py`,
+  `ml/hr_intelligence.py`, `ml/india_tax_intelligence/model.py`,
+  `ml/procurement_intelligence.py`, `ml/risk_intelligence.py`, `ml/strategic_finance/model.py`,
+  and `reports/executive_reports.py`.
+- **`inventory.py` — 3 real bugs**: `get_inventory_detail`'s `low_stock_items` branch called
+  `frappe.qb.functions.Count` — a bound method, not a namespace (`AttributeError` on every
+  call); `inventory_classification` used `ABCXYZClassification` without importing it
+  (`NameError` on every call); `get_inventory_recommendations` called a
+  `get_reorder_recommendations()` method that does not exist on `ABCXYZClassification` (it only
+  has `train()`) — delegated to the same `demand_forecasting.get_reorder_alerts()`
+  `general.py`'s own `get_reorder_alerts` endpoint already uses, instead of inventing new
+  logic. Plus one PEP 484 violation a full-repo pyright sweep caught:
+  `item_breakeven(fiscal_year: str = None)` — implicit-`Optional` default, now
+  `Optional[str] = None`.
+- **`model_ops.py`'s `retrain()` called `compute_or_cache`**, deleted along with the async-queue
+  removal. It now calls the model's `trainer_fn()` directly and returns the fresh result —
+  there is no cache left to fill; this recomputes the model the same way the domain dashboard
+  that owns it already does, on demand.
+
+### Fixed — the test suite still exercised the deleted architecture
+
+- **`test_ml_permission_gates.py` — 4 tests mocked classes and methods the rewrite deleted**:
+  `HRIntelligence.get_hr_overview` (real call is `.train()`),
+  `ExecutiveIntelligence.get_department_deep_dive` (department insight is now sliced out of the
+  pure-Ibis `get_executive_summary()` rollup directly), the old `refresh=True` →
+  `frappe.enqueue(train_payment_prediction)` async path (payment risk always computes live now
+  and ignores `refresh`), and `_get_domain_data`/`SalesIntelligence` (domain search is a single
+  capped `frappe.get_all`, zero ML). All 4 rewritten against the real call paths.
+- **`test_api_integration.py` — `TestAPIIntegration` rebuilt its company/customer/item fixture
+  in every test's `setUp` and tore it down in `tearDown` via `frappe.delete_doc("Company", ...,
+  force=True)`**, which cascades through `create_default_cost_center`'s Chart of Accounts /
+  Cost Center / Fiscal Year teardown once per test. Moved fixture creation to `setUpClass`
+  (built once) and dropped the manual per-test teardown — `FrappeTestCase`'s automatic
+  `rollback()` handles isolation between tests instead. `test_api_refactoring.py` (which
+  referenced the now-deleted `get_date_filter_sql` helper and the old `parse_date_filter`
+  return shape) updated to match.
+- **`test_ml_functionality.py` (1,352 → 1,078 lines)** — deleted or rewrote every test
+  asserting on `BaseMLModel` internals (`.train()` writing to a Redis cache key, `.predict()`
+  reading it back, cache TTLs) that the pure-Ibis rewrite has no equivalent for.
+
+Combined suite (`test_api_integration` + `test_api_refactoring` + `test_ml_functionality`):
+**75 tests, 0 failures, 0 errors, 94.6s.**
+
+### Verified
+
+A static sweep of `insights/api/ml/*.py` counts **145 `@frappe.whitelist()` endpoints across
+17 files**. `pyright`'s remaining findings on every file touched this session are exclusively
+3 known framework-stub gaps already present before this session — `frappe.throw` has no
+`NoReturn` annotation (so pyright can't see code after it is unreachable),
+`frappe.parse_json`'s return type is a broad union pyright won't narrow through `or {}`, and
+`frappe.defaults` isn't exposed as a typed submodule — not new type errors. `ruff check
+--select F821,F811,F822,E9,F631,F632,F633,F701,F702,F706,F707` (the error-class rules) passes
+clean; remaining findings are pre-existing style warnings (deprecated `Dict`/`List`/`Tuple`
+typing, trailing whitespace). A final targeted re-run of the 20 endpoints this entry changes —
+`customer_360_detail`; `get_marketing_overview`, `source_metrics`, `cost_per_lead`,
+`territory_leads`, `get_crm_detail`; `retrain("sales_forecast")`; `recommend_for_item`,
+`recommend_for_cart`, `recommend_for_customer`; `train_financial_intelligence`,
+`get_financial_overview`, `get_cash_flow_analysis`, `get_receivables_analysis`,
+`get_payables_analysis`, `get_forex_exposure`; `get_purchase_analytics`,
+`get_price_intelligence`, `get_procurement_risks`, `get_procurement_forecast` — returns
+`status: success` on every one against the live jkm site: **20/20**.
+
 ## [Unreleased] — 2026-08-10
 
 ### Fixed — the work-horse segfault, and two 502s it was hiding

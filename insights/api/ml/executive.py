@@ -414,7 +414,7 @@ def preview_executive_report_data(report_type: str = "daily") -> Dict[str, Any]:
         )
         currency = (
             frappe.db.get_value("Company", company, "default_currency")
-            or frappe.db.get_single_value("System Settings", "default_currency")
+            or frappe.db.get_single_value("Global Defaults", "default_currency")
             or "USD"
         )
         return success(

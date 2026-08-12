@@ -55,7 +55,7 @@ class ProcurementIntelligence:
         )
         self.base_currency = (
             (self.company and frappe.db.get_value("Company", self.company, "default_currency"))
-            or frappe.db.get_single_value("System Settings", "default_currency")
+            or frappe.db.get_single_value("Global Defaults", "default_currency")
             or "USD"
         )
 

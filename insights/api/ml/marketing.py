@@ -57,19 +57,6 @@ def _rows(expr) -> List[Dict[str, Any]]:
     ]
 
 
-def _scalar(expr, default: float = 0.0):
-    df = expr.execute()
-    if df is None or len(df) == 0:
-        return default
-    v = df.iloc[0, 0]
-    if v is None:
-        return default
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return default
-
-
 def _period_start(period: str):
     """Resolve a period keyword to an inclusive start ``date`` (datetime.date).
 
@@ -355,35 +342,9 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     start_str = str(start)
 
     lead_total = lead.filter(lead["docstatus"] < 2)
-    lead_totals_row = _scalar(
-        lead_total.aggregate(
-            total=lead_total.count(),
-            in_period=(
-                (lead_total["creation"] >= start_str).cast("int").sum()
-            ),
-            open_leads=(
-                lead_total["status"].isin(_LEAD_OPEN_STATUSES).cast("int").sum()
-            ),
-            at_opportunity=(
-                (lead_total["status"] == "Opportunity").cast("int").sum()
-            ),
-            at_quotation=(
-                (lead_total["status"] == "Quotation").cast("int").sum()
-            ),
-            converted=(
-                (lead_total["status"] == "Converted").cast("int").sum()
-            ),
-            lost=(
-                (lead_total["status"] == "Lost Quotation").cast("int").sum()
-            ),
-        ),
-        default={},
-    )
-    # `lead_totals_row` is a single-row dataframe; build a dict we can reuse
-    # downstream the way the old `frappe.db.sql(... as_dict=True)[0]` did.
     lead_totals = {
-        "total": int(lead_totals_row or 0),
-        "in_period": int(lead_totals_row or 0),  # overwritten below from per-aggregate
+        "total": 0,
+        "in_period": 0,
         "open_leads": 0,
         "at_opportunity": 0,
         "at_quotation": 0,
@@ -391,7 +352,9 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
         "lost": 0,
     }
     # Pull the individual aggregate components back out of the combined
-    # aggregate. Single-row df, so .iloc[0] is the only row.
+    # aggregate ("total submitted leads", "how many entered this period",
+    # etc.). Single-row df, so .iloc[0] is the only row; the defaults
+    # above stand if the query somehow comes back empty.
     lead_total_df = (
         lead_total.aggregate(
             total=lead_total.count(),
@@ -418,12 +381,13 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     # Open pipeline value is a CURRENT-STATE question: a Draft quotation is
     # live money regardless of when it was raised, so this is not period
     # filtered either. Period-scoped intake lives in `kpis.new_leads`.
+    quote_total = quote.filter(quote["docstatus"] < 2)
     quote_totals_df = (
-        quote.filter(quote["docstatus"] < 2)
-        .group_by(quote["status"].name("status"))
+        quote_total
+        .group_by(quote_total["status"].name("status"))
         .aggregate(
-            count=quote.count(),
-            value=quote["base_grand_total"].sum(),
+            count=quote_total.count(),
+            value=quote_total["base_grand_total"].sum(),
         )
         .execute()
     )
@@ -476,17 +440,17 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     # window happens to miss the data, which tells the operator nothing.
     source_label = (
         ibis.cases(
-            (lead["source"].notnull() & (lead["source"] != ""), lead["source"]),
+            (lead_total["source"].notnull() & (lead_total["source"] != ""), lead_total["source"]),
             else_="Unattributed",
         )
     ).name("source")
 
     source_rows_df = (
-        lead.filter(lead["docstatus"] < 2)
+        lead_total
         .group_by(source_label)
         .aggregate(
-            leads=lead.count(),
-            converted=((lead["status"] == "Converted").cast("int").sum()),
+            leads=lead_total.count(),
+            converted=((lead_total["status"] == "Converted").cast("int").sum()),
         )
         .order_by(ibis.desc("leads"))
         .limit(12)
@@ -503,24 +467,22 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
 
     quote_source_label = (
         ibis.cases(
-            (quote["source"].notnull() & (quote["source"] != ""), quote["source"]),
+            (quote_total["source"].notnull() & (quote_total["source"] != ""), quote_total["source"]),
             else_="Unattributed",
         )
     ).name("source")
 
     quote_by_source_df = (
-        quote.filter(quote["docstatus"] < 2)
+        quote_total
         .group_by(quote_source_label)
         .aggregate(
-            quotations=quote.count(),
-            quoted_value=quote["base_grand_total"].sum(),
+            quotations=quote_total.count(),
+            quoted_value=quote_total["base_grand_total"].sum(),
             won_value=(
-                quote["base_grand_total"]
-                .case()
-                .when(quote["status"] == "Ordered", quote["base_grand_total"])
-                .else_(0)
-                .end()
-                .sum()
+                ibis.cases(
+                    (quote_total["status"] == "Ordered", quote_total["base_grand_total"]),
+                    else_=0,
+                ).sum()
             ),
         )
         .execute()
@@ -549,13 +511,14 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
 
     # ── Trend. Answers "what changed". ────────────────────────────────────
     trend_start = _add_months_safe(start, -12)
-    period_expr = lead["creation"].strftime("%Y-%m")
+    lead_trend = lead_total.filter(lead_total["creation"] >= str(trend_start))
+    period_expr = lead_trend["creation"].strftime("%Y-%m")
     trend_df = (
-        lead.filter((lead["docstatus"] < 2) & (lead["creation"] >= str(trend_start)))
+        lead_trend
         .group_by(period_expr.name("month"))
         .aggregate(
-            leads=lead.count(),
-            converted=((lead["status"] == "Converted").cast("int").sum()),
+            leads=lead_trend.count(),
+            converted=((lead_trend["status"] == "Converted").cast("int").sum()),
         )
         .order_by("month")
         .execute()
@@ -570,14 +533,14 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
             })
 
     pipeline_df = (
-        lead.filter(lead["docstatus"] < 2)
+        lead_total
         .group_by(
             ibis.cases(
-                (lead["status"].notnull() & (lead["status"] != ""), lead["status"]),
+                (lead_total["status"].notnull() & (lead_total["status"] != ""), lead_total["status"]),
                 else_="Unset",
             ).name("status")
         )
-        .aggregate(count=lead.count())
+        .aggregate(count=lead_total.count())
         .order_by(ibis.desc("count"))
         .execute()
     )
@@ -590,16 +553,16 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
             })
 
     territory_df = (
-        lead.filter(lead["docstatus"] < 2)
+        lead_total
         .group_by(
             ibis.cases(
-                (lead["territory"].notnull() & (lead["territory"] != ""), lead["territory"]),
+                (lead_total["territory"].notnull() & (lead_total["territory"] != ""), lead_total["territory"]),
                 else_="Unassigned",
             ).name("territory")
         )
         .aggregate(
-            leads=lead.count(),
-            converted=((lead["status"] == "Converted").cast("int").sum()),
+            leads=lead_total.count(),
+            converted=((lead_total["status"] == "Converted").cast("int").sum()),
         )
         .order_by(ibis.desc("leads"))
         .limit(10)
@@ -615,16 +578,16 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
             })
 
     owner_df = (
-        lead.filter(lead["docstatus"] < 2)
+        lead_total
         .group_by(
             ibis.cases(
-                (lead["lead_owner"].notnull() & (lead["lead_owner"] != ""), lead["lead_owner"]),
+                (lead_total["lead_owner"].notnull() & (lead_total["lead_owner"] != ""), lead_total["lead_owner"]),
                 else_="Unassigned",
             ).name("owner")
         )
         .aggregate(
-            leads=lead.count(),
-            converted=((lead["status"] == "Converted").cast("int").sum()),
+            leads=lead_total.count(),
+            converted=((lead_total["status"] == "Converted").cast("int").sum()),
         )
         .order_by(ibis.desc("leads"))
         .limit(10)

@@ -71,7 +71,7 @@ def _base_currency() -> str:
         cur = frappe.db.get_value("Company", company, "default_currency")
         if cur:
             return cur
-    return frappe.db.get_single_value("System Settings", "default_currency") or "USD"
+    return frappe.db.get_single_value("Global Defaults", "default_currency") or "USD"
 
 def _company() -> Optional[str]:
     """Resolve the user's default company (used as a filter). Returns None

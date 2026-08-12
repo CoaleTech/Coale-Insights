@@ -14,7 +14,7 @@ Drill-down endpoints (`get_inventory_detail`) are unchanged -- they
 already use `frappe.get_list` and don't touch the ML stack.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, Optional
 
 import frappe
 from frappe import _
@@ -212,7 +212,7 @@ def get_inventory_recommendations() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def item_breakeven(period: str = "Quarterly", fiscal_year: str = None, item_group: str = None) -> Dict[str, Any]:
+def item_breakeven(period: str = "Quarterly", fiscal_year: Optional[str] = None, item_group: Optional[str] = None) -> Dict[str, Any]:
     """Get item-level break-even analysis."""
     try:
         frappe.has_permission("Item", "read", throw=True)
