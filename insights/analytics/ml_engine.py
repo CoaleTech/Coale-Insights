@@ -6,15 +6,12 @@ ML Analytics Engine
 Combines data collectors with AI analysis for intelligent insights
 """
 
-import json
 import frappe
-from frappe import _
-from frappe.utils import nowdate, now_datetime, cint, flt
+from frappe.utils import now_datetime, cint, flt
 from typing import Dict, Any, List, Optional
 
 from insights.ai.provider_factory import AIProviderFactory
-from insights.ai.openrouter_client import get_ai_status
-from insights.analytics.data_collectors import get_collector, get_all_analytics_data
+from insights.analytics.data_collectors import get_collector
 
 
 class MLAnalyticsEngine:
@@ -403,7 +400,14 @@ class MLAnalyticsEngine:
         }
     
     def _get_ml_predictions(self, dashboard_type: str) -> Dict[str, Any]:
-        """Get ML model predictions based on dashboard type"""
+        """Get ML model predictions based on dashboard type.
+
+        Every domain below computes fresh (no ``BaseMLModel``/
+        ``get_cached_results`` -- that pattern was removed 2026-08-11
+        when every ML module was rewritten onto pure Ibis). Each branch
+        is independently wrapped so one failing domain does not blank
+        the rest of the panel.
+        """
         predictions = {
             "available": False,
             "models": {}
@@ -413,17 +417,22 @@ class MLAnalyticsEngine:
             if dashboard_type == "customer":
                 # Customer Segmentation (RFM)
                 try:
-                    from insights.ml.customer_segmentation import CustomerSegmentation
-                    model = CustomerSegmentation()
-                    cached = model.get_cached_results("customer_segmentation")
-                    if cached and cached.get('status') == 'success':
+                    from insights.ml.customer import compute_rfm_segmentation
+
+                    company = frappe.defaults.get_user_default("Company") or None
+                    result = compute_rfm_segmentation(company=company)
+                    if result.get('status') == 'success':
                         predictions["available"] = True
+                        segments = {
+                            s["segment"]: {**s, "count": s["customer_count"]}
+                            for s in result.get('segments', [])
+                        }
                         predictions["models"]["customer_segmentation"] = {
                             "status": "ready",
-                            "total_customers": cached.get('total_customers', 0),
-                            "segments": cached.get('segment_summary', {}),
-                            "last_trained": cached.get('segmentation_date'),
-                            "top_segments": list(cached.get('segment_summary', {}).keys())[:5]
+                            "total_customers": result.get('total_customers', 0),
+                            "segments": segments,
+                            "last_trained": result.get('analysis_date'),
+                            "top_segments": list(segments.keys())[:5]
                         }
                     else:
                         predictions["models"]["customer_segmentation"] = {"status": "not_trained"}
@@ -433,17 +442,17 @@ class MLAnalyticsEngine:
             elif dashboard_type == "sales":
                 # Sales Forecasting
                 try:
-                    from insights.ml.sales_forecasting import SalesForecasting
-                    model = SalesForecasting()
-                    cached = model.get_cached_results("sales_forecast")
-                    if cached and cached.get('status') == 'success':
+                    from insights.ml.sales_forecasting import get_sales_forecast
+
+                    result = get_sales_forecast(periods=30)
+                    if result.get('status') == 'success':
                         predictions["available"] = True
                         predictions["models"]["sales_forecast"] = {
                             "status": "ready",
-                            "method": cached.get('method', 'unknown'),
-                            "forecast_summary": cached.get('forecast_summary', {}),
-                            "next_30_days": cached.get('forecast', [])[:30],
-                            "last_trained": cached.get('forecast_date')
+                            "method": result.get('method', 'linear_trend'),
+                            "forecast_summary": result.get('forecast_summary', {}),
+                            "next_30_days": result.get('forecast', [])[:30],
+                            "last_trained": result.get('forecast_date')
                         }
                     else:
                         predictions["models"]["sales_forecast"] = {"status": "not_trained"}
@@ -453,9 +462,9 @@ class MLAnalyticsEngine:
             elif dashboard_type == "financial":
                 # Payment Prediction
                 try:
-                    from insights.ml.payment_prediction import PaymentPrediction
-                    model = PaymentPrediction()
-                    result = model.predict()
+                    from insights.ml.payment_prediction import get_payment_predictions
+
+                    result = get_payment_predictions()
                     if result and result.get('status') == 'success':
                         predictions["available"] = True
                         predictions["models"]["payment_prediction"] = {
@@ -469,58 +478,58 @@ class MLAnalyticsEngine:
                 except Exception as e:
                     predictions["models"]["payment_prediction"] = {"status": "error", "error": str(e)}
                     
-            elif dashboard_type == "inventory":
-                # ABC/XYZ Classification + Demand Forecasting
+            elif dashboard_type == "procurement":
+                # ABC/XYZ Classification
                 try:
-                    from insights.ml.abc_xyz_classification import ABCXYZClassification
-                    model = ABCXYZClassification()
-                    cached = model.get_cached_results("abc_xyz_classification")
-                    if cached and cached.get('status') == 'success':
+                    from insights.ml.inventory_intelligence import run_abc_xyz_classification
+
+                    result = run_abc_xyz_classification()
+                    if result.get('status') == 'success':
                         predictions["available"] = True
+                        class_distribution = {
+                            c["class"]: c["item_count"] for c in result.get('combined_summary', [])
+                        }
                         predictions["models"]["abc_xyz_classification"] = {
                             "status": "ready",
-                            "total_items": cached.get('total_items', 0),
-                            "class_distribution": cached.get('class_distribution', {}),
-                            "last_trained": cached.get('classification_date')
+                            "total_items": result.get('total_items', 0),
+                            "class_distribution": class_distribution,
+                            "last_trained": result.get('analysis_date')
                         }
                     else:
                         predictions["models"]["abc_xyz_classification"] = {"status": "not_trained"}
                 except Exception as e:
                     predictions["models"]["abc_xyz_classification"] = {"status": "error", "error": str(e)}
                 
+                # Demand Forecasting / reorder alerts
                 try:
-                    from insights.ml.demand_forecasting import DemandForecasting
-                    model = DemandForecasting()
-                    cached = model.get_cached_results("demand_forecast")
-                    if cached and cached.get('status') == 'success':
+                    from insights.ml.demand_forecasting import get_demand_forecast
+
+                    result = get_demand_forecast()
+                    if result.get('status') == 'success':
                         predictions["available"] = True
-                        reorder_items = [f for f in cached.get('forecasts', []) if f.get('stock_status') == 'Reorder Now']
-                        predictions["models"]["demand_forecast"] = {
-                            "status": "ready",
-                            "total_items_analyzed": cached.get('summary', {}).get('total_items_analyzed', 0),
-                            "reorder_now_count": len(reorder_items),
-                            "reorder_items": reorder_items[:10],
-                            "last_trained": cached.get('forecast_date')
-                        }
-                    else:
-                        predictions["models"]["demand_forecast"] = {"status": "not_trained"}
-                except Exception as e:
-                    predictions["models"]["demand_forecast"] = {"status": "error", "error": str(e)}
-                    
-            elif dashboard_type == "procurement":
-                # Demand Forecasting for procurement
-                try:
-                    from insights.ml.demand_forecasting import DemandForecasting
-                    model = DemandForecasting()
-                    cached = model.get_cached_results("demand_forecast")
-                    if cached and cached.get('status') == 'success':
-                        predictions["available"] = True
-                        reorder_items = [f for f in cached.get('forecasts', []) if f.get('stock_status') == 'Reorder Now']
+                        alerts = [
+                            a for a in result.get('reorder_alerts', [])
+                            if a.get('status') == 'reorder_now'
+                        ]
+                        item_names = {}
+                        if alerts:
+                            item_names = {
+                                d.name: d.item_name
+                                for d in frappe.get_all(
+                                    "Item",
+                                    filters={"name": ["in", [a["item_code"] for a in alerts]]},
+                                    fields=["name", "item_name"],
+                                )
+                            }
+                        reorder_items = [
+                            {**a, "item_name": item_names.get(a["item_code"], a["item_code"])}
+                            for a in alerts
+                        ]
                         predictions["models"]["reorder_recommendations"] = {
                             "status": "ready",
-                            "reorder_now_count": len(reorder_items),
-                            "items": reorder_items[:15],
-                            "last_trained": cached.get('forecast_date')
+                            "reorder_now_count": result.get('reorder_now_count', 0),
+                            "reorder_items": reorder_items[:15],
+                            "last_trained": result.get('forecast_date')
                         }
                     else:
                         predictions["models"]["reorder_recommendations"] = {"status": "not_trained"}
@@ -530,16 +539,16 @@ class MLAnalyticsEngine:
             elif dashboard_type == "production":
                 # Demand Forecasting for production planning
                 try:
-                    from insights.ml.demand_forecasting import DemandForecasting
-                    model = DemandForecasting()
-                    cached = model.get_cached_results("demand_forecast")
-                    if cached and cached.get('status') == 'success':
+                    from insights.ml.demand_forecasting import get_demand_forecast
+
+                    result = get_demand_forecast()
+                    if result.get('status') == 'success':
                         predictions["available"] = True
                         predictions["models"]["production_demand"] = {
                             "status": "ready",
-                            "total_items": cached.get('summary', {}).get('total_items_analyzed', 0),
-                            "forecasts": cached.get('forecasts', [])[:20],
-                            "last_trained": cached.get('forecast_date')
+                            "total_items": result.get('total_items_analyzed', 0),
+                            "forecasts": result.get('reorder_alerts', [])[:20],
+                            "last_trained": result.get('forecast_date')
                         }
                     else:
                         predictions["models"]["production_demand"] = {"status": "not_trained"}
@@ -550,15 +559,15 @@ class MLAnalyticsEngine:
             if dashboard_type in ["sales", "customer"]:
                 try:
                     from insights.ml.product_recommendations import ProductRecommendations
-                    model = ProductRecommendations()
-                    cached = model.get_cached_results("product_recommendations")
-                    if cached and cached.get('status') == 'success':
+
+                    result = ProductRecommendations().train()
+                    if result.get('status') == 'success':
                         predictions["available"] = True
                         predictions["models"]["product_recommendations"] = {
                             "status": "ready",
-                            "total_rules": cached.get('association_rules', {}).get('total_rules', 0),
-                            "frequently_bought_together": cached.get('frequently_bought_together', [])[:10],
-                            "last_trained": cached.get('training_date')
+                            "total_rules": result.get('association_rules', {}).get('total_rules', 0),
+                            "frequently_bought_together": result.get('frequently_bought_together', [])[:10],
+                            "last_trained": result.get('training_date')
                         }
                     else:
                         predictions["models"]["product_recommendations"] = {"status": "not_trained"}
@@ -632,7 +641,7 @@ def get_dashboard(dashboard_type: str, filters: str = None) -> Dict[str, Any]:
     if filters:
         try:
             filter_dict = frappe.parse_json(filters)
-        except:
+        except Exception:
             pass
     
     engine = MLAnalyticsEngine(filter_dict)
@@ -654,7 +663,7 @@ def get_all_dashboards(filters: str = None) -> Dict[str, Any]:
     if filters:
         try:
             filter_dict = frappe.parse_json(filters)
-        except:
+        except Exception:
             pass
     
     engine = MLAnalyticsEngine(filter_dict)
@@ -685,7 +694,7 @@ def refresh_dashboard(dashboard_type: str = None, filters: str = None) -> Dict[s
     if filters:
         try:
             filter_dict = frappe.parse_json(filters)
-        except:
+        except Exception:
             pass
     
     engine = MLAnalyticsEngine(filter_dict)
