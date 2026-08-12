@@ -6,7 +6,6 @@ if TYPE_CHECKING:
     import numpy as np
 
 import ast
-import time
 from datetime import date
 
 import frappe
@@ -34,6 +33,15 @@ from insights.utils import deep_convert_dict_to_dict as _dict
 
 from .ibis.functions import quarter_start, week_start
 from .ibis.utils import get_functions
+
+try:
+    from frappe.concurrency_limiter import concurrent_limit
+except ImportError:
+    # Fallback no-op decorator if concurrency_limiter is not available
+    def concurrent_limit(limit=None, wait_timeout=None):  # type: ignore
+        def decorator(func):
+            return func
+        return decorator
 
 
 class IbisQueryBuilder:
@@ -722,10 +730,8 @@ def execute_ibis_query(
         limit = min(max(limit, 1), 10_00_000)
         query = query.limit(limit)
 
-    start = time.monotonic()
-
     try:
-        result = query.execute()
+        result, time_taken = _execute_live_query(query)
     except Exception as e:
         if "max_statement_time" in str(e):
             frappe.log_error(
@@ -738,7 +744,6 @@ def execute_ibis_query(
             )
         raise e
 
-    time_taken = flt(time.monotonic() - start, 3)
     create_execution_log(sql, time_taken, reference_name)
 
     if isinstance(result, pd.DataFrame):
@@ -747,6 +752,18 @@ def execute_ibis_query(
             cache_results(cache_key, result, cache_expiry)
 
     return result, time_taken
+
+
+# reject immediately instead of waiting for a slot: a blocked request holds on to a
+# web thread, so waiting here is what starves the pool when a dashboard executes all
+# of its charts at once. The frontend retries on the 503.
+@concurrent_limit(wait_timeout=0)
+def _execute_live_query(query: IbisQuery):
+    import time
+
+    start = time.monotonic()
+    result = query.execute()
+    return result, flt(time.monotonic() - start, 3)
 
 
 def get_columns_from_schema(schema: ibis.Schema):

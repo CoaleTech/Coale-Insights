@@ -66,6 +66,22 @@ briefly taken here, which reintroduced a queue, a redis lock, a patience window 
 `{"status": "warming"}` polling contract to work around the timeout — a second
 implementation of what the 503 contract already provides.
 
+### Fixed — workbook and chart live queries had no concurrency cap either
+
+The same unbounded-concurrency gap existed one layer down. `execute_ibis_query`
+(called by `Insights Query v3` / workbooks / charts / table previews) ran
+`query.execute()` directly, so a burst of heavy workbook queries could pin every
+web thread and 502 the dashboards above them. Standard Insights already wraps
+this in `_execute_live_query` with `@concurrent_limit(wait_timeout=0)`; this fork
+had dropped that too.
+
+Ported the upstream pattern: live queries now flow through
+`_execute_live_query`, which rejects immediately with `503 ServiceUnavailableError`
+when the slot is taken, preserving web threads and letting the frontend retry.
+Cache hits, warehouse/data-store queries and metadata probes are not gated by this
+limit. Includes the same fallback decorator as upstream for older Frappe versions.
+Smoke-tested with a trivial Ibis query through `execute_ibis_query`.
+
 ### Fixed — every dashboard endpoint is now cached, not just `get_executive_summary`
 
 `get_executive_summary()`'s 502 (fixed 2026-08-10, see below) was one symptom of a
