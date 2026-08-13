@@ -29,6 +29,10 @@ dependencies = [
     # need them and degrade silently if they are absent.
     "scikit-learn>=1.3.0",
     "statsmodels>=0.14.0",
+    # Pins native BLAS/OpenMP thread pools to 1 around every ML compute (see
+    # insights.api.ml.utils._compute) -- already a transitive dep of
+    # scikit-learn, declared explicitly because insights imports it directly.
+    "threadpoolctl>=3.0.0",
     # Prophet is deliberately NOT here. It pulls cmdstanpy + Intel TBB
     # (libtbb), a native thread pool that cannot survive rq's per-job fork() --
     # the work-horse dies as "waitpid returned 139 (signal 11)" with no Python

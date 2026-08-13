@@ -88,9 +88,27 @@ def _scoped(cache_key: str) -> str:
 # core's version leaks a token on every gunicorn SIGKILL (see
 # `insights.concurrency_lease` for why) and this endpoint is exactly the kind
 # of compute that gets killed at 120s.
+#
+# `threadpool_limits(1)` pins every native thread pool BLAS/OpenMP hands out
+# for this call (OpenBLAS, MKL, the sklearn/scipy OpenMP pool) to one thread.
+# These computes used to run inside the RQ worker, which pins
+# `OPENBLAS_NUM_THREADS=1` etc. via the Procfile -- but the Ibis rewrite made
+# them synchronous, so they now run inside gunicorn, which has no such
+# pinning. gunicorn runs many worker processes (33 on this bench); each one
+# spawning an unpinned OpenBLAS thread pool per compute oversubscribes the
+# host's cores under concurrent load, which both slows every compute down
+# and is a known OpenBLAS crash surface -- indistinguishable from this
+# app's history of fork-related segfaults, but this path never forks.
+# Verified locally: pinning made both sales and customer intelligence
+# *faster*, not slower (35.2s -> 26.2s, 6.7s -> 5.0s, Administrator/full
+# dataset) -- these are groupby/rolling-window bound, not matrix-multiply
+# bound, so multi-threaded BLAS was pure coordination overhead here.
 @concurrent_limit_lease(limit=2)
 def _compute(fn: Callable[[], dict]) -> dict:
-    return fn()
+    import threadpoolctl
+
+    with threadpoolctl.threadpool_limits(1):
+        return fn()
 
 
 def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = 3600) -> dict:

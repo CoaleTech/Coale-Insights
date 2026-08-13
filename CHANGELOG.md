@@ -6,6 +6,33 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-08-12
 
+### Fixed — ML computes ran with unpinned native thread pools inside gunicorn
+
+Every ML dashboard endpoint kept 502ing (and, once the concurrency lease above
+existed, dragging every other endpoint into a 503 with it) even after the lease
+capped concurrency at 2. The compute itself was still slow enough to flirt with
+gunicorn's `-t 120`, and its actual duration wasn't stable across requests.
+
+`insights.ml.gl_anomaly` carries a comment claiming `n_jobs=1` is used "because
+OpenBLAS threads are pinned app-wide" — true only for the RQ worker, which the
+Procfile pins with `OPENBLAS_NUM_THREADS=1` etc. The Ibis rewrite made every ML
+compute synchronous, so it now runs inside gunicorn instead, which has no such
+pinning. gunicorn runs many worker processes (33 on this bench); each one
+spawning an unpinned native thread pool (OpenBLAS/OpenMP, via numpy/pandas/
+scikit-learn/statsmodels) per compute oversubscribes the host's cores under
+concurrent load — this both slows every compute down unpredictably and is a
+known OpenBLAS crash surface, indistinguishable from this app's history of
+fork-related segfaults even though this path never forks.
+
+`insights.api.ml.utils._compute` — the single choke point every ML endpoint
+already routes through for the concurrency lease — now wraps `fn()` in
+`threadpoolctl.threadpool_limits(1)`. Verified locally: pinning made both
+sales and customer intelligence *faster*, not slower (35.2s → 26.2s, 6.7s →
+5.0s, Administrator/full dataset) — these are groupby/rolling-window bound,
+not matrix-multiply bound, so multi-threaded BLAS was pure coordination
+overhead. `threadpoolctl` added as an explicit dependency (previously only
+pulled in transitively via scikit-learn).
+
 ### Fixed — a crashed worker could zero the query/dashboard concurrency pool for an hour
 
 `frappe.concurrent_limit` releases its Redis token in a `finally` block. gunicorn's
