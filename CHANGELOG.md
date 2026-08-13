@@ -6,6 +6,20 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-08-12
 
+### Fixed — a crashed worker could zero the query/dashboard concurrency pool for an hour
+
+`frappe.concurrent_limit` releases its Redis token in a `finally` block. gunicorn's
+`-t 120` kills an over-running request with SIGKILL, which skips `finally` entirely, so
+the token was never returned and core's `RedisSemaphore.CAPACITY_TTL` (1 hour, hardcoded)
+was the only thing that reclaimed it. Two SIGKILLed ML computes zeroed the `limit=2` pool
+on production and 503'd every dashboard for the rest of the hour with no load at all —
+worse than the 502s the limiter exists to prevent. `execute_live_query` carried the same
+decorator (every workbook/chart query) with the same unbounded blast radius.
+
+Replaced both call sites with `insights.concurrency_lease.concurrent_limit_lease`: same
+reject-immediately contract, but a leaked slot self-heals within 150s (just past the
+gateway timeout) instead of an hour.
+
 ### Fixed — a cache keyed only on arguments served one user's rows to another
 
 `cached_run` (below) keyed on the endpoint's arguments alone. But
