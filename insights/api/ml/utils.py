@@ -26,17 +26,30 @@ got an immediate 503 (`ServiceUnavailableError: Server is busy`), and a
 compute that outran gunicorn's `-t 120` was SIGKILLed into an empty-bodied
 502 with the cache still unwritten -- so the next request repeated it, for
 every dashboard, forever.
+
+The job does not compute in its own process: it spawns one (see
+`insights.api.ml.compute_child` for the POSIX fork hazard that makes this
+mandatory on Frappe Cloud) and records the exit status against the payload.
+Every attempt is tracked, so a compute that dies is reported to whoever is
+waiting for it instead of leaving "Preparing your dashboard" on screen
+indefinitely -- the one failure mode that is indistinguishable from a hang.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import signal
+import subprocess
+import sys
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import frappe
+from frappe import _
+from frappe.utils import get_bench_path
 
 from insights.api.response import error, success
 
@@ -52,6 +65,42 @@ CACHE_TTL = 24 * 3600
 _DEMAND_KEY = "insights_ml_demand"
 _DEMAND_MAX_AGE = 3 * 86400
 _WARM_BATCH = 40
+
+# The last compute attempt per payload: {ts, job_id, fails, error}. Tracked
+# here rather than read back out of RQ because the interesting failures leave
+# nothing in RQ to read: a work-horse the platform kills (OOM, or the fork
+# segfault this app has a history of) never runs an exception handler, and a
+# job left in `started` by a dead worker would otherwise deduplicate every
+# retry away for as long as it sat there.
+_ATTEMPT_KEY = "insights_ml_attempt"
+
+# Longest an attempt may claim to be in flight. One dashboard mount can queue
+# nine payloads that wait behind each other on a single worker, and the
+# slowest here is a couple of minutes, so this sits far above the honest worst
+# case: it exists to break a lock, not to time a compute.
+_ATTEMPT_MAX_AGE = 30 * 60
+_MAX_ATTEMPTS = 3
+
+# Ceiling on one child, under the job's own timeout so the job outlives the
+# child it is supervising and can record what happened to it.
+_CHILD_TIMEOUT = 900
+_JOB_TIMEOUT = 1200
+
+# What one dashboard mount asks for. Only used by `warm_all` on a bench where
+# nobody has opened a dashboard yet; everywhere else the demand registry is
+# the authority, because it carries the filters people actually chose.
+_DASHBOARD_ENDPOINTS = (
+    "insights.api.ml.financial_intelligence",
+    "insights.api.ml.strategic_finance_intelligence",
+    "insights.api.ml.sales_intelligence",
+    "insights.api.ml.customer_intelligence",
+    "insights.api.ml.inventory_intelligence",
+    "insights.api.ml.procurement_intelligence",
+    "insights.api.ml.risk_intelligence",
+    "insights.api.ml.tax_intelligence",
+    "insights.api.ml.get_marketing_overview",
+    "insights.api.ml.get_hr_overview",
+)
 
 
 def run(fn: Callable[[], object], label: str) -> dict:
@@ -178,10 +227,18 @@ def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = CACHE_TTL) -> 
     # returning `warming` instead would blank a dashboard the user is looking
     # at, and -- because every poll would carry `refresh` again -- would never
     # stop asking for a fresh compute.
-    if cached is None or _refresh_requested():
-        _enqueue_current_request()
+    if cached is not None and not _refresh_requested():
+        return cached
 
-    return cached if cached is not None else {"status": "warming"}
+    if _refresh_requested():
+        # Someone who can see the error and asks anyway gets a fresh retry
+        # budget; otherwise one bad compute would disable the button.
+        _clear_attempt(key)
+
+    failure = _ensure_compute(key)
+    if cached is not None:
+        return cached
+    return error(failure) if failure else {"status": "warming"}
 
 
 def is_cached(cache_key: str) -> bool:
@@ -213,7 +270,110 @@ def _record_demand(key: str) -> None:
     )
 
 
-def _enqueue_current_request() -> None:
+def _ensure_compute(key: str) -> str | None:
+    """Make sure a compute for `key` is on its way; report one that wasn't.
+
+    Returns `None` while a payload is genuinely coming, or a message for the
+    user when it is not: the last attempt failed and said why, the last
+    attempt vanished without saying anything, or there is no worker to run it.
+    """
+    attempt = frappe.cache.hget(_ATTEMPT_KEY, key)
+    attempt = attempt if isinstance(attempt, dict) else {}
+
+    if _attempt_in_flight(attempt):
+        return None
+
+    fails = int(attempt.get("fails") or 0)
+    failure = attempt.get("error")
+
+    if attempt and not failure:
+        # It was recorded as in flight and RQ has no live job for it now, so
+        # it died between the two without running its own error handler.
+        fails += 1
+        failure = _(
+            "The background compute for this dashboard stopped without reporting an error"
+            " -- its worker process was killed. Check the bench's worker logs."
+        )
+
+    if fails >= _MAX_ATTEMPTS:
+        return failure
+
+    if _long_queue_is_unattended():
+        return _(
+            "No background worker is consuming the long queue, so dashboards cannot be"
+            " computed. Start the workers, or run"
+            " `bench --site SITE execute insights.api.ml.utils.warm_all`."
+        )
+
+    _enqueue_current_request(key, fails)
+    return None
+
+
+def _attempt_in_flight(attempt: dict) -> bool:
+    """Whether the compute recorded in `attempt` is still coming."""
+    if not attempt or attempt.get("error"):
+        return False
+
+    if time.time() - float(attempt.get("ts") or 0) > _ATTEMPT_MAX_AGE:
+        # RQ holds a job in `started` indefinitely when the worker running it
+        # died with it. Take the payload back, and drop the job so the retry
+        # is not deduplicated against a corpse.
+        _drop_job(attempt.get("job_id"))
+        return False
+
+    from frappe.utils.background_jobs import get_job_status
+    from rq.job import JobStatus
+
+    return get_job_status(attempt.get("job_id") or "") in (JobStatus.QUEUED, JobStatus.STARTED)
+
+
+def _long_queue_is_unattended() -> bool:
+    """Whether nothing is consuming the queue dashboards are computed on.
+
+    Worth a Redis read on the slow path: with no worker the payload is never
+    coming, and every dashboard would sit on "Preparing your dashboard" until
+    somebody thought to go and look at the bench.
+    """
+    try:
+        from frappe.utils.background_jobs import get_queue
+        from rq import Worker
+
+        queue = get_queue("long")
+        return Worker.count(connection=queue.connection, queue=queue) == 0
+    except Exception:
+        # A diagnostic must never be the reason a dashboard fails to compute.
+        frappe.logger("insights").debug("worker check failed", exc_info=True)
+        return False
+
+
+def _record_attempt(key: str, job_id: str, fails: int) -> None:
+    frappe.cache.hset(_ATTEMPT_KEY, key, {"ts": time.time(), "job_id": job_id, "fails": fails})
+
+
+def _record_failure(key: str, message: str) -> None:
+    attempt = frappe.cache.hget(_ATTEMPT_KEY, key)
+    fails = int(attempt.get("fails") or 0) if isinstance(attempt, dict) else 0
+    frappe.cache.hset(_ATTEMPT_KEY, key, {"ts": time.time(), "fails": fails + 1, "error": message})
+
+
+def _clear_attempt(key: str) -> None:
+    frappe.cache.hdel(_ATTEMPT_KEY, key)
+
+
+def _drop_job(job_id: str | None) -> None:
+    """Forget an RQ job so `deduplicate=True` cannot block its replacement."""
+    if not job_id:
+        return
+    try:
+        from frappe.utils.background_jobs import get_job
+
+        if job := get_job(job_id):
+            job.delete()
+    except Exception:
+        frappe.logger("insights").debug(f"could not drop job {job_id}", exc_info=True)
+
+
+def _enqueue_current_request(key: str, fails: int = 0) -> None:
     """Queue the endpoint this request is already calling.
 
     Taken from `frappe.form_dict.cmd` rather than passed in by each of the
@@ -223,44 +383,135 @@ def _enqueue_current_request() -> None:
     endpoint = frappe.local.form_dict.get("cmd")
     if not endpoint:
         return
-    enqueue_dashboard_compute(endpoint, _endpoint_params(), str(frappe.session.user))
+    enqueue_dashboard_compute(endpoint, _endpoint_params(), str(frappe.session.user), key, fails)
 
 
-def enqueue_dashboard_compute(endpoint: str, params: dict, user: str) -> None:
+def enqueue_dashboard_compute(endpoint: str, params: dict, user: str, key: str, fails: int = 0) -> None:
     """Queue one dashboard compute, at most one in flight per payload.
 
     The `job_id` covers user and arguments as well as the endpoint: two people
     on the same dashboard, or one person on two date filters, are different
-    payloads and must not deduplicate into each other.
+    payloads and must not deduplicate into each other. `key` is that payload's
+    cache key, which the job clears on success and marks on failure.
     """
     digest = hashlib.sha1(
         json.dumps([endpoint, params, user], sort_keys=True, default=str).encode()
     ).hexdigest()[:16]
+    job_id = f"insights_ml_dashboard:{digest}"
 
     frappe.enqueue(
         "insights.api.ml.utils.compute_dashboard",
         queue="long",
-        timeout=1200,
+        timeout=_JOB_TIMEOUT,
         deduplicate=True,
-        job_id=f"insights_ml_dashboard:{digest}",
+        job_id=job_id,
         endpoint=endpoint,
         params=params,
         user=user,
+        key=key,
     )
 
+    # After the enqueue, not before: a failed enqueue must not leave a payload
+    # looking like it is being computed. A poll that races us in the gap just
+    # enqueues again, which `deduplicate` collapses.
+    _record_attempt(key, job_id, fails)
 
-def compute_dashboard(endpoint: str, params: dict | None = None, user: str | None = None) -> None:
+
+def compute_dashboard(
+    endpoint: str, params: dict | None = None, user: str | None = None, key: str | None = None
+) -> None:
     """Background job: compute one dashboard payload and leave it in the cache.
 
     Runs the whitelisted endpoint itself rather than a copy of its body, so
-    there is one definition of what a dashboard returns. Permissions are
-    enforced normally, as the user the payload is cached for.
+    there is one definition of what a dashboard returns -- but in a spawned
+    child, never in this work-horse, which may be a `fork()` of a
+    multi-threaded worker (`insights.api.ml.compute_child`). This function's
+    own work is to wait for that child and record what became of it, so that a
+    compute which dies has somewhere to say so.
     """
-    if user and user != frappe.session.user:
-        frappe.set_user(user)
+    user = user or str(frappe.session.user)
 
-    frappe.local.insights_ml_refresh = True
-    frappe.call(endpoint, **(params or {}))
+    try:
+        completed = _run_child(endpoint, params or {}, user, key or "")
+    except subprocess.TimeoutExpired:
+        failure = _("Dashboard compute ran longer than {0}s and was stopped.").format(_CHILD_TIMEOUT)
+    else:
+        failure = None if completed.returncode == 0 else _child_error(completed)
+
+    if not failure:
+        if key:
+            _clear_attempt(key)
+        return
+
+    if key:
+        _record_failure(key, failure)
+    frappe.log_error(f"Insights ML: {endpoint}", failure)
+    raise RuntimeError(f"{endpoint}: {failure}")
+
+
+def _run_child(endpoint: str, params: dict, user: str, key: str) -> subprocess.CompletedProcess:
+    """Spawn `compute_child` for one payload and wait for it."""
+    env = dict(os.environ)
+    # What the Procfile pins for the workers, given to a process that inherits
+    # neither the Procfile nor `_compute`'s in-process pinning until it gets
+    # there: an unpinned OpenBLAS pool per compute oversubscribes the host.
+    env.update(
+        OPENBLAS_NUM_THREADS="1",
+        OMP_NUM_THREADS="1",
+        MKL_NUM_THREADS="1",
+        VECLIB_MAXIMUM_THREADS="1",
+        NUMEXPR_NUM_THREADS="1",
+    )
+
+    # `frappe.local.sites_path` is "." in a bench process, which runs from the
+    # sites directory -- so resolve it against that cwd rather than handing the
+    # child a path that means something else wherever it lands. A worker
+    # started from somewhere else would resolve to a directory with no site in
+    # it, so fall back to the bench layout, which is derived from this app's
+    # own location and does not care where anyone was standing.
+    sites = os.path.abspath(frappe.local.sites_path)
+    if not os.path.isdir(os.path.join(sites, frappe.local.site)):
+        sites = os.path.join(get_bench_path(), "sites")
+
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "insights.api.ml.compute_child",
+            frappe.local.site,
+            sites,
+            endpoint,
+            json.dumps(params, default=str),
+            user,
+            key,
+        ],
+        cwd=sites,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=_CHILD_TIMEOUT,
+        check=False,
+    )
+
+
+def _child_error(completed: subprocess.CompletedProcess) -> str:
+    """What to tell the user about a child that did not finish.
+
+    A signal is the case worth naming: SIGKILL is the platform's OOM killer,
+    SIGSEGV is the crash this app's ML code hit whenever it ran inside a
+    forked work-horse. Both used to present as a dashboard warming forever.
+    """
+    tail = " ".join((completed.stderr or "").strip().splitlines()[-3:])[:400]
+
+    if completed.returncode < 0:
+        try:
+            died_of = signal.Signals(-completed.returncode).name
+        except ValueError:
+            died_of = f"signal {-completed.returncode}"
+        killed = _("Dashboard compute was killed by {0}.").format(died_of)
+        return f"{killed} {tail}".strip()
+
+    return tail or _("Dashboard compute exited with status {0}.").format(completed.returncode)
 
 
 def refresh_dashboard_caches() -> None:
@@ -281,14 +532,80 @@ def refresh_dashboard_caches() -> None:
         if not isinstance(entry, dict) or not entry.get("endpoint") or entry.get("ts", 0) < cutoff:
             stale.append(field)
         else:
-            live.append(entry)
+            live.append((field, entry))
 
     if stale:
         frappe.cache.hdel(_DEMAND_KEY, stale)
 
-    live.sort(key=lambda e: e.get("ts", 0), reverse=True)
-    for entry in live[:_WARM_BATCH]:
-        enqueue_dashboard_compute(entry["endpoint"], entry.get("params") or {}, entry["user"])
+    live.sort(key=lambda pair: pair[1].get("ts", 0), reverse=True)
+    for field, entry in live[:_WARM_BATCH]:
+        enqueue_dashboard_compute(entry["endpoint"], entry.get("params") or {}, entry["user"], field)
+
+
+def warm_all(users: str | None = None) -> dict:
+    """Compute every dashboard payload people have asked for, in this process.
+
+    The manual way to fill the cache: after a release that flushed Redis, or on
+    a bench where the background pass cannot run at all -- no worker, or a
+    compute that keeps dying. Off-request, so `cached_run` computes inline:
+    no gunicorn timeout, no queue, no child process, nothing to go wrong
+    quietly.
+
+        bench --site SITE execute insights.api.ml.utils.warm_all
+        bench --site SITE execute insights.api.ml.utils.warm_all --kwargs "{'users': 'a@x.com'}"
+
+    Payloads are per user (`_scoped`), so what gets warmed is the exact
+    (user, endpoint, filter) triples in the demand registry -- what people
+    actually opened, including the filters they chose. With `users` given and
+    nothing in the registry for them, falls back to the default view of every
+    dashboard for those users.
+    """
+    wanted = [u.strip() for u in (users or "").split(",") if u.strip()]
+
+    queue: list[tuple[str | None, dict]] = []
+    for field, entry in (frappe.cache.hgetall(_DEMAND_KEY) or {}).items():
+        if not isinstance(entry, dict) or not entry.get("endpoint"):
+            continue
+        if wanted and entry.get("user") not in wanted:
+            continue
+        queue.append((field, entry))
+
+    if not queue and wanted:
+        queue = [
+            (None, {"endpoint": endpoint, "params": {}, "user": user})
+            for user in wanted
+            for endpoint in _DASHBOARD_ENDPOINTS
+        ]
+
+    caller, computed, failed = str(frappe.session.user), [], []
+    for field, entry in queue:
+        started = time.time()
+        record = {"endpoint": entry["endpoint"], "user": entry["user"]}
+        try:
+            frappe.set_user(entry["user"])
+            frappe.local.insights_ml_refresh = True
+            result = frappe.call(entry["endpoint"], **(entry.get("params") or {}))
+            record["status"] = result.get("status") if isinstance(result, dict) else None
+        except Exception as e:
+            record["status"] = "error"
+            record["error"] = str(e)
+        finally:
+            frappe.local.insights_ml_refresh = False
+
+        record["seconds"] = round(time.time() - started, 1)
+        if record["status"] == "success":
+            computed.append(record)
+            if field:
+                _clear_attempt(field)
+        else:
+            failed.append(record)
+        # `bench execute` prints only the return value, and this runs for
+        # minutes: say what is happening while it happens.
+        print(f"{record['status']:>8}  {record['seconds']:>6}s  {entry['endpoint']}  {entry['user']}")
+
+    frappe.set_user(caller)
+    frappe.db.commit()
+    return {"computed": computed, "failed": failed}
 
 
 def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, datetime | None]:

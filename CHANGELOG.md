@@ -47,6 +47,43 @@ Deploying this needs a worker restart (`compute_dashboard` is a new job function
 running worker holds the old module and fails every job) and `bench migrate` — the hourly
 event only appears in Scheduled Job Type after `sync_jobs`.
 
+### Fixed — the background job computed inside a forked work-horse, so dashboards warmed forever
+
+With the change above deployed, every dashboard sat on "This dashboard is being computed in
+the background" indefinitely — past five minutes, nothing loading, no error anywhere.
+
+`compute_dashboard` called the endpoint in the RQ work-horse. Unless a bench sets
+`FRAPPE_BACKGROUND_WORKERS_NOFORK` (this one does; Frappe Cloud does not) that horse is an
+`os.fork()` of a multi-threaded worker — RQ's heartbeat thread, the GC thread, whatever
+BLAS pool the worker touched last — and pandas/numpy work in such a child is undefined
+behaviour per POSIX. This app already had the scars: `insights.api.ml.ibis_source` documents
+the same code segfaulting on Frappe Cloud with "waitpid returned 139 (signal 11)", which is
+why these endpoints were made synchronous in the first place. Moving them back into a job
+walked into it again. A horse killed by a signal runs no exception handler, so nothing was
+written — no payload, no error, no trace — and `deduplicate=True` kept the dead job's id in
+the registry, so later polls queued nothing. The frontend polled a key that would never be
+filled, which is exactly what "warming forever" looks like.
+
+The job now spawns a fresh interpreter (`python -m insights.api.ml.compute_child`, not a
+fork), which computes one payload, leaves it in the cache and exits; the horse only waits
+for the exit status. That status is about the payload, not about the child getting through
+its code: 0 only if a payload is now cached, 2 if the endpoint answered an error envelope,
+3 if it claimed success but left nothing at the key, and negative if a signal killed it —
+SIGKILL named as the platform's OOM killer, SIGSEGV as the crash above. Anything non-zero
+lands on an attempt marker (`insights_ml_attempt`: ts, job_id, fails, error) and the next
+request gets that error instead of another `warming`. Three failures stop re-queueing, and
+a marker older than 30 minutes is treated as dead, so a killed worker cannot lock a payload
+out of ever being computed again. If nothing is listening on the `long` queue at all, a miss
+says so rather than promising a compute nobody will run.
+
+`bench --site SITE execute insights.api.ml.utils.warm_all` computes every payload people
+have asked for in-process — for a bench with no worker, or after a Redis flush.
+
+Verified in the configuration that used to crash: `execute_job` in a forked horse off a
+multi-threaded parent with a warmed BLAS pool now exits 0 with the payload cached (HR,
+28.7s). A 20-check contract script covers miss → `warming` → one queued job → child →
+cached hit, plus silent death, the attempt cap, and in-flight dedupe.
+
 ## [Unreleased] — 2026-08-12
 
 ### Fixed — ML computes ran with unpinned native thread pools inside gunicorn
