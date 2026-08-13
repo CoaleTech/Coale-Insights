@@ -554,6 +554,11 @@ def warm_all(users: str | None = None) -> dict:
         bench --site SITE execute insights.api.ml.utils.warm_all
         bench --site SITE execute insights.api.ml.utils.warm_all --kwargs "{'users': 'a@x.com'}"
 
+    Run it from `bench execute`, never through `frappe.enqueue`: in a job it
+    would compute inside the work-horse, which on a forking bench is the crash
+    `compute_child` exists to stay out of. A miss on a live request already
+    queues the safe path.
+
     Payloads are per user (`_scoped`), so what gets warmed is the exact
     (user, endpoint, filter) triples in the demand registry -- what people
     actually opened, including the filters they chose. With `users` given and
