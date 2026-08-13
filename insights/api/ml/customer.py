@@ -4,13 +4,13 @@
 """
 Customer Intelligence API Endpoints (Ibis-native).
 
-Every endpoint here answers synchronously -- no `enqueue`, no background
-job, no fork. The underlying compute is a chain of Ibis aggregates that
-compile to one SQL statement each, so most requests return in the same
-latency budget as any other Insights query. `customer_intelligence` (the
-full dashboard payload) is the exception -- it fans out across several of
-those chains in one request and is cached for 1 hour per
-(date_filter, company) via `insights.api.ml.utils.cached_run`; everything
+Every endpoint here answers out of the web worker: the compute is a chain of
+Ibis aggregates that compile to one SQL statement each, so most requests
+return in the same latency budget as any other Insights query.
+`customer_intelligence` (the full dashboard payload) is the exception -- it
+fans out across several of those chains and takes tens of seconds, so it is
+served from cache and recomputed by a background job, keyed per
+(date_filter, company); see `insights.api.ml.utils.cached_run`. Everything
 else here has no cache.
 
 Names + kwarg signatures are preserved exactly so the frontend (which calls
@@ -22,7 +22,7 @@ from typing import Any, Dict, Optional
 
 import frappe
 
-from insights.api.ml.utils import cached_run, run
+from insights.api.ml.utils import cached_run, enqueue_dashboard_compute, is_cached, run
 
 
 # ---------------------------------------------------------------------------
@@ -74,9 +74,12 @@ def customer_intelligence(refresh: bool = False,
                           async_mode: bool = False,
                           date_filter: str = "12m",
                           company: Optional[str] = None) -> Dict[str, Any]:
-    """Comprehensive customer intelligence. `refresh` and `async_mode` are
-    accepted for API compatibility but ignored -- there is no background
-    job. Cached for 1 hour per (date_filter, company).
+    """Comprehensive customer intelligence, served from cache and recomputed
+    by a background job, keyed per (date_filter, company).
+
+    `refresh` queues a recompute and keeps serving the payload it already
+    has; `async_mode` is accepted for API compatibility and ignored -- every
+    caller now gets the same cache-or-`warming` contract.
     """
     frappe.has_permission("Customer", "read", throw=True)
     from insights.ml.customer import compute_customer_intelligence
@@ -88,14 +91,21 @@ def customer_intelligence(refresh: bool = False,
 
 
 @frappe.whitelist()
-def customer_intelligence_status(date_filter: str = "12m") -> Dict[str, Any]:
-    """Customer intelligence processing status. With no background job
-    there's never a pending/warming state -- the compute is synchronous and
-    always ready.
+def customer_intelligence_status(date_filter: str = "12m",
+                                 company: Optional[str] = None) -> Dict[str, Any]:
+    """Whether the customer intelligence payload is ready for this caller.
+
+    There is a real pending state again: the payload is computed by a
+    background job, so a cold cache answers `warming` until that job lands.
+    The dashboards read the same state off the payload response itself; this
+    endpoint is for callers that want to ask without fetching it.
     """
     frappe.has_permission("Customer", "read", throw=True)
-    return run(lambda: {"status": "ready",
-                        "message": "Customer intelligence runs synchronously"},
+    ready = is_cached(f"insights_ml_customer_intelligence:{date_filter}:{company or 'all'}")
+    return run(lambda: {"status": "ready" if ready else "warming",
+                        "message": ("Customer intelligence is cached and ready"
+                                    if ready
+                                    else "Customer intelligence is being computed")},
                "Customer intelligence status")
 
 
@@ -198,19 +208,24 @@ def next_best_actions(company: Optional[str] = None) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# refresh_scores: no cache to refresh; the compute is synchronous and the
-# endpoint just runs the same payload as customer_intelligence.
+# refresh_scores: queues the same background compute the dashboard uses.
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
 def refresh_scores(company: Optional[str] = None) -> Dict[str, Any]:
-    """Re-run the customer intelligence compute. With no cache, this is
-    equivalent to a fresh customer_intelligence() call.
+    """Queue a recompute of the customer intelligence payload.
+
+    This used to run the compute inline, which on a full ledger is a request
+    that outlives the gateway. It now queues the same job the dashboard's own
+    cache miss would, for the default `12m` window, and returns immediately.
     """
     frappe.has_permission("Customer", "write", throw=True)
-    from insights.ml.customer import compute_customer_intelligence
-    return run(lambda: compute_customer_intelligence(date_filter="12m", company=company),
-               "Refresh customer scores")
+    enqueue_dashboard_compute(
+        "insights.api.ml.customer_intelligence",
+        {"date_filter": "12m", "company": company},
+        str(frappe.session.user),
+    )
+    return run(lambda: {"queued": True}, "Refresh customer scores")
 
 
 # ---------------------------------------------------------------------------

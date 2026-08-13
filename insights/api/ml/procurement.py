@@ -7,9 +7,10 @@ Procurement Intelligence API Endpoints — Ibis rewrite.
 Each endpoint builds one or two Ibis expressions (which compile to SQL
 and execute inside MariaDB) and wraps the result in the standard
 `success` envelope via `insights.api.ml.utils.run`. No background job, no
-fork. `procurement_intelligence` (the full dashboard payload) is cached
-for 1 hour via `insights.api.ml.utils.cached_run`; everything else here
-has no cache. `refresh` is accepted but ignored.
+fork. `procurement_intelligence` (the full dashboard payload) is the one
+exception: served from cache and recomputed by a background job
+(`insights.api.ml.utils.cached_run`), with `refresh` queueing a recompute
+while the payload it already has keeps being served.
 
 Drill-down endpoints (`get_procurement_detail`) are unchanged — they
 already use `frappe.get_list` and don't touch the ML stack.
@@ -30,7 +31,8 @@ from insights.api.ml.utils import cached_run, run
 
 @frappe.whitelist()
 def procurement_intelligence(refresh: bool = False) -> Dict[str, Any]:
-    """Get comprehensive procurement intelligence, cached for 1 hour."""
+    """Comprehensive procurement intelligence: served from cache, recomputed
+    in the background."""
     frappe.has_permission("Purchase Order", "read", throw=True)
     return cached_run(
         lambda: run(lambda: ProcurementIntelligence().train(), "procurement_intelligence"),

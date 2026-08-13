@@ -14,7 +14,7 @@ from insights.api.ml.utils import cached_run
 
 @frappe.whitelist()
 def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
-    """Get strategic finance intelligence analysis, cached for 1 hour.
+    """Strategic finance intelligence: served from cache, recomputed in the background.
 
     `date_filter` is accepted for frontend API compatibility but the
     underlying compute does not use it (see `run_strategic_finance_intelligence`),

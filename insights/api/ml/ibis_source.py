@@ -75,8 +75,26 @@ def t(doctype: str) -> ir.Table:
     under `insights/api/ml/` and `insights/analytics/` reach the database. A
     caller that genuinely needs the unfiltered table can reach for
     `connection().table()`, which says so in the diff.
+
+    Memoised per request on ``frappe.local``, the same way
+    `insights.api.ml.permissions._rules` caches its permission lookups.
+    `connection().table()` is not free: it issues an ``information_schema``
+    round trip for the column list and rebuilds the ibis table node from it.
+    One dashboard asks for the same handful of DocTypes over and over --
+    `financial_intelligence` alone calls this 34 times for 8 distinct
+    DocTypes -- and measured cold that repetition was 9.2s of a 38.4s
+    compute. The expressions are immutable, so handing every caller the same
+    node is safe: `.filter()` / `.select()` return new nodes and reusing one
+    parent also lets ibis share its compiled sub-plans.
     """
-    return permitted(connection().table(get_table_name(doctype)), doctype)
+    cache = getattr(frappe.local, "insights_ml_tables", None)
+    if cache is None:
+        cache = frappe.local.insights_ml_tables = {}
+
+    key = (frappe.session.user, doctype)
+    if key not in cache:
+        cache[key] = permitted(connection().table(get_table_name(doctype)), doctype)
+    return cache[key]
 
 
 def company_filter(table: ir.Table, company: str | None) -> ir.Table:

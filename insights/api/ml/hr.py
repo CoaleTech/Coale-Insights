@@ -33,7 +33,7 @@ from insights.api.ml.utils import cached_run, run
 @frappe.whitelist()
 def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
     """Comprehensive HR overview -- headcount, attrition, payroll, comp.
-    Cached for 1 hour per period.
+    Served from cache, recomputed in the background per period.
 
     Permission: BOTH ``Employee`` AND ``Salary Slip`` (see module docstring).
     """

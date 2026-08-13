@@ -62,11 +62,11 @@ export interface IntelligenceDashboard<T> {
 const WARMING_POLL_MS = 4000
 
 /**
- * Heavy dashboard computes are capped server-side with Frappe's
- * `concurrent_limit`, which rejects the overflow immediately with a 503 instead
- * of letting it queue and hold a web thread -- holding threads is what took the
- * whole dashboard surface down at once. So a 503 here means "come back later",
- * not "this failed", and is retried rather than surfaced.
+ * A 503 is backpressure, not failure. Dashboard payloads are computed off the
+ * request now (see `insights/api/ml/utils.py`), so this no longer comes from
+ * the ML path -- but anything else holding the line, an overloaded gunicorn or
+ * a proxy shedding load, still answers 503, and the right response is the
+ * same: come back shortly rather than show the user an error.
  *
  * Backed off and jittered so two dashboards on one page don't retry in
  * lockstep. Same contract as standard Insights' `scheduleQueryExecution`.

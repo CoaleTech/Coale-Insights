@@ -134,6 +134,23 @@
 				</div>
 
 				<!--
+					Planning payloads are computed by a background job, so a cold cache
+					answers `warming`. Say so instead of rendering a tab full of blanks
+					that reads as "the company has no working capital".
+				-->
+				<div
+					v-else-if="activeGroup === 'planning' && strategicWarming && !strategicData"
+					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
+				>
+					<LoadingIndicator class="h-6 w-6 text-ink-gray-5" />
+					<p class="font-medium text-ink-gray-8">Preparing planning data</p>
+					<p class="max-w-md text-sm text-ink-gray-6">
+						The planning engine is computing this in the background. It will appear
+						here as soon as it is ready.
+					</p>
+				</div>
+
+				<!--
 					Tab bodies for either group. The shell has already gated the slot
 					on `hasData` for the primary (actuals) payload; the planning
 					inline error above handles the secondary's failure. Both groups
@@ -257,7 +274,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'FinancialIntelligence' })
-import { ref, computed, onMounted, watch, provide } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, provide } from 'vue'
 import { Button, Tabs, TabButtons, createResource, LoadingIndicator } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import { AlertTriangle } from 'lucide-vue-next'
@@ -299,7 +316,7 @@ import ScenarioAnalysisTab from '../components/strategic-finance/ScenarioAnalysi
 import PeriodComparisonTab from '../components/strategic-finance/PeriodComparisonTab.vue'
 import BudgetVarianceTab from '../components/strategic-finance/BudgetVarianceTab.vue'
 import BreakEvenOverviewTab from '../components/strategic-finance/BreakEvenOverviewTab.vue'
-import { ignoreRejection } from '../helpers/api'
+import { ignoreRejection, readInsightsEnvelope } from '../helpers/api'
 
 interface FrappeResponse { status: string; message?: string; [key: string]: unknown }
 
@@ -507,8 +524,14 @@ const forexSublabel = computed(() => {
 // kept as a raw `createResource` because the planning engine is a secondary,
 // tab-scoped feed that fails independently of the actuals engine. The
 // composable's single-error shell cannot model two independent error channels,
-// so the planning error stays inline within the planning group.
+// so the planning error stays inline within the planning group. What it does
+// borrow from the composable is the warming contract: a cold planning cache
+// answers `{status: "warming"}` while a background job computes it, which is
+// not a failure and must not be rendered as one.
+const WARMING_POLL_MS = 4000
+let strategicPollTimer: ReturnType<typeof setTimeout> | null = null
 const strategicLoading = ref(false)
+const strategicWarming = ref(false)
 const strategicData = ref<Record<string, unknown> | null>(null)
 /** Mirrors `error` for the planning engine; same two failure paths. */
 const strategicError = ref<string | null>(null)
@@ -541,22 +564,41 @@ const strategicResource = createResource({
 	url: 'insights.api.ml.strategic_finance_intelligence',
 	auto: false,
 	onSuccess(response: FrappeResponse) {
-		if (response && response.status === 'success') {
-			strategicData.value = response as Record<string, unknown>
-			strategicError.value = null
-		} else {
-			strategicError.value = response?.message || 'Planning data could not be loaded'
+		const { data, error: err, warming } = readInsightsEnvelope(response)
+		strategicWarming.value = warming
+		if (err) {
+			strategicError.value = err
+			strategicLoading.value = false
+			return
 		}
+		if (warming) {
+			// Held by a background job. Stay in the loading state and re-check,
+			// rather than reporting a failure the user cannot act on.
+			strategicError.value = null
+			strategicPollTimer = setTimeout(() => fetchStrategicData(false), WARMING_POLL_MS)
+			return
+		}
+		strategicData.value = (data as Record<string, unknown> | null) ?? null
+		strategicError.value = null
 		strategicLoading.value = false
 	},
 	onError(err: unknown) {
 		console.error('Strategic Finance Intelligence error:', err)
+		strategicWarming.value = false
 		strategicError.value = 'Planning data could not be loaded'
 		strategicLoading.value = false
 	},
 })
 
+/**
+ * `refresh` rides only the request that starts a check: poll ticks pass
+ * `false` so a warming payload cannot re-queue a recompute on every tick.
+ */
 const fetchStrategicData = (refresh = false) => {
+	if (strategicPollTimer) {
+		clearTimeout(strategicPollTimer)
+		strategicPollTimer = null
+	}
 	strategicLoading.value = true
 	ignoreRejection(strategicResource.submit({ refresh }))
 }
@@ -572,6 +614,15 @@ const refreshData = () => {
  */
 onMounted(() => {
 	fetchStrategicData(false)
+})
+
+/** A warming poll outlives the view otherwise, refetching for a dashboard
+ * nobody is looking at. */
+onBeforeUnmount(() => {
+	if (strategicPollTimer) {
+		clearTimeout(strategicPollTimer)
+		strategicPollTimer = null
+	}
 })
 
 /**

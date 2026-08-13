@@ -10,9 +10,10 @@ returns them in a `finally` block. gunicorn kills a request that overruns
 the token is never returned, and `RedisSemaphore.CAPACITY_TTL` (1 hour,
 hardcoded in core) is the only thing that reclaims it. Two such kills at
 limit=2 zero the pool and 503 every caller for up to an hour with no load
-on the system at all. Confirmed against both call sites that used to carry
+on the system at all. Confirmed against the call sites that used to carry
 `@frappe.concurrent_limit` in this app: `execute_live_query` (every
-workbook/chart query) and the ML dashboard computes.
+workbook/chart query, still capped here) and the ML dashboard computes
+(now moved off the request entirely -- see `insights.api.ml.utils`).
 
 This counts holders in a single Redis INCR'd key instead of a token LIST,
 and self-heals within `lease_seconds` of a leak (default: just past the
@@ -22,8 +23,8 @@ locking every caller out -- fails toward "briefly a bit more load", not
 "nobody gets served for an hour".
 
 Only the reject-immediately contract (`wait_timeout=0`) is implemented,
-because that is the only mode either caller uses: blocking on a slot would
-hold the same web thread it's trying to protect the pool from.
+because that is the only mode the remaining caller uses: blocking on a slot
+would hold the same web thread it's trying to protect the pool from.
 """
 
 from __future__ import annotations

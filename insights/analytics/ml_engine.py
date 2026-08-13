@@ -600,7 +600,14 @@ class MLAnalyticsEngine:
 
 # Scheduler functions
 def refresh_all_dashboards():
-    """Scheduled task to refresh all dashboards"""
+    """Daily: warm the AI-insight tier behind `get_dashboard`.
+
+    Distinct from `insights.api.ml.utils.refresh_dashboard_caches`, which runs
+    hourly and warms the intelligence dashboards' own payload cache. This pass
+    fills the CacheManager tier instead -- collector aggregates plus one
+    OpenRouter call per dashboard type -- and neither writes the other's keys,
+    so the two do not duplicate work. No-op unless AI analytics is enabled.
+    """
     settings = frappe.get_single("Insights Settings")
     
     if not settings.enable_ai_analytics:
@@ -629,11 +636,17 @@ def reset_ai_quota():
 def get_dashboard(dashboard_type: str, filters: str = None) -> Dict[str, Any]:
     """
     Get dashboard data with AI insights
-    
+
+    Synchronous on purpose: both callers are buttons with a spinner
+    (`Dashboard.vue` "Refresh with AI", `AIInsights.vue` module tiles), not
+    part of the fan-out a dashboard fires on mount, so this does not need the
+    background-compute contract in `insights.api.ml.utils`. Measured at ~17s
+    per call on the jkm dataset, most of it collector SQL and the model call.
+
     Args:
         dashboard_type: Type of dashboard
         filters: JSON string of filters
-        
+
     Returns:
         Complete dashboard data
     """

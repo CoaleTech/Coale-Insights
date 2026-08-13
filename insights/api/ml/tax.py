@@ -3,9 +3,10 @@
 
 """India Tax Intelligence API — GST, ITC, TDS, e-Invoice, e-Waybill, HSN, compliance.
 
-Pure-Ibis: every endpoint runs synchronously and returns the same shape
-the legacy `tax_intelligence` model emitted. No more warming/polling
-contract; no background training; no fork into RQ.
+Pure-Ibis: every endpoint returns the same shape the legacy
+`tax_intelligence` model emitted, with no model training and no fork into
+RQ. The full `tax_intelligence` payload is served from cache and recomputed
+by a background job per period; the slices below compute per call.
 """
 
 import frappe
@@ -47,9 +48,9 @@ def tax_intelligence(refresh: bool = False, period: str = "fy") -> Dict[str, Any
     """Full India tax intelligence: GST, ITC, TDS, e-Invoice, filing, reconciliation.
 
     `period` is one of `3m` / `6m` / `12m` / `fy` and selects the reporting
-    window. `refresh` is accepted for API compatibility but no longer has
-    any side effect. Cached for 1 hour per period -- see
-    `insights.api.ml.utils.cached_run`.
+    window. `refresh` queues a recompute and keeps serving the payload it
+    already has. Served from cache, recomputed in the background per period
+    -- see `insights.api.ml.utils.cached_run`.
     """
     try:
         frappe.has_permission("GL Entry", "read", throw=True)

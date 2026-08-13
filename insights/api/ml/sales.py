@@ -47,11 +47,12 @@ def get_forecast_chart_data() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[str, Any]:
-    """Comprehensive sales intelligence, cached for 1 hour per date_filter.
+    """Comprehensive sales intelligence, served from cache and recomputed in
+    the background per date_filter.
 
-    `refresh` is kept for backward compatibility; the underlying compute is
-    still fresh every hour (or immediately after a cache miss/expiry), just
-    not on every single call -- see `insights.api.ml.utils.cached_run`.
+    `refresh` queues a recompute and keeps serving the payload it already
+    has; the hourly scheduler pass keeps it fresh without anyone asking --
+    see `insights.api.ml.utils.cached_run`.
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)

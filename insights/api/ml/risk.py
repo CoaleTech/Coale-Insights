@@ -14,7 +14,7 @@ from insights.api.serialization import sanitize_for_json
 
 @frappe.whitelist()
 def risk_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
-    """Get risk intelligence analysis, cached for 1 hour."""
+    """Risk intelligence: served from cache, recomputed in the background."""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.risk_intelligence import run_risk_intelligence

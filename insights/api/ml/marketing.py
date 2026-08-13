@@ -11,12 +11,12 @@ the final, already-aggregated result (a few dozen rows in the worst case).
 The two-line ``from insights.api.ml.utils import run`` import at the top of
 ``run_lambda`` calls does the same role the older hand-rolled
 ``try / except / return success-or-error`` block did for every endpoint
-elsewhere: a single synchronous call, a single ``success()`` envelope, with
+elsewhere: a single call, a single ``success()`` envelope, with
 ``frappe.PermissionError`` re-raised unchanged and any other exception
-turned into a logged ``error()`` response. There is no background job, no
-fork. ``get_marketing_overview`` (the full dashboard payload) is cached
-for 1 hour per period via ``cached_run``; everything else here has no
-cache.
+turned into a logged ``error()`` response. ``get_marketing_overview`` (the
+full dashboard payload) is served from cache and recomputed by a background
+job per period (``cached_run``); everything else here has no cache and no
+background work.
 """
 
 from __future__ import annotations

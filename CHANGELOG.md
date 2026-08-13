@@ -4,6 +4,49 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-13
+
+### Fixed — dashboard payloads were computed inside the web request, so a mount 502/503'd
+
+Every intelligence endpoint computed synchronously in the gunicorn worker under a
+concurrency lease. One dashboard mount fires ~9 of them at once (financial, sales,
+customer, inventory, procurement, risk, tax, marketing, HR), each 20–130s of Ibis/pandas
+work on this ledger, so the fan-out failed in both directions: callers past the lease got
+an immediate 503 (`ServiceUnavailableError: Server is busy`), and a compute that outran
+gunicorn's `-t 120` was SIGKILLed into an empty-bodied 502 with the cache still unwritten
+— so the next request repeated it, for every dashboard, forever.
+`strategic_finance_intelligence` takes 64–128s here; it could never finish inside a
+request at all.
+
+`insights.api.ml.utils.cached_run` now answers requests out of cache only. A miss records
+demand, queues one `long`-queue job per (endpoint, params, user) — deduplicated on that
+triple, so two people on one dashboard or one person on two date filters don't collide —
+and returns `{"status": "warming"}`. The job calls the same whitelisted endpoint
+off-request, where `cached_run` computes inline and writes the cache, so there is still
+one definition of what a dashboard returns. `refresh` keeps serving the payload it has
+while the recompute runs, rather than blanking a dashboard someone is reading. An hourly
+scheduler pass (`refresh_dashboard_caches`) recomputes what people actually opened;
+entries nobody has touched in 3 days drop out, so background load tracks real usage.
+Errors are never cached. The ML concurrency lease is gone from this path — the request no
+longer computes, so there is nothing left to cap; `execute_live_query` keeps it.
+
+Measured, cold cache, all 9 endpoints fired concurrently over HTTP: 9×200 `warming` in
+0.36s wall, against a 502/503 storm before. Warm read ~50ms for a 19KB payload.
+`t(doctype)` in `insights.api.ml.ibis_source` is now memoised per request (the financial
+payload alone made 34 such calls over 8 DocTypes), taking that compute 38.2s → 22.3s;
+sales is groupby-bound rather than schema-bound and is unchanged at ~34s.
+
+The frontend already understood `warming` through `useIntelligenceDashboard`. The one
+holdout was the Finance dashboard's planning feed, a raw `createResource` whose
+`onSuccess` treated anything but `status === "success"` as a failure — it would have shown
+"Planning data could not be loaded" for the entire first compute. It now decodes the
+envelope, polls every 4s, and renders a "Preparing planning data" panel instead of a tab
+full of blanks that reads as "the company has no working capital".
+
+Deploying this needs a worker restart (`compute_dashboard` is a new job function; a
+running worker holds the old module and fails every job) and `bench migrate` — the hourly
+event only appears in Scheduled Job Type after `sync_jobs`.
+
 ## [Unreleased] — 2026-08-12
 
 ### Fixed — ML computes ran with unpinned native thread pools inside gunicorn

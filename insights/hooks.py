@@ -169,6 +169,9 @@ scheduler_events = {
     ],
     "hourly": [
         "insights.api.data_store.update_failed_sync_status",
+        # Recompute the intelligence dashboards people actually opened, so a
+        # user request only ever reads the cache. See `insights.api.ml.utils`.
+        "insights.api.ml.utils.refresh_dashboard_caches",
     ],
     "weekly": [
         # Executive Reports - Weekly
