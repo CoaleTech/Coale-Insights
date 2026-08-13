@@ -29,9 +29,9 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import frappe
-from frappe.concurrency_limiter import concurrent_limit
 
 from insights.api.response import error, success
+from insights.concurrency_lease import concurrent_limit_lease
 
 
 def run(fn: Callable[[], object], label: str) -> dict:
@@ -83,7 +83,12 @@ def _scoped(cache_key: str) -> str:
 # the next request repeats it forever. Measured cold against the JKM ledger as a
 # row-filtered (non-Administrator) user: 46s alone, 65s with two in flight. Two
 # therefore keeps ~55s of headroom; three would start spending it.
-@concurrent_limit(limit=2, wait_timeout=0)
+#
+# Uses the insights-local lease-based limiter, not `frappe.concurrent_limit`:
+# core's version leaks a token on every gunicorn SIGKILL (see
+# `insights.concurrency_lease` for why) and this endpoint is exactly the kind
+# of compute that gets killed at 120s.
+@concurrent_limit_lease(limit=2)
 def _compute(fn: Callable[[], dict]) -> dict:
     return fn()
 
