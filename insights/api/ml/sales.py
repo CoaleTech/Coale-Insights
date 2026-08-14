@@ -56,7 +56,7 @@ def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        from insights.ml.sales_intelligence import get_sales_intelligence
+        from insights.reports.sales_intelligence_report import get_sales_intelligence
 
         return cached_run(
             lambda: run(lambda: get_sales_intelligence(date_filter=date_filter), "sales_intelligence"),
