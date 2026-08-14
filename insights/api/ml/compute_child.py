@@ -42,7 +42,6 @@ Not a public entry point: argv is built by `compute_dashboard`.
 from __future__ import annotations
 
 import json
-import os
 import sys
 
 SAYS = "insights-child: "
@@ -58,10 +57,14 @@ def main(argv: list[str]) -> int:
     site, sites_path = argv[1], argv[2]
     rest = argv[3:]
 
-    if os.environ.get("INSIGHTS_ML_PYARROW_EXECUTE"):
-        from insights.api.ml.ibis_source import use_pyarrow_materialization
+    # Bypass ibis's pandas cursor converter, which segfaults on aarch64
+    # Python 3.14 whenever it converts a date/timestamp column to datetime64.
+    # PyArrow reads the cursor and hands pandas plain Python date/datetime
+    # objects, so the crashing C path is never entered. This only affects
+    # this child process; the rest of Frappe keeps ibis's default execute.
+    from insights.api.ml.ibis_source import use_pyarrow_materialization
 
-        use_pyarrow_materialization()
+    use_pyarrow_materialization()
 
     import frappe
 

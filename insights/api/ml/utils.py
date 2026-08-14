@@ -190,6 +190,13 @@ def _endpoint_params() -> dict:
 def _compute(fn: Callable[[], dict]) -> dict:
     import threadpoolctl
 
+    # Same pyarrow bypass the child process uses. Inline computes (scheduler,
+    # warm_all, bench execute) run in this process, not a child, so the patch
+    # has to happen here too.
+    from insights.api.ml.ibis_source import use_pyarrow_materialization
+
+    use_pyarrow_materialization()
+
     with threadpoolctl.threadpool_limits(1):
         return fn()
 

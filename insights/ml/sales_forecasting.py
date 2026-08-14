@@ -92,7 +92,8 @@ def _linear_trend_forecast(
         }
 
     df = history[["ds", "y"]].copy()
-    df.loc[:, "ds"] = pd.to_datetime(df["ds"])
+    # With the PyArrow execute path `ds` is object-dtype datetime.date objects,
+    # not datetime64. They sort and diff correctly without pd.to_datetime.
     df = df.sort_values("ds").reset_index(drop=True)
     y = df["y"].astype(float).to_numpy()
     n = len(y)

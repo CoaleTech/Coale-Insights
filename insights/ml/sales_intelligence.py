@@ -149,7 +149,9 @@ def calculate_revenue_metrics(
     repeat = per_customer_df[per_customer_df["order_count"] > 1]
     if len(repeat) > 0:
         repeat = repeat.copy()
-        repeat["days_span"] = (repeat["last_sale"] - repeat["first_sale"]).dt.days
+        # With the PyArrow execute path these are object-dtype date/datetime
+        # objects, not datetime64, so .dt.days is unavailable.
+        repeat["days_span"] = (repeat["last_sale"] - repeat["first_sale"]).apply(lambda x: x.days)
         total_days = float(repeat["days_span"].sum())
         total_orders_minus_1 = float((repeat["order_count"] - 1).sum())
         avg_days_between_orders = round(

@@ -397,12 +397,14 @@ def compute_customer_intelligence(
     df["outstanding_amount"] = df["outstanding_amount"].fillna(0).astype(float)
     df["overdue_count"] = df["overdue_count"].fillna(0).astype(int)
 
-    df["lifespan_months"] = ((df["last_purchase"] - df["first_purchase"]).dt.days / 30.44).clip(lower=1)
+    # With the PyArrow execute path these columns are object-dtype Python
+    # date/datetime objects, not datetime64, so .dt.days is unavailable.
+    df["lifespan_months"] = ((df["last_purchase"] - df["first_purchase"]).apply(lambda x: x.days) / 30.44).clip(lower=1)
     df["purchase_frequency"] = df["order_count"] / df["lifespan_months"]
-    df["recency_days"] = (now - df["last_purchase"]).dt.days
+    df["recency_days"] = (now - df["last_purchase"]).apply(lambda x: x.days)
 
     # predicted 12-month CLV = orders/month * 12 * AOV, adjusted by tenure
-    df["tenure_months"] = ((now - df["first_purchase"]).dt.days / 30.44)
+    df["tenure_months"] = ((now - df["first_purchase"]).apply(lambda x: x.days) / 30.44)
     df["tenure_factor"] = (df["tenure_months"] / 24).clip(upper=1.5)
     df["predicted_12m_clv"] = df["purchase_frequency"] * 12 * df["avg_order_value"]
     df["adjusted_predicted_clv"] = df["predicted_12m_clv"] * df["tenure_factor"]
@@ -798,7 +800,8 @@ def _cohort_analysis(start, end, company):
     if first_df.empty:
         return {"cohort_retention": [], "average_retention": {}, "cohort_count": 0}
 
-    first_df["cohort_month"] = pd.to_datetime(first_df["first_purchase"]).dt.to_period("M").astype(str)
+    # With the PyArrow execute path these are object-dtype Python dates.
+    first_df["cohort_month"] = first_df["first_purchase"].apply(lambda d: d.strftime("%Y-%m"))
     first_df = first_df.set_index("customer")[["cohort_month"]]
     per_cust_month["cohort_month"] = per_cust_month["customer"].map(first_df["cohort_month"])
     per_cust_month = per_cust_month.dropna(subset=["cohort_month"])
@@ -806,7 +809,7 @@ def _cohort_analysis(start, end, company):
         return {"cohort_retention": [], "average_retention": {}, "cohort_count": 0}
 
     cohort_ord = per_cust_month["cohort_month"].map(lambda s: pd.Period(s, freq="M").ordinal)
-    txn_ord = per_cust_month["txn_month"].dt.to_period("M").astype("int64")
+    txn_ord = per_cust_month["txn_month"].apply(lambda d: pd.Period(d, freq="M").ordinal)
     per_cust_month["period_number"] = (txn_ord - cohort_ord).astype(int)
 
     cohort_data = (
@@ -1132,14 +1135,25 @@ def _analyze_customer_purchase_patterns(purchase_history: List[Dict[str, Any]]) 
         return None
     try:
         import pandas as pd
+        from datetime import date as _date, datetime as _datetime
+
+        def _norm_date(v):
+            if isinstance(v, _date) and not isinstance(v, _datetime):
+                return v
+            if isinstance(v, str):
+                return _datetime.strptime(v, "%Y-%m-%d").date()
+            return v
+
         df = pd.DataFrame(purchase_history)
-        df["posting_date"] = pd.to_datetime(df["posting_date"])
+        # frappe.db.sql returns DATE as datetime.date objects. Keep them as
+        # plain Python dates to avoid pandas' datetime64 C conversion.
+        df["posting_date"] = df["posting_date"].apply(_norm_date)
         df_sorted = df.sort_values("posting_date")
         date_diffs = df_sorted["posting_date"].diff().dropna()
-        avg_frequency = round(float(date_diffs.dt.days.mean()), 1) if len(date_diffs) else None
-        df["day_of_week"] = df["posting_date"].dt.day_name()
+        avg_frequency = round(float(date_diffs.apply(lambda x: x.days).mean()), 1) if len(date_diffs) else None
+        df["day_of_week"] = df["posting_date"].apply(lambda d: d.strftime("%A"))
         preferred_day = df["day_of_week"].mode().iloc[0] if len(df) else None
-        df["month"] = df["posting_date"].dt.month_name()
+        df["month"] = df["posting_date"].apply(lambda d: d.strftime("%B"))
         month_totals = df.groupby("month")["grand_total"].sum()
         peak_month = month_totals.idxmax() if len(month_totals) else None
         return {
