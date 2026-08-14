@@ -42,6 +42,7 @@ Not a public entry point: argv is built by `compute_dashboard`.
 from __future__ import annotations
 
 import json
+import os
 import sys
 
 SAYS = "insights-child: "
@@ -56,6 +57,11 @@ def _say(message: str) -> None:
 def main(argv: list[str]) -> int:
     site, sites_path = argv[1], argv[2]
     rest = argv[3:]
+
+    if os.environ.get("INSIGHTS_ML_PYARROW_EXECUTE"):
+        from insights.api.ml.ibis_source import use_pyarrow_materialization
+
+        use_pyarrow_materialization()
 
     import frappe
 

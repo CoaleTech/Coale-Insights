@@ -41,6 +41,35 @@ if TYPE_CHECKING:
     import ibis.expr.types as ir
 
 
+def use_pyarrow_materialization() -> None:
+    """Make every ``expr.execute()`` route through PyArrow instead of ibis's
+    pandas cursor converter.
+
+    This exists for one reason: on aarch64 Python 3.14, a mismatched set of
+    pandas/numpy wheels segfaults inside ``pandas/_libs/pandas_datetime.so``
+    whenever ibis converts a date/timestamp column to a pandas ``datetime64``
+    array (``ibis/formats/pandas.py:convert_column``). PyArrow reads the
+    cursor into Arrow arrays and hands pandas plain Python ``date``/``datetime``
+    objects, so the crashing C path is never entered.
+
+    Enabling this changes the dtype of date columns from ``datetime64`` to
+    ``object``; any code that uses the pandas ``.dt`` accessor on those
+    columns must be adjusted. It is therefore opt-in via the environment
+    variable ``INSIGHTS_ML_PYARROW_EXECUTE=1`` and is intended as an escape
+    hatch while a bench's wheels are repaired, not the default path.
+    """
+    import ibis.expr.types as ir
+
+    _original_execute = ir.Table.execute
+
+    def _execute(self, *args, **kwargs):
+        if kwargs.pop("_unsafe", False):
+            return _original_execute(self, *args, **kwargs)
+        return self.to_pyarrow().to_pandas(timestamp_as_object=True)
+
+    ir.Table.execute = _execute
+
+
 def connection() -> ibis.BaseBackend:
     """Ibis backend bound to the current site's own MariaDB database.
 
