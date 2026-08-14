@@ -130,6 +130,56 @@ surviving into the Error Log, the one-line message, exits 1/2/3 mapping, a lande
 outranking SIGSEGV, and the selftest end to end. The 20-check background contract and the
 HTTP path (cold → `warming` in 1.1s → `success` in 16.5s over 3 polls) still pass.
 
+### Fixed — the crash dump was capped from the wrong end, cutting the frames
+
+The first dump the change above delivered proved the point and then hit the next bug in
+the same code. `_child_output` capped the child's output at 6000 characters *from the
+tail*, on the reasoning that a fatal dump is the last thing a crashing process writes.
+It is — but it prints innermost frame first and *ends* with the loaded-extension trailer,
+which is 2KB of it here (67 modules). So the cap kept the trailer and cut the frames,
+again, one layer further out. It also cut the child's own `insights-child:` breadcrumbs,
+which live at the head, so a non-signal failure lost the endpoint's own error message.
+
+Capped from the middle now, at 16000: three quarters head, one quarter tail, with the
+number of cut characters stated. A production-shaped dump (deep stack, C stack trace,
+trailer — about 8KB) is kept whole.
+
+What the recovered frames say: the fault is in pandas' datetime C library
+(`pandas/_libs/pandas_datetime…so`, called from `pandas/_libs/tslibs/np_datetime…so`),
+entered from `ibis/formats/pandas.py` `convert_column` — the per-column type conversion
+ibis runs over a cursor result — under `_fetch_from_cursor`. It repeats identically for
+procurement, customer and sales, always on the first `.execute()` that returns a date, and
+one of those results is `.limit(20)`: twenty rows. Nothing to do with memory, the fork,
+or BLAS. `convert_Date`/`convert_Timestamp` call `Series.astype("datetime64[…]")`, which
+lands in `np_datetime.astype_overflowsafe` and from there in the `pandas_datetime`
+capsule — two extensions compiled together, wired through a `PyCapsule` that carries no
+version check.
+
+`child_selftest` now walks that ground too, one announced step at a time: a numpy-only
+`datetime64` unit conversion, then date objects → `datetime64`, datetimes → `datetime64`,
+timedeltas → `timedelta64`, then `PandasData.convert_table` on a frame of exactly the
+shape a query returns (date, timestamp, decimal, int64 with nulls), then a real query
+with a date column. The numpy-only step comes first because it discriminates: a host that
+faults there has a numpy problem, one that survives it and dies on the next has a pandas
+one. It also reports `machine`, both versions, and a build fingerprint of
+`pandas/_libs` — extension count, mtime spread, how many pandas distributions claim the
+directory — because a valid call into a valid address that faults on its first field read
+is what a tree upgraded in place over a live one looks like.
+
+### Fixed — the declared dependency pins could not be installed
+
+`pandas~=2.2.2` cannot be satisfied by a wheel on this app's own Python: 2.3.3 is the only
+pandas 2.x with a cp314 build, and 2.2 predates 3.14's C API. Honouring that pin means
+compiling pandas 2.2 from source against whatever numpy is on the host — one half of the
+`pandas_datetime`/`np_datetime` pair built somewhere the other half was not. Now
+`pandas>=2.3.3,<3` (below 3.x because ibis's pandas format layer is not tested against
+it), and `ibis-framework>=10.5,<12`, which is what every bench already runs while the pin
+said otherwise.
+
+numpy is now declared as well (`>=2.3,<3`) rather than left transitive. ibis declares no
+constraint on either pandas or numpy, so before this the native stack under
+`ibis.formats.pandas` — the code that just segfaulted — was pinned by nothing at all.
+
 ## [Unreleased] — 2026-08-12
 
 ### Fixed — ML computes ran with unpinned native thread pools inside gunicorn

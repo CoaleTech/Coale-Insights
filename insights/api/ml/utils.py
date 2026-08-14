@@ -542,16 +542,27 @@ def _run_child(endpoint: str, params: dict, user: str, key: str) -> subprocess.C
     return _spawn_child([endpoint, json.dumps(params, default=str), user, key], _CHILD_TIMEOUT)
 
 
-def _child_output(stderr: str | bytes | None, cap: int = 6000) -> str:
-    """What the child wrote, tail-capped.
+def _child_output(stderr: str | bytes | None, cap: int = 16000) -> str:
+    """What the child wrote, capped from the middle if it must be capped.
 
-    The tail, not the head: a fatal-signal dump is the last thing a crashing
-    process writes.
+    Not the tail. A fatal-signal dump prints the innermost frame first and ends
+    with a trailer naming every loaded C extension -- 2KB of it in this app, 67
+    modules -- so keeping the last few thousand characters kept the trailer and
+    cut the frames. That is how a production SIGSEGV arrived naming pandas'
+    datetime library but not the call into it.
+
+    Both ends are kept: the head, because the frames are there, and a slice of
+    the tail, because the trailer is all there is when a fault happens before
+    any Python frame exists.
     """
     if not stderr:
         return ""
     text = (stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr).strip()
-    return text if len(text) <= cap else f"...\n{text[-cap:]}"
+    if len(text) <= cap:
+        return text
+    head = cap * 3 // 4
+    tail = cap - head
+    return f"{text[:head]}\n...[{len(text) - cap} characters cut]...\n{text[-tail:]}"
 
 
 def _child_said(output: str) -> str:

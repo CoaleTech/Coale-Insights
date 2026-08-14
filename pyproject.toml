@@ -8,12 +8,27 @@ requires-python = ">=3.10"
 readme = "README.md"
 dynamic = ["version"]
 dependencies = [
-    "pandas~=2.2.2",
+    # pandas 2.3.3 is the only 2.x release with a cp314 wheel (2.2.x stops at
+    # cp313, and 2.2 predates 3.14's C API), so on this app's own Python the
+    # previous `~=2.2.2` could only be satisfied by building 2.2 from source
+    # against whatever numpy happened to be present -- which is how you get a
+    # `pandas_datetime`/`np_datetime` pair that segfaults on the first date a
+    # query returns. Below 3.x: ibis materialises results through
+    # `ibis.formats.pandas`, which is not tested against pandas 3.
+    "pandas>=2.3.3,<3",
+    # Declared rather than left transitive: this app's crash surface is native,
+    # and an unpinned numpy resolves to whatever shipped this week against a
+    # pandas built months earlier.
+    "numpy>=2.3,<3",
     "SQLAlchemy>=2.0.36",
     "python-telegram-bot==21.4",
     "duckdb~=1.3.0",
     "sqlglot<28.0.0",
-    "ibis-framework~=10.5.0",
+    # 11 is what this app is verified against; `~=10.5.0` excluded it while
+    # every bench ran it anyway. ibis declares no pandas or numpy constraint of
+    # its own, so the two above are the only thing pinning the native stack
+    # underneath `ibis.formats.pandas`.
+    "ibis-framework>=10.5,<12",
     "ibis-framework[duckdb]",
     "ibis-framework[mysql]",
     "ibis-framework[sqlite]",
