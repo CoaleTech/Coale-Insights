@@ -86,6 +86,13 @@ _MAX_ATTEMPTS = 3
 _CHILD_TIMEOUT = 900
 _JOB_TIMEOUT = 1200
 
+# What `compute_child._say` prefixes its own lines with, so a crash dump can be
+# told apart from the child's account of itself. A literal rather than an import
+# from that module: it is spawned as `__main__`, and importing it here would put
+# a second copy of it in every child (`RuntimeWarning` from `runpy`, and two
+# copies of anything either side ever keeps at module scope).
+_CHILD_SAYS = "insights-child: "
+
 # What one dashboard mount asks for. Only used by `warm_all` on a bench where
 # nobody has opened a dashboard yet; everywhere else the demand registry is
 # the authority, because it carries the filters people actually chose.
@@ -433,10 +440,22 @@ def compute_dashboard(
 
     try:
         completed = _run_child(endpoint, params or {}, user, key or "")
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as expired:
         failure = _("Dashboard compute ran longer than {0}s and was stopped.").format(_CHILD_TIMEOUT)
+        detail = _child_output(expired.stderr)
     else:
         failure = None if completed.returncode == 0 else _child_error(completed)
+        detail = _child_output(completed.stderr)
+
+    # The exit status describes the process; the cache is what a dashboard
+    # serves. A child that wrote its payload and then faulted on the way out
+    # -- a native extension crashing in interpreter shutdown -- has done the
+    # job, and answering the next request with an error would blank a
+    # dashboard whose data is sitting right there. Worth reading about, not
+    # worth showing.
+    if failure and key and frappe.cache.get_value(key) is not None:
+        frappe.log_error(f"Insights ML: {endpoint}", f"{failure}\n\nThe payload landed anyway.\n\n{detail}")
+        failure = None
 
     if not failure:
         if key:
@@ -445,16 +464,21 @@ def compute_dashboard(
 
     if key:
         _record_failure(key, failure)
-    frappe.log_error(f"Insights ML: {endpoint}", failure)
+    # `failure` is one line, for a dashboard to show. The child's own output is
+    # where a crash names itself -- a fatal signal dumps Python frames and then
+    # a trailer of the C extensions it had loaded -- so the log takes all of it.
+    frappe.log_error(f"Insights ML: {endpoint}", f"{failure}\n\n{detail}" if detail else failure)
     raise RuntimeError(f"{endpoint}: {failure}")
 
 
-def _run_child(endpoint: str, params: dict, user: str, key: str) -> subprocess.CompletedProcess:
-    """Spawn `compute_child` for one payload and wait for it."""
+def _child_env() -> dict:
+    """The environment a compute child runs in.
+
+    What the Procfile pins for the workers, given to a process that inherits
+    neither the Procfile nor `_compute`'s in-process pinning until it gets
+    there: an unpinned OpenBLAS pool per compute oversubscribes the host.
+    """
     env = dict(os.environ)
-    # What the Procfile pins for the workers, given to a process that inherits
-    # neither the Procfile nor `_compute`'s in-process pinning until it gets
-    # there: an unpinned OpenBLAS pool per compute oversubscribes the host.
     env.update(
         OPENBLAS_NUM_THREADS="1",
         OMP_NUM_THREADS="1",
@@ -462,56 +486,108 @@ def _run_child(endpoint: str, params: dict, user: str, key: str) -> subprocess.C
         VECLIB_MAXIMUM_THREADS="1",
         NUMEXPR_NUM_THREADS="1",
     )
+    return env
 
-    # `frappe.local.sites_path` is "." in a bench process, which runs from the
-    # sites directory -- so resolve it against that cwd rather than handing the
-    # child a path that means something else wherever it lands. A worker
-    # started from somewhere else would resolve to a directory with no site in
-    # it, so fall back to the bench layout, which is derived from this app's
-    # own location and does not care where anyone was standing.
+
+def _child_sites_path() -> str:
+    """The sites directory to hand a child, absolute.
+
+    `frappe.local.sites_path` is "." in a bench process, which runs from the
+    sites directory -- so resolve it against that cwd rather than handing the
+    child a path that means something else wherever it lands. A worker started
+    from somewhere else would resolve to a directory with no site in it, so
+    fall back to the bench layout, which is derived from this app's own
+    location and does not care where anyone was standing.
+    """
     sites = os.path.abspath(frappe.local.sites_path)
     if not os.path.isdir(os.path.join(sites, frappe.local.site)):
         sites = os.path.join(get_bench_path(), "sites")
+    return sites
 
+
+def _spawn_child(args: list[str], timeout: int) -> subprocess.CompletedProcess:
+    """Spawn `compute_child` with `args` after the site and sites path.
+
+    `-u` so the child's breadcrumbs are on the pipe before a fatal signal can
+    strand them in a buffer, and `-X faulthandler` so that signal dumps the
+    Python frames it was in. Without the flag a segfault in a native import
+    reports which C extensions were loaded and nothing about where the process
+    was -- which is how the first one here arrived: `numpy.linalg._umath`
+    loaded, no frames, no line.
+    """
+    sites = _child_sites_path()
     return subprocess.run(
         [
             sys.executable,
+            "-u",
+            "-X",
+            "faulthandler",
             "-m",
             "insights.api.ml.compute_child",
             frappe.local.site,
             sites,
-            endpoint,
-            json.dumps(params, default=str),
-            user,
-            key,
+            *args,
         ],
         cwd=sites,
-        env=env,
+        env=_child_env(),
         capture_output=True,
         text=True,
-        timeout=_CHILD_TIMEOUT,
+        timeout=timeout,
         check=False,
     )
 
 
+def _run_child(endpoint: str, params: dict, user: str, key: str) -> subprocess.CompletedProcess:
+    """Spawn `compute_child` for one payload and wait for it."""
+    return _spawn_child([endpoint, json.dumps(params, default=str), user, key], _CHILD_TIMEOUT)
+
+
+def _child_output(stderr: str | bytes | None, cap: int = 6000) -> str:
+    """What the child wrote, tail-capped.
+
+    The tail, not the head: a fatal-signal dump is the last thing a crashing
+    process writes.
+    """
+    if not stderr:
+        return ""
+    text = (stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr).strip()
+    return text if len(text) <= cap else f"...\n{text[-cap:]}"
+
+
+def _child_said(output: str) -> str:
+    """The child's last word about itself, or "" if it never got one out."""
+    for line in reversed(output.splitlines()):
+        if line.startswith(_CHILD_SAYS):
+            return line[len(_CHILD_SAYS) :]
+    return ""
+
+
 def _child_error(completed: subprocess.CompletedProcess) -> str:
-    """What to tell the user about a child that did not finish.
+    """One line about a child that did not finish, for a dashboard to show.
 
     A signal is the case worth naming: SIGKILL is the platform's OOM killer,
-    SIGSEGV is the crash this app's ML code hit whenever it ran inside a
-    forked work-horse. Both used to present as a dashboard warming forever.
+    SIGSEGV a fault in a native extension -- the crash this app hit whenever
+    its ML code ran inside a forked work-horse, and the one it can still hit
+    where numpy's import initialises the host's BLAS.
+
+    The child's output is not summarised into this line. A fatal dump ends
+    with a trailer of loaded C extensions, so keeping its last few lines threw
+    away precisely the frames that name the crash; the full dump goes to the
+    Error Log instead, and this points at it.
     """
-    tail = " ".join((completed.stderr or "").strip().splitlines()[-3:])[:400]
+    said = _child_said(_child_output(completed.stderr))
 
     if completed.returncode < 0:
         try:
             died_of = signal.Signals(-completed.returncode).name
         except ValueError:
             died_of = f"signal {-completed.returncode}"
-        killed = _("Dashboard compute was killed by {0}.").format(died_of)
-        return f"{killed} {tail}".strip()
+        return _("Dashboard compute was killed by {0}. The crash dump is in the Error Log.").format(died_of)
 
-    return tail or _("Dashboard compute exited with status {0}.").format(completed.returncode)
+    # A phase marker is this module talking to itself; only a real message is
+    # worth putting in front of a user.
+    message = "" if said.startswith("phase=") else said
+    return message or _("Dashboard compute exited with status {0}.").format(completed.returncode)
 
 
 def refresh_dashboard_caches() -> None:
@@ -611,6 +687,43 @@ def warm_all(users: str | None = None) -> dict:
     frappe.set_user(caller)
     frappe.db.commit()
     return {"computed": computed, "failed": failed}
+
+
+def child_selftest() -> dict:
+    """Spawn a compute child in probe mode and report where it dies.
+
+    For a host where `compute_dashboard` reports a signal death. This is that
+    same spawn -- same interpreter, same flags, same environment, same sites
+    path -- but instead of computing a dashboard the child walks the imports a
+    payload needs, announcing each step before taking it. A host that faults
+    then says which step does it, which a dashboard's one-line error cannot.
+
+        bench --site SITE execute insights.api.ml.utils.child_selftest
+
+    Run it on the machine that crashed, from `bench execute`: the point is to
+    reproduce the spawn where it fails, not to queue it somewhere healthier.
+    """
+    try:
+        completed = _spawn_child(["--selftest"], _CHILD_TIMEOUT)
+    except subprocess.TimeoutExpired as expired:
+        output = _child_output(expired.stderr)
+        print(output)
+        return {"ok": False, "returncode": None, "died_at": _child_said(output), "output": output}
+
+    output = _child_output(completed.stderr)
+    print(output)
+
+    if completed.returncode == 0:
+        return {"ok": True, "returncode": 0, "died_at": None, "output": output}
+
+    reason = _child_error(completed)
+    print(f"\n{reason}")
+    return {
+        "ok": False,
+        "returncode": completed.returncode,
+        "died_at": _child_said(output),
+        "output": output,
+    }
 
 
 def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, datetime | None]:

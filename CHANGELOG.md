@@ -84,6 +84,52 @@ multi-threaded parent with a warmed BLAS pool now exits 0 with the payload cache
 28.7s). A 20-check contract script covers miss → `warming` → one queued job → child →
 cached hit, plus silent death, the attempt cap, and in-flight dedupe.
 
+### Fixed — a crashing compute reported the signal but threw away the crash
+
+With the change above deployed, a Frappe Cloud dashboard reported
+`Dashboard compute was killed by SIGSEGV` — the contract working as designed, and still
+not enough to act on. All that reached the log was the tail of the child's dump:
+
+    Binary file "/home/frappe/frappe-bench/env/bin/python", at _start+0x30 [0x653730]
+    Extension modules: markupsafe._speedups, ..., numpy._core._multiarray_umath, numpy.linalg._umath
+
+`_child_error` kept the last three lines of the child's stderr, and a fatal-signal dump
+ends with the C stack root and a trailer of loaded extensions — so the three lines kept
+were exactly the three that name nothing, and the Python frames printed above them were
+dropped. The whole of the child's output now goes to the Error Log; the dashboard gets one
+line pointing at it. The child is spawned with `-u -X faulthandler` so the frames exist
+even where the environment has not armed faulthandler, and it announces each phase
+(`insights-child: phase=init|call|cached`) before taking it, so a fault with no Python
+frame of its own is still read against the last phase it reached.
+
+What that trailer does say: numpy is fully imported (`_multiarray_umath` and
+`linalg._umath`, which is a complete NumPy 2.x import) and no `pandas._libs` are loaded
+yet, so the fault lands between the two — in numpy's BLAS initialisation, not in this
+app's own code. Ibis materialises every aggregate through pandas (`expr.execute()`, 225
+call sites), so each dashboard imports pandas and numpy no matter how much of the compute
+now happens inside MariaDB; `insights/ml/hr_intelligence.py` says "no pandas / numpy in
+this rewrite" in its docstring while `_scalar`/`_rows` call `.execute()` two lines down.
+
+`bench --site SITE execute insights.api.ml.utils.child_selftest` spawns a child of exactly
+that shape — same interpreter, flags, environment and sites path — which walks the imports
+a payload needs (numpy, a BLAS matmul, pandas, a frame, ibis, one aggregate against the
+site) announcing each step first. A host that faults names the step that does it, which is
+the one thing a dashboard's error line cannot.
+
+### Fixed — a payload that landed was reported as a failure if the child died on the way out
+
+`compute_dashboard` read the exit status alone, so a child that wrote its payload and then
+faulted during interpreter shutdown — a real hazard with this many native extensions
+loaded — blanked a dashboard whose data was sitting in Redis, and burned one of its three
+attempts. The cache is now the contract it was always documented to be: if the key holds a
+payload when the child exits, that is a success, and the crash is logged as one that
+landed anyway.
+
+25 checks cover it: the flag's effect on a real faulting child, frames/trailer/breadcrumbs
+surviving into the Error Log, the one-line message, exits 1/2/3 mapping, a landed payload
+outranking SIGSEGV, and the selftest end to end. The 20-check background contract and the
+HTTP path (cold → `warming` in 1.1s → `success` in 16.5s over 3 polls) still pass.
+
 ## [Unreleased] — 2026-08-12
 
 ### Fixed — ML computes ran with unpinned native thread pools inside gunicorn
