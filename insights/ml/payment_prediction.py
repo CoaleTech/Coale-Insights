@@ -167,12 +167,24 @@ class PaymentPrediction:
         q = si.filter(si.docstatus == 1, si.outstanding_amount > 0)
         q = company_filter(q, self.company)
         today = datetime.now().date()
+        # See risk_intelligence.py::_analyze_credit_risk for why `.delta()`
+        # needs an Ibis date literal and why the order must be
+        # `today - due_date`, not `due_date - today`. This call had the
+        # reversed order, so `ibis.greatest(negative, 0)` clamped every
+        # genuinely overdue invoice's `days_overdue` to 0 -- zeroing out
+        # `_component_days_overdue` (understating `risk_score`),
+        # `overdue_count`, and `overdue_amount` below, and silencing the
+        # "Escalate to collections" recommendation (`days_overdue > 60`)
+        # for every real late payer. This feeds the "Payment Risk" card
+        # on Dashboard.vue (`payment_prediction.summary.high_risk_*`).
+        # Fixed 2026-08-17.
+        today_d = ibis.literal(today).cast("date")
         q = q.mutate(
             invoice_id=q.name,
             days_overdue=ibis.ifelse(
                 q.due_date.isnull(),
                 ibis.literal(0),
-                ibis.greatest(q.due_date.cast("date").delta(today, unit="day"), 0),
+                ibis.greatest(today_d.delta(q.due_date.cast("date"), unit="day"), 0),
             ),
         )
         df = (

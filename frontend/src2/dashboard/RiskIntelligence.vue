@@ -30,6 +30,8 @@ interface RiskMatrixRow { name: string; category?: string; probability: number; 
 interface AgingBucket { aging_bucket: string; outstanding_amount?: number; invoice_count?: number }
 /** Customer credit risk score row. */
 interface CustomerRiskScore { customer: string; customer_name?: string; outstanding?: number; avg_overdue_days?: number; risk_category?: string; risk_score?: number }
+/** Supplier credit risk score row (payables side). */
+interface SupplierRiskScore { supplier: string; supplier_name?: string; outstanding?: number; avg_overdue_days?: number; risk_category?: string; risk_score?: number }
 /** Revenue concentration customer row. */
 interface ConcentrationCustomer { customer: string; customer_name?: string; revenue?: number; revenue_share: number }
 /** Overdue days trend period row. */
@@ -74,6 +76,14 @@ interface CreditSection {
   aging_analysis?: AgingBucket[]
   customer_risk_scores?: CustomerRiskScore[]
 }
+/** Typed payables risk sub-section (AP mirror of CreditSection). */
+interface PayablesSection {
+  total_outstanding?: number
+  high_risk_suppliers?: number
+  avg_days_overdue?: number
+  aging_analysis?: AgingBucket[]
+  supplier_risk_scores?: SupplierRiskScore[]
+}
 /** Typed cashflow risk sub-section. */
 interface CashflowSection {
   current_cash_position?: number
@@ -108,6 +118,7 @@ interface PredictiveSection {
 interface RiskIntelligenceData {
   overview: OverviewSection
   credit_risk: CreditSection
+  payables_risk: PayablesSection
   cashflow_risk: CashflowSection
   operational_risk: OperationalSection
   compliance_risk: ComplianceSection
@@ -123,6 +134,8 @@ const {
   error,
   isPermissionError,
   warming,
+  notImplemented,
+  notImplementedMessage,
   hasData,
   reload,
   retry,
@@ -133,6 +146,7 @@ const {
 
 const overviewData = computed(() => riskData.value?.overview ?? ({} as OverviewSection))
 const creditData = computed(() => riskData.value?.credit_risk ?? ({} as CreditSection))
+const payablesData = computed(() => riskData.value?.payables_risk ?? ({} as PayablesSection))
 const cashflowData = computed(() => riskData.value?.cashflow_risk ?? ({} as CashflowSection))
 const operationalData = computed(() => riskData.value?.operational_risk ?? ({} as OperationalSection))
 const complianceData = computed(() => riskData.value?.compliance_risk ?? ({} as ComplianceSection))
@@ -144,6 +158,7 @@ const lastUpdated = computed(() => riskData.value?.generated_at ?? null)
 const tabDefs = [
   { label: 'Overview', value: 'overview' },
   { label: 'Credit Risk', value: 'credit' },
+  { label: 'Payables Risk', value: 'payables' },
   { label: 'Cash Flow Risk', value: 'cashflow' },
   { label: 'Operational Risk', value: 'operational' },
   { label: 'Compliance Risk', value: 'compliance' },
@@ -247,6 +262,8 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="risk data"
       permission-hint="Ask an administrator for risk read access."
@@ -567,6 +584,85 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                         <Badge v-bind="severityBadge(customer.risk_category)" size="sm" />
                       </td>
                       <td class="py-2 text-right font-medium text-ink-gray-8">{{ customer.risk_score }}/100</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+          </div>
+        </div>
+        </div>
+
+        <!-- Tab: Payables Risk -->
+        <div v-if="activeTab === 'payables'" class="space-y-6">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <KpiCard
+              label="Total Outstanding"
+              :value="formatCurrency(payablesData.total_outstanding as number)"
+              :clickable="true"
+              @click="drillDown.open(RISK_ENDPOINT, 'Overdue Payables', { metric: 'overdue_payables' })"
+            />
+            <KpiCard
+              label="High Risk Suppliers"
+              :value="payablesData.high_risk_suppliers"
+              :severity="(payablesData.high_risk_suppliers as number) > 0 ? 'high' : undefined"
+            />
+            <KpiCard
+              label="Avg Days Overdue"
+              :value="payablesData.avg_days_overdue == null ? undefined : Math.round(payablesData.avg_days_overdue as number)"
+              unit=" days"
+              :severity="scoreSeverity(payablesData.avg_days_overdue as number, { good: 30, warn: 60, higherIsBetter: false })"
+            />
+          </div>
+
+          <!-- Aging Analysis -->
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Payables Aging Analysis" :level="3" />
+            <div class="mt-4">
+              <div class="grid grid-cols-5 gap-4">
+                <KpiCard
+                  v-for="bucket in payablesData.aging_analysis"
+                  :key="bucket.aging_bucket"
+                  :label="bucket.aging_bucket"
+                  :amount="bucket.outstanding_amount"
+                  :currency="baseCurrency"
+                  :sublabel="`${bucket.invoice_count} bills`"
+                  variant="tile"
+                  clickable
+                  :loading="loading && !hasData"
+                  @click="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket + ' Overdue Payables', { metric: 'overdue_payables' })"
+                />
+              </div>
+            </div>
+          </div>
+
+          <!-- Supplier Risk Scores -->
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Supplier Risk Scores" hint="Payment behaviour and default probability" :level="3" />
+          <div class="mt-4">
+            <div class="overflow-x-auto">
+                <table class="w-full">
+                  <thead>
+                    <tr class="border-b border-outline-gray-1">
+                      <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Supplier</th>
+                      <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Outstanding</th>
+                      <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Avg Overdue Days</th>
+                      <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Risk Category</th>
+                      <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Risk Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr
+                      v-for="supplier in payablesData.supplier_risk_scores?.slice(0, 20)"
+                      :key="supplier.supplier"
+                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
+                    >
+                      <td class="py-2 text-ink-gray-8">{{ supplier.supplier_name }}</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency(supplier.outstanding) }}</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ Math.round(supplier.avg_overdue_days || 0) }}</td>
+                      <td class="py-2 text-center">
+                        <Badge v-bind="severityBadge(supplier.risk_category)" size="sm" />
+                      </td>
+                      <td class="py-2 text-right font-medium text-ink-gray-8">{{ supplier.risk_score }}/100</td>
                     </tr>
                   </tbody>
                 </table>

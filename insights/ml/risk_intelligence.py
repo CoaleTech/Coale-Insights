@@ -85,6 +85,7 @@ def run_risk_intelligence(refresh: bool = False) -> dict:
 
         overview = _overview(company)
         credit_risk = _analyze_credit_risk(company)
+        payables_risk = _analyze_payables_risk(company)
         cashflow_risk = _analyze_cashflow_risk(company)
         operational_risk = _analyze_operational_risk(company)
         compliance_risk = _analyze_compliance_risk(company)
@@ -97,6 +98,7 @@ def run_risk_intelligence(refresh: bool = False) -> dict:
             "base_currency": base_currency,
             "overview": overview,
             "credit_risk": credit_risk,
+            "payables_risk": payables_risk,
             "cashflow_risk": cashflow_risk,
             "operational_risk": operational_risk,
             "compliance_risk": compliance_risk,
@@ -151,7 +153,7 @@ def _overview(company: str | None) -> dict:
     )
 
     alerts = _top_alerts(company)
-    risk_matrix = _risk_matrix()
+    risk_matrix = _risk_matrix(credit_score, cashflow_score, operational_score, compliance_score)
 
     return {
         "aggregate_risk_score": round(float(aggregate_score), 1),
@@ -233,20 +235,36 @@ def _top_alerts(company: str | None) -> list[dict]:
     return alerts
 
 
-def _risk_matrix() -> list[dict]:
-    """Static risk matrix (impact x probability) for the heatmap."""
+def _risk_matrix(
+    credit_score: float, cashflow_score: float, operational_score: float, compliance_score: float
+) -> list[dict]:
+    """Risk register for the heatmap.
+
+    ``probability`` is this business's real, currently-computed risk score
+    for that category (the same 0-100 aggregates behind ``risk_components``)
+    -- not a generic constant. ``impact`` is a static severity weight (how
+    bad the event would be *if* it happened); that axis is legitimately a
+    domain judgment call independent of this period's transactions, the same
+    way a GRC risk register assigns severity by category. Before 2026-08-16
+    both axes were hardcoded per-row constants with no query behind them;
+    the two categories with no real ERPNext-derived signal for either axis
+    (currency fluctuation, security breach) were dropped rather than left
+    fabricated -- see TODOS.md.
+    """
+    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+    stockout_ratio = (_stockout_count() / total_items * 100.0) if total_items else 0.0
+    supplier_share = _top_supplier_share()
+
     risks = [
-        {"name": "Major Customer Default", "probability": 30, "impact": 90, "category": "Credit"},
-        {"name": "Cash Flow Shortage", "probability": 40, "impact": 70, "category": "Financial"},
-        {"name": "Key Supplier Failure", "probability": 20, "impact": 80, "category": "Operational"},
-        {"name": "GST Compliance Issue", "probability": 15, "impact": 60, "category": "Compliance"},
-        {"name": "Inventory Stockout", "probability": 60, "impact": 40, "category": "Operational"},
-        {"name": "Currency Fluctuation", "probability": 70, "impact": 50, "category": "Financial"},
-        {"name": "Payment Delays", "probability": 50, "impact": 60, "category": "Credit"},
-        {"name": "Data Security Breach", "probability": 10, "impact": 95, "category": "Operational"},
+        {"name": "Major Customer Default", "probability": credit_score, "impact": 90, "category": "Credit"},
+        {"name": "Cash Flow Shortage", "probability": cashflow_score, "impact": 70, "category": "Financial"},
+        {"name": "Key Supplier Failure", "probability": round(supplier_share, 1), "impact": 80, "category": "Operational"},
+        {"name": "GST Compliance Issue", "probability": compliance_score, "impact": 60, "category": "Compliance"},
+        {"name": "Inventory Stockout", "probability": round(stockout_ratio, 1), "impact": 40, "category": "Operational"},
+        {"name": "Payment Delays", "probability": credit_score, "impact": 60, "category": "Credit"},
     ]
     for r in risks:
-        r["risk_score"] = (r["probability"] * r["impact"]) / 100.0
+        r["risk_score"] = round((r["probability"] * r["impact"]) / 100.0, 1)
         r["risk_category"] = _risk_category(r["risk_score"])
     return sorted(risks, key=lambda x: x["risk_score"], reverse=True)
 
@@ -350,8 +368,13 @@ def _aggregate_compliance_risk(company: str | None) -> float:
     # GST filing: delegate to the india_tax_intelligence module's
     # data, the same way the original class did. A status the underlying
     # log does not record (no india_compliance app, or filing_status
-    # never populated on this site) is reported as moderate/unknown
-    # rather than fabricated as compliant.
+    # never populated on this site, or the current FY has no logged
+    # returns yet) is reported as moderate/unknown rather than
+    # fabricated as compliant -- the previous code added nothing to
+    # `risk_factors` whenever the status was "No Data" / "Not Tracked",
+    # which silently scored 0 for any site whose current FY started
+    # recently and had no return rows yet, contradicting the documented
+    # intent. (See TODOS.md, 2026-08-17 risk_intelligence audit, bug 2.)
     try:
         from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
         import insights.ml.india_tax_intelligence.data as india_tax_data
@@ -362,8 +385,17 @@ def _aggregate_compliance_risk(company: str | None) -> float:
             today = datetime.now().strftime("%Y-%m-%d")
             filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today)
             statuses = [filing.get("gstr1", {}).get("status"), filing.get("gstr3b", {}).get("status")]
+            unknown_count = statuses.count("No Data") + statuses.count("Not Tracked")
             pending_count = statuses.count("Pending")
-            risk_factors.append(pending_count * 40.0)
+            # "Unknown" (no logged returns, or filing_status not populated)
+            # is itself a compliance risk signal -- a finance team cannot
+            # claim "compliant" when the data is absent. 25 per occurrence
+            # is the same "moderate/unknown" budget the comment above
+            # advertised and the `not india_compliance_installed` branch
+            # already uses (30); 25 is slightly more conservative because
+            # at least one half of the picture (india_compliance itself
+            # being present) is known here.
+            risk_factors.append(pending_count * 40.0 + unknown_count * 25.0)
         else:
             risk_factors.append(30.0)
     except Exception:
@@ -386,22 +418,34 @@ def _analyze_credit_risk(company: str | None) -> dict:
     # categorization done in Python on the (at most 50-row) result.
     base = si.filter(si.docstatus == 1, si.posting_date >= cutoff)
     base = company_filter(base, company)
-    today_d = today
+    # `today_d` is an Ibis date literal (Python `datetime.date` is opaque
+    # to Ibis; wrapping in `ibis.literal().cast("date")` gives us an
+    # expression the .delta() operator can be called on).
+    today_d = ibis.literal(today).cast("date")
     per_customer = (
         base.group_by(si.customer)
         .aggregate(
             total_invoices=base.count(),
             total_sales=si.grand_total.sum(),
             outstanding=si.outstanding_amount.sum(),
+            # In Ibis, `a.delta(b, unit="day")` returns a - b, so to get
+            # "days overdue" (positive when the invoice is past due, i.e.
+            # today > due_date) the order must be `today - due_date`.
+            # Earlier code wrote `due_date.delta(today)` and shipped a
+            # negative sign for late invoices, which the consumer code
+            # then clamped to zero via `max(0.0, ...)`, silently
+            # zeroing every customer's overdue component of risk_score
+            # and labelling real late payers as Low risk. (See TODOS.md,
+            # 2026-08-17 risk_intelligence audit, bug 1.)
             avg_overdue_days=ibis.ifelse(
                 si.due_date.isnull(),
                 ibis.null(),
-                si.due_date.cast("date").delta(today_d, unit="day"),
+                today_d.delta(si.due_date.cast("date"), unit="day"),
             ).mean(),
             max_overdue_days=ibis.ifelse(
                 si.due_date.isnull(),
                 ibis.null(),
-                si.due_date.cast("date").delta(today_d, unit="day"),
+                today_d.delta(si.due_date.cast("date"), unit="day"),
             ).max(),
         )
         .order_by(ibis.desc("outstanding"))
@@ -457,10 +501,12 @@ def _analyze_credit_risk(company: str | None) -> dict:
             total_invoices=monthly_base.count(),
             total_amount=si.grand_total.sum(),
             outstanding_amount=si.outstanding_amount.sum(),
+            # Same sign-inversion fix as the per-customer aggregate above:
+            # `today - due_date` so positive means days past due.
             avg_days_overdue=ibis.ifelse(
                 si.due_date.isnull(),
                 ibis.null(),
-                si.due_date.cast("date").delta(today_d, unit="day"),
+                today_d.delta(si.due_date.cast("date"), unit="day"),
             ).mean(),
         )
         .order_by("month")
@@ -506,10 +552,22 @@ def _aging_buckets(company: str | None) -> list[dict]:
     today = datetime.now().date()
     q = si.filter(si.docstatus == 1, si.outstanding_amount > 0)
     q = company_filter(q, company)
+    # `today_d`: see _analyze_credit_risk above for why `.delta()` needs an
+    # Ibis date literal (not a raw Python date) and why the operand order
+    # must be `today - due_date`, not `due_date - today`, to get a
+    # positive "days overdue". This sibling helper had the reversed
+    # order: every genuinely overdue invoice produced a *negative* delta
+    # that `ibis.greatest(..., 0)` clamped to zero, landing it in the
+    # "Current" bucket, while not-yet-due invoices (due_date > today,
+    # legitimately positive under the old order) wrongly aged into the
+    # 30/60/90+ buckets instead. Live-verified against SI25261036 (354
+    # days overdue, KES 23,361 outstanding): before this fix it bucketed
+    # as "Current"; after, "90+ Days". Fixed 2026-08-17.
+    today_d = ibis.literal(today).cast("date")
     days_overdue = ibis.ifelse(
         si.due_date.isnull(),
         ibis.literal(0),
-        ibis.greatest(si.due_date.cast("date").delta(today, unit="day"), 0),
+        ibis.greatest(today_d.delta(si.due_date.cast("date"), unit="day"), 0),
     )
     bucket = (
         ibis.cases(
@@ -523,6 +581,149 @@ def _aging_buckets(company: str | None) -> list[dict]:
     bucketed = q.mutate(b=bucket)
     df = bucketed.group_by("b").aggregate(
         invoice_count=bucketed.count(), outstanding_amount=si.outstanding_amount.sum()
+    ).execute()
+    by_bucket = {r["b"]: r for r in df.to_dict(orient="records")}
+    order = ["Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+    out = []
+    for name in order:
+        r = by_bucket.get(name, {})
+        out.append(
+            {
+                "aging_bucket": name,
+                "invoice_count": int(r.get("invoice_count") or 0),
+                "outstanding_amount": float(r.get("outstanding_amount") or 0),
+            }
+        )
+    return out
+
+
+# ── Payables (AP) ───────────────────────────────────────────────────────────
+
+
+def _analyze_payables_risk(company: str | None) -> dict:
+    """Payables-side mirror of `_analyze_credit_risk`: per-supplier risk
+    scores, aging buckets, and an aggregate overdue-days figure for
+    outstanding Purchase Invoices. Same weighting (`outstanding_ratio *
+    60 + overdue_factor * 40`, capped at 100) as the receivables side, so
+    the two "Risk Score" numbers stay comparable.
+    """
+    pi = t("Purchase Invoice")
+    cutoff = _months_ago(HISTORY_MONTHS)
+    today = datetime.now().date()
+    today_d = ibis.literal(today).cast("date")
+
+    base = pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff)
+    base = company_filter(base, company)
+    per_supplier = (
+        base.group_by(pi.supplier)
+        .aggregate(
+            total_invoices=base.count(),
+            total_purchases=pi.grand_total.sum(),
+            outstanding=pi.outstanding_amount.sum(),
+            avg_overdue_days=ibis.ifelse(
+                pi.due_date.isnull(),
+                ibis.null(),
+                today_d.delta(pi.due_date.cast("date"), unit="day"),
+            ).mean(),
+            max_overdue_days=ibis.ifelse(
+                pi.due_date.isnull(),
+                ibis.null(),
+                today_d.delta(pi.due_date.cast("date"), unit="day"),
+            ).max(),
+        )
+        .order_by(ibis.desc("outstanding"))
+        .limit(50)
+        .execute()
+    )
+
+    # Join to Supplier for the supplier_name field. Same pattern as the
+    # Customer join in _analyze_credit_risk.
+    supplier_names = {
+        s.name: s.supplier_name
+        for s in frappe.get_all(
+            "Supplier",
+            fields=["name", "supplier_name"],
+            filters={"name": ["in", per_supplier["supplier"].dropna().tolist()]}
+            if not per_supplier.empty
+            else {},
+        )
+    }
+
+    supplier_scores: list[dict] = []
+    for r in per_supplier.to_dict(orient="records"):
+        sup = r.get("supplier")
+        if not sup:
+            continue
+        total_purchases = float(r.get("total_purchases") or 0)
+        outstanding = float(r.get("outstanding") or 0)
+        avg_overdue = float(r.get("avg_overdue_days") or 0)
+        outstanding_ratio = (outstanding / total_purchases) if total_purchases else 0.0
+        overdue_factor = max(0.0, avg_overdue) / 90.0
+        risk_score = min(100.0, outstanding_ratio * 60.0 + overdue_factor * 40.0)
+        supplier_scores.append(
+            {
+                "supplier": sup,
+                "supplier_name": supplier_names.get(sup, sup),
+                "total_invoices": int(r.get("total_invoices") or 0),
+                "total_purchases": total_purchases,
+                "outstanding": outstanding,
+                "avg_overdue_days": round(avg_overdue, 1),
+                "max_overdue_days": int(r.get("max_overdue_days") or 0),
+                "risk_score": round(risk_score, 1),
+                "risk_category": _risk_category(risk_score),
+                "risk_color": _risk_color(_risk_category(risk_score)),
+            }
+        )
+
+    # Aggregate avg days overdue across *all* outstanding payables (not
+    # just the top-50-by-outstanding suppliers above), so a long tail of
+    # small overdue bills isn't dropped from the figure.
+    outstanding_pi = company_filter(pi.filter(pi.docstatus == 1, pi.outstanding_amount > 0), company)
+    overdue_expr = ibis.ifelse(
+        pi.due_date.isnull(),
+        ibis.null(),
+        today_d.delta(pi.due_date.cast("date"), unit="day"),
+    )
+    avg_overdue_all = outstanding_pi.mutate(days_overdue=overdue_expr).days_overdue.mean().execute()
+
+    aging = _aging_buckets_payables(company)
+
+    return {
+        "supplier_risk_scores": supplier_scores,
+        "aging_analysis": aging,
+        "total_outstanding": sum(s["outstanding"] for s in supplier_scores),
+        "high_risk_suppliers": sum(1 for s in supplier_scores if s["risk_score"] > 70),
+        "avg_days_overdue": round(float(avg_overdue_all), 1) if avg_overdue_all is not None else 0.0,
+    }
+
+
+def _aging_buckets_payables(company: str | None) -> list[dict]:
+    """5 aging buckets for payables (Purchase Invoice) -- mirrors
+    `_aging_buckets` (receivables) including its corrected overdue-days
+    sign convention (`today - due_date`, not `due_date - today`; see the
+    comment on `_aging_buckets` for the bug this avoids)."""
+    pi = t("Purchase Invoice")
+    today = datetime.now().date()
+    q = pi.filter(pi.docstatus == 1, pi.outstanding_amount > 0)
+    q = company_filter(q, company)
+    today_d = ibis.literal(today).cast("date")
+    days_overdue = ibis.ifelse(
+        pi.due_date.isnull(),
+        ibis.literal(0),
+        ibis.greatest(today_d.delta(pi.due_date.cast("date"), unit="day"), 0),
+    )
+    bucket = (
+        ibis.cases(
+            (days_overdue <= 0, "Current"),
+            (days_overdue <= 30, "1-30 Days"),
+            (days_overdue <= 60, "31-60 Days"),
+            (days_overdue <= 90, "61-90 Days"),
+            else_="90+ Days",
+        )
+    )
+    bucketed = q.mutate(b=bucket)
+    df = bucketed.group_by("b").aggregate(
+        invoice_count=bucketed.count(), outstanding_amount=pi.outstanding_amount.sum()
     ).execute()
     by_bucket = {r["b"]: r for r in df.to_dict(orient="records")}
     order = ["Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
@@ -572,14 +773,17 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
 def _overdue_days_trend(company: str | None) -> list[dict]:
     si = t("Sales Invoice")
     cutoff = _months_ago(HISTORY_MONTHS)
-    today = datetime.now().date()
+    today = ibis.literal(datetime.now().date()).cast("date")
     q = company_filter(
         si.filter(si.docstatus == 1, si.posting_date >= cutoff), company
     )
+    # Same sign-inversion fix as the credit-risk aggregates above:
+    # `today - due_date` so positive means days past due. The downstream
+    # trend chart expects positive values for late-paying periods.
     days_overdue = ibis.ifelse(
         si.due_date.isnull(),
         ibis.null(),
-        si.due_date.cast("date").delta(today, unit="day"),
+        today.delta(si.due_date.cast("date"), unit="day"),
     )
     df = (
         q.mutate(month=si.posting_date.truncate("M"), days=days_overdue)
@@ -663,14 +867,19 @@ def _analyze_operational_risk(company: str | None) -> dict:
 def _inventory_risks() -> list[dict]:
     """Per-item-group inventory risk. Ibis join of Item (filtered to
     stock items) and Bin (grouped), bucketed in Python on the small
-    (<=20-row) result.
+    (<=20-row) result. ``stock_value`` comes straight off ``Bin`` --
+    ERPNext's stock ledger already maintains it per warehouse/item
+    (``actual_qty * valuation_rate``), so no extra join is needed.
     """
     item = t("Item")
     bin_ = t("Bin")
     items = item.filter(item.is_stock_item == 1).select(item.name, item.item_group)
-    bins = bin_.group_by(bin_.item_code).aggregate(actual_qty=bin_.actual_qty.sum())
+    bins = bin_.group_by(bin_.item_code).aggregate(
+        actual_qty=bin_.actual_qty.sum(),
+        stock_value=bin_.stock_value.sum(),
+    )
     joined = items.left_join(bins, items.name == bins.item_code).select(
-        items.name, items.item_group, bins.actual_qty
+        items.name, items.item_group, bins.actual_qty, bins.stock_value
     )
     mutated = joined.mutate(stockout=joined.actual_qty.fill_null(0) <= 0)
     df = (
@@ -678,9 +887,7 @@ def _inventory_risks() -> list[dict]:
         .aggregate(
             total_items=mutated.count(),
             stockout_items=mutated.stockout.sum(),
-            stock_value=(
-                mutated.actual_qty.fill_null(0) * 0  # placeholder; valuation_rate join is heavy
-            ).sum(),
+            stock_value=mutated.stock_value.fill_null(0).sum(),
         )
         .execute()
     )
@@ -1196,17 +1403,41 @@ def _current_cash_position(company: str | None) -> float:
 
 
 def _stockout_count() -> int:
-    bin_ = t("Bin")
+    """Count of stock items whose total quantity across every warehouse
+    is <= 0.
+
+    Previously an inner join of raw ``Bin`` rows to ``Item``, counting
+    matched rows with ``actual_qty <= 0`` directly -- an item with empty
+    stock in 3 warehouses was counted 3 times (over-count), while an item
+    with no ``Bin`` row at all (never stocked) was never counted at all
+    (under-count), since the inner join drops it. Bin is pre-aggregated
+    per item first, then left-joined, so every stock item is counted at
+    most once -- consistent with ``_inventory_risks``.
+    """
     item = t("Item")
-    joined = bin_.join(item, bin_.item_code == item.name)
-    count_result = joined.filter(item.is_stock_item == 1, bin_.actual_qty <= 0).count().execute()
+    bin_ = t("Bin")
+    bins = bin_.group_by(bin_.item_code).aggregate(actual_qty=bin_.actual_qty.sum())
+    joined = item.filter(item.is_stock_item == 1).left_join(bins, item.name == bins.item_code)
+    count_result = joined.filter(joined.actual_qty.fill_null(0) <= 0).count().execute()
     return int(count_result)
 
 
 def _top_supplier_share() -> float:
+    """Top supplier's share of total purchase spend over the trailing
+    ``HISTORY_MONTHS`` window, as a 0-100 percentage.
+
+    Previously returned the raw top-supplier total with no denominator --
+    a multi-hundred-thousand-currency-unit number consumed everywhere
+    (``_aggregate_operational_risk``, the risk matrix) as if it were
+    already a 0-100 percentage. That silently saturated operational risk
+    to 100/Critical for any business with real purchase volume.
+    """
     pi = t("Purchase Invoice")
     cutoff = _months_ago(HISTORY_MONTHS)
     q = pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff)
+    total = q.aggregate(v=pi.grand_total.sum()).execute().iloc[0]["v"] or 0
+    if not total:
+        return 0.0
     df = (
         q.group_by(pi.supplier)
         .aggregate(v=pi.grand_total.sum())
@@ -1216,7 +1447,8 @@ def _top_supplier_share() -> float:
     )
     if df.empty:
         return 0.0
-    return float(df.iloc[0]["v"] or 0)
+    top = float(df.iloc[0]["v"] or 0)
+    return round(min(100.0, top / float(total) * 100.0), 1)
 
 
 def _invoice_error_rate() -> float:
