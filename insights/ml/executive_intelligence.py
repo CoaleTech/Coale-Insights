@@ -102,10 +102,19 @@ def _kpi(value, *, label: str, format: str, target: float = 0.0,
          variance_pct: Optional[float] = None,
          extra: Optional[Dict[str, Any]] = None,
          rag: str = "amber") -> Dict[str, Any]:
-    """Build a KPI dict in the shape the dashboard expects."""
+    """Build a KPI dict in the shape the dashboard expects.
+
+    ``value`` is passed through as-is, including ``None`` -- the
+    dashboard's ``KpiCard``/``formatKpiValue`` already render ``null``
+    as "N/A" (a dash), which is the whole point of the three call
+    sites (``cash_runway`` sentinel, ``stockout_rate``/
+    ``supplier_performance`` no-data) that pass ``None`` on purpose to
+    mean "not applicable" rather than a fabricated 0. Coercing to 0
+    here would silently render those as a confident "$0"/"0%" instead.
+    """
     out: Dict[str, Any] = {
         "label": label,
-        "value": value if value is not None else 0,
+        "value": value,
         "format": format,
         "target": target,
         "rag_status": rag,
@@ -236,20 +245,39 @@ def _financial_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
         # rewritten module. We treat MTD figures as the headline KPI (the
         # dashboard's period selector can re-roll to a different period
         # later; this is a sensible default for an empty-data site too).
-        mtd_revenue = _f(data.get("mtd_revenue"))
-        mtd_profit = _f(data.get("mtd_profit"))
+        overview = data.get("overview", {}) or {}
+        mtd_revenue = _f(overview.get("mtd_revenue"))
+        mtd_profit = _f(overview.get("mtd_profit"))
         net_margin = (mtd_profit / mtd_revenue * 100) if mtd_revenue else 0.0
 
-        # Cash runway: from the cash flow sub-section, if present
+        # Cash runway: reuse the burn-rate figure FinancialIntelligence already
+        # computed (cash / net outflow -- how long the balance lasts if the
+        # current spend pace continues). When net burn is non-positive (the
+        # site is cash-flow positive, i.e. money is coming in faster than it
+        # leaves) FinancialIntelligence returns a sentinel 999 for
+        # `runway_months`; that "83 years of runway" would render as a real
+        # C-suite KPI otherwise. Detect the sentinel and surface an
+        # "unavailable" KPI in that case so the number doesn't lie.
         cash_flow = data.get("cash_flow", {}) or {}
-        cash_balance = _f(cash_flow.get("total_cash"))
-        avg_inflow = _f(cash_flow.get("avg_monthly_inflow"))
-        if avg_inflow > 0 and cash_balance > 0:
-            runway_months = cash_balance / avg_inflow
+        raw_runway = _f(cash_flow.get("runway_months"))
+        burn_positive = raw_runway < 999 and raw_runway > 0
+        if burn_positive:
+            runway_weeks = round(raw_runway * 4.33, 1)
+            runway_kpi = _kpi(
+                runway_weeks, label=_("Cash Runway (Weeks)"), format="decimal",
+                target=13, variance_pct=runway_weeks - 13,
+                rag=_rag(runway_weeks, green=13, amber=8),
+                extra={"variance_weeks": round(runway_weeks - 13, 1)},
+            )
         else:
-            runway_months = 0.0
-        runway_weeks = round(runway_months * 4.33, 1)
-
+            runway_kpi = _kpi(
+                None, label=_("Cash Runway (Weeks)"), format="decimal",
+                target=13, variance_pct=None,
+                extra={
+                    "rag_status": "amber",
+                    "note": _("Cash flow is positive; runway not applicable (sentinel 999 from FinancialIntelligence)"),
+                },
+            )
         return {
             "revenue": _kpi(
                 mtd_revenue, label=_("Revenue (MTD)"), format="currency",
@@ -261,12 +289,7 @@ def _financial_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
                 target=10.0, variance_pct=net_margin - 10.0,
                 rag=_rag(net_margin, green=10, amber=5),
             ),
-            "cash_runway": _kpi(
-                runway_weeks, label=_("Cash Runway (Weeks)"), format="decimal",
-                target=13, variance_pct=runway_weeks - 13,
-                rag=_rag(runway_weeks, green=13, amber=8),
-                extra={"variance_weeks": round(runway_weeks - 13, 1)},
-            ),
+            "cash_runway": runway_kpi,
         }
     except Exception as e:
         frappe.log_error(f"Executive: financial KPI build failed: {e}", "Executive Intelligence")
@@ -366,17 +389,35 @@ def _operations_kpis(inv: Dict[str, Any], proc: Dict[str, Any]) -> Dict[str, Any
     try:
         stock = inv.get("stock_overview", {}) or {}
         turnover = inv.get("turnover_analysis", {}) or {}
+        turnover_ratio = _f(turnover.get("overall_turnover_ratio"))
         total_items = _f(stock.get("total_skus"))
         total_value = _f(stock.get("total_value"))
-        turnover_ratio = _f(turnover.get("overall_turnover_ratio"))
-        # Stockout count is not in the inventory payload by default; fall back
-        # to zero and report the rest truthfully.
-        out["stockout_rate"] = _kpi(
-            0.0, label=_("Stockout Rate %"), format="percentage",
-            target=2.0, variance_pct=-2.0,
-            rag="green" if total_items else "amber",
-            extra={"note": _("No stockout count tracked; reporting 0 with stock count {0}").format(int(total_items))},
-        )
+        # Stockout rate: InventoryIntelligence exposes
+        # `stock_overview.out_of_stock_count` (and `total_skus`) -- use them
+        # rather than the previous hardcoded 0.0. The prior placeholder
+        # silently reported "0% stockout, green RAG" on sites with 36 of 62
+        # SKUs out of stock, which is the opposite of what the data says.
+        out_of_stock = _f(stock.get("out_of_stock_count"))
+        if total_items > 0 and out_of_stock > 0:
+            stockout_pct = round((out_of_stock / total_items) * 100, 1)
+            out["stockout_rate"] = _kpi(
+                stockout_pct, label=_("Stockout Rate %"), format="percentage",
+                target=2.0, variance_pct=stockout_pct - 2.0,
+                rag=_rag(stockout_pct, green=2, amber=10, reverse=True),
+                extra={"skus_out": int(out_of_stock), "skus_total": int(total_items)},
+            )
+        elif total_items > 0:
+            out["stockout_rate"] = _kpi(
+                0.0, label=_("Stockout Rate %"), format="percentage",
+                target=2.0, variance_pct=-2.0, rag="green",
+                extra={"skus_out": 0, "skus_total": int(total_items)},
+            )
+        else:
+            out["stockout_rate"] = _kpi(
+                None, label=_("Stockout Rate %"), format="percentage",
+                target=2.0, variance_pct=None,
+                extra={"rag_status": "amber", "note": _("No inventory data")},
+            )
         out["inventory_turns"] = _kpi(
             round(turnover_ratio, 2), label=_("Inventory Turns (Annual)"),
             format="decimal", target=6.0, variance_pct=turnover_ratio - 6.0,
@@ -388,13 +429,25 @@ def _operations_kpis(inv: Dict[str, Any], proc: Dict[str, Any]) -> Dict[str, Any
             extra={"rag_status": "green" if total_value > 0 else "amber"},
         )
 
-        supplier_perf = proc.get("supplier_performance", {}) or {}
-        supplier_score = _f(supplier_perf.get("avg_score"))
-        out["supplier_performance"] = _kpi(
-            round(supplier_score, 1), label=_("Supplier Performance %"),
-            format="percentage", target=85.0, variance_pct=supplier_score - 85.0,
-            rag=_rag(supplier_score, green=85, amber=70),
-        )
+
+        # `supplier_performance: null` (not a dict) when it has no supplier
+        # score data. Guard against the dict.get raising and against the
+        # resulting `_f(None)` silently reporting "0% supplier performance,
+        # red RAG" when the truth is "we don't track this yet".
+        supplier_perf = proc.get("supplier_performance") or {}
+        if not supplier_perf or proc.get("status") in ("error", "unavailable"):
+            out["supplier_performance"] = _kpi(
+                None, label=_("Supplier Performance %"), format="percentage",
+                target=85.0, variance_pct=None,
+                extra={"rag_status": "amber", "note": _("No supplier performance data")},
+            )
+        else:
+            supplier_score = _f(supplier_perf.get("avg_score"))
+            out["supplier_performance"] = _kpi(
+                round(supplier_score, 1), label=_("Supplier Performance %"),
+                format="percentage", target=85.0, variance_pct=supplier_score - 85.0,
+                rag=_rag(supplier_score, green=85, amber=70),
+            )
     except Exception as e:
         frappe.log_error(f"Executive: operations KPI build failed: {e}", "Executive Intelligence")
         return _unavailable("Operations")
@@ -484,14 +537,31 @@ def _hr_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
         frappe.log_error(f"Executive: hr KPI build failed: {e}", "Executive Intelligence")
         return _unavailable("HR")
 
-
 def _manufacturing_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
+
     if data.get("error"):
         return _unavailable("Manufacturing")
     try:
         oee = data.get("oee_analysis", {}) or {}
         production = data.get("production_metrics", {}) or {}
         capacity = data.get("capacity_utilization", {}) or {}
+
+        # ManufacturingIntelligence returns a `message` field instead of
+        # actual figures when it has no workstation/work-order data (sites
+        # with no Workstation or no Work Order records); the previous
+        # behaviour silently surfaced "0% OEE / 0% on-time / 0% capacity,
+        # all red RAG" -- which was indistinguishable from a manufacturer
+        # in genuine crisis, and dragged the business-health score down by
+        # the 0.10 manufacturing weight (4 points on jkm). Detect the
+        # no-data shape and skip the whole block so the health score
+        # doesn't penalise the company for not tracking manufacturing.
+        has_no_data = (
+            "message" in oee
+            or "message" in capacity
+            or int(production.get("total_work_orders") or 0) == 0
+        )
+        if has_no_data:
+            return _unavailable("Manufacturing")
 
         oee_score = _f(oee.get("oee_score_pct"))
         completion_rate = _f(production.get("completion_rate_pct"))
@@ -666,12 +736,15 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
     except Exception:
         trends["sales_growth"] = []
 
-    # Headcount trend: new hires per month over the last 12 months. The HR
-    # module's per-period headcount is a single number, not a series; a
-    # cumulative active headcount would need a cross-join against a derived
-    # months table which Ibis does not express concisely for MariaDB.
-    # New-hires-per-month is a truthful monthly series and reads sensibly on
-    # a sparkline. Padded to 12 entries on the right.
+    # Headcount trend -- previous implementation labelled this trend key
+    # `headcount` but actually computed `new_hires per month` (employees
+    # grouped by date_of_joining) and then padded with zeros. The HR
+    # department's "Headcount" KPI card and the sparkline were showing
+    # two unrelated metrics under the same name: the card showed the
+    # current `total_employees`, the sparkline showed a new-hires-per-
+    # month series with zero-padded historical months. Rename to the
+    # truthful `new_hires_per_month` and update the Vue
+    # `departmentTrendKeys.hr` to match.
     try:
         from insights.api.ml.ibis_source import t
 
@@ -687,11 +760,10 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
         # Pad to 12 entries on the left (oldest months) with zeros.
         while len(new_hires) < 12:
             new_hires.insert(0, 0)
-        trends["headcount"] = new_hires[-12:]
+        trends["new_hires_per_month"] = new_hires[-12:]
     except Exception as e:
-        frappe.log_error(f"Executive: headcount trend failed: {e}", "Executive Intelligence")
-        trends["headcount"] = [0] * 12
-
+        frappe.log_error(f"Executive: new_hires trend failed: {e}", "Executive Intelligence")
+        trends["new_hires_per_month"] = [0] * 12
     # OEE trend: monthly Work Order completion ratio
     try:
         from insights.api.ml.ibis_source import t
@@ -718,7 +790,21 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
         frappe.log_error(f"Executive: oee trend failed: {e}", "Executive Intelligence")
         trends["oee"] = []
 
-    # Customer churn proxy: distinct active customers per month
+    # Customer activity trend -- previous implementation labelled this
+    # trend key `churn_rate` but computed `max(0, (1 - v/max) * 100)`:
+    # a self-referential index that scales every site's value against
+    # its own max-active month, which guarantees a ceiling of 100 in the
+    # most-recent (always partial) month and a floor of 0 in the
+    # highest-active month regardless of real customer retention. The
+    # customer block's `churn_risk` KPI already reports a real model
+    # score (avg_churn_risk from `customer.summary`), so the trend and
+    # the KPI were using different formulas under the same name.
+    # Replace with a real per-month change in distinct active customers:
+    # the % drop in active customers from one month to the next. Positive
+    # value = customer base shrank (real activity loss). Negative value
+    # = customer base grew. Zero-pad the first month. Renamed to
+    # `customer_activity_change` to match the Vue's `departmentTrendKeys
+    # .customer` after the rename.
     try:
         from insights.api.ml.ibis_source import company_filter, t
 
@@ -731,18 +817,29 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
             .order_by("month")
             .execute()
         )
-        # The dashboard wants a churn-style number: lower active-customers
-        # vs the series max gives a 0-100 number that drops when activity drops.
         active = [int(v or 0) for v in cust_series["active_customers"].tolist()]
-        max_active = max(active) if active else 1
-        trends["churn_rate"] = [
-            round(max(0.0, (1 - (v / max_active)) * 100), 1) for v in active
-        ]
+        change: List[float] = []
+        for i, v in enumerate(active):
+            if i == 0 or not active[i - 1]:
+                change.append(0.0)
+            else:
+                change.append(round(((v - active[i - 1]) / active[i - 1]) * 100, 1))
+        # Pad to 12 entries on the left (oldest months) with zeros.
+        while len(change) < 12:
+            change.insert(0, 0.0)
+        trends["customer_activity_change"] = change[-12:]
     except Exception as e:
-        frappe.log_error(f"Executive: churn trend failed: {e}", "Executive Intelligence")
-        trends["churn_rate"] = []
-
-    # Inventory turns per month
+        frappe.log_error(f"Executive: customer activity trend failed: {e}", "Executive Intelligence")
+        trends["customer_activity_change"] = [0.0] * 12
+    # Stock-outflow trend -- previous implementation labelled this trend
+    # key `inventory_turns` but computed a normalised relative index of
+    # outgoing-stock qty (`(q / mean) * 6`) and explicitly admitted in
+    # a comment that this was "without fabricating a real turnover
+    # figure". The Operations department's "Inventory Turns" KPI card
+    # uses the real formula (COGS / avg_inventory = 72.61 on jkm) and
+    # the sparkline uses a different formula under the same name --
+    # two unrelated metrics. Rename to `stock_outflow_index` (truthful)
+    # and update the Vue's `departmentTrendKeys.operations` to match.
     try:
         from insights.api.ml.ibis_source import t
 
@@ -755,17 +852,17 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
             .order_by("month")
             .execute()
         )
-        # Express per-month turnover as qty * 12 / average stock estimate; we
-        # only have qty here, so a relative number (qty / series mean) gives a
-        # meaningful sparkline without fabricating a real turnover figure.
+        # Normalised relative index of outgoing stock (positive qty only,
+        # scaled around its own 12-month mean). NOT a real inventory
+        # turns figure -- see the real KPI in `_operations_kpis`.
         qtys = [float(v or 0) for v in inv["qty"].tolist()]
         mean = (sum(qtys) / len(qtys)) if qtys else 1
-        trends["inventory_turns"] = [
+        trends["stock_outflow_index"] = [
             round((q / mean) * 6, 2) if mean else 0.0 for q in qtys
         ]
     except Exception as e:
-        frappe.log_error(f"Executive: inventory trend failed: {e}", "Executive Intelligence")
-        trends["inventory_turns"] = []
+        frappe.log_error(f"Executive: stock outflow trend failed: {e}", "Executive Intelligence")
+        trends["stock_outflow_index"] = []
 
     return trends
 

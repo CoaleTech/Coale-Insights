@@ -40,6 +40,8 @@
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="executive data"
       permission-hint="Ask an administrator for executive dashboard access."
@@ -349,7 +351,19 @@ const periodOptions = [
 
 const periodParams = computed(() => ({ period: selectedPeriod.value }))
 
-const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+const {
+  data,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  notImplemented,
+  notImplementedMessage,
+  hasData,
+  reload,
+  retry,
+} =
   useIntelligenceDashboard({
     url: 'insights.api.ml.get_executive_summary',
     params: periodParams,
@@ -432,13 +446,26 @@ const departmentRoutes = {
   manufacturing: '/manufacturing-intelligence',
 }
 
+// Trend keys are the names produced by `ml/executive_intelligence
+// ._trend_sparklines`. The previous version referenced three keys
+// (`headcount`, `churn_rate`, `inventory_turns`) that did not match
+// the underlying computation: the Python module was already
+// computing `new_hires_per_month`, a self-referential customer-
+// activity index, and a normalised stock-outflow index under
+// those names, all of which read as misleading labels on the
+// KPI cards. The Python module has been renamed to
+// `new_hires_per_month`, `customer_activity_change`, and
+// `stock_outflow_index` so the sparkline data and the KPI card
+// numbers reconcile. (Risk has no monthly trend -- see
+// `_trend_sparklines` -- so all three Risk KPI cards render
+// without a sparkline; not a regression, just an honest absence.)
 const departmentTrendKeys = {
-  financial: ['revenue', 'margin', 'revenue'],
+  financial: ['revenue', 'revenue', 'revenue'],
   sales: ['sales_growth', 'sales_growth', 'sales_growth'],
-  customer: ['churn_rate', 'churn_rate', 'churn_rate'],
-  operations: ['inventory_turns', 'inventory_turns', 'inventory_turns'],
+  customer: ['customer_activity_change', 'customer_activity_change', 'customer_activity_change'],
+  operations: ['stock_outflow_index', 'stock_outflow_index', 'stock_outflow_index'],
   risk: ['credit_risk', 'credit_risk', 'credit_risk'],
-  hr: ['headcount', 'headcount', 'headcount'],
+  hr: ['new_hires_per_month', 'new_hires_per_month', 'new_hires_per_month'],
   manufacturing: ['oee', 'oee', 'oee'],
 }
 
