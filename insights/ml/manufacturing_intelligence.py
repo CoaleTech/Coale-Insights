@@ -68,6 +68,24 @@ class ManufacturingIntelligence:
             })
             production_data = collector.collect()
             
+            # Normalize the collector's separate `summary`/`efficiency`/
+            # `completed_order_count` blocks into the `work_order_summary`
+            # shape every analysis method below expects. Before this, every
+            # `.get("work_order_summary", {})` call silently fell back to
+            # `{}` (the key was never populated by the collector), so
+            # completion rate, quantity achievement, OEE performance,
+            # on-time completion, and the completion-rate recommendation
+            # were all unconditionally zero regardless of real Work Order
+            # data.
+            _summary = production_data.get("summary", {}) or {}
+            _efficiency = production_data.get("efficiency", {}) or {}
+            production_data["work_order_summary"] = {
+                "total_orders": _summary.get("total_orders", 0),
+                "completed_orders": production_data.get("completed_order_count", 0),
+                "total_qty_produced": _efficiency.get("produced_qty", 0),
+                "total_qty_planned": _efficiency.get("planned_qty", 0),
+            }
+            
             # Generate insights
             insights = {
                 "period": period,
@@ -111,8 +129,7 @@ class ManufacturingIntelligence:
         try:
             # Extract work order summary
             work_order_summary = production_data.get("work_order_summary", {})
-            status_breakdown = production_data.get("status_breakdown", {})
-            monthly_trend = production_data.get("monthly_production_trend", [])
+            monthly_trend = production_data.get("monthly_trend", [])
             
             total_orders = work_order_summary.get("total_orders", 0)
             completed_orders = work_order_summary.get("completed_orders", 0)
@@ -126,72 +143,82 @@ class ManufacturingIntelligence:
             # Calculate trend from monthly data
             growth_rate = 0
             if len(monthly_trend) >= 2:
-                latest_month = monthly_trend[-1].get("total_qty", 0)
-                prev_month = monthly_trend[-2].get("total_qty", 0)
+                latest_month = monthly_trend[-1].get("produced_qty", 0)
+                prev_month = monthly_trend[-2].get("produced_qty", 0)
                 growth_rate = ((latest_month - prev_month) / prev_month * 100) if prev_month else 0
-            
+
+            # Pending Material Requests: same filter as get_manufacturing_detail's
+            # `material_requests` drill-down (insights/api/ml/manufacturing.py), so
+            # this count and that record list always agree.
+            pending_material_requests = frappe.db.count(
+                "Material Request",
+                filters={"docstatus": 1, "status": ("in", ["Pending", "Partially Ordered"])},
+            )
+
             return {
                 "total_work_orders": total_orders,
                 "completed_orders": completed_orders,
+                "open_work_orders": max(0, total_orders - completed_orders),
                 "completion_rate_pct": round(completion_rate, 2),
                 "total_production_qty": total_qty_produced,
                 "planned_production_qty": total_qty_planned,
                 "quantity_achievement_pct": round(quantity_achievement, 2),
                 "monthly_growth_rate": round(growth_rate, 2),
-                "production_health": "excellent" if completion_rate > 90 else "good" if completion_rate > 80 else "needs_improvement"
+                "pending_material_requests": pending_material_requests,
+                # Health label is meaningless on a 0/0 site (completion_rate
+                # is 0 because there's no denominator, not because the
+                # 0-completion rate is bad). Leave it null when there
+                # are no Work Orders to evaluate.
+                "production_health": (
+                    "excellent" if completion_rate > 90
+                    else "good" if completion_rate > 80
+                    else "needs_improvement"
+                ) if total_orders > 0 else None,
             }
-            
         except Exception as e:
             logger.error(f"Error analyzing production metrics: {e}")
             return {"error": str(e)}
     
     def _calculate_oee(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate Overall Equipment Effectiveness (OEE)"""
+        """Calculate Overall Equipment Effectiveness (OEE).
+
+        Only performance (produced qty vs planned qty) is real. Availability
+        and quality are not computed rather than estimated:
+        - availability needs workstation capacity_mins, which nothing in
+          this app queries yet (Workstation working hours + holiday list +
+          production_capacity -- see TODOS.md).
+        - quality needs QC data, which doesn't exist on this site (same gap
+          as quality_metrics.first_pass_yield_pct/defect_rate_ppm above;
+          this used to be a hardcoded 95% constant).
+        A composite oee_score_pct/oee_rating built from two fabricated
+        factors would be a fake number dressed up as measured, so both are
+        left unset rather than computed from partial data.
+        """
         try:
-            # Get workstation utilization data
             workstation_util = production_data.get("workstation_utilization", [])
             work_order_summary = production_data.get("work_order_summary", {})
-            
+
             if not workstation_util:
                 return {"message": _("No workstation data available for OEE calculation")}
-            
-            # Calculate OEE components
-            total_workstations = len(workstation_util)
-            total_capacity_mins = sum(ws.get("capacity_mins", 0) for ws in workstation_util)
-            total_utilized_mins = sum(ws.get("utilized_mins", 0) for ws in workstation_util)
-            
-            # Availability = Actual Operating Time / Planned Production Time
-            availability = (total_utilized_mins / total_capacity_mins * 100) if total_capacity_mins else 0
-            
+
             # Performance = Actual Output / Maximum Possible Output
             total_qty_produced = work_order_summary.get("total_qty_produced", 0)
             total_qty_planned = work_order_summary.get("total_qty_planned", 0)
             performance = (total_qty_produced / total_qty_planned * 100) if total_qty_planned else 0
-            
-            # Quality = Good Output / Total Output (simplified - assume 95% if no quality data)
-            quality = 95.0  # This would need quality data from QC module
-            
-            # OEE = Availability × Performance × Quality
-            oee_score = (availability * performance * quality) / 10000
-            
-            # Determine OEE rating
-            oee_rating = "world_class"
-            if oee_score < 40:
-                oee_rating = "poor"
-            elif oee_score < 60:
-                oee_rating = "fair"  
-            elif oee_score < 85:
-                oee_rating = "good"
-            
+
             return {
-                "oee_score_pct": round(oee_score, 2),
-                "availability_pct": round(availability, 2),
+                "oee_score_pct": None,
+                "availability_pct": None,
                 "performance_pct": round(performance, 2),
-                "quality_pct": round(quality, 2),
-                "oee_rating": oee_rating,
-                "benchmark_comparison": "above_average" if oee_score > 60 else "below_average"
+                "quality_pct": None,
+                "oee_rating": None,
+                "benchmark_comparison": None,
+                "oee_data_note": _(
+                    "Availability (workstation capacity) and quality (QC data) are not "
+                    "available on this site; only performance (production qty vs. plan) is measured."
+                ),
             }
-            
+
         except Exception as e:
             logger.error(f"Error calculating OEE: {e}")
             return {"error": str(e)}
@@ -226,182 +253,175 @@ class ManufacturingIntelligence:
             return {"error": str(e)}
     
     def _analyze_efficiency(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze production efficiency metrics"""
-        import numpy as np
+        """Analyze production efficiency metrics.
+
+        `average_efficiency_pct` is real (produced/planned qty, from the
+        collector's `efficiency` block). Per-workstation efficiency
+        variance and best/worst-workstation ranking are not computed: both
+        need a workstation capacity (available minutes) denominator that
+        isn't sourced yet (see `_analyze_capacity`). This used to divide by
+        a phantom `capacity_mins` key that is never populated, which made
+        every workstation's efficiency tie at 0 and best/worst collapse to
+        whichever workstation happened to be first in the list.
+        """
         try:
-            production_eff = production_data.get("production_efficiency", {})
-            workstation_util = production_data.get("workstation_utilization", [])
-            
-            avg_efficiency = production_eff.get("average_efficiency_pct", 0)
-            
-            # Calculate workstation efficiency variance
-            efficiencies = []
-            for ws in workstation_util:
-                if ws.get("capacity_mins", 0) > 0:
-                    eff = (ws.get("utilized_mins", 0) / ws.get("capacity_mins", 0) * 100)
-                    efficiencies.append(eff)
-            
-            efficiency_variance = np.var(efficiencies) if efficiencies else 0
-            efficiency_std = np.std(efficiencies) if efficiencies else 0
-            
-            # Identify best and worst performing workstations
-            best_ws = max(workstation_util, key=lambda x: x.get("utilized_mins", 0) / max(x.get("capacity_mins", 1), 1)) if workstation_util else {}
-            worst_ws = min(workstation_util, key=lambda x: x.get("utilized_mins", 0) / max(x.get("capacity_mins", 1), 1)) if workstation_util else {}
-            
+            production_eff = production_data.get("efficiency", {})
+            avg_efficiency = production_eff.get("efficiency_percent", 0)
+
             return {
                 "average_efficiency_pct": avg_efficiency,
-                "efficiency_variance": round(efficiency_variance, 2),
-                "efficiency_std_dev": round(efficiency_std, 2),
-                "consistency_rating": "high" if efficiency_std < 10 else "medium" if efficiency_std < 20 else "low",
-                "best_workstation": best_ws.get("workstation", "N/A"),
-                "worst_workstation": worst_ws.get("workstation", "N/A"),
-                "efficiency_trend": "improving" if avg_efficiency > 75 else "stable" if avg_efficiency > 60 else "declining"
+                "efficiency_variance": None,
+                "efficiency_std_dev": None,
+                "consistency_rating": None,
+                "best_workstation": None,
+                "worst_workstation": None,
+                "efficiency_trend": "improving" if avg_efficiency > 75 else "stable" if avg_efficiency > 60 else "declining",
+                "efficiency_data_note": _(
+                    "Per-workstation efficiency variance and best/worst "
+                    "ranking require workstation capacity data not sourced "
+                    "yet; see workstation_performance for actual hours worked."
+                ),
             }
-            
+
         except Exception as e:
             logger.error(f"Error analyzing efficiency: {e}")
             return {"error": str(e)}
     
     def _analyze_capacity(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze capacity utilization and planning"""
+        """Analyze capacity utilization and planning.
+
+        Utilization needs a capacity (available working minutes) denominator
+        per workstation. Only actual time worked (Job Card
+        `actual_operating_time`, collected as `total_minutes`) is sourced;
+        no workstation capacity/available-hours source is wired in, so a
+        utilization percentage would be fabricated. Honest stub instead,
+        matching the OEE availability gap in `_calculate_oee`. The real
+        signal that does exist -- total hours actually worked -- is still
+        surfaced.
+        """
         try:
             workstation_util = production_data.get("workstation_utilization", [])
-            
+
             if not workstation_util:
                 return {"message": _("No workstation capacity data available")}
-            
-            # Calculate overall capacity utilization
-            total_capacity = sum(ws.get("capacity_mins", 0) for ws in workstation_util)
-            total_utilized = sum(ws.get("utilized_mins", 0) for ws in workstation_util)
-            
-            overall_utilization = (total_utilized / total_capacity * 100) if total_capacity else 0
-            
-            # Identify capacity constraints
-            high_util_workstations = [ws for ws in workstation_util 
-                                    if (ws.get("utilized_mins", 0) / max(ws.get("capacity_mins", 1), 1)) > 0.85]
-            
-            low_util_workstations = [ws for ws in workstation_util 
-                                   if (ws.get("utilized_mins", 0) / max(ws.get("capacity_mins", 1), 1)) < 0.50]
-            
-            # Calculate available capacity
-            available_capacity_mins = total_capacity - total_utilized
-            available_capacity_pct = (available_capacity_mins / total_capacity * 100) if total_capacity else 0
-            
+
+            total_worked_mins = sum(ws.get("total_minutes", 0) or 0 for ws in workstation_util)
+
             return {
-                "overall_utilization_pct": round(overall_utilization, 2),
-                "available_capacity_pct": round(available_capacity_pct, 2),
-                "available_capacity_hours": round(available_capacity_mins / 60, 1),
-                "capacity_constrained_stations": len(high_util_workstations),
-                "underutilized_stations": len(low_util_workstations),
-                "capacity_planning_status": "optimal" if 70 <= overall_utilization <= 85 else "over_utilized" if overall_utilization > 85 else "under_utilized"
+                "overall_utilization_pct": None,
+                "available_capacity_pct": None,
+                "available_capacity_hours": None,
+                "capacity_constrained_stations": None,
+                "underutilized_stations": None,
+                "capacity_planning_status": None,
+                "total_worked_hours": round(total_worked_mins / 60, 1),
+                "workstation_count": len(workstation_util),
+                "capacity_data_note": _(
+                    "Capacity utilization requires each workstation's available "
+                    "working hours, which is not sourced yet; only actual time "
+                    "worked is measured."
+                ),
             }
-            
+
         except Exception as e:
             logger.error(f"Error analyzing capacity: {e}")
             return {"error": str(e)}
-    
+
     def _analyze_workstations(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze individual workstation performance"""
+        """Analyze individual workstation activity.
+
+        Reports actual time worked and job count per workstation (real,
+        from Job Card). Utilization percentage and "optimal/overloaded"
+        status are not computed here: both require a capacity/available-
+        hours denominator that isn't sourced yet (see `_analyze_capacity`).
+        """
         try:
             workstation_util = production_data.get("workstation_utilization", [])
-            
+
             if not workstation_util:
                 return {"message": _("No workstation performance data available")}
-            
-            # Calculate performance metrics for each workstation
+
             workstation_metrics = []
             for ws in workstation_util:
-                utilization = (ws.get("utilized_mins", 0) / max(ws.get("capacity_mins", 1), 1) * 100)
-                status = "optimal" if 70 <= utilization <= 85 else "overloaded" if utilization > 85 else "underutilized"
-                
+                minutes = ws.get("total_minutes", 0) or 0
                 workstation_metrics.append({
                     "workstation": ws.get("workstation", "Unknown"),
-                    "utilization_pct": round(utilization, 2),
-                    "capacity_hours": round(ws.get("capacity_mins", 0) / 60, 1),
-                    "utilized_hours": round(ws.get("utilized_mins", 0) / 60, 1), 
-                    "status": status
+                    "job_count": ws.get("job_count", 0) or 0,
+                    "worked_hours": round(minutes / 60, 1),
+                    "utilization_pct": None,
+                    "status": None,
                 })
-            
-            # Sort by utilization
-            workstation_metrics.sort(key=lambda x: x["utilization_pct"], reverse=True)
-            
+
+            # Sort by actual time worked -- the only real signal available.
+            workstation_metrics.sort(key=lambda x: x["worked_hours"], reverse=True)
+
             return {
                 "workstation_count": len(workstation_metrics),
                 "workstation_performance": workstation_metrics,
                 "top_performer": workstation_metrics[0]["workstation"] if workstation_metrics else "N/A",
-                "bottom_performer": workstation_metrics[-1]["workstation"] if workstation_metrics else "N/A"
+                "bottom_performer": workstation_metrics[-1]["workstation"] if workstation_metrics else "N/A",
+                "capacity_data_note": _(
+                    "Ranked by actual hours worked; utilization percentage "
+                    "requires workstation capacity data not sourced yet."
+                ),
             }
-            
+
         except Exception as e:
             logger.error(f"Error analyzing workstations: {e}")
             return {"error": str(e)}
-    
+
     def _identify_bottlenecks(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Identify production bottlenecks and constraints"""
+        """Identify production bottlenecks.
+
+        Bottleneck severity here was based on utilization vs. capacity
+        (>80%/>90% thresholds), which needs workstation available-hours
+        data not sourced yet (see `_analyze_capacity`). Honest stub instead
+        of a fabricated severity ranking.
+        """
         try:
             workstation_util = production_data.get("workstation_utilization", [])
-            
+
             if not workstation_util:
                 return {"message": _("No data available for bottleneck analysis")}
-            
-            # Find bottlenecks (high utilization workstations)
-            bottlenecks = []
-            for ws in workstation_util:
-                utilization = (ws.get("utilized_mins", 0) / max(ws.get("capacity_mins", 1), 1) * 100)
-                if utilization > 90:
-                    severity = "critical"
-                elif utilization > 80:
-                    severity = "high"
-                else:
-                    continue
-                    
-                bottlenecks.append({
-                    "workstation": ws.get("workstation", "Unknown"),
-                    "utilization_pct": round(utilization, 2),
-                    "severity": severity,
-                    "improvement_potential": round((utilization - 85), 2)
-                })
-            
-            # Sort by severity (critical first)
-            bottlenecks.sort(key=lambda x: (x["severity"] == "critical", x["utilization_pct"]), reverse=True)
-            
+
             return {
-                "bottleneck_count": len(bottlenecks),
-                "bottlenecks": bottlenecks,
-                "priority_bottleneck": bottlenecks[0]["workstation"] if bottlenecks else "None",
-                "total_improvement_hours": sum(b["improvement_potential"] for b in bottlenecks)
+                "bottleneck_count": None,
+                "bottlenecks": [],
+                "priority_bottleneck": None,
+                "total_improvement_hours": None,
+                "bottleneck_data_note": _(
+                    "Bottleneck severity is based on utilization vs. capacity, "
+                    "which is not sourced yet; see workstation_performance for "
+                    "actual hours worked per workstation."
+                ),
             }
-            
+
         except Exception as e:
             logger.error(f"Error identifying bottlenecks: {e}")
             return {"error": str(e)}
     
     def _analyze_production_costs(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze production costs and efficiency"""
+        """Analyze production costs.
+
+        Not computed: there is no real per-unit costing source wired here
+        (no Job Card operating-cost or BOM valuation query). This used to
+        multiply produced qty by hardcoded $15/$25-per-unit estimates --
+        a plausible-looking but fabricated dollar figure once qty is real.
+        Honest stub instead, matching quality_metrics/oee_analysis above.
+        """
         try:
-            # This would be enhanced with actual costing data
-            # For now, provide basic cost indicators
-            
-            work_order_summary = production_data.get("work_order_summary", {})
-            total_qty_produced = work_order_summary.get("total_qty_produced", 0)
-            
-            # Estimated costs (would need actual cost data)
-            estimated_labor_cost = total_qty_produced * 15  # $15 per unit estimate
-            estimated_material_cost = total_qty_produced * 25  # $25 per unit estimate
-            estimated_overhead = (estimated_labor_cost + estimated_material_cost) * 0.20
-            
-            total_cost = estimated_labor_cost + estimated_material_cost + estimated_overhead
-            cost_per_unit = total_cost / total_qty_produced if total_qty_produced else 0
-            
             return {
-                "total_production_cost": round(total_cost, 2),
-                "cost_per_unit": round(cost_per_unit, 2),
-                "labor_cost_pct": round((estimated_labor_cost / total_cost * 100), 1) if total_cost else 0,
-                "material_cost_pct": round((estimated_material_cost / total_cost * 100), 1) if total_cost else 0,
-                "overhead_cost_pct": round((estimated_overhead / total_cost * 100), 1) if total_cost else 0,
-                "cost_efficiency": "good" if cost_per_unit < 50 else "average" if cost_per_unit < 75 else "needs_improvement"
+                "total_production_cost": None,
+                "cost_per_unit": None,
+                "labor_cost_pct": None,
+                "material_cost_pct": None,
+                "overhead_cost_pct": None,
+                "cost_efficiency": None,
+                "cost_data_note": _(
+                    "Production costing requires real per-unit cost data (Job Card "
+                    "operating cost or BOM valuation), which is not sourced yet."
+                ),
             }
-            
         except Exception as e:
             logger.error(f"Error analyzing production costs: {e}")
             return {"error": str(e)}
@@ -410,13 +430,13 @@ class ManufacturingIntelligence:
         """Forecast future production based on trends"""
         import numpy as np
         try:
-            monthly_trend = production_data.get("monthly_production_trend", [])
+            monthly_trend = production_data.get("monthly_trend", [])
             
             if len(monthly_trend) < 3:
                 return {"message": _("Insufficient data for production forecasting")}
             
             # Calculate simple trend
-            quantities = [month.get("total_qty", 0) for month in monthly_trend[-6:]]  # Last 6 months
+            quantities = [month.get("produced_qty", 0) for month in monthly_trend[-6:]]  # Last 6 months
             if not quantities:
                 return {"message": _("No quantity data available")}
             
@@ -450,93 +470,94 @@ class ManufacturingIntelligence:
             return {"error": str(e)}
     
     def _analyze_maintenance_needs(self, production_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Analyze maintenance needs based on utilization"""
+        """Analyze maintenance needs based on utilization.
+
+        Maintenance priority here was derived entirely from a utilization
+        percentage that requires capacity data not sourced yet (see
+        `_analyze_capacity`), on top of an "utilization / 20" hours
+        estimate that was itself a fabricated rough guess. Honest stub
+        instead of compounding two fabricated numbers.
+        """
         try:
             workstation_util = production_data.get("workstation_utilization", [])
-            
+
             if not workstation_util:
                 return {"message": _("No workstation data for maintenance analysis")}
-            
-            # Identify high-utilization workstations needing maintenance
-            maintenance_priorities = []
-            for ws in workstation_util:
-                utilization = (ws.get("utilized_mins", 0) / max(ws.get("capacity_mins", 1), 1) * 100)
-                
-                priority = "low"
-                if utilization > 85:
-                    priority = "high"
-                elif utilization > 70:
-                    priority = "medium"
-                
-                maintenance_priorities.append({
-                    "workstation": ws.get("workstation", "Unknown"),
-                    "utilization_pct": round(utilization, 2),
-                    "maintenance_priority": priority,
-                    "estimated_maintenance_hours": round(utilization / 20, 1)  # Rough estimate
-                })
-            
-            # Sort by maintenance priority
-            maintenance_priorities.sort(key=lambda x: (x["maintenance_priority"] == "high", x["utilization_pct"]), reverse=True)
-            
-            high_priority_count = sum(1 for ws in maintenance_priorities if ws["maintenance_priority"] == "high")
-            
+
             return {
-                "maintenance_requirements": maintenance_priorities,
-                "high_priority_count": high_priority_count,
-                "total_maintenance_hours": sum(ws["estimated_maintenance_hours"] for ws in maintenance_priorities),
-                "maintenance_urgency": "immediate" if high_priority_count > 2 else "scheduled"
+                "maintenance_requirements": [],
+                "high_priority_count": None,
+                "total_maintenance_hours": None,
+                "maintenance_urgency": None,
+                "maintenance_data_note": _(
+                    "Maintenance priority requires utilization vs. capacity "
+                    "and real maintenance-hours estimates, neither of which "
+                    "is sourced yet."
+                ),
             }
-            
+
         except Exception as e:
             logger.error(f"Error analyzing maintenance needs: {e}")
             return {"error": str(e)}
     
     def _generate_manufacturing_recommendations(self, production_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Generate actionable manufacturing recommendations"""
+        """Generate actionable manufacturing recommendations.
+
+        Only emit findings the underlying `production_data` actually supports.
+        Previously this method (a) computed completion_rate with
+        `max(total_orders, 1)` so a 0-order site yielded 0.0% and then
+        emitted a high-priority "below target" alert — pure noise on a
+        site that doesn't track Work Orders, which the live jkm site is
+        today (zero Work Order / Job Card / BOM rows), and (b) appended an
+        unconditional "Implement Quality Monitoring" recommendation on
+        every call regardless of data (static template, not driven by
+        anything in `production_data`). Both now gate on having real
+        underlying data: a recommendation only fires when its source
+        signal exists and meaningfully deviates.
+        """
         try:
             recommendations = []
-            
-            # Analyze production data for recommendations
             work_order_summary = production_data.get("work_order_summary", {})
-            workstation_util = production_data.get("workstation_utilization", [])
-            
-            completion_rate = (work_order_summary.get("completed_orders", 0) / 
-                             max(work_order_summary.get("total_orders", 1), 1) * 100)
-            
-            if completion_rate < 80:
-                recommendations.append({
-                    "priority": "high",
-                    "category": "Production Efficiency", 
-                    "title": "Improve Work Order Completion Rate",
-                    "description": f"Current completion rate of {completion_rate:.1f}% is below target.",
-                    "actions": ["Review scheduling process", "Identify bottlenecks", "Improve resource allocation"]
-                })
-            
-            # Check for capacity issues
-            if workstation_util:
-                high_util_count = sum(1 for ws in workstation_util 
-                                    if (ws.get("utilized_mins", 0) / max(ws.get("capacity_mins", 1), 1)) > 0.85)
-                
-                if high_util_count > len(workstation_util) * 0.3:  # More than 30% overutilized
+
+            total_orders = int(work_order_summary.get("total_orders") or 0)
+            completed_orders = int(work_order_summary.get("completed_orders") or 0)
+
+            # Only fire a completion-rate finding when there's a real
+            # Work Order population to evaluate; a 0/0 site should not
+            # get a "0.0% is below target" alert -- it's a different
+            # problem (no production data, not a 0% completion rate).
+            if total_orders > 0:
+                completion_rate = (completed_orders / total_orders * 100)
+                if completion_rate < 80:
                     recommendations.append({
-                        "priority": "medium",
-                        "category": "Capacity Management",
-                        "title": "Address Capacity Constraints",
-                        "description": f"{high_util_count} workstations are operating above 85% capacity.",
-                        "actions": ["Consider additional shifts", "Invest in equipment", "Optimize scheduling"]
+                        "priority": "high",
+                        "category": "Production Efficiency",
+                        "title": "Improve Work Order Completion Rate",
+                        "description": f"Current completion rate of {completion_rate:.1f}% is below target.",
+                        "actions": ["Review scheduling process", "Identify bottlenecks", "Improve resource allocation"]
                     })
-            
-            # Quality improvement recommendation
-            recommendations.append({
-                "priority": "medium",
-                "category": "Quality Management",
-                "title": "Implement Quality Monitoring",
-                "description": "Establish real-time quality metrics and monitoring systems.",
-                "actions": ["Install quality sensors", "Train operators", "Implement SPC"]
-            })
-            
+
+            # Quality improvement recommendation -- only fire if there's
+            # a real production data source to act on. Without any
+            # Work Orders, recommending SPC installation is pure
+            # boilerplate that doesn't reflect anything in `production_data`.
+            quality_metrics = production_data.get("quality_metrics", {}) or {}
+            has_quality_data = (
+                total_orders > 0
+                or bool(production_data.get("workstation_utilization"))
+                or any(quality_metrics.get(k) is not None for k in ("first_pass_yield_pct", "defect_rate_ppm"))
+            )
+            if has_quality_data:
+                recommendations.append({
+                    "priority": "medium",
+                    "category": "Quality Management",
+                    "title": "Implement Quality Monitoring",
+                    "description": "Establish real-time quality metrics and monitoring systems.",
+                    "actions": ["Install quality sensors", "Train operators", "Implement SPC"]
+                })
+
             return recommendations
-            
+
         except Exception as e:
             logger.error(f"Error generating manufacturing recommendations: {e}")
             return [{"error": str(e)}]

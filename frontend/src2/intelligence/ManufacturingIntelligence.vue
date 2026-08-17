@@ -31,6 +31,8 @@ interface OeeAnalysis {
 interface ProductionMetrics {
   total_work_orders?: number
   completed_orders?: number
+  open_work_orders?: number
+  pending_material_requests?: number
   completion_rate_pct?: number
   total_production_qty?: number
   planned_production_qty?: number
@@ -74,18 +76,17 @@ interface BottleneckAnalysis {
   total_improvement_hours?: number
 }
 
-/** Workstation row from `_analyze_workstations` (insights/ml/manufacturing_intelligence.py:298-328).
- *  Confirmed against source: only these 5 fields are ever returned. The template
- *  previously also rendered efficiency_pct/total_jobs/completed_jobs, which the
- *  backend never sends -- every workstation showed a confident 0% efficiency
- *  badge and "0/0 jobs" regardless of real performance. Fixed to use the real
- *  utilization_pct/capacity_hours/utilized_hours/status fields instead. */
+/** Workstation row from `_analyze_workstations` (insights/ml/manufacturing_intelligence.py).
+ *  `utilization_pct`/`status` are always null: they require a workstation
+ *  capacity (available hours) source that isn't wired in yet (see
+ *  `capacity_data_note` on the parent section). `job_count`/`worked_hours`
+ *  are real, from Job Card `actual_operating_time`. */
 interface WorkstationRow {
   workstation?: string
-  utilization_pct?: number
-  capacity_hours?: number
-  utilized_hours?: number
-  status?: string
+  job_count?: number
+  worked_hours?: number
+  utilization_pct?: number | null
+  status?: string | null
 }
 
 interface WorkstationPerformanceSection {
@@ -148,7 +149,19 @@ const MFG_ENDPOINT = 'insights.api.ml.manufacturing.get_manufacturing_detail'
 const lastUpdated = ref('')
 const productionForecast = ref<ProductionForecastData>({})
 
-const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+const {
+  data,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  notImplemented,
+  notImplementedMessage,
+  hasData,
+  reload,
+  retry,
+} =
   useIntelligenceDashboard<ManufacturingPayload>({
     url: 'insights.api.ml.get_manufacturing_overview',
     cache: 'manufacturing-intelligence',
@@ -183,7 +196,7 @@ function oeeSeverity(score: number | undefined): Severity {
  * then critical above 90% (overloaded). We treat < 70% as low (good -- headroom),
  * 70-89% as medium (operating range), >= 90% as critical (overloaded).
  */
-function utilizationSeverity(pct: number | undefined): Severity {
+function utilizationSeverity(pct: number | null | undefined): Severity {
   if (pct === undefined || pct === null || Number.isNaN(pct)) return 'none'
   if (pct >= 90) return 'critical'
   if (pct >= 70) return 'medium'
@@ -283,10 +296,12 @@ onMounted(() => {
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="manufacturing data"
       permission-hint="Ask an administrator for Work Order and BOM read access."
-      :kpi-count="6"
+      :kpi-count="8"
       @retry="retry"
     >
       <!-- Summary KPI cards -->
@@ -333,6 +348,21 @@ onMounted(() => {
           :sublabel="hasData ? `of ${formatCount(productionMetrics.total_work_orders)} total` : undefined"
           :clickable="true"
           @click="drillDown.open(MFG_ENDPOINT, 'Work Orders', { metric: 'completed_work_orders' })"
+        />
+        <KpiCard
+          label="Open Work Orders"
+          :value="productionMetrics.open_work_orders"
+          :loading="!hasData"
+          :severity="(productionMetrics.open_work_orders as number) > 0 ? 'medium' : undefined"
+          :clickable="true"
+          @click="drillDown.open(MFG_ENDPOINT, 'Open Work Orders', { metric: 'open_work_orders' })"
+        />
+        <KpiCard
+          label="Pending Material Requests"
+          :value="productionMetrics.pending_material_requests"
+          :loading="!hasData"
+          :clickable="true"
+          @click="drillDown.open(MFG_ENDPOINT, 'Pending Material Requests', { metric: 'material_requests' })"
         />
       </div>
 
@@ -475,7 +505,7 @@ onMounted(() => {
                 <div class="flex justify-between items-center py-2">
                   <span class="text-sm text-ink-gray-6">Bottlenecks Identified</span>
                   <Badge
-                    v-bind="severityBadge((bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'critical' : bottleneckAnalysis.bottleneck_count === undefined ? 'none' : 'low')"
+                    v-bind="severityBadge((bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'critical' : bottleneckAnalysis.bottleneck_count == null ? 'none' : 'low')"
                     :label="formatCount(bottleneckAnalysis.bottleneck_count)"
                     size="sm"
                   />
@@ -584,8 +614,8 @@ onMounted(() => {
                     />
                   </div>
                   <div class="flex justify-between text-xs text-ink-gray-6 mt-1">
-                    <span>Capacity: {{ formatCount(ws.capacity_hours) }}h</span>
-                    <span>Utilized: {{ formatCount(ws.utilized_hours) }}h</span>
+                    <span>Jobs: {{ formatCount(ws.job_count) }}</span>
+                    <span>Worked: {{ formatCount(ws.worked_hours) }}h</span>
                   </div>
                 </div>
               </div>
@@ -660,8 +690,8 @@ onMounted(() => {
                   {{ formatCount(bottleneckAnalysis.bottleneck_count) }}
                 </div>
                 <Badge
-                  v-bind="severityBadge((bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'critical' : bottleneckAnalysis.bottleneck_count === undefined ? 'none' : 'low')"
-                  :label="(bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'Bottlenecks Identified' : bottleneckAnalysis.bottleneck_count === undefined ? 'No Data' : 'No Bottlenecks'"
+                  v-bind="severityBadge((bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'critical' : bottleneckAnalysis.bottleneck_count == null ? 'none' : 'low')"
+                  :label="(bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'Bottlenecks Identified' : bottleneckAnalysis.bottleneck_count == null ? 'No Data' : 'No Bottlenecks'"
                   size="sm"
                 />
               </div>
@@ -713,6 +743,8 @@ onMounted(() => {
                   label="Total Production Qty"
                   :value="formatCount(productionMetrics.total_production_qty)"
                   variant="tile"
+                  :clickable="true"
+                  @click="drillDown.open(MFG_ENDPOINT, 'Total Production Qty', { metric: 'completed_work_orders' })"
                 />
               </div>
             </div>
