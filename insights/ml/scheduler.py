@@ -8,9 +8,10 @@ Manual training of ML models via `bench execute`.
 Design: every trainer function is invoked directly from the foreground
 process (e.g. `bench execute insights.ml.scheduler.run_all_ml_models`).
 These functions are NO LONGER registered in `hooks.py` `scheduler_events`
-— automated training has been replaced by the per-request `compute_or_cache`
-pattern in `insights.api.ml.utils`. The functions in this module remain
-useful for one-off manual runs, cache warming, and operational tooling.
+-- every dashboard now computes its own data fresh via Ibis on each
+request instead of training then caching a model (see `insights.ml.base`).
+There is no cache for these functions to warm; they remain useful for
+one-off manual runs and operational tooling only.
 """
 
 import frappe
@@ -18,8 +19,9 @@ import frappe
 
 # ── Individual model trainers ──────────────────────────────────────────────
 # Each follows the same pattern:
-#   1. Lazy import of the model class (inside the function body)
-#   2. model.train() → fills BaseMLModel cache (Redis + disk snapshot)
+#   1. Lazy import of the model function/class (inside the function body)
+#   2. Compute fresh -- there is no cache to fill; every ML module is pure
+#      Ibis now and answers synchronously (see `insights.ml.base`)
 #   3. frappe.log_error on failure (standard Frappe error logging)
 #   4. Return dict with status key
 
@@ -28,18 +30,16 @@ import frappe
 def train_customer_segmentation():
     """Daily: Train customer segmentation model"""
     try:
-        from insights.ml.customer_segmentation import CustomerSegmentation
+        from insights.ml.customer import compute_rfm_segmentation
 
         frappe.logger().info("Starting scheduled customer segmentation training")
-        model = CustomerSegmentation()
-        result = model.train()
+        result = compute_rfm_segmentation()
 
         if result.get('status') == 'success':
-            summary = result.get('summary', {})
             frappe.logger().info(
                 f"Customer segmentation completed: "
-                f"{summary.get('total_customers', 0)} customers, "
-                f"{summary.get('num_segments', 0)} segments"
+                f"{result.get('total_customers', 0)} customers, "
+                f"{len(result.get('segments') or [])} segments"
             )
 
         return result
@@ -52,11 +52,10 @@ def train_customer_segmentation():
 def train_sales_forecast():
     """Daily: Train sales forecasting model"""
     try:
-        from insights.ml.sales_forecasting import SalesForecasting
+        from insights.ml.sales_forecasting import run_sales_forecast
 
         frappe.logger().info("Starting scheduled sales forecast training")
-        model = SalesForecasting()
-        result = model.train()
+        result = run_sales_forecast()
 
         if result.get('status') == 'success':
             frappe.logger().info(
@@ -82,7 +81,7 @@ def train_payment_prediction():
         if result.get('status') == 'success':
             frappe.logger().info(
                 f"Payment prediction completed: "
-                f"accuracy={result.get('model_metrics', {}).get('accuracy', 0):.1f}%"
+                f"{result.get('training_samples', 0)} training samples scored"
             )
 
         return result
@@ -95,7 +94,7 @@ def train_payment_prediction():
 def train_abc_xyz_classification():
     """Daily: Train ABC/XYZ inventory classification"""
     try:
-        from insights.ml.abc_xyz_classification import ABCXYZClassification
+        from insights.ml.inventory_intelligence import ABCXYZClassification
 
         frappe.logger().info("Starting scheduled ABC/XYZ classification")
         model = ABCXYZClassification()
@@ -124,10 +123,9 @@ def train_demand_forecast():
         result = model.train()
 
         if result.get('status') == 'success':
-            summary = result.get('summary', {})
             frappe.logger().info(
                 f"Demand forecast completed: "
-                f"{summary.get('total_items_analyzed', 0)} items analyzed"
+                f"{result.get('total_items_analyzed', 0)} items analyzed"
             )
             # Send reorder alerts if items need reordering
             _send_reorder_alert(result)
@@ -149,9 +147,11 @@ def train_product_recommendations():
         result = model.train()
 
         if result.get('status') == 'success':
+            summary = result.get('transaction_summary', {})
             frappe.logger().info(
                 f"Product recommendations completed: "
-                f"{result.get('total_products', 0)} products analyzed"
+                f"{summary.get('total_items', 0)} items across "
+                f"{summary.get('total_transactions', 0)} transactions"
             )
 
         return result
@@ -165,16 +165,17 @@ def _send_reorder_alert(forecast_result: dict):
     """Send reorder alert notification"""
     try:
         reorder_items = [
-            f for f in forecast_result.get('forecasts', [])
-            if f.get('stock_status') == 'Reorder Now'
+            f for f in forecast_result.get('reorder_alerts', [])
+            if f.get('status') == 'reorder_now'
         ]
         if not reorder_items:
             return
 
         items_list = "\n".join([
-            f"- {item.get('item_name', item.get('item_code', 'Unknown'))}: "
+            f"- {item.get('item_code', 'Unknown')}: "
             f"Current stock: {item.get('current_stock', 0)}, "
-            f"Reorder Qty: {item.get('recommended_reorder', 0)}"
+            f"Monthly forecast: {item.get('monthly_forecast', 0)}, "
+            f"Stock covers {item.get('months_cover', 0)} months"
             for item in reorder_items[:10]
         ])
 
@@ -213,11 +214,13 @@ def _send_churn_risk_alert(intelligence_result: dict):
         if not at_risk:
             return
 
-        high_risk = [c for c in at_risk if c.get('risk_level') == 'High'][:10]
+        high_risk = sorted(
+            at_risk, key=lambda c: float(c.get('churn_score') or 0), reverse=True
+        )[:10]
         items_list = "\n".join([
-            f"- {c.get('customer_name', c.get('customer', 'Unknown'))}: "
-            f"Risk Score: {c.get('risk_score', 0):.0f}%, "
-            f"Last Order: {c.get('last_order_date', 'N/A')}"
+            f"- {c.get('customer_name', c.get('customer_id', 'Unknown'))}: "
+            f"Churn Score: {c.get('churn_score', 0):.0f}%, "
+            f"Last order: {c.get('recency_days', 'N/A')} days ago"
             for c in high_risk
         ])
 
@@ -349,11 +352,10 @@ def run_all_ml_models():
 def train_customer_intelligence():
     """Daily: Train comprehensive customer intelligence model"""
     try:
-        from insights.ml.customer_intelligence import CustomerIntelligence
+        from insights.ml.customer import compute_customer_intelligence
 
         frappe.logger().info("Starting scheduled customer intelligence training")
-        model = CustomerIntelligence()
-        result = model.train(update_customers=True)
+        result = compute_customer_intelligence()
 
         if result.get('status') == 'success':
             summary = result.get('summary', {})
@@ -380,11 +382,10 @@ def train_customer_intelligence():
 def train_sales_intelligence():
     """Daily: Train comprehensive sales intelligence model"""
     try:
-        from insights.ml.sales_intelligence import SalesIntelligence
+        from insights.ml.sales_intelligence import run_sales_intelligence
 
         frappe.logger().info("Starting scheduled sales intelligence training")
-        model = SalesIntelligence()
-        result = model.train(refresh_forecasts=False)
+        result = run_sales_intelligence()
 
         if result.get('status') == 'success':
             summary = result.get('summary', {})

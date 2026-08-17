@@ -19,6 +19,7 @@ class ProductionDataCollector(BaseCollector):
             "work_orders": self._get_work_order_status(),
             "efficiency": self._get_production_efficiency(),
             "top_items": self._get_top_produced_items(),
+            "completed_order_count": self._get_completed_order_count(),
             "monthly_trend": self._get_monthly_trend(),
             "workstation_utilization": self._get_workstation_utilization()
         }
@@ -73,6 +74,19 @@ class ProductionDataCollector(BaseCollector):
             "planned_qty": planned,
             "efficiency_percent": round(efficiency, 2)
         }
+
+    def _get_completed_order_count(self) -> int:
+        """Count Work Orders completed within the period (for completion-rate metrics)."""
+        result = frappe.db.sql("""
+            SELECT COUNT(*) as completed
+            FROM `tabWork Order`
+            WHERE planned_start_date BETWEEN %s AND %s
+            AND company = %s
+            AND docstatus = 1
+            AND status = 'Completed'
+        """, (self.from_date, self.to_date, self.company), as_dict=True)
+
+        return int(result[0].get("completed") or 0) if result else 0
 
     def _get_top_produced_items(self, limit: int = 10) -> List[Dict]:
         """Get top produced items"""
