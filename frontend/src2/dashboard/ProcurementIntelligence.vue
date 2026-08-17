@@ -27,6 +27,8 @@
       :is-permission-error="isPermissionError"
       :has-data="hasData"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       subject="procurement data"
       permission-hint="Ask an administrator for procurement read access."
       @retry="retry"
@@ -77,8 +79,10 @@
         :value="`${summary.riskScore}/100`"
         :sublabel="getRiskLabel(summary.riskScore)"
         :severity="scoreSeverity(summary.riskScore, { good: 30, warn: 60, higherIsBetter: false })"
+        :clickable="true"
         :loading="loading && !hasData"
         :error="error ?? undefined"
+        @click="tabIndex = RISKS_TAB_INDEX"
       />
     </div>
 
@@ -201,8 +205,8 @@
             :loading="loading && !hasData"
           />
           <KpiCard
-            label="Avg Quality Rate"
-            :percent="supplierData.avg_quality_rate"
+            :label="qualityStatus === 'not_implemented' ? 'Avg Quality Rate (not tracked)' : 'Avg Quality Rate'"
+            :percent="qualityStatus === 'not_implemented' ? null : (supplierData.avg_quality_rate ?? null)"
             variant="tile"
             :loading="loading && !hasData"
           />
@@ -231,7 +235,7 @@
                 <div class="flex-1">
                   <div class="font-medium text-ink-gray-9">{{ sup.supplier_name || sup.supplier }}</div>
                   <div class="text-sm text-ink-gray-6">
-                    On-time: {{ sup.on_time_rate }}% | Quality: {{ sup.quality_rate }}%
+                    On-time: {{ sup.on_time_rate }}% | Quality: {{ sup.quality_rate == null ? 'N/A' : sup.quality_rate + '%' }}
                   </div>
                 </div>
                 <div class="text-lg font-bold text-ink-gray-9">{{ sup.overall_score }}</div>
@@ -252,7 +256,7 @@
                 <div class="flex-1">
                   <div class="font-medium text-ink-gray-9">{{ sup.supplier_name || sup.supplier }}</div>
                   <div class="text-sm text-ink-gray-6">
-                    On-time: {{ sup.on_time_rate }}% | Quality: {{ sup.quality_rate }}%
+                    On-time: {{ sup.on_time_rate }}% | Quality: {{ sup.quality_rate == null ? 'N/A' : sup.quality_rate + '%' }}
                   </div>
                 </div>
                 <div class="text-lg font-bold text-ink-gray-9">{{ sup.overall_score }}</div>
@@ -293,8 +297,8 @@
                     </span>
                   </td>
                   <td class="px-4 py-3 text-right">
-                    <span :class="deltaInk((sup.quality_rate ?? 0) - 70, { higherIsBetter: true })" class="font-medium">
-                      {{ sup.quality_rate }}%
+                    <span :class="sup.quality_rate == null ? 'text-ink-gray-6' : deltaInk((sup.quality_rate ?? 0) - 70, { higherIsBetter: true })" class="font-medium">
+                      {{ sup.quality_rate == null ? 'N/A' : sup.quality_rate + '%' }}
                     </span>
                   </td>
                   <td class="px-4 py-3 text-right text-sm text-ink-gray-6">{{ sup.avg_lead_time }} days</td>
@@ -313,7 +317,25 @@
       <!-- Tab 3: Purchase Analytics -->
       <div v-if="activeTab === 'analytics'" class="space-y-6">
         <!-- Cycle Times -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+          <KpiCard
+            label="Total POs"
+            :value="purchaseData.total_po_count"
+            sublabel="All confirmed orders"
+            variant="tile"
+            :clickable="true"
+            :loading="loading && !hasData"
+            @click="drillDown.open(PROC_ENDPOINT, 'Total Purchase Orders', { metric: 'total_pos' })"
+          />
+          <KpiCard
+            label="Overdue POs"
+            :value="purchaseData.overdue_po_count"
+            sublabel="Past expected date, not closed"
+            variant="tile"
+            :clickable="true"
+            :loading="loading && !hasData"
+            @click="drillDown.open(PROC_ENDPOINT, 'Overdue Purchase Orders', { metric: 'overdue_pos' })"
+          />
           <KpiCard
             label="MR to PO"
             :value="purchaseData.avg_mr_to_po_days"
@@ -810,11 +832,12 @@ interface SupplierPerfRow {
   supplier: string
   supplier_name?: string
   on_time_rate?: number
-  quality_rate?: number
-  overall_score?: number
+  /** null when the backend reported ``quality_status: not_implemented`` */
+  quality_rate?: number | null
   avg_lead_time?: number
   po_count?: number
   total_value?: number
+  overall_score?: number
 }
 /** Purchase order status summary row. */
 interface POStatusRow { status: string; count: number; value: number }
@@ -878,7 +901,8 @@ interface SupplierData {
   avg_lead_time?: number
   avg_on_time_rate?: number
   avg_score?: number
-  avg_quality_rate?: number
+  avg_quality_rate?: number | null
+  quality_status?: 'success' | 'not_implemented' | string
   top_performers?: SupplierPerfRow[]
   bottom_performers?: SupplierPerfRow[]
   all_suppliers?: SupplierPerfRow[]
@@ -888,6 +912,8 @@ interface PurchaseData {
   avg_mr_to_po_days?: number
   avg_po_to_grn_days?: number
   avg_grn_to_invoice_days?: number
+  total_po_count?: number
+  overdue_po_count?: number
   pending_count?: number
   pending_value?: number
   po_status_summary?: POStatusRow[]
@@ -940,6 +966,13 @@ const tabs = [
   { label: 'Risk Analysis', value: 'risks' },
   { label: 'Forecasts & Planning', value: 'forecasts' },
 ]
+// Risk Score KPI card (above) navigates here on click -- it's a blended
+// 0-100 composite (concentration/single-source/payment risk), not a single
+// countable metric, so a tab jump reads better than a record-list
+// drill-down (TODOS.md, 2026-08-17 drill-down/coverage audit). Looked up
+// by value rather than hardcoded so a future tab reorder can't silently
+// point the click at the wrong tab.
+const RISKS_TAB_INDEX = tabs.findIndex(t => t.value === 'risks')
 
 const tabDefs = tabs.map(t => ({ label: t.label }))
 const activeTab = computed(() => tabs[tabIndex.value]?.value ?? 'spend')
@@ -963,6 +996,8 @@ const {
   error,
   isPermissionError,
   warming,
+  notImplemented,
+  notImplementedMessage,
   hasData,
   reload,
   retry,
@@ -975,6 +1010,10 @@ const {
 const spendData = computed(() => procurementData.value?.spend_overview ?? ({} as SpendData))
 const supplierData = computed(() => procurementData.value?.supplier_performance ?? ({} as SupplierData))
 const purchaseData = computed(() => procurementData.value?.purchase_analytics ?? ({} as PurchaseData))
+// Surface the backend's explicit "no quality data on this site" signal so
+// the dashboard can label the Quality tile and supplier rows accordingly
+// rather than rendering a misleading "100%" everywhere.
+const qualityStatus = computed(() => supplierData.value.quality_status ?? 'success')
 const priceData = computed(() => procurementData.value?.price_intelligence ?? ({} as PriceData))
 const riskData = computed(() => procurementData.value?.risk_analysis ?? ({} as ProcurementRiskData))
 const forecastData = computed(() => procurementData.value?.forecasts ?? ({} as ForecastData))

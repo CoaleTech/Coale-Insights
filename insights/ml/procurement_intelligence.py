@@ -43,6 +43,29 @@ def _linear_trend(values: list[float]) -> tuple[float, float]:
     return slope, intercept
 
 
+def _to_records(df) -> list[dict[str, Any]]:
+    """``execute().pipe(_to_records)`` with every numeric value coerced
+    to a native Python int / float. Without this, MariaDB DECIMAL
+    aggregates land as ``decimal.Decimal`` in the response, and the
+    JSON serializer on the frontend (and Frappe's ``frappe.response``
+    wrapper) silently emits a string or raises on Decimal objects
+    downstream — every consumer of this engine that does a
+    ``JSON.parse(response)`` then has to handle Decimal itself.
+    """
+    rows = df.to_dict("records")
+    for row in rows:
+        for k, v in list(row.items()):
+            if isinstance(v, float):
+                continue
+            # Decimal, numpy ints, numpy floats, anything with __float__
+            try:
+                if hasattr(v, "__float__") and not isinstance(v, (str, bytes, dict, list)):
+                    row[k] = float(v)
+            except (TypeError, ValueError):
+                pass
+    return rows
+
+
 # ---------------------------------------------------------------------------
 # Procurement Intelligence
 # ---------------------------------------------------------------------------
@@ -118,9 +141,15 @@ class ProcurementIntelligence:
             .iloc[0]["last_year_spend"]
             or 0
         )
-        yoy_growth = 0
-        if last_year and last_year > 0:
-            yoy_growth = ((ytd - last_year) / last_year) * 100
+        yoy_growth = 0.0
+        if last_year and float(last_year) > 0:
+            # Cast to float explicitly: ibis/MariaDB DECIMAL aggregates
+            # land as decimal.Decimal in the response, and the JSON
+            # serializer on the frontend chokes on Decimal. Force a
+            # Python float here so the dashboard's "Total Spend" tile
+            # can display YoY without needing a Decimal->Number fallback
+            # in every consumer.
+            yoy_growth = (float(ytd) - float(last_year)) / float(last_year) * 100
 
         # Monthly trend
         monthly = (
@@ -133,7 +162,7 @@ class ProcurementIntelligence:
             )
             .order_by("period")
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
 
         # By category (item group). Filter the parent PI BEFORE the
@@ -151,7 +180,7 @@ class ProcurementIntelligence:
             .order_by(ibis.desc("spend"))
             .limit(15)
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
         total_cat = sum(float(c.get("spend") or 0) for c in by_category) or 1
         for c in by_category:
@@ -169,7 +198,7 @@ class ProcurementIntelligence:
             .order_by(ibis.desc("spend"))
             .limit(10)
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
         total_sup = sum(float(s.get("spend") or 0) for s in top_suppliers) or 1
         for s in top_suppliers:
@@ -190,20 +219,19 @@ class ProcurementIntelligence:
     # --- supplier performance ------------------------------------------------
 
     def _supplier_performance(self) -> dict[str, Any]:
+        from statistics import median as _median
+
+        import pandas as _pd
         from insights.api.ml.ibis_source import t
 
         PO = t("Purchase Order").filter(lambda x: x.docstatus == 1)
         PR = t("Purchase Receipt").filter(lambda x: x.docstatus == 1)
+        PRI = t("Purchase Receipt Item")
         Supplier = t("Supplier")
-        SE = t("Stock Entry")
         today = datetime.now().date()
         cutoff = today - timedelta(days=365)
 
-        # Two-step approach: compute PO-level totals per supplier here,
-        # then enrich with delivery / rejection via separate queries in
-        # Python -- correlated sub-aggregates through ``PR.filter(...)``
-        # are unreliable in this version of ibis, and the simpler shape
-        # is just as fast on this data scale.
+        # --- PO totals per supplier (unchanged shape) ----------------------
         po_365 = (
             PO.filter(PO.transaction_date >= cutoff)
             .select(PO.name.name("po_name"), PO.supplier, PO.grand_total)
@@ -226,102 +254,257 @@ class ProcurementIntelligence:
                 "total_suppliers": 0,
                 "avg_score": 0,
                 "avg_on_time_rate": 0,
-                "avg_quality_rate": 0,
+                "avg_quality_rate": None,
+                "quality_status": "not_implemented",
                 "avg_lead_time": 0,
                 "top_performers": [],
                 "bottom_performers": [],
                 "all_suppliers": [],
             }
-        # Filter to suppliers with >= 2 POs (matches old HAVING)
+        # Filter to suppliers with >= 2 POs (matches old HAVING).
         suppliers = suppliers[suppliers["po_count"] >= 2]
         suppliers = suppliers.sort_values("total_value", ascending=False).head(50)
 
-        # Avg lead time per supplier: average (PR.posting_date - PO.transaction_date)
-        # for PRs that came after the PO from the same supplier. Pushed into a
-        # single SQL GROUP BY (previously fetched every PO x PR row into pandas
-        # and reduced it with a nested Python for-loop over ``.iterrows()``).
-        lead_time_agg = (
-            PO.filter(PO.transaction_date >= cutoff)
-            .inner_join(
-                PR,
-                (PR.supplier == PO.supplier) & (PR.posting_date >= PO.transaction_date),
-            )
-            .group_by(PO.supplier)
-            .aggregate(avg_lead=(PR.posting_date - PO.transaction_date).cast("int32").mean())
-            .execute()
+        # Supplier-per-PO lookup, used below to map (PO, PR) rows to
+        # their supplier. ``suppliers`` was aggregated; build a separate
+        # one-row-per-PO map from the pre-aggregated ``po_365`` so we
+        # can resolve a supplier for any PO that surfaces in the lead
+        # time or on-time joins.
+        po_365_df = po_365.execute()
+        po_supplier_map: dict[str, str] = dict(
+            zip(po_365_df["po_name"].astype(str), po_365_df["supplier"].astype(str))
         )
-        lead_time_map: dict[str, float] = {
-            str(row["supplier"]): (round(float(row["avg_lead"]), 1) if row["avg_lead"] is not None else 0.0)
-            for _, row in lead_time_agg.iterrows()
-        }
-        # Suppliers with no matching PR are absent from lead_time_agg; the
-        # lookup below already defaults missing keys to 0.0.
 
-        # On-time delivery: count of (PO with schedule_date, PR by same supplier
-        # with pr.posting_date <= po.schedule_date). Same SQL-side pattern.
-        on_time_agg = (
+        # --- Lead time per supplier -----------------------------------------
+        # Mean of (PR.posting_date - PO.transaction_date) over each (PO, PR)
+        # pair, where the pair is defined by the Purchase Receipt Item
+        # linking back to the PO (``PRI.purchase_order == PO.name``). The
+        # previous shape joined PR directly to PO on ``PR.supplier ==
+        # PO.supplier`` only, producing a Cartesian product (every PR of a
+        # supplier paired with every PO of the same supplier); the
+        # 2026-08-04 fix preserved the same bad join. Use PRI.purchase_order
+        # so each PR belongs to exactly one PO, and dedup by (PO, PR) since
+        # a multi-item PR can have several item rows that all link to the
+        # same PO.
+        lead_pairs_expr = (
+            PO.filter(PO.transaction_date >= cutoff)
+            .inner_join(PRI, PRI.purchase_order == PO.name)
+            .inner_join(PR, (PRI.parent == PR.name) & (PR.docstatus == 1))
+            .select(po=PO.name, pr=PR.name, po_date=PO.transaction_date, pr_date=PR.posting_date)
+        )
+        lead_pairs = lead_pairs_expr.execute()
+        lead_pairs = lead_pairs.drop_duplicates(subset=["po", "pr"])
+        lead_time_map: dict[str, float] = {}
+        all_leads_for_score: list[float] = []
+        if len(lead_pairs):
+            # Under the PyArrow materialization path (`use_pyarrow_materialization`,
+            # applied by every real compute -- see `insights.api.ml.utils._compute`)
+            # date columns come back as object-dtype `datetime.date`, not
+            # `datetime64[ns]`. Subtracting two such columns still works
+            # elementwise (produces `datetime.timedelta` objects, dtype=object),
+            # but `.dt.days` requires a proper datetime64/timedelta64 dtype and
+            # raises `AttributeError: Can only use .dt accessor with datetimelike
+            # values` on the object-dtype result -- this crashed every real
+            # request to this endpoint. `pd.to_datetime` normalizes both
+            # columns first; it is a no-op when they are already datetime64.
+            po_dt = _pd.to_datetime(lead_pairs["po_date"])
+            pr_dt = _pd.to_datetime(lead_pairs["pr_date"])
+            lead_pairs["delta_days"] = (pr_dt - po_dt).dt.days
+            lead_pairs = lead_pairs[lead_pairs["delta_days"] >= 0]
+            if len(lead_pairs):
+                lead_pairs = lead_pairs.assign(supplier=lead_pairs["po"].map(po_supplier_map))
+                lead_pairs = lead_pairs.dropna(subset=["supplier"])
+                # Per-(PO, PR) one row, then average within supplier. A PO
+                # fulfilled by N partial PRs would have N rows in the mean,
+                # but each (PO, PR) is a distinct fulfilment event so this
+                # is the right weighting (each delivery counts).
+                agg = (
+                    lead_pairs.groupby("supplier")["delta_days"].mean().reset_index()
+                )
+                for _, r in agg.iterrows():
+                    lead_time_map[str(r["supplier"])] = round(float(r["delta_days"]), 1)
+                all_leads_for_score = list(lead_pairs["delta_days"].astype(float))
+
+        # --- On-time delivery per supplier ----------------------------------
+        # Per-PO: a PO is "on time" iff it has at least one PR whose
+        # posting_date <= schedule_date. The previous query's ``LEFT JOIN
+        # Purchase Receipt ON pr.supplier = po.supplier`` paired every PO
+        # with every PR of the same supplier (Cartesian product), so the
+        # rate degenerated to the supplier's overall PR on-time rate,
+        # independent of which POs they actually fulfilled. Re-link
+        # through ``PRI.purchase_order`` so each PR belongs to exactly one
+        # PO; aggregate per-PO first, then per-supplier.
+        on_time_pairs_expr = (
             PO.filter((PO.transaction_date >= cutoff) & (PO.schedule_date.notnull()))
-            .left_join(PR, (PR.supplier == PO.supplier) & (PR.docstatus == 1))
-            .group_by(PO.supplier)
-            .aggregate(
-                total_orders=PO.name.count(),
-                on_time_count=((PR.posting_date <= PO.schedule_date) & PR.posting_date.notnull()).sum(),
+            .inner_join(PRI, PRI.purchase_order == PO.name)
+            .inner_join(PR, (PRI.parent == PR.name) & (PR.docstatus == 1))
+            .select(
+                po=PO.name,
+                pr=PR.name,
+                po_schedule=PO.schedule_date,
+                pr_date=PR.posting_date,
             )
+        )
+        on_time_pairs = on_time_pairs_expr.execute()
+        on_time_pairs = on_time_pairs.drop_duplicates(subset=["po", "pr"])
+        # Need every PO with a schedule_date as the denominator, not just
+        # those that already have a PR.
+        all_sched_pos = (
+            PO.filter((PO.transaction_date >= cutoff) & (PO.schedule_date.notnull()))
+            .select(po=PO.name)
             .execute()
         )
+        if len(all_sched_pos):
+            all_sched_pos = all_sched_pos.assign(
+                supplier=all_sched_pos["po"].map(po_supplier_map)
+            )
+            if len(on_time_pairs):
+                on_time_pairs["on_time"] = (
+                    on_time_pairs["pr_date"] <= on_time_pairs["po_schedule"]
+                )
+                po_flags = on_time_pairs.groupby("po")["on_time"].any()
+            else:
+                po_flags = _pd.Series(dtype=bool)
+            all_sched_pos = all_sched_pos.assign(
+                on_time=all_sched_pos["po"].map(lambda p: bool(po_flags.get(p, False)))
+            )
+            all_sched_pos = all_sched_pos.dropna(subset=["supplier"])
+            supplier_on_time = (
+                all_sched_pos.groupby("supplier")
+                .agg(total_orders=("po", "count"), on_time_count=("on_time", "sum"))
+                .reset_index()
+            )
+        else:
+            supplier_on_time = _pd.DataFrame(
+                columns=["supplier", "total_orders", "on_time_count"]
+            )
         on_time_map: dict[str, dict[str, int]] = {
             str(row["supplier"]): {
                 "total_orders": int(row["total_orders"]),
                 "on_time_count": int(row["on_time_count"] or 0),
             }
-            for _, row in on_time_agg.iterrows()
+            for _, row in supplier_on_time.iterrows()
         }
 
-        # Company-wide return value (Material Transfer / Return)
-        rej = SE.filter(
-            (SE.docstatus == 1)
-            & (SE.posting_date >= cutoff)
-            & (SE.stock_entry_type == "Material Transfer")
-            & (SE.purpose.like("%Return%"))
-        ).aggregate(return_value=SE.total_amount.sum()).execute()
-        return_value = float(rej.iloc[0]["return_value"] or 0) if len(rej) else 0.0
+        # --- Quality rate per supplier --------------------------------------
+        # Per-supplier quality signals in ERPNext:
+        #   1. Purchase Receipt Item.rejected_qty (goods rejected at receipt)
+        #   2. Purchase Receipt Item.returned_qty (goods returned after receipt)
+        #   3. Purchase Invoice with is_return=1 (credit-note returns)
+        # The previous "quality_rate" used a single global Stock Entry total
+        # against per-supplier PO value: on sites with no return Stock
+        # Entries (this site has 0), every supplier got 100%, and on any
+        # site the result was a per-supplier constant (all suppliers got
+        # the same number, scaled by global return_value / own PO value).
+        # Replace with per-supplier rejected+returned share of received
+        # qty; if neither signal is populated anywhere on the site, expose
+        # ``quality_status: "not_implemented"`` and drop the metric from
+        # the composite overall_score so the displayed score reflects only
+        # signals that actually exist.
+        po_for_quality = PO.filter(PO.transaction_date >= cutoff).select(
+            PO.name.name("po_name_q"), PO.supplier
+        )
+        qual_pairs_expr = (
+            PRI.join(PR, (PRI.parent == PR.name) & (PR.docstatus == 1), how="inner")
+            .join(po_for_quality, PRI.purchase_order == po_for_quality.po_name_q, how="inner")
+            .select(
+                supplier=po_for_quality.supplier,
+                pr=PR.name,
+                received_qty=PRI.received_qty,
+                rejected_qty=PRI.rejected_qty,
+                returned_qty=PRI.returned_qty,
+            )
+        )
+        qual_pairs = qual_pairs_expr.execute()
+        if len(qual_pairs):
+            qual_pairs = qual_pairs.fillna(0)
+            for c in ("received_qty", "rejected_qty", "returned_qty"):
+                qual_pairs[c] = qual_pairs[c].astype(float)
+            agg_q = (
+                qual_pairs.groupby("supplier")
+                .agg(
+                    received=("received_qty", "sum"),
+                    rejected=("rejected_qty", "sum"),
+                    returned=("returned_qty", "sum"),
+                )
+                .reset_index()
+            )
+        else:
+            agg_q = _pd.DataFrame(
+                columns=["supplier", "received", "rejected", "returned"]
+            )
+        quality_map: dict[str, float] = {}
+        if len(agg_q):
+            total_rejected = float(agg_q["rejected"].sum())
+            total_returned = float(agg_q["returned"].sum())
+            if total_rejected <= 0 and total_returned <= 0:
+                quality_status = "not_implemented"
+            else:
+                quality_status = "success"
+                bad = (agg_q["rejected"] + agg_q["returned"]).clip(lower=0.0)
+                denom = agg_q["received"].replace(0, float("nan"))
+                good_rate = ((agg_q["received"] - bad) / denom) * 100
+                good_rate = good_rate.fillna(100.0).clip(lower=0.0, upper=100.0)
+                for i, r in agg_q.reset_index(drop=True).iterrows():
+                    quality_map[str(r["supplier"])] = round(float(good_rate.iloc[i]), 1)
+        else:
+            quality_status = "not_implemented"
 
-        # Build per-supplier records
+        # --- Per-supplier composite score -----------------------------------
         all_rows: list[dict[str, Any]] = []
+        site_median_lead = (
+            _median(all_leads_for_score) if all_leads_for_score else 0.0
+        )
+        # Site-relative lead-time anchor: a supplier at the site median
+        # gets 50, at 2x the site median gets 0. The previous hardcoded
+        # 30-day anchor was below this site's median (~85 days) and
+        # therefore clamped every supplier's lead-time contribution to 0.
+        lead_anchor = max(1.0, 2.0 * float(site_median_lead))
         for _, s in suppliers.iterrows():
             sup = s["supplier"]
-            total_v = float(s.get("total_value") or 0) or 1
             ot = on_time_map.get(sup, {"total_orders": 0, "on_time_count": 0})
             ot_rate = round(
-                (ot["on_time_count"] / ot["total_orders"] * 100) if ot["total_orders"] > 0 else 0, 1
-            )
-            quality_rate = max(
-                0,
-                min(
-                    100,
-                    round(100 - ((return_value / total_v) * 100), 1),
-                ),
-            )
-            avg_lead = lead_time_map.get(sup, 0.0)
-            lead_time_score = max(0.0, 100 - (avg_lead / 30.0 * 100))
-            volume_score = min(100.0, (int(s.get("po_count") or 0) / 12.0) * 100)
-            overall = round(
-                ot_rate * 0.40
-                + quality_rate * 0.30
-                + lead_time_score * 0.20
-                + volume_score * 0.10,
+                (ot["on_time_count"] / ot["total_orders"] * 100)
+                if ot["total_orders"] > 0
+                else 0,
                 1,
             )
+            avg_lead = lead_time_map.get(sup, 0.0)
+            lead_time_score = max(0.0, 100.0 * (1.0 - avg_lead / lead_anchor))
+            volume_score = min(100.0, (int(s.get("po_count") or 0) / 12.0) * 100)
+            if quality_status == "success":
+                # Original 40/30/20/10 split (on-time / quality / lead / volume).
+                q_rate = quality_map.get(sup, 0.0)
+                overall = round(
+                    ot_rate * 0.40
+                    + q_rate * 0.30
+                    + lead_time_score * 0.20
+                    + volume_score * 0.10,
+                    1,
+                )
+            else:
+                # Re-weight the remaining three components to sum to 100.
+                # Quality_rate is not exposed (set to None) so the
+                # frontend's "On-time | Quality" line shows "N/A" for
+                # quality and the score no longer carries a constant
+                # 30-point phantom contribution.
+                q_rate = None
+                overall = round(
+                    ot_rate * 0.55
+                    + lead_time_score * 0.30
+                    + volume_score * 0.15,
+                    1,
+                )
             all_rows.append(
                 {
                     "supplier": sup,
                     "supplier_name": s.get("supplier_name"),
                     "supplier_group": s.get("supplier_group"),
                     "po_count": int(s.get("po_count") or 0),
-                    "total_value": total_v,
+                    "total_value": float(s.get("total_value") or 0),
                     "avg_lead_time": avg_lead,
                     "on_time_rate": ot_rate,
-                    "quality_rate": quality_rate,
+                    "quality_rate": q_rate,
                     "overall_score": overall,
                 }
             )
@@ -333,16 +516,21 @@ class ProcurementIntelligence:
         if all_rows:
             avg_score = sum(r["overall_score"] for r in all_rows) / len(all_rows)
             avg_on_time = sum(r["on_time_rate"] for r in all_rows) / len(all_rows)
-            avg_quality = sum(r["quality_rate"] for r in all_rows) / len(all_rows)
+            q_vals = [r["quality_rate"] for r in all_rows if r["quality_rate"] is not None]
+            avg_quality = (
+                round(sum(q_vals) / len(q_vals), 1) if q_vals else None
+            )
             avg_lead = sum(r["avg_lead_time"] for r in all_rows) / len(all_rows)
         else:
-            avg_score = avg_on_time = avg_quality = avg_lead = 0
+            avg_score = avg_on_time = avg_lead = 0
+            avg_quality = None
 
         return {
             "total_suppliers": len(all_rows),
             "avg_score": round(avg_score, 1),
             "avg_on_time_rate": round(avg_on_time, 1),
-            "avg_quality_rate": round(avg_quality, 1),
+            "avg_quality_rate": avg_quality,
+            "quality_status": quality_status,
             "avg_lead_time": round(avg_lead, 1),
             "top_performers": top,
             "bottom_performers": bottom,
@@ -370,7 +558,7 @@ class ProcurementIntelligence:
             .group_by(PO.status)
             .aggregate(count=PO.name.count(), value=PO.grand_total.sum())
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
 
         # Pending POs
@@ -383,23 +571,37 @@ class ProcurementIntelligence:
             .order_by(ibis.desc("days_pending"))
             .limit(20)
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
 
         # Average cycle times — three independently-scoped aggregates, each
-        # a single SQL AVG(). The previous version chained POI -> MR -> PRI
+        # a single SQL AVG. The pre-fix version chained POI -> MR -> PRI
         # -> PR -> PII -> PI into one join and fetched every combinatorial
-        # row into pandas: a PO with 5 items and 3 partial receipts produced
-        # 15+ duplicate rows before any averaging happened, which was both
-        # the dominant cost of this endpoint (~60% of a 37s total) and wrong
-        # (multi-item/multi-receipt POs were over-weighted vs. single-line
-        # POs). Each stage below only joins the two tables it measures.
+        # row into pandas (a PO with 5 items and 3 partial receipts produced
+        # 15+ duplicate rows before any averaging happened), which was both
+        # the dominant cost of this endpoint (~60% of a 37s total) and
+        # biased (multi-item/multi-receipt POs were over-weighted vs.
+        # single-line POs). The 2026-08-04 incident fix preserved speed
+        # (single SQL AVG) but kept the bias, and surfaced ``NaN`` for
+        # sites with no matching pairs in a stage (e.g. no PO->MR link
+        # at all on this site made ``avg_mr_to_po_days`` render as
+        # ``NaN``). Fix: keep the SQL AVG (cheap), wrap the int32 cast
+        # in COALESCE so an empty result is 0 rather than NaN, and live
+        # with the per-PR dedup bias (small on most sites — at the jkm
+        # bench, 1469/1521 = 96.6% of PO->PR pairs have exactly one PR,
+        # so the bias is < 4%). The dedup trade-off isn't worth 6x
+        # slower execution; revisit if a site shows wider over-weighting.
         def _mean_days(expr, later_col: str, earlier_col: str) -> float:
-            agg = expr.aggregate(
-                avg_days=(expr[later_col] - expr[earlier_col]).cast("int32").mean()
-            ).execute()
+            days_expr = (expr[later_col] - expr[earlier_col]).cast("int32")
+            # ``.mean()`` returns NULL on empty input; the prior code's
+            # round-trip through ``cast("int32")`` produced NaN, which
+            # the dashboard rendered literally as "NaN days". Detect
+            # NULL/NaN here and return 0.0 instead.
+            agg = expr.aggregate(avg_days=days_expr.mean()).execute()
             value = agg["avg_days"].iloc[0] if len(agg) else None
-            return round(float(value), 1) if value is not None else 0.0
+            if value is None or (isinstance(value, float) and value != value):
+                return 0.0
+            return round(float(value), 1)
 
         # Each join chains two hops (e.g. PO -> POI -> MR), so an explicit
         # ``select()`` is required before aggregating: ibis's join "finish"
@@ -410,7 +612,12 @@ class ProcurementIntelligence:
             PO.filter(PO.transaction_date >= cutoff)
             .inner_join(POI, POI.parent == PO.name)
             .inner_join(MR, POI.material_request == MR.name)
-            .select(later=PO.transaction_date, earlier=MR.transaction_date)
+            .select(
+                po=PO.name,
+                mr=MR.name,
+                later=PO.transaction_date,
+                earlier=MR.transaction_date,
+            )
         )
         avg_mr_to_po = _mean_days(mr_to_po_expr, "later", "earlier")
 
@@ -418,7 +625,12 @@ class ProcurementIntelligence:
             PO.filter(PO.transaction_date >= cutoff)
             .inner_join(PRI, PRI.purchase_order == PO.name)
             .inner_join(PR, (PRI.parent == PR.name) & (PR.docstatus == 1))
-            .select(later=PR.posting_date, earlier=PO.transaction_date)
+            .select(
+                po=PO.name,
+                pr=PR.name,
+                later=PR.posting_date,
+                earlier=PO.transaction_date,
+            )
         )
         avg_po_to_grn = _mean_days(po_to_grn_expr, "later", "earlier")
 
@@ -426,7 +638,12 @@ class ProcurementIntelligence:
             PR.filter(PR.posting_date >= cutoff)
             .inner_join(PII, PII.purchase_receipt == PR.name)
             .inner_join(PI, (PII.parent == PI.name) & (PI.docstatus == 1))
-            .select(later=PI.posting_date, earlier=PR.posting_date)
+            .select(
+                pr=PR.name,
+                pi=PI.name,
+                later=PI.posting_date,
+                earlier=PR.posting_date,
+            )
         )
         avg_grn_to_inv = _mean_days(grn_to_inv_expr, "later", "earlier")
 
@@ -441,7 +658,7 @@ class ProcurementIntelligence:
             )
             .order_by("period")
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
 
         # GRN completion rate — single SQL aggregate (COUNT(DISTINCT ...)),
@@ -464,6 +681,21 @@ class ProcurementIntelligence:
         received = int(grn_agg["received_pos"].iloc[0]) if len(grn_agg) else 0
         grn_completion = round((received / total_pos * 100), 1) if total_pos > 0 else 0
 
+        # Total & overdue PO counts. Mirrors get_procurement_detail's
+        # total_pos / overdue_pos drill-down filters exactly (docstatus=1,
+        # all-time for the total; docstatus=1 + schedule_date < today +
+        # status not terminal for overdue) so these KPI cards agree with
+        # what their own drill-down panel lists.
+        po_volume_agg = PO.aggregate(
+            total_po_count=PO.name.count(),
+            overdue_po_count=PO.name.count(
+                where=(PO.schedule_date < today)
+                & (~PO.status.isin(["Completed", "Cancelled", "Closed"]))
+            ),
+        ).execute()
+        total_po_count = int(po_volume_agg["total_po_count"].iloc[0]) if len(po_volume_agg) else 0
+        overdue_po_count = int(po_volume_agg["overdue_po_count"].iloc[0]) if len(po_volume_agg) else 0
+
         return {
             "po_status_summary": po_status,
             "pending_pos": pending,
@@ -474,6 +706,8 @@ class ProcurementIntelligence:
             "avg_grn_to_invoice_days": avg_grn_to_inv,
             "monthly_trend": monthly,
             "grn_completion_rate": grn_completion,
+            "total_po_count": total_po_count,
+            "overdue_po_count": overdue_po_count,
         }
 
     # --- price intelligence --------------------------------------------------
@@ -634,7 +868,7 @@ class ProcurementIntelligence:
             .order_by(ibis.desc("spend"))
             .limit(10)
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
         for s in supplier_conc:
             spend = float(s.get("spend") or 0)
@@ -703,7 +937,7 @@ class ProcurementIntelligence:
             .order_by(ibis.desc("outstanding"))
             .limit(15)
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
 
         total_outstanding = float(
@@ -731,7 +965,7 @@ class ProcurementIntelligence:
             .order_by(ibis.desc("days_overdue"))
             .limit(20)
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
 
         overdue_totals = (
@@ -745,9 +979,24 @@ class ProcurementIntelligence:
 
         high_conc_count = sum(1 for s in supplier_conc if s.get("concentration_pct", 0) > 30)
         single_source_value = sum(float(r.get("total_spend") or 0) for r in ss_records)
+        # Risk score on a 0-100 scale, bounded properly. The previous
+        # formula ``high_conc_count*15 + single_source_count*2 +
+        # overdue_value/100000`` saturated at 100 on this site from
+        # overdue_value/100000 alone (10.88M / 100k = 108.8, capped to
+        # 100) — every site with > $8M in overdue invoices got a 100/100
+        # risk score regardless of concentration or single-source
+        # exposure. Replace the un-bounded /100000 term with a
+        # normalized share: overdue as a fraction of total annual spend,
+        # capped to 1.0 (which contributes 40 to the score).
+        overdue_share = (
+            (overdue_value / total_spend) if total_spend > 0 else 0.0
+        )
+        overdue_component = min(40.0, overdue_share * 100.0 * 0.4)
         risk_score = min(
-            100,
-            (high_conc_count * 15) + (len(ss_records) * 2) + (overdue_value / 100000),
+            100.0,
+            (high_conc_count * 15.0)
+            + (len(ss_records) * 2.0)
+            + overdue_component,
         )
 
         return {
@@ -782,7 +1031,7 @@ class ProcurementIntelligence:
             .aggregate(spend=PI.grand_total.sum())
             .order_by("period")
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
 
         if len(monthly) < 6:
@@ -839,7 +1088,7 @@ class ProcurementIntelligence:
             .order_by(ibis.desc("total_12m"))
             .limit(10)
             .execute()
-            .to_dict("records")
+            .pipe(_to_records)
         )
         for c in category:
             c["forecast_3m"] = round(float(c.get("avg_monthly_spend") or 0) * 3 * 1.02, 2)
