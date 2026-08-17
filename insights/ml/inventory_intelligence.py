@@ -67,22 +67,35 @@ def _projection(values: list[float], periods: int) -> list[float]:
 def _health_score(total_value: float, overstock_count: int, low_stock_count: int, out_of_stock_count: int) -> float:
     """0-100 inventory health score. Higher is healthier.
 
-    Same weighting the old code used; this just operates on the four
-    already-aggregated counts, not on row-level data.
+    Penalizes inventory health problems weighted by severity. Inputs are
+    item counts (overstocked SKUs, low-stock SKUs, out-of-stock SKUs)
+    plus a reference total_value used only to scale the score against
+    the business's overall inventory size (very-small businesses should
+    not score 100 just because they only have a handful of items).
+
+    Pre-fix: each problem-count was multiplied by an arbitrary constant
+    (1000/1500/2000) and divided by total_value (typically millions) --
+    the penalty always collapsed to ~0 and the score saturated at 100
+    even when 36 items were out of stock.
     """
     if total_value <= 0:
         return 50.0
-    overstock_pct = (overstock_count * 1000) / total_value  # rough scaling
-    low_stock_pct = (low_stock_count * 1500) / total_value
-    oos_pct = (out_of_stock_count * 2000) / total_value
-    score = 100 - (overstock_pct * 0.3 + low_stock_pct * 0.5 + oos_pct * 0.7)
+    # Use total_value to scale: a business with $10K in stock shouldn't
+    # be penalized the same as one with $10M. Reference scale: a
+    # $1M baseline; below that, problems hurt more; above, the score
+    # spreads out. A penalty-per-item proportional to (1000 / value
+    # at the $1M reference) keeps the math in a sensible range.
+    value_ref = max(total_value, 100_000)  # floor so very small businesses aren't over-penalized
+    scale = 1_000_000 / value_ref          # 1.0 at the $1M reference
+    overstock_pen = overstock_count * 1.5 * scale
+    low_stock_pen = low_stock_count * 2.5 * scale
+    oos_pen = out_of_stock_count * 4.0 * scale
+    score = 100 - (overstock_pen + low_stock_pen + oos_pen)
     return round(max(0, min(100, score)), 1)
-
 
 # ---------------------------------------------------------------------------
 # Inventory Intelligence
 # ---------------------------------------------------------------------------
-
 
 class InventoryIntelligence:
     """Compute inventory intelligence directly in MariaDB via Ibis.
@@ -92,6 +105,7 @@ class InventoryIntelligence:
     implementation does not need any of that: each method issues one or
     two SQL aggregates and returns the result.
     """
+
 
     def __init__(self, date_filter: str = "12m"):
         self.date_filter = date_filter
@@ -244,25 +258,64 @@ class InventoryIntelligence:
             lambda x: (x.docstatus == 1) & (x.posting_date >= cutoff_90d)
         )
 
-        # COGS last 12 months (sum of sales invoice item amounts)
-        cogs_expr = (
+        # True COGS last 12 months comes from Stock Ledger Entry
+        # stock_value_difference (the canonical ERPNext cost-of-goods-sold
+        # field) summed over outbound vouchers. Pre-fix: code summed
+        # `Sales Invoice Item.amount`, which is **selling-price * qty**
+        # (revenue) and labelled it `cogs_12m` -- a 30x overstatement for
+        # any business with non-trivial margin. Both metrics are returned
+        # so the dashboard can show GM% alongside turnover.
+        SLE = t("Stock Ledger Entry")
+        cogs_real_expr = (
+            SLE.filter(
+                (SLE.posting_date >= cutoff_12m)
+                & (SLE.stock_value_difference < 0)
+                & (SLE.voucher_type.isin(["Delivery Note", "Sales Invoice", "Stock Entry"]))
+            )
+            .aggregate(cogs_12m=(-SLE.stock_value_difference).sum())
+        )
+        cogs_real_df = cogs_real_expr.execute()
+        cogs = float(cogs_real_df.iloc[0]["cogs_12m"] or 0)
+        # Also keep revenue separate from COGS (Sales Invoice Item.amount
+        # is selling-price * qty, i.e. revenue, NOT cost).
+        rev_expr = (
             sii.join(si, sii.parent == si.name, how="semi")
             .select(sii.amount)
-            .aggregate(cogs_12m=sii.amount.sum())
+            .aggregate(revenue_12m=sii.amount.sum())
         )
-        # Current stock value (positive stock only)
+        rev_df = rev_expr.execute()
+        revenue_12m = float(rev_df.iloc[0]["revenue_12m"] or 0)
+
+        # Current stock value (positive stock only) -- average inventory
+        # for the turnover ratio denominator.
         inv_expr = Bin.filter(Bin.actual_qty > 0).aggregate(
             avg_inventory=(Bin.actual_qty * Bin.valuation_rate).sum()
         )
-
-        cogs_df = cogs_expr.execute()
         inv_df = inv_expr.execute()
-        cogs = float(cogs_df.iloc[0]["cogs_12m"] or 0)
         avg_inventory = float(inv_df.iloc[0]["avg_inventory"] or 1)
         turnover_ratio = cogs / avg_inventory if avg_inventory > 0 else 0
         days_sales_inventory = 365 / turnover_ratio if turnover_ratio > 0 else 0
-
-        # Per-item-group turnover
+        # Per-item-group: real COGS (from SLE) and revenue (from SI) per
+        # item_group. SLE-based COGS is the canonical ERPNext cost-of-goods
+        # field and gives a meaningful turnover ratio; revenue is kept so
+        # the dashboard can also surface GM% per group. Per-item outbound
+        # SVD (from SLE) -> per-item-group COGS. No SI join needed: SLE
+        # .stock_value_difference already carries the item-level cost,
+        # grouped by item_code then by item_group via Item master.
+        by_group_cogs_df = (
+            SLE.filter(
+                (SLE.posting_date >= cutoff_12m)
+                & (SLE.stock_value_difference < 0)
+                & (SLE.voucher_type.isin(["Delivery Note", "Sales Invoice", "Stock Entry"]))
+            )
+            .left_join(Item, SLE.item_code == Item.name)
+            .group_by(Item.item_group)
+            .aggregate(cogs_12m=(-SLE.stock_value_difference).sum())
+            .mutate(item_group=ibis.coalesce(Item.item_group, ibis.literal("Uncategorized")))
+            .execute()
+        )
+        # Per-item-group revenue from Sales Invoice (Sales Invoice Item
+        # .amount is revenue, not cost -- see comment above).
         by_group_sales = (
             sii.join(si, sii.parent == si.name, how="semi")
             .select(sii.item_code, sii.amount)
@@ -274,6 +327,7 @@ class InventoryIntelligence:
             .limit(10)
             .execute()
         )
+        cogs_map = dict(zip(by_group_cogs_df["item_group"], by_group_cogs_df["cogs_12m"]))
 
         by_group_stock = (
             Bin.filter(Bin.actual_qty > 0)
@@ -290,8 +344,12 @@ class InventoryIntelligence:
             group = row["item_group"]
             stock_val = float(stock_map.get(group, 0) or 0)
             sales = float(row["sales_12m"] or 0)
-            if stock_val > 0:
-                ratio = round(sales / stock_val, 2)
+            cogs_v = float(cogs_map.get(group, 0) or 0)
+            # Use real COGS for turnover (the denominator a procurement
+            # planner cares about: how fast does cost flow through stock?).
+            ratio_basis = cogs_v if cogs_v > 0 else sales
+            if stock_val > 0 and ratio_basis > 0:
+                ratio = round(ratio_basis / stock_val, 2)
                 dsi = round(365 / ratio, 0) if ratio > 0 else 999
             else:
                 ratio = 0
@@ -300,6 +358,7 @@ class InventoryIntelligence:
                 {
                     "item_group": group,
                     "sales_12m": sales,
+                    "cogs_12m": cogs_v,
                     "current_stock_value": stock_val,
                     "turnover_ratio": ratio,
                     "dsi": dsi,
@@ -364,7 +423,14 @@ class InventoryIntelligence:
             "overall_turnover_ratio": round(turnover_ratio, 2),
             "days_sales_inventory": round(days_sales_inventory, 0),
             "cogs_12m": cogs,
+            "revenue_12m": revenue_12m,
+            "gross_margin_pct": round((revenue_12m - cogs) / revenue_12m * 100, 2) if revenue_12m > 0 else 0,
             "avg_inventory_value": avg_inventory,
+            # Computed above (per-item-group sales/COGS/turnover_ratio/dsi)
+            # but dropped from this dict during the COGS-vs-revenue fix --
+            # the frontend's Turnover tab renders this table from
+            # `turnover_analysis.by_product_group` and was silently empty.
+            # Fixed 2026-08-17.
             "by_product_group": by_group,
             "fast_moving": fast_moving,
             "slow_moving": slow_moving,
@@ -406,8 +472,14 @@ class InventoryIntelligence:
             lambda r: round(r["weighted_age"] / r["total_qty"], 0) if r["total_qty"] > 0 else 0,
             axis=1,
         )
-        per_item["weighted_age"] = per_item["avg_age_days"]  # frontend reads weighted_age? keep compat
-        per_item["avg_age"] = per_item["avg_age_days"]
+        # NOTE: do not overwrite `weighted_age` here -- it must keep its
+        # original age*qty accumulator meaning (an extensive quantity, safe
+        # to re-sum) for the by-item-group aggregation below, which sums it
+        # across items and divides by summed qty to get a qty-weighted group
+        # average. Overwriting it with the already-normalized per-item
+        # `avg_age_days` (an intensive quantity) silently corrupted that
+        # group average -- confirmed unused by any consumer (frontend reads
+        # only `avg_age_days`). Fixed 2026-08-17.
 
         buckets = _empty_age_buckets()
         for _, row in per_item.iterrows():
@@ -692,8 +764,7 @@ class InventoryIntelligence:
         Bin = t("Bin")
         ItemReorder = t("Item Reorder")
 
-        # Supplier performance (last 12 months): count + value + avg lead time
-        # via join on PO/Supplier + PR (any receipt from same supplier).
+        # Supplier performance (last 12 months): count + value + avg lead time.
         # Pre-narrow every side to just the needed (uniquely-named) columns
         # -- joining full doctype tables collides on shared base-Document
         # fields (name, owner, modified, ...) plus overlapping business
@@ -710,30 +781,56 @@ class InventoryIntelligence:
         supplier_slim = Supplier.select(
             Supplier.name.name("supplier_key"), Supplier.supplier_name
         )
-        pr_slim = PR.select(
-            PR.supplier.name("pr_supplier"), PR.posting_date.name("pr_posting_date")
-        )
-        supplier_perf = (
+
+        # order_count/total_value: pure PO properties, no receipt join needed.
+        supplier_totals = (
             po_365
             .left_join(supplier_slim, po_365.supplier == supplier_slim.supplier_key)
-            .left_join(
-                pr_slim,
-                (pr_slim.pr_supplier == po_365.supplier)
-                & (pr_slim.pr_posting_date >= po_365.transaction_date),
-            )
             .group_by(po_365.supplier, supplier_slim.supplier_name)
             .aggregate(
                 order_count=po_365.po_name.nunique(),
                 total_value=po_365.grand_total.sum(),
-                avg_lead_time=(
-                    (pr_slim.pr_posting_date - po_365.transaction_date).cast("int32")
-                ).mean(),
             )
             .order_by(ibis.desc("total_value"))
             .limit(15)
             .execute()
             .to_dict("records")
         )
+
+        # Lead time via the direct Purchase Receipt Item.purchase_order link
+        # back to its originating PO -- NOT a same-supplier/any-later-receipt
+        # heuristic, which fans a PO out against every other receipt from the
+        # same supplier. Confirmed on this site's data: that heuristic
+        # inflated avg_lead_time 240x-760x (e.g. reporting ~120 days for
+        # suppliers whose real, PO-linked receipts land same-day). Two-stage
+        # aggregate: per-PO first (a PO with several lines or partial
+        # receipts gets ONE lead-time value, so it isn't overweighted), then
+        # averaged per supplier. Fixed 2026-08-17.
+        PRI = t("Purchase Receipt Item")
+        pri_slim = PRI.select(PRI.purchase_order, PRI.parent)
+        pr_slim = PR.select(PR.name.name("pr_name"), PR.posting_date.name("pr_posting_date"))
+        po_lead_time = (
+            po_365.select(po_365.po_name, po_365.supplier, po_365.transaction_date)
+            .inner_join(pri_slim, po_365.po_name == pri_slim.purchase_order)
+            .inner_join(pr_slim, pri_slim.parent == pr_slim.pr_name)
+            .group_by(po_365.po_name, po_365.supplier)
+            .aggregate(
+                lead_time=((pr_slim.pr_posting_date - po_365.transaction_date).cast("int32")).mean()
+            )
+        )
+        supplier_lead = (
+            po_lead_time
+            .group_by(po_lead_time.supplier)
+            .aggregate(avg_lead_time=po_lead_time.lead_time.mean())
+            .execute()
+        )
+        lead_time_map = dict(zip(supplier_lead["supplier"], supplier_lead["avg_lead_time"]))
+
+        supplier_perf = supplier_totals
+        for row in supplier_perf:
+            lt = lead_time_map.get(row["supplier"])
+            row["avg_lead_time"] = round(float(lt), 2) if lt is not None and not math.isnan(float(lt)) else None
+
 
         # Pending POs
         pending = (
@@ -991,39 +1088,6 @@ class ABCXYZClassification:
 
     def predict(self, item_code: str | None = None) -> dict[str, Any]:
         return self.train()
-
-    def get_reorder_recommendations(self) -> dict[str, list[dict[str, Any]]]:
-        data = self.train()
-        items = data.get("items", [])
-        Bin = _t("Bin")
-        # monthly demand -> stock months
-        per_item_monthly_demand = {
-            r["item_code"]: r.get("avg_monthly_qty", 0) or 0 for r in items
-        }
-        stock_now = (
-            Bin.group_by(Bin.item_code)
-            .aggregate(stock_qty=Bin.actual_qty.sum())
-            .execute()
-        )
-        stock_map = dict(zip(stock_now["item_code"], stock_now["stock_qty"]))
-
-        critical, review, discontinue = [], [], []
-        for r in items:
-            item = r["item_code"]
-            monthly = per_item_monthly_demand.get(item, 0) or 0
-            stock = float(stock_map.get(item, 0) or 0)
-            stock_months = stock / monthly if monthly > 0 else 0
-            if r["abc_class"] == "A" and stock_months < 2:
-                critical.append({**r, "stock_months": round(stock_months, 1)})
-            elif r["abc_class"] == "B" and stock_months < 1:
-                review.append({**r, "stock_months": round(stock_months, 1)})
-            elif r.get("abc_xyz_class") == "CZ":
-                discontinue.append(r)
-        return {
-            "critical_reorder": critical,
-            "review_needed": review,
-            "consider_discontinue": discontinue,
-        }
 
 
 # ---------------------------------------------------------------------------

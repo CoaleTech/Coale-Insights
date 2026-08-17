@@ -64,14 +64,11 @@ interface InventoryIntelligenceData {
   stock_overview?: Record<string, unknown>
   turnover_analysis?: Record<string, unknown>
   aging_analysis?: Record<string, unknown>
-  aging_fifo?: Record<string, unknown>
   warehouse_analysis?: Record<string, unknown>
-  warehouse_transfers?: Record<string, unknown>
   transfer_recommendations?: unknown[]
   dead_stock?: Record<string, unknown>
   procurement_insights?: Record<string, unknown>
   abc_xyz?: AbcXyzData
-  abc_xyz_analysis?: Record<string, unknown>
   demand_planning?: Record<string, unknown> | null
   [k: string]: unknown
 }
@@ -83,6 +80,8 @@ const {
   error,
   isPermissionError,
   warming,
+  notImplemented,
+  notImplementedMessage,
   hasData,
   reload,
   retry,
@@ -248,9 +247,11 @@ const breadcrumbs = [
 const chatContext = computed(() => ({
   stockOverview: inventoryData.value?.stock_overview || {},
   turnoverAnalysis: inventoryData.value?.turnover_analysis || {},
-  abcXyzAnalysis: inventoryData.value?.abc_xyz_analysis || {},
-  agingFifo: inventoryData.value?.aging_fifo || {},
-  warehouseTransfers: inventoryData.value?.warehouse_transfers || {},
+  abcXyzAnalysis: inventoryData.value?.abc_xyz || {},
+  agingAnalysis: inventoryData.value?.aging_analysis || {},
+  warehouseAnalysis: inventoryData.value?.warehouse_analysis || {},
+  deadStock: inventoryData.value?.dead_stock || {},
+  transferRecommendations: inventoryData.value?.transfer_recommendations || [],
   procurementInsights: inventoryData.value?.procurement_insights || {},
   demandPlanning: inventoryData.value?.demand_planning || {},
   activeTab: activeTab.value,
@@ -322,6 +323,8 @@ function handleDashboardRedirect(target: string) {
       :is-permission-error="isPermissionError"
       :has-data="hasData"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       subject="inventory data"
       permission-hint="Ask an administrator for inventory read access."
       @retry="retry"
