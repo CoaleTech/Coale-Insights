@@ -178,6 +178,7 @@ class CrossDashboardSearchService:
                 query_analysis, list(domain_results.keys()), aggregated
             )
             total_results = sum(len(d["results"]) for d in domain_results.values())
+            self._record_search_activity(query, total_results, list(domain_results.keys()))
             summary = self._create_search_summary(
                 query, total_results, list(domain_results.keys()), aggregated
             )
@@ -218,6 +219,25 @@ class CrossDashboardSearchService:
                 "search_time": datetime.now().isoformat(),
                 "error": str(e),
             }
+
+    def _record_search_activity(self, query: str, results_count: int, domains: List[str]) -> None:
+        """Log this search to ``Search Activity Log`` for ``get_search_history`` to read back.
+
+        Best-effort: a logging failure must never break the search response
+        itself -- matches this file's degrade-gracefully convention.
+        """
+        try:
+            if not frappe.db.table_exists("Search Activity Log"):
+                return
+            frappe.get_doc({
+                "doctype": "Search Activity Log",
+                "user": frappe.session.user,
+                "query": query,
+                "results_count": results_count,
+                "domains_searched": ",".join(domains),
+            }).insert(ignore_permissions=True)
+        except Exception as e:
+            logger.error("Error recording search activity: %s", e)
 
     def get_search_suggestions(
         self,

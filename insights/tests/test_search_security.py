@@ -12,10 +12,11 @@ The fix removes the `user` parameter from the whitelisted API surface
 entirely (not just at the service layer), so the strongest guarantee is a
 TypeError on the old call shape, not just "the value is ignored".
 
-Note: "Search Activity Log" / "Search Favorite" doctypes do not exist in
-this bench (see plan-eng-review code-quality finding 2 -- a separate,
-pre-existing gap), so these tests mock the DB layer rather than round-trip
-through real records.
+Note: "Search Activity Log" / "Search Favorite" doctypes were built
+2026-08-17 (plan-eng-review code-quality finding 2, closed) -- these tests
+still mock the DB layer for the IDOR-signature guarantees above, since that
+contract does not depend on the doctypes existing. `TestSearchPersistence`
+below round-trips through the real doctypes.
 """
 
 import inspect
@@ -66,3 +67,40 @@ class TestSearchHistoryIDORFix(FrappeTestCase):
         with patch.object(CrossDashboardSearchService, "get_search_history", return_value=[]) as mock_method:
             search_api.get_search_history(limit=10)
             mock_method.assert_called_once_with(10)
+
+
+class TestSearchPersistence(FrappeTestCase):
+    """Round-trip tests for the "Search Activity Log" / "Search Favorite"
+    doctypes (plan-eng-review code-quality finding 2, closed 2026-08-17).
+    Before this, both doctypes were missing entirely and every endpoint
+    below silently degraded (empty list / "not_available") rather than
+    persisting anything -- see git history for the pre-fix behaviour.
+    """
+
+    def test_search_activity_log_doctype_exists(self):
+        self.assertTrue(frappe.db.table_exists("Search Activity Log"))
+
+    def test_search_favorite_doctype_exists(self):
+        self.assertTrue(frappe.db.table_exists("Search Favorite"))
+
+    def test_save_search_favorite_persists_a_real_record(self):
+        service = CrossDashboardSearchService()
+        result = service.save_search_favorite(
+            query="__test_persistence_favorite__", title="Persistence Test"
+        )
+        self.assertEqual(result["status"], "success")
+        self.assertTrue(
+            frappe.db.exists(
+                "Search Favorite",
+                {"query": "__test_persistence_favorite__", "user": frappe.session.user},
+            )
+        )
+
+    def test_perform_global_search_logs_and_get_search_history_reads_it_back(self):
+        service = CrossDashboardSearchService()
+        service.perform_global_search(query="__test_persistence_history__")
+        history = service.get_search_history(limit=50)
+        self.assertTrue(
+            any(row.get("query") == "__test_persistence_history__" for row in history),
+            f"expected a logged entry for the test query, got: {history}",
+        )
