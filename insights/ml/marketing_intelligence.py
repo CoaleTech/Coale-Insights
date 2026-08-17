@@ -313,7 +313,7 @@ class MarketingIntelligence:
     # ----------------------------------------------------------------- helpers
     def _lead_base(self, from_str: str):
         """Lead relation filtered to the period, company-scoped."""
-        lead = company_filter(t("Lead"), self.company)
+        lead = company_filter(t("Lead", extra_columns=("source",)), self.company)
         return lead.filter(lead["creation"] >= from_str)
 
     # --------------------------------------------------------------- pipeline
@@ -629,7 +629,7 @@ class MarketingIntelligence:
             campaign_roi = (
                 round(((expected - total_spent) / total_spent * 100), 2)
                 if total_spent
-                else 0
+                else None
             )
 
             return {
@@ -637,7 +637,9 @@ class MarketingIntelligence:
                 "email_campaign_metrics": email_metrics,
                 "campaign_roi_pct": campaign_roi,
                 "campaign_effectiveness": (
-                    "excellent"
+                    "no_data"
+                    if campaign_roi is None
+                    else "excellent"
                     if campaign_roi > 200
                     else "good"
                     if campaign_roi > 100
@@ -935,9 +937,12 @@ class MarketingIntelligence:
 
             # Spend-per-customer needs campaign cost data. The
             # Campaign table on this site has no budget / cost columns,
-            # so the legacy 150-flat-fallback was a fabrication; the
-            # rewrite honestly reports 0.
-            acquisition_cost = 0
+            # so the legacy 150-flat-fallback was a fabrication, and a
+            # bare 0 is not honest either -- it previously graded as
+            # "good" (0 < 250), i.e. a fabricated pass grade computed
+            # from the absence of any cost data. Report None: cost is
+            # unmeasured, not measured-and-zero. Fixed 2026-08-17.
+            acquisition_cost = None
 
             return {
                 "total_new_customers": total,
@@ -947,7 +952,9 @@ class MarketingIntelligence:
                 "monthly_acquisition_trend": monthly_acquisition,
                 "acquisition_cost_per_customer": acquisition_cost,
                 "acquisition_efficiency": (
-                    "excellent"
+                    "no_data"
+                    if acquisition_cost is None
+                    else "excellent"
                     if 0 < acquisition_cost < 100
                     else "good"
                     if acquisition_cost < 250
@@ -976,30 +983,26 @@ class MarketingIntelligence:
                     default=0.0,
                 )
             )
-            # No Campaign cost columns on this site.
+            # No Campaign cost columns on this site: spend, ROI, ROAS,
+            # and CPA are all unmeasurable (not zero-valued). Reporting
+            # them as 0 previously fixed roi_assessment permanently at
+            # "needs_improvement" (0 never clears the > 150 bar) -- a
+            # fabricated verdict computed from absent data. Fixed
+            # 2026-08-17.
             total_marketing_spend = 0
-            roi = 0
-            roas = 0
 
             cust = t("Customer").filter(t("Customer")["creation"] >= from_str)
             customer_count = _int(cust.aggregate(total=cust.count()))
-            cpa = total_marketing_spend / customer_count if customer_count else 0
             rpc = total_attributed_revenue / customer_count if customer_count else 0
 
             return {
                 "total_marketing_spend": round(total_marketing_spend, 2),
                 "total_attributed_revenue": round(total_attributed_revenue, 2),
-                "marketing_roi_pct": round(roi, 2),
-                "return_on_ad_spend": round(roas, 2),
-                "cost_per_acquisition": round(cpa, 2),
+                "marketing_roi_pct": None,
+                "return_on_ad_spend": None,
+                "cost_per_acquisition": None,
                 "revenue_per_customer": round(rpc, 2),
-                "roi_assessment": (
-                    "excellent"
-                    if roi > 300
-                    else "good"
-                    if roi > 150
-                    else "needs_improvement"
-                ),
+                "roi_assessment": "no_data",
             }
         except Exception as e:
             frappe.log_error(
@@ -1041,9 +1044,13 @@ class MarketingIntelligence:
             )
 
             # Opportunities by source -- also period-scoped.
-            opp = company_filter(t("Opportunity"), self.company).filter(
-                t("Opportunity")["creation"] >= from_str
-            )
+            # `source` was dropped from Lead/Opportunity's current meta in favour
+            # of UTM tracking, but this site never adopted UTM (utm_source is
+            # ~0% populated; the orphaned `source` column is 97.8% populated
+            # for Lead and 97.1% for Opportunity). Same `extra_columns` escape
+            # hatch used elsewhere (see `marketing._compute_marketing_overview`).
+            opp_raw = t("Opportunity", extra_columns=("source",))
+            opp = company_filter(opp_raw, self.company).filter(opp_raw["creation"] >= from_str)
             opp_source_label = _coalesce_label(opp, "source", "Unattributed").name(
                 "source_label"
             )
@@ -1217,7 +1224,6 @@ class MarketingIntelligence:
                     "average_score": 0,
                     "grade_distribution": {"Hot": 0, "Warm": 0, "Cold": 0, "Ice": 0},
                     "high_priority_leads": 0,
-                    "scored_leads": [],
                     "top_leads": [],
                     "scoring_effectiveness": "needs_improvement",
                 }
@@ -1320,7 +1326,6 @@ class MarketingIntelligence:
                 "high_priority_leads": len(
                     [lead_row for lead_row in scored_leads if lead_row["priority"] == "High"]
                 ),
-                "scored_leads": scored_leads,
                 "top_leads": scored_leads[:20],
                 "scoring_effectiveness": (
                     "excellent"
@@ -1403,8 +1408,8 @@ class MarketingIntelligence:
                     }
                 )
 
-            roi = roi_data.get("marketing_roi_pct", 0)
-            if roi < 150:
+            roi = roi_data.get("marketing_roi_pct")
+            if roi is not None and roi < 150:
                 recommendations.append(
                     {
                         "priority": "medium",

@@ -63,11 +63,22 @@ if TYPE_CHECKING:
     import ibis.expr.types as ir
 
 
-def permitted(t: ir.Table, doctype: str) -> ir.Table:
+def permitted(t: ir.Table, doctype: str, extra_columns: tuple[str, ...] = ()) -> ir.Table:
     """Restrict `t` to the rows and columns the current user may read.
 
     Fails closed: a doctype the user cannot read yields zero rows, never the
     unfiltered table.
+
+    `extra_columns` widens the column projection below with specific
+    physical columns even when the DocType's current meta does not declare
+    them as fields. Frappe never drops a database column when a field is
+    removed from a DocType, so a column can outlive the field that used to
+    gate it -- e.g. `Lead.source` and `Quotation.source`, dropped from both
+    doctypes' meta in favour of `utm_source`, but still the only place the
+    real historical channel data lives on sites that never adopted UTM
+    tracking. This does not weaken row-level security: the row filter below
+    already ran, so `extra_columns` can only add back columns of rows the
+    caller was already permitted to read.
     """
     columns, query = _resolve(doctype)
 
@@ -98,7 +109,7 @@ def permitted(t: ir.Table, doctype: str) -> ir.Table:
 
     # `columns` carries fieldnames, including virtual fields that have no
     # column at all; intersecting against the real columns drops those too.
-    keep = [c for c in t.columns if c in columns]
+    keep = [c for c in t.columns if c in columns or c in extra_columns]
     if not keep:
         return _empty(t)
     return t.select(keep) if len(keep) != len(t.columns) else t

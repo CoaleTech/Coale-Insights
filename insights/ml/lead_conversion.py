@@ -103,6 +103,9 @@ class LeadConversion:
                     "lost": lost,
                 }
 
+            # `source` (orphan-but-populated, see Lead meta) carries the real
+            # channel data on this site; `utm_source` is ~0% populated. Use
+            # the orphan column -- `_win_rates_by` widens the projection.
             source_rates = self._win_rates_by("source")
             territory_rates = self._win_rates_by("territory")
             industry_rates = self._win_rates_by("industry")
@@ -183,7 +186,13 @@ class LeadConversion:
         computed in Python on the small aggregate result; SQL only
         returns the two integer aggregates per bucket.
         """
-        lead = t("Lead")
+        # The `source` column is dropped from Lead's current meta in favour
+        # of UTM tracking, but this site never adopted UTM: `utm_source` is
+        # 0% populated while the orphaned `source` column is 97.8% populated
+        # (IndiaMart 2651, Trade India 622, ...). `extra_columns` widens the
+        # projection without weakening row-level permissions, matching the
+        # escape hatch used by `marketing._compute_marketing_overview`.
+        lead = t("Lead", extra_columns=("source",))
         cutoff = _months_ago(self.months_back)
         q = company_filter(
             lead.filter(lead.docstatus < 2, lead.creation >= cutoff),
@@ -216,7 +225,10 @@ class LeadConversion:
         industry_rates: dict,
         global_rate: float,
     ) -> list[dict]:
-        lead = t("Lead")
+        # Same orphan-`source` escape hatch as `_win_rates_by` -- reads the
+        # real channel data, not the always-NULL `utm_source` Link column.
+        lead = t("Lead", extra_columns=("source",))
+
         cutoff = _months_ago(self.months_back)
         q = company_filter(
             lead.filter(lead.docstatus < 2, lead.creation >= cutoff),
@@ -239,10 +251,23 @@ class LeadConversion:
         opp_per_lead = opp_with_flag.group_by(opp_with_flag.party_name).aggregate(
             n=opp_with_flag._one.sum()
         )
+        # `.fill_null("Unknown").replace("", "Unknown")` compiles Ibis'
+        # .replace() to MariaDB REPLACE(str, '', 'Unknown'), which is a
+        # documented no-op for an empty search pattern (returns its input
+        # unchanged) -- same bug class as the tax reconciliation-score /
+        # e-waybill-status fixes elsewhere in this app. Real empty-string
+        # source/territory/industry values stayed "" instead of bucketing
+        # into "Unknown", fragmenting the win-rate group-by they feed.
         q = q.mutate(
-            source_bucket=lead.source.fill_null("Unknown").replace("", "Unknown"),
-            territory_bucket=lead.territory.fill_null("Unknown").replace("", "Unknown"),
-            industry_bucket=lead.industry.fill_null("Unknown").replace("", "Unknown"),
+            source_bucket=ibis.cases(
+                (lead["source"].nullif("").isnull(), "Unknown"), else_=lead["source"]
+            ),
+            territory_bucket=ibis.cases(
+                (lead.territory.nullif("").isnull(), "Unknown"), else_=lead.territory
+            ),
+            industry_bucket=ibis.cases(
+                (lead.industry.nullif("").isnull(), "Unknown"), else_=lead.industry
+            ),
             age_days=ibis_days_since(lead.creation),
         )
         q = q.left_join(opp_per_lead, q.name == opp_per_lead.party_name).mutate(
@@ -304,11 +329,21 @@ def _months_ago(months: int):
 
 def ibis_days_since(date_col):
     """MariaDB DATEDIFF(CURDATE(), <col>) as an integer (days)."""
-    today = datetime.now().date()
+    # `datetime.date` has no `.delta()`; wrap as an Ibis literal so the
+    # Ibis expression tree (with `.delta()`) is well-formed. The expression
+    # then compiles to MariaDB DATEDIFF(CURDATE(), col) -- today minus
+    # the lead's creation date in whole days.
+
+    today = ibis.literal(datetime.now().date())
     return ibis.ifelse(
         date_col.isnull(),
         ibis.literal(0),
-        date_col.cast("date").delta(today, unit="day"),
+        # Ibis `.delta()` is `self - other`, so the date_col has to come
+        # LAST to compute today - creation_date. The previous operand order
+        # returned negative ages (~-719d for a 2-year-old lead) and pushed
+        # every lead into the `_component_age(age_days <= 0) -> 50.0` bucket,
+        # making the "age" component meaningless.
+        today.delta(date_col.cast("date"), unit="day"),
     )
 
 

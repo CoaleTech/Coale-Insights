@@ -93,7 +93,7 @@ def connection() -> ibis.BaseBackend:
     return frappe.local.insights_ml_ibis_conn
 
 
-def t(doctype: str) -> ir.Table:
+def t(doctype: str, extra_columns: tuple[str, ...] = ()) -> ir.Table:
     """Ibis table expression for a DocType, restricted to what the caller may read.
 
     Example: ``t("Sales Invoice")`` -> the ``tabSales Invoice`` table, lazy
@@ -104,6 +104,10 @@ def t(doctype: str) -> ir.Table:
     under `insights/api/ml/` and `insights/analytics/` reach the database. A
     caller that genuinely needs the unfiltered table can reach for
     `connection().table()`, which says so in the diff.
+
+    ``extra_columns`` restores specific physical columns the DocType's
+    current meta no longer declares as fields -- see `permissions.permitted`
+    for why that column can still exist and still be worth reading.
 
     Memoised per request on ``frappe.local``, the same way
     `insights.api.ml.permissions._rules` caches its permission lookups.
@@ -120,9 +124,11 @@ def t(doctype: str) -> ir.Table:
     if cache is None:
         cache = frappe.local.insights_ml_tables = {}
 
-    key = (frappe.session.user, doctype)
+    key = (frappe.session.user, doctype, extra_columns)
     if key not in cache:
-        cache[key] = permitted(connection().table(get_table_name(doctype)), doctype)
+        cache[key] = permitted(
+            connection().table(get_table_name(doctype)), doctype, extra_columns=extra_columns
+        )
     return cache[key]
 
 

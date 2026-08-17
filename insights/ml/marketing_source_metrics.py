@@ -61,7 +61,11 @@ def _scalar(expr, default: float = 0.0) -> float:
 
 def get_leads_by_source(period_start: str, period_end: str) -> List[Dict]:
     """Lead count grouped by source for the period [period_start, period_end]."""
-    lead = t("Lead")
+    # `source` is dropped from Lead's current meta (replaced by
+    # `utm_source`), but on this site `utm_source` is unpopulated while the
+    # orphaned `source` column holds the real historical channel data --
+    # see `insights.api.ml.marketing._compute_marketing_overview`.
+    lead = t("Lead", extra_columns=("source",))
     # ``source`` is free-text: empty strings become 'Unattributed' so the
     # frontend can group and label uniformly.
     source_label = (
@@ -88,7 +92,7 @@ def get_leads_by_source(period_start: str, period_end: str) -> List[Dict]:
 
 def get_hot_leads_by_source(period_start: str, period_end: str) -> List[Dict]:
     """Hot leads (Quotation/Opportunity/Interested status) by source."""
-    lead = t("Lead")
+    lead = t("Lead", extra_columns=("source",))  # see get_leads_by_source
     source_label = (
         ibis.cases(
             (lead["source"].notnull() & (lead["source"] != ""), lead["source"]),

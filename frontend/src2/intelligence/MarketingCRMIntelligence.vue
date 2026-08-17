@@ -47,6 +47,8 @@
         :error="error"
         :is-permission-error="isPermissionError"
         :warming="warming"
+        :not-implemented="notImplemented"
+        :not-implemented-message="notImplementedMessage"
         :has-data="hasData"
         subject="CRM data"
         permission-hint="Ask an administrator for Lead read access."
@@ -88,24 +90,32 @@
               :value="formatNumber(kpis.open_leads)"
               :severity="scoreSeverity(openShare, { good: 30, warn: 50, higherIsBetter: false })"
               :sublabel="`${openShare}% of all leads`"
+              clickable
+              @click="drillDown.open(CRM_ENDPOINT, 'Unqualified Leads', { metric: 'leads', status: ['Lead', 'Open', 'Inquiry', 'Interested'] })"
             />
             <KpiCard
               label="Lead conversion"
               :value="`${kpis.lead_conversion_rate}%`"
               :severity="scoreSeverity(kpis.lead_conversion_rate, { good: 10, warn: 5 })"
               :sublabel="`${formatNumber(kpis.converted_leads)} converted`"
+              clickable
+              @click="drillDown.open(CRM_ENDPOINT, 'Converted Leads', { metric: 'leads', status: 'Converted' })"
             />
             <KpiCard
               label="Open pipeline"
               :amount="kpis.open_quote_value"
               :currency="currency"
               sublabel="Draft quotations"
+              clickable
+              @click="drillDown.open(CRM_ENDPOINT, 'Draft Quotations', { metric: 'quotations', status: 'Draft' })"
             />
             <KpiCard
               label="Won"
               :amount="kpis.won_value"
               :currency="currency"
               sublabel="Ordered quotations"
+              clickable
+              @click="drillDown.open(CRM_ENDPOINT, 'Ordered Quotations', { metric: 'quotations', status: 'Ordered' })"
             />
             <KpiCard
               label="Win rate by value"
@@ -127,9 +137,12 @@
                  conversion rates, and is what a screen reader reads. -->
             <dl class="mt-3 divide-y divide-outline-gray-1 border-t border-outline-gray-1">
               <div
-                v-for="stage in funnel"
+                v-for="(stage, idx) in funnel"
                 :key="stage.label"
-                class="flex items-baseline justify-between gap-3 py-2"
+                class="flex items-baseline justify-between gap-3 py-2 -mx-2 rounded px-2 cursor-pointer hover:bg-surface-gray-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
+                tabindex="0"
+                @click="openFunnelDrill(idx, stage.label)"
+                @keydown.enter="openFunnelDrill(idx, stage.label)"
               >
                 <dt class="text-sm text-ink-gray-7">
                   {{ stage.label }}
@@ -161,7 +174,14 @@
                 </tr>
               </thead>
               <tbody class="divide-y divide-outline-gray-1">
-                <tr v-for="row in pipelineByStatus" :key="row.status">
+                <tr
+                  v-for="row in pipelineByStatus"
+                  :key="row.status"
+                  class="cursor-pointer hover:bg-surface-gray-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
+                  tabindex="0"
+                  @click="drillDown.open(CRM_ENDPOINT, row.status + ' Leads', { metric: 'leads', status: row.status })"
+                  @keydown.enter="drillDown.open(CRM_ENDPOINT, row.status + ' Leads', { metric: 'leads', status: row.status })"
+                >
                   <th scope="row" class="py-2 text-left font-normal text-ink-gray-8">
                     {{ row.status }}
                   </th>
@@ -360,7 +380,7 @@ import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import KpiCard from './components/KpiCard.vue'
 import LeadWinProbability from './components/LeadWinProbability.vue'
 import SectionHeader from './components/SectionHeader.vue'
-import { useDrillDown } from './composables/useDrillDown'
+import { useDrillDown, type DrillDownParams } from './composables/useDrillDown'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import { chartPalette, themeColor } from '../utils/chartTheme'
 import { formatMoney, formatCount as formatNumber } from '../utils/format'
@@ -372,6 +392,19 @@ import {
 } from '../utils/status'
 
 const CRM_ENDPOINT = 'insights.api.ml.marketing.get_crm_detail'
+
+// Index-aligned with the fixed 4-stage order `_build_marketing_funnel`
+// (api/ml/marketing.py) always emits: Leads, Reached Opportunity, Quoted,
+// Ordered. Keyed by position rather than `stage.label`, which passes through
+// Frappe's `_()` translation and cannot be relied on to match literally.
+// Verified against live data 2026-08-17: each drill-down `total` matches its
+// funnel stage `count` exactly (2,607 / 4,036 / 548 on this site).
+const FUNNEL_DRILL_PARAMS: DrillDownParams[] = [
+  { metric: 'leads' },
+  { metric: 'leads', status: ['Opportunity', 'Quotation', 'Converted'] },
+  { metric: 'quotations' },
+  { metric: 'quotations', status: 'Ordered' },
+]
 
 interface FunnelStage {
   label: string
@@ -442,7 +475,24 @@ const tabIndex = ref(0)
 
 const drillDown = useDrillDown()
 
-const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+function openFunnelDrill(idx: number, label: string) {
+  const params = FUNNEL_DRILL_PARAMS[idx]
+  if (params) drillDown.open(CRM_ENDPOINT, label, params)
+}
+
+const {
+  data,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  notImplemented,
+  notImplementedMessage,
+  hasData,
+  reload,
+  retry,
+} =
   useIntelligenceDashboard<MarketingPayload>({
     url: 'insights.api.ml.marketing.get_marketing_overview',
     params: computed(() => ({ period: period.value })),

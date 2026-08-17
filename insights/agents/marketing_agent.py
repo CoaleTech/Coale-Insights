@@ -45,10 +45,16 @@ class MarketingIntelligenceAgent(BaseIntelligenceAgent):
         campaign_metrics = full_context.get("campaign_metrics", {})
         lead_metrics = full_context.get("lead_metrics", {})
         pipeline_metrics = full_context.get("pipeline_metrics", {})
-        channel_metrics = full_context.get("channel_metrics", {})
+        # Bug fix 2026-08-17: `get_marketing_overview` returns this
+        # section under `channel_performance` (see marketing_intelligence.py
+        # docstring); `channel_metrics` never existed, so `top_channels`
+        # below was silently always empty.
+        channel_metrics = full_context.get("channel_performance", {})
 
         campaign_overview = campaign_metrics.get("campaign_overview", {})
-        campaign_roi = campaign_metrics.get("campaign_roi_pct", 0)
+        # May be None: Campaign has no cost columns on this site, so ROI
+        # is unmeasurable rather than 0 (see _analyze_campaigns).
+        campaign_roi = campaign_metrics.get("campaign_roi_pct")
 
         key_metrics = {
             "total_campaigns": campaign_overview.get("total_campaigns", 0),
@@ -74,12 +80,15 @@ class MarketingIntelligenceAgent(BaseIntelligenceAgent):
 
         return {
             "summary": f"Marketing: {key_metrics['active_campaigns']} active campaigns, "
-                       f"ROI {campaign_roi}%, "
+                       f"ROI {campaign_roi if campaign_roi is not None else 'n/a'}%, "
                        f"{key_metrics['total_leads']} leads ({key_metrics['lead_conversion_rate']}% conversion)",
             "key_metrics": key_metrics,
             "email_metrics": campaign_metrics.get("email_campaign_metrics", {}),
             "top_channels": top_channels,
-            "lead_sources": lead_metrics.get("lead_sources", {}),
+            # Bug fix 2026-08-17: `_analyze_leads` returns this section
+            # under `source_breakdown`; `lead_sources` never existed, so
+            # this was silently always empty.
+            "lead_sources": lead_metrics.get("source_breakdown", {}),
             "period": full_context.get("period", "YTD"),
         }
 

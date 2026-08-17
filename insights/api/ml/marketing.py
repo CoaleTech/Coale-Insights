@@ -333,8 +333,15 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     aggregated rows. ``start`` is a ``datetime.date`` so Ibis binds it as
     a proper parameter.
     """
-    lead = t("Lead")
-    quote = t("Quotation")
+    # `source` was dropped from both doctypes' meta in favour of UTM
+    # tracking (`utm_source`), but this site never adopted UTM: `utm_source`
+    # is 0% populated across 3,660 leads / 4,383 quotations, while the
+    # orphaned `source` column (still physically in the table -- Frappe
+    # does not drop columns when a field is removed) is 97.8% / 94.9%
+    # populated with real channel data (IndiaMart, Trade India, Google, ...).
+    # `extra_columns` reads it back without weakening row-level permissions.
+    lead = t("Lead", extra_columns=("source",))
+    quote = t("Quotation", extra_columns=("source",))
 
     # ── Funnel. Counts come from Lead.status, value from Quotation. ────────
     # `creation >= %s` accepts a date or datetime; ibis binds whichever we
@@ -664,13 +671,33 @@ def get_crm_detail(metric: str, filters: str) -> dict:
 
     if metric == "leads":
         frappe.has_permission("Lead", throw=True)
+        db_filters = {"docstatus": 0}
+        # Optional context filter from the funnel ("Reached Opportunity" ->
+        # a list of statuses) or the "Where leads are sitting" status table
+        # (a single status). Matches Frappe's own filter-tuple convention.
+        status = f.get("status")
+        if status:
+            db_filters["status"] = ("in", status) if isinstance(status, list) else status
         rows = frappe.get_list(
             "Lead",
-            filters={"docstatus": 0},
-            fields=["name", "lead_name", "company_name", "status", "source", "lead_owner", "creation"],
+            filters=db_filters,
+            # `source` is not in Lead's current meta (see
+            # `_compute_marketing_overview`), so `get_list` silently drops it
+            # instead of erroring -- fetch it separately below, scoped to
+            # just the already-permitted rows on this page.
+            fields=["name", "lead_name", "company_name", "status", "lead_owner", "creation"],
             start=start, page_length=page_size, order_by="creation desc",
             ignore_permissions=False,
         )
+        if rows:
+            source_by_name = dict(
+                frappe.db.sql(
+                    "SELECT name, source FROM `tabLead` WHERE name IN %(names)s",
+                    {"names": [r["name"] for r in rows]},
+                )
+            )
+            for r in rows:
+                r["source"] = source_by_name.get(r["name"]) or ""
         return {
             "columns": [
                 {"label": "Lead", "fieldname": "name", "fieldtype": "Link", "options": "Lead"},
@@ -681,7 +708,7 @@ def get_crm_detail(metric: str, filters: str) -> dict:
                 {"label": "Owner", "fieldname": "lead_owner", "fieldtype": "Data"},
             ],
             "rows": rows,
-            "total": frappe.db.count("Lead", filters={"docstatus": 0}),
+            "total": frappe.db.count("Lead", filters=db_filters),
         }
 
     if metric == "opportunities":
@@ -726,6 +753,36 @@ def get_crm_detail(metric: str, filters: str) -> dict:
             ],
             "rows": rows,
             "total": frappe.db.count("Opportunity", filters=db_filters),
+        }
+
+    if metric == "quotations":
+        # Gap fix 2026-08-17: the funnel's "Quoted" / "Ordered" stages had
+        # no drill-down at all. Mirrors `quote_total` in
+        # `_compute_marketing_overview`: docstatus < 2 (Draft + Submitted,
+        # excludes Cancelled), not period-filtered -- same population the
+        # funnel counts, so the drill-down total matches the stage number.
+        frappe.has_permission("Quotation", throw=True)
+        db_filters = {"docstatus": ("<", 2)}
+        status = f.get("status")
+        if status:
+            db_filters["status"] = ("in", status) if isinstance(status, list) else status
+        rows = frappe.get_list(
+            "Quotation",
+            filters=db_filters,
+            fields=["name", "party_name", "status", "transaction_date", "base_grand_total"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Quotation", "fieldname": "name", "fieldtype": "Link", "options": "Quotation"},
+                {"label": "Party", "fieldname": "party_name", "fieldtype": "Data"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Amount", "fieldname": "base_grand_total", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Quotation", filters=db_filters),
         }
 
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)
