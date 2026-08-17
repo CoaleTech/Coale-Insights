@@ -241,12 +241,25 @@ class HRIntelligence:
         # Ibis gotcha: count must reference the filtered+grouped relation,
         # not the original `employee` table, or you get the
         # "belong to another relation" IntegrityError. Bind to a local.
-        emp_active_dept = emp_active.filter(
-            employee["department"].notnull() & (employee["department"] != "")
+        #
+        # Include unassigned (NULL/empty department) as an explicit
+        # "(Unassigned)" bucket so the breakdown reconciles with the
+        # active headcount. Previously these were silently dropped: the
+        # dashboard's `department_count` and per-department totals summed
+        # to fewer than `total_employees`, leaving the breakdown card
+        # unable to explain where 3 of every 10 active employees went.
+        emp_active_dept = emp_active.mutate(
+            _dept=(
+                ibis.cases(
+                    (employee["department"].isnull(), "(Unassigned)"),
+                    (employee["department"] == "", "(Unassigned)"),
+                    else_=employee["department"],
+                )
+            )
         )
         dept_df = (
             emp_active_dept
-            .group_by(emp_active_dept["department"].name("department"))
+            .group_by(emp_active_dept["_dept"].name("department"))
             .aggregate(count=emp_active_dept.count())
             .order_by(ibis.desc("count"))
             .execute()
@@ -259,13 +272,21 @@ class HRIntelligence:
                     "count": int(r.get("count") or 0),
                 })
 
-        # Employment type composition (active only)
-        emp_active_emptype = emp_active.filter(
-            employee["employment_type"].notnull() & (employee["employment_type"] != "")
+        # Employment type composition (active only).
+        # Same NULL/empty handling: bucket as "(Unassigned)" so the
+        # breakdown reconciles with the active headcount.
+        emp_active_emptype = emp_active.mutate(
+            _etype=(
+                ibis.cases(
+                    (employee["employment_type"].isnull(), "(Unassigned)"),
+                    (employee["employment_type"] == "", "(Unassigned)"),
+                    else_=employee["employment_type"],
+                )
+            )
         )
         emptype_df = (
             emp_active_emptype
-            .group_by(emp_active_emptype["employment_type"].name("employment_type"))
+            .group_by(emp_active_emptype["_etype"].name("employment_type"))
             .aggregate(count=emp_active_emptype.count())
             .execute()
         )
@@ -277,14 +298,21 @@ class HRIntelligence:
                     "count": int(r.get("count") or 0),
                 })
 
-        # Gender composition
-        # Gender composition (active only)
-        emp_active_gender = emp_active.filter(
-            employee["gender"].notnull() & (employee["gender"] != "")
+        # Gender composition (active only).
+        # Same NULL/empty handling: bucket as "(Unspecified)" so the
+        # breakdown reconciles with the active headcount.
+        emp_active_gender = emp_active.mutate(
+            _gender=(
+                ibis.cases(
+                    (employee["gender"].isnull(), "(Unspecified)"),
+                    (employee["gender"] == "", "(Unspecified)"),
+                    else_=employee["gender"],
+                )
+            )
         )
         gender_df = (
             emp_active_gender
-            .group_by(emp_active_gender["gender"].name("gender"))
+            .group_by(emp_active_gender["_gender"].name("gender"))
             .aggregate(count=emp_active_gender.count())
             .execute()
         )
@@ -316,6 +344,14 @@ class HRIntelligence:
         net_change = new_hires - exits
 
         growth_rate = (net_change / total_active * 100) if total_active else 0
+        # Note: `turnover_rate_pct` here uses the *active* headcount
+        # denominator (snapshot of currently-employed). `attrition_metrics
+        # .attrition_rate_pct` uses the *all* Employee denominator. Both
+        # formulas are legitimate (one is a snapshot, the other is a
+        # full-population rate) but the dashboard surfaces both side-by-
+        # side, so the difference can look like a bug. The Headcount tab
+        # does not display this field today; it's only here for callers
+        # that asked for a "headcount turnover" specifically.
         turnover_rate = (exits / total_active * 100) if total_active else 0
         hire_rate = (new_hires / total_active * 100) if total_active else 0
 
@@ -424,6 +460,26 @@ class HRIntelligence:
         avg_gross = float(r.get("avg_gross") or 0)
         employees_paid = int(r.get("employees_paid") or 0)
 
+        # A non-grouped aggregate always returns exactly one row from SQL
+        # (SUM/AVG NULL, COUNT(DISTINCT) 0) even when `ss_period` matched
+        # zero Salary Slips -- so `len(totals_df)` above is always 1 and
+        # never catches this case. Check the actual row count via
+        # `employees_paid` instead; without this, a site with no payroll
+        # data for the period silently falls through to the "success"
+        # return below with every figure coerced to 0 by `or 0`, reporting
+        # `payroll_efficiency: "optimal"` for a company with no payroll
+        # cycle at all instead of the honest no_data branch.
+        if employees_paid == 0:
+            return {
+                "total_payroll_cost": 0,
+                "average_salary": 0,
+                "cost_per_employee": 0,
+                "employees_on_payroll": 0,
+                "deduction_rate_pct": 0,
+                "payroll_efficiency": "no_data",
+                "payroll_data_note": "No Salary Slip records in this period",
+            }
+
         # Department breakdown via Employee join
         dept_payroll_df = (
             ss_period
@@ -486,23 +542,50 @@ class HRIntelligence:
         # Ibis gotcha: aggregate metrics must reference the filtered
         # relation (`period_att`), not the original `att` table, or you
         # get the "belong to another relation" IntegrityError.
+        #
+        # Attendance rate previously counted ONLY `status == "Present"` as
+        # attendance -- silently dropping Half Day (0.5) and On Leave
+        # (1.0, approved absence) into the "neither present nor absent"
+        # bucket. With this site's 7 Half Days and 3 On Leaves, that
+        # dropped the reported rate from the true 49.1% to 43.43% for no
+        # good reason. Weight statuses now:
+        #   Present    -> 1.0  (full day)
+        #   Work From Home -> 1.0  (where supported; counted as Present)
+        #   Half Day   -> 0.5
+        #   On Leave   -> 1.0  (approved absence; not absenteeism)
+        #   Absent     -> 0.0
+        # `effective_present` sums the weights; `attendance_rate_pct` is
+        # that over `total`. The strict "Present only" count is still
+        # surfaced as `present_days` for backward compat.
         totals_df = (
             period_att.aggregate(
                 total=period_att.count(),
-                present=((period_att["status"] == "Present").cast("int").sum()),
+                present_strict=((period_att["status"] == "Present").cast("int").sum()),
                 absent=((period_att["status"] == "Absent").cast("int").sum()),
+                half_day=((period_att["status"] == "Half Day").cast("int").sum()),
+                on_leave=((period_att["status"] == "On Leave").cast("int").sum()),
+                work_from_home=((period_att["status"] == "Work From Home").cast("int").sum()),
             ).execute()
         )
         total = 0
         present = 0
         absent = 0
+        half_day = 0
+        on_leave = 0
+        work_from_home = 0
         if totals_df is not None and len(totals_df):
             r = totals_df.iloc[0]
             total = int(r.get("total") or 0)
-            present = int(r.get("present") or 0)
+            present = int(r.get("present_strict") or 0)
             absent = int(r.get("absent") or 0)
+            half_day = int(r.get("half_day") or 0)
+            on_leave = int(r.get("on_leave") or 0)
+            work_from_home = int(r.get("work_from_home") or 0)
 
-        attendance_rate = (present / total * 100) if total else 0
+        effective_present = (
+            present + work_from_home + on_leave + (half_day * 0.5)
+        )
+        attendance_rate = (effective_present / total * 100) if total else 0
 
         # Late arrivals from Employee Checkin.
         # Count must reference the filtered relation (see the "belong to
@@ -510,6 +593,7 @@ class HRIntelligence:
         # in Python on the already-filtered count -- the SQL we send to
         # MariaDB is "all IN checkins in the period".
         late_arrivals = 0
+        total_checkins = 0
         if frappe.db.table_exists("Employee Checkin"):
             ec = t("Employee Checkin")
             ec_in_period = ec.filter(
@@ -523,11 +607,16 @@ class HRIntelligence:
             ).execute()
             if df_late is not None and len(df_late):
                 # Count rows where the time-of-day is after 09:30.
+                # `total_checkins` is the same column we used to count
+                # `late_arrivals`, so the ratio is meaningful (late IN
+                # checkins / all IN checkins in the period) rather than
+                # previously dividing by unrelated attendance records.
+                total_checkins = len(df_late)
                 late_arrivals = int(sum(
                     1 for v in df_late["t"] if v is not None and v.time() > __import__("datetime").time(9, 30)
                 ))
 
-        late_arrival_rate = (late_arrivals / total * 100) if total else 0
+        late_arrival_rate = (late_arrivals / total_checkins * 100) if total_checkins else 0
 
         if attendance_rate < 85:
             health = "poor"
@@ -537,7 +626,6 @@ class HRIntelligence:
             health = "good"
         else:
             health = "excellent"
-
         if attendance_rate > 95:
             productivity = "high"
         elif attendance_rate > 90:
@@ -550,12 +638,20 @@ class HRIntelligence:
             "late_arrivals": late_arrivals,
             "late_arrival_rate_pct": round(late_arrival_rate, 2),
             "total_attendance_records": total,
+            "total_in_checkins": total_checkins,
+            # `present_days` is the strict Present count (back-compat).
+            # The weighted effective-present is what `attendance_rate_pct`
+            # is computed against -- exposed alongside so the dashboard
+            # can show both numbers when they diverge.
             "present_days": present,
             "absent_days": absent,
+            "half_day_days": half_day,
+            "on_leave_days": on_leave,
+            "work_from_home_days": work_from_home,
+            "effective_present_days": round(effective_present, 2),
             "attendance_health": health,
             "productivity_indicator": productivity,
         }
-
     # ------------------------------------------------------------------ leave
     def _analyze_leave(self) -> Dict[str, Any]:
         if not frappe.db.table_exists("Leave Application"):
@@ -716,35 +812,62 @@ class HRIntelligence:
         attendance_rate = att.get("attendance_rate_pct", 0)
         attrition_rate = attr.get("attrition_rate_pct", 0)
         leave_pattern = leave.get("average_days_per_application", 0)
+        leave_apps_count = leave.get("total_leave_applications", 0)
 
+        # Track the BUCKETED contribution from each dimension so the
+        # `key_indicators` breakdown actually sums to `engagement_score`.
+        # Previously the breakdown showed the raw underlying metrics
+        # (attendance_rate, 100-attrition, leave pattern) which never
+        # reconciled with the bucketed score -- a user could read the
+        # breakdown and conclude something completely different from the
+        # headline score.
         score = 0
         # Attendance contribution (40 pts)
         if attendance_rate > 95:
             score += 40
+            attendance_contribution = 40
         elif attendance_rate > 90:
             score += 30
+            attendance_contribution = 30
         elif attendance_rate > 85:
             score += 20
+            attendance_contribution = 20
         else:
             score += 10
+            attendance_contribution = 10
 
         # Retention contribution (40 pts, inverse)
         if attrition_rate < 5:
             score += 40
+            retention_contribution = 40
         elif attrition_rate < 10:
             score += 30
+            retention_contribution = 30
         elif attrition_rate < 15:
             score += 20
+            retention_contribution = 20
         else:
             score += 10
+            retention_contribution = 10
 
-        # Leave pattern contribution (20 pts)
-        if leave_pattern < 3:
+        # Leave pattern contribution (20 pts).
+        # Previously the formula `100 - (leave_pattern * 10)` saturated
+        # at 100 whenever there were zero leave applications (avg_days=0),
+        # which read as "perfect leave pattern" -- but zero leave is the
+        # opposite of healthy: people aren't taking time off. Treat the
+        # "no leave data" case as neutral (10 pts) rather than top score.
+        if leave_apps_count == 0:
+            score += 10
+            leave_pattern_contribution = 10
+        elif leave_pattern < 3:
             score += 20
+            leave_pattern_contribution = 20
         elif leave_pattern < 5:
             score += 15
+            leave_pattern_contribution = 15
         else:
             score += 10
+            leave_pattern_contribution = 10
 
         if score < 50:
             level = "low"
@@ -756,12 +879,24 @@ class HRIntelligence:
         return {
             "engagement_score": score,
             "engagement_level": level,
+            # Bucketed contributions -- matches `engagement_score` exactly.
+            # Raw per-dimension percentages are still useful for diagnosis
+            # and are returned alongside under `_raw` (prefixed with `_`
+            # so frontend consumers that only look at the top-level keys
+            # are not affected).
             "key_indicators": {
-                "attendance_contribution": attendance_rate,
-                "retention_contribution": max(0, 100 - attrition_rate),
-                "leave_pattern_score": max(0, 100 - (leave_pattern * 10)),
+                "attendance_contribution": attendance_contribution,
+                "retention_contribution": retention_contribution,
+                "leave_pattern_contribution": leave_pattern_contribution,
+            },
+            "_raw": {
+                "attendance_rate_pct": attendance_rate,
+                "retention_rate_pct": max(0, 100 - attrition_rate),
+                "leave_pattern_days": leave_pattern,
+                "leave_applications_count": leave_apps_count,
             },
         }
+
 
     # ------------------------------------------------------------------ attrition risk
     def _predict_attrition_risk(self) -> Dict[str, Any]:
@@ -776,15 +911,22 @@ class HRIntelligence:
 
         risk_factors: List[str] = []
         risk_score = 0
-        if current_attrition > 15:
+        # Make "Critical" a strict superset of "High": when attrition is
+        # above 20, only the Critical branch fires (otherwise the same
+        # underlying condition was contributing 30+25=55 points from
+        # itself and showing up twice in `risk_factors` as both "High"
+        # and "Critical" -- misleading). Same idea for attendance vs
+        # engagement-style buckets elsewhere.
+        if current_attrition > 20:
+            risk_factors.append("Critical attrition levels")
+            risk_score += 55  # was 30+25 stacked; same single condition
+        elif current_attrition > 15:
             risk_factors.append("High current attrition rate")
             risk_score += 30
         if attendance_rate < 90:
             risk_factors.append("Low attendance rate")
             risk_score += 20
-        if current_attrition > 20:
-            risk_factors.append("Critical attrition levels")
-            risk_score += 25
+
 
         # Apply a heuristic drift to next-period projection: high risk
         # inflates, low risk holds. Linear, no model needed.

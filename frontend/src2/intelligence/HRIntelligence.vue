@@ -57,11 +57,52 @@ interface PayrollMetrics {
   employees_on_payroll?: number
   deduction_rate_pct?: number
   payroll_efficiency?: string
+  /** Set only when payroll_efficiency is 'no_data' -- explains an
+   *  otherwise-unexplained zero (no Salary Slip table, or none in period)
+   *  instead of leaving the reader to guess whether ₹0 is real or broken. */
+  payroll_data_note?: string
+}
+
+interface AttendanceMetrics {
+  attendance_rate_pct?: number
+  late_arrivals?: number
+  late_arrival_rate_pct?: number
+  total_attendance_records?: number
+  total_in_checkins?: number
+  present_days?: number
+  absent_days?: number
+  half_day_days?: number
+  on_leave_days?: number
+  work_from_home_days?: number
+  effective_present_days?: number
+  attendance_health?: string
+  productivity_indicator?: string
+}
+
+interface LeaveMetrics {
+  total_leave_applications?: number
+  total_leave_days?: number
+  average_days_per_application?: number
+  leave_utilization?: string
+  leave_pattern?: string
 }
 
 interface EngagementIndicators {
   engagement_score?: number
   engagement_level?: string
+  /** Per-dimension contribution in bucketed points (10/15/20/30/40). Sum equals `engagement_score`. */
+  key_indicators?: {
+    attendance_contribution?: number
+    retention_contribution?: number
+    leave_pattern_contribution?: number
+  }
+  /** Raw underlying metrics exposed for diagnosis; prefixed `_` so the dashboard does not need them. */
+  _raw?: {
+    attendance_rate_pct?: number
+    retention_rate_pct?: number
+    leave_pattern_days?: number
+    leave_applications_count?: number
+  }
 }
 
 interface DeptValues {
@@ -148,8 +189,8 @@ interface HRPayload {
   headcount_metrics?: HeadcountMetrics
   attrition_metrics?: AttritionMetrics
   payroll_metrics?: PayrollMetrics
-  attendance_metrics?: Record<string, unknown>
-  leave_metrics?: Record<string, unknown>
+  attendance_metrics?: AttendanceMetrics
+  leave_metrics?: LeaveMetrics
   workforce_composition?: WorkforceComposition
   department_health?: DepartmentHealth
   compensation_analysis?: CompensationAnalysis
@@ -185,7 +226,19 @@ const tabs = [
 
 const params = computed(() => ({ period: period.value as string }))
 
-const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+const {
+  data,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  notImplemented,
+  notImplementedMessage,
+  hasData,
+  reload,
+  retry,
+} =
   useIntelligenceDashboard<HRPayload>({
     url: 'insights.api.ml.get_hr_overview',
     params,
@@ -218,13 +271,16 @@ const kpis = computed(() => {
       // Higher attrition is worse
       deltaHigherIsBetter: false,
       severity: scoreSeverity(att.attrition_rate_pct, { good: 10, warn: 15, higherIsBetter: false }) as Severity,
-      drillable: false,
-      metric: undefined as string | undefined,
+      // `get_hr_detail`'s `recent_exits` branch mirrors this exact
+      // definition (relieving_date in period, or status=Left with the date
+      // never filled in), so the drill-down list reconciles with this count.
+      drillable: true,
+      metric: 'recent_exits',
     },
     {
       label: 'Avg. Salary',
       value: formatCurrency(pay.average_salary),
-      sublabel: `Total: ${formatCurrency(pay.total_payroll_cost)}`,
+      sublabel: pay.payroll_data_note || `Total: ${formatCurrency(pay.total_payroll_cost)}`,
       drillable: false,
       metric: undefined,
     },
@@ -335,6 +391,8 @@ function handleChatNavigation(path: string) {
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="HR data"
       permission-hint="Ask an administrator for Employee read access."
@@ -365,7 +423,7 @@ function handleChatNavigation(path: string) {
           :severity="kpi.severity"
           :loading="!hasData"
           :clickable="!!kpi.drillable"
-          @click="kpi.drillable && drillDown.open(HR_ENDPOINT, kpi.label, { metric: kpi.metric ?? '' })"
+          @click="kpi.drillable && drillDown.open(HR_ENDPOINT, kpi.label, { metric: kpi.metric ?? '', period: period })"
         />
       </div>
 
@@ -448,6 +506,42 @@ function handleChatNavigation(path: string) {
               <KpiCard variant="tile" label="Net Growth" :value="data.headcount_metrics.net_growth" />
             </div>
           </div>
+
+          <!-- Engagement breakdown: shows the bucketed contributions that
+               reconcile to `engagement_score` so the user can see why the
+               score is what it is. -->
+          <div v-if="hasData && data?.engagement_indicators?.key_indicators" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Engagement Score Breakdown" :level="3" />
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <p class="text-sm font-medium text-ink-gray-7 mb-2">Attendance contribution</p>
+                <p class="text-2xl font-bold text-ink-gray-9">
+                  {{ data.engagement_indicators.key_indicators.attendance_contribution || 0 }}/40
+                </p>
+                <p v-if="data.engagement_indicators._raw" class="text-xs text-ink-gray-6 mt-1">
+                  rate: {{ data.engagement_indicators._raw.attendance_rate_pct?.toFixed(1) }}%
+                </p>
+              </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <p class="text-sm font-medium text-ink-gray-7 mb-2">Retention contribution</p>
+                <p class="text-2xl font-bold text-ink-gray-9">
+                  {{ data.engagement_indicators.key_indicators.retention_contribution || 0 }}/40
+                </p>
+                <p v-if="data.engagement_indicators._raw" class="text-xs text-ink-gray-6 mt-1">
+                  retention: {{ data.engagement_indicators._raw.retention_rate_pct?.toFixed(1) }}%
+                </p>
+              </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <p class="text-sm font-medium text-ink-gray-7 mb-2">Leave pattern contribution</p>
+                <p class="text-2xl font-bold text-ink-gray-9">
+                  {{ data.engagement_indicators.key_indicators.leave_pattern_contribution || 0 }}/20
+                </p>
+                <p v-if="data.engagement_indicators._raw" class="text-xs text-ink-gray-6 mt-1">
+                  {{ data.engagement_indicators._raw.leave_applications_count || 0 }} apps, avg {{ data.engagement_indicators._raw.leave_pattern_days?.toFixed(1) }} days
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Attrition & Retention -->
@@ -510,6 +604,42 @@ function handleChatNavigation(path: string) {
               </div>
             </div>
           </div>
+
+          <!-- Attendance Breakdown (supports the engagement score on the KPI strip). -->
+          <div v-if="hasData && data?.attendance_metrics" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Attendance Breakdown" :level="3" />
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
+              <KpiCard
+                variant="tile"
+                label="Attendance Rate"
+                :percent="data.attendance_metrics.attendance_rate_pct"
+                sublabel="effective (incl. half-day/on-leave)"
+              />
+              <KpiCard
+                variant="tile"
+                label="Present (strict)"
+                :value="data.attendance_metrics.present_days"
+                :sublabel="`of ${data.attendance_metrics.total_attendance_records || 0} records`"
+              />
+              <KpiCard
+                variant="tile"
+                label="Half Day + On Leave"
+                :value="(data.attendance_metrics.half_day_days || 0) + (data.attendance_metrics.on_leave_days || 0)"
+                sublabel="partially attended"
+              />
+              <KpiCard
+                variant="tile"
+                label="Absent"
+                :value="data.attendance_metrics.absent_days"
+              />
+              <KpiCard
+                variant="tile"
+                label="Late Arrivals"
+                :percent="data.attendance_metrics.late_arrival_rate_pct"
+                :sublabel="`of ${data.attendance_metrics.total_in_checkins || 0} check-ins`"
+              />
+            </div>
+          </div>
         </div>
 
         <!-- Payroll & Compensation -->
@@ -525,12 +655,14 @@ function handleChatNavigation(path: string) {
                 label="Total Payroll"
                 :amount="data.payroll_metrics.total_payroll_cost"
                 :currency="baseCurrency"
+                :sublabel="data.payroll_metrics.payroll_data_note"
               />
               <KpiCard
                 variant="tile"
                 label="Avg Salary"
                 :amount="data.payroll_metrics.average_salary"
                 :currency="baseCurrency"
+                :sublabel="data.payroll_metrics.payroll_data_note"
               />
               <KpiCard
                 variant="tile"

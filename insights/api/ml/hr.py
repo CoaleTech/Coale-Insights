@@ -176,11 +176,80 @@ def get_hr_detail(metric: str, filters: str) -> dict:
         return _hr_employee_list({"status": "Active"}, start, page_size)
 
     if metric == "recent_exits":
-        company = f.get("company") or frappe.defaults.get_user_default("company")
-        db_filters = {"docstatus": 1, "status": "Left"}
-        if company:
-            db_filters["company"] = company
-        return _hr_employee_list(db_filters, start, page_size)
+        # Mirror the engine's exit definition so the drill-down reconciles
+        # with `attrition_metrics.total_exits` on the dashboard. An employee
+        # is shown here iff:
+        #   (a) their `relieving_date` falls within the requested period, OR
+        #   (b) they are status='Left' AND never had a relieving_date set
+        #       (legacy records where the date was never filled in).
+        # Without the (b) clause, a status='Left' employee with no
+        # relieving date would be invisible from the exit drill-down even
+        # though they show up in the headcount delta. Without the (a)
+        # clause, a status='Active' employee with a relieving_date in the
+        # past (HR-EMP-00025 on this site: status=Active but
+        # relieving_date=2026-07-18) would be invisible.
+        from datetime import date
+        from frappe.utils import add_months
+        period = f.get("period")
+        if period:
+            # Same resolution the dashboard's own `_analyze_attrition` used to
+            # compute the number being drilled into -- without this, a
+            # YTD-scoped "23 exits" KPI could open a trailing-12-months list
+            # that doesn't reconcile with the number just clicked.
+            from insights.ml.hr_intelligence import _period_start_date
+            from_date = str(_period_start_date(period))
+            to_date = date.today().isoformat()
+        elif f.get("from") and f.get("to"):
+            from_date = f["from"]
+            to_date = f["to"]
+        else:
+            # Engine default: trailing 12 months.
+            to_date = date.today().isoformat()
+            from_date = add_months(to_date, -12)
+        rows = frappe.db.sql(
+            """
+            SELECT name, employee_name, department, designation,
+                   employment_type, date_of_joining, status, relieving_date
+            FROM `tabEmployee`
+            WHERE docstatus < 2
+              AND (
+                relieving_date BETWEEN %s AND %s
+                OR (status = 'Left' AND relieving_date IS NULL)
+              )
+            ORDER BY relieving_date DESC, name ASC
+            LIMIT %s OFFSET %s
+            """,
+            (from_date, to_date, page_size, start),
+            as_dict=True,
+        )
+        total = frappe.db.sql(
+            """
+            SELECT COUNT(*) c FROM `tabEmployee`
+            WHERE docstatus < 2
+              AND (
+                relieving_date BETWEEN %s AND %s
+                OR (status = 'Left' AND relieving_date IS NULL)
+              )
+            """,
+            (from_date, to_date),
+            as_dict=True,
+        )[0]["c"]
+        return {
+            "columns": [
+                {"label": "ID", "fieldname": "name", "fieldtype": "Link", "options": "Employee"},
+                {"label": "Name", "fieldname": "employee_name", "fieldtype": "Data"},
+                {"label": "Department", "fieldname": "department", "fieldtype": "Data"},
+                {"label": "Designation", "fieldname": "designation", "fieldtype": "Data"},
+                {"label": "Employment Type", "fieldname": "employment_type", "fieldtype": "Data"},
+                {"label": "Joined", "fieldname": "date_of_joining", "fieldtype": "Date"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+                {"label": "Relieved", "fieldname": "relieving_date", "fieldtype": "Date"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+
 
     if metric == "dept_employees":
         dept = f.get("department")
@@ -208,7 +277,7 @@ def get_hr_detail(metric: str, filters: str) -> dict:
 
 def _hr_employee_list(db_filters: dict, start: int, page_size: int) -> dict:
     """Fetch employees with permission-safe get_list."""
-    frappe.has_permission("Employee", throw=True)
+    frappe.has_permission("Employee", "read", throw=True)
 
     rows = frappe.get_list(
         "Employee",
