@@ -69,14 +69,12 @@
 import { useStorage } from '@vueuse/core'
 import {
 	Book,
-	Brain,
 	Database,
 	DatabaseZap,
 	LayoutDashboard,
 	LayoutGrid,
 	Moon,
 	PanelRightOpen,
-	Presentation,
 	Search,
 	SettingsIcon,
 	Sun,
@@ -137,7 +135,6 @@ const navGroups = computed<{ label: string; links: NavLink[] }[]>(() => [
 		label: 'Executive',
 		links: [
 			{ label: 'Overview', icon: LayoutDashboard, to: 'ExecutiveDashboard' },
-			{ label: 'Board Presentations', icon: Presentation, to: 'BoardPresentationMode' },
 		],
 	},
 	{
@@ -153,7 +150,6 @@ const navGroups = computed<{ label: string; links: NavLink[] }[]>(() => [
 			{ label: 'Search', icon: Search, to: 'CrossDashboardSearch' },
 			{ label: 'Dashboards', icon: LayoutGrid, to: 'DashboardList' },
 			{ label: 'Workbooks', icon: Book, to: 'WorkbookList' },
-			{ label: 'AI Insights', icon: Brain, to: 'AIInsights' },
 		],
 	},
 	{

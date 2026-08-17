@@ -27,29 +27,30 @@ compute that outran gunicorn's `-t 120` was SIGKILLed into an empty-bodied
 502 with the cache still unwritten -- so the next request repeated it, for
 every dashboard, forever.
 
-The job does not compute in its own process: it spawns one (see
-`insights.api.ml.compute_child` for the POSIX fork hazard that makes this
-mandatory on Frappe Cloud) and records the exit status against the payload.
-Every attempt is tracked, so a compute that dies is reported to whoever is
-waiting for it instead of leaving "Preparing your dashboard" on screen
-indefinitely -- the one failure mode that is indistinguishable from a hang.
+The job computes in its own work-horse process -- the same one RQ already
+forks per job for every background task in this app, including Frappe's own
+(`insights.insights.doctype.insights_data_source_v3.data_warehouse.
+execute_warehouse_table_import` runs ibis/pandas there too, with no extra
+isolation layer). This app used to spawn a second, `subprocess.run`-exec'd
+interpreter per compute (`insights.api.ml.compute_child`) to route around a
+pandas/numpy datetime-conversion segfault; the crash traced to a wheel-ABI
+mismatch (unpinned numpy against a pandas cp314 aarch64 build), not to the
+work-horse fork itself, and is closed by pinning `pandas`/`numpy`/
+`ibis-framework` in `pyproject.toml` plus the PyArrow materialisation escape
+hatch (`insights.api.ml.ibis_source.use_pyarrow_materialization`, applied by
+`_compute` below) -- so the extra process is gone.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import os
-import signal
-import subprocess
-import sys
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
-from frappe.utils import get_bench_path
 
 from insights.api.response import error, success
 
@@ -68,10 +69,10 @@ _WARM_BATCH = 40
 
 # The last compute attempt per payload: {ts, job_id, fails, error}. Tracked
 # here rather than read back out of RQ because the interesting failures leave
-# nothing in RQ to read: a work-horse the platform kills (OOM, or the fork
-# segfault this app has a history of) never runs an exception handler, and a
-# job left in `started` by a dead worker would otherwise deduplicate every
-# retry away for as long as it sat there.
+# nothing in RQ to read: a work-horse the platform kills (OOM, or a native
+# extension fault) never runs an exception handler, and a job left in
+# `started` by a dead worker would otherwise deduplicate every retry away for
+# as long as it sat there.
 _ATTEMPT_KEY = "insights_ml_attempt"
 
 # Longest an attempt may claim to be in flight. One dashboard mount can queue
@@ -81,17 +82,9 @@ _ATTEMPT_KEY = "insights_ml_attempt"
 _ATTEMPT_MAX_AGE = 30 * 60
 _MAX_ATTEMPTS = 3
 
-# Ceiling on one child, under the job's own timeout so the job outlives the
-# child it is supervising and can record what happened to it.
-_CHILD_TIMEOUT = 900
+# The whole background job's ceiling -- computing a payload runs directly in
+# this job now, with nothing else to time out underneath it.
 _JOB_TIMEOUT = 1200
-
-# What `compute_child._say` prefixes its own lines with, so a crash dump can be
-# told apart from the child's account of itself. A literal rather than an import
-# from that module: it is spawned as `__main__`, and importing it here would put
-# a second copy of it in every child (`RuntimeWarning` from `runpy`, and two
-# copies of anything either side ever keeps at module scope).
-_CHILD_SAYS = "insights-child: "
 
 # What one dashboard mount asks for. Only used by `warm_all` on a bench where
 # nobody has opened a dashboard yet; everywhere else the demand registry is
@@ -116,12 +109,38 @@ def run(fn: Callable[[], object], label: str) -> dict:
     scalars) -- typically the output of `.execute()` on an Ibis expression,
     reshaped with `.to_dict()`."""
     try:
-        return success(data=fn())
+        result = fn()
     except frappe.PermissionError:
         raise
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), f"Insights ML: {label}")
         return error(str(e), exc=e)
+
+    # Several domain classes (Procurement/Inventory/Risk/BreakevenEngine/
+    # LeadConversion/GLAnomaly/ProductRecommendations/CrossDashboardSearch/
+    # the ML scheduler entry points) catch their own exceptions internally
+    # and return ``{"status": "error", "message": ...}`` as an ordinary
+    # value instead of raising -- so the `except Exception` above never
+    # sees them and this function would otherwise wrap the error dict in
+    # `success(data=...)`. That matters beyond cosmetics: `cached_run`
+    # decides whether to cache a payload by checking the *outer* envelope's
+    # `status`, and its docstring promises "errors are never cached" -- if
+    # we always returned `success(data=result)` here, an internally-caught
+    # error would look exactly like a good payload to `cached_run`, get
+    # cached for the full `CACHE_TTL` (24h), and keep being served to every
+    # viewer even after the underlying bug is fixed on disk, since the
+    # hourly `refresh_dashboard_caches` recompute hits the same bug and
+    # re-caches the same error every time it runs. Recognise the shape and
+    # propagate it as a real error instead, so `cached_run` skips caching
+    # it, exactly as it does for a raised exception.
+    if (
+        isinstance(result, dict)
+        and result.get("status") == "error"
+        and isinstance(result.get("message"), str)
+    ):
+        return error(result["message"])
+
+    return success(data=result)
 
 
 def _scoped(cache_key: str) -> str:
@@ -436,33 +455,33 @@ def compute_dashboard(
 ) -> None:
     """Background job: compute one dashboard payload and leave it in the cache.
 
-    Runs the whitelisted endpoint itself rather than a copy of its body, so
-    there is one definition of what a dashboard returns -- but in a spawned
-    child, never in this work-horse, which may be a `fork()` of a
-    multi-threaded worker (`insights.api.ml.compute_child`). This function's
-    own work is to wait for that child and record what became of it, so that a
-    compute which dies has somewhere to say so.
+    Runs the whitelisted endpoint itself, in this job's own work-horse
+    process -- RQ already forks one per job, the same isolation every other
+    background task in this app (and in stock Insights' own
+    `execute_warehouse_table_import`) computes ibis/pandas in directly. The
+    endpoint's own `cached_run` call does the actual work and writes the
+    cache; this function's job is to run it as the right user and turn a
+    raised exception or a non-success envelope into a recorded failure, so a
+    compute that dies is reported to whoever is waiting for it instead of
+    leaving "Preparing your dashboard" on screen indefinitely.
     """
     user = user or str(frappe.session.user)
+    caller = str(frappe.session.user)
+    failure = None
 
     try:
-        completed = _run_child(endpoint, params or {}, user, key or "")
-    except subprocess.TimeoutExpired as expired:
-        failure = _("Dashboard compute ran longer than {0}s and was stopped.").format(_CHILD_TIMEOUT)
-        detail = _child_output(expired.stderr)
-    else:
-        failure = None if completed.returncode == 0 else _child_error(completed)
-        detail = _child_output(completed.stderr)
-
-    # The exit status describes the process; the cache is what a dashboard
-    # serves. A child that wrote its payload and then faulted on the way out
-    # -- a native extension crashing in interpreter shutdown -- has done the
-    # job, and answering the next request with an error would blank a
-    # dashboard whose data is sitting right there. Worth reading about, not
-    # worth showing.
-    if failure and key and frappe.cache.get_value(key) is not None:
-        frappe.log_error(f"Insights ML: {endpoint}", f"{failure}\n\nThe payload landed anyway.\n\n{detail}")
-        failure = None
+        frappe.set_user(user)
+        frappe.local.insights_ml_refresh = True
+        result = frappe.call(endpoint, **(params or {}))
+        if not (isinstance(result, dict) and result.get("status") == "success"):
+            message = result.get("message") if isinstance(result, dict) else None
+            failure = message or _("Dashboard compute returned an unexpected response.")
+    except Exception as e:
+        failure = str(e)
+    finally:
+        frappe.local.insights_ml_refresh = False
+        frappe.set_user(caller)
+        frappe.db.commit()
 
     if not failure:
         if key:
@@ -471,141 +490,8 @@ def compute_dashboard(
 
     if key:
         _record_failure(key, failure)
-    # `failure` is one line, for a dashboard to show. The child's own output is
-    # where a crash names itself -- a fatal signal dumps Python frames and then
-    # a trailer of the C extensions it had loaded -- so the log takes all of it.
-    frappe.log_error(f"Insights ML: {endpoint}", f"{failure}\n\n{detail}" if detail else failure)
+    frappe.log_error(f"Insights ML: {endpoint}", failure)
     raise RuntimeError(f"{endpoint}: {failure}")
-
-
-def _child_env() -> dict:
-    """The environment a compute child runs in.
-
-    What the Procfile pins for the workers, given to a process that inherits
-    neither the Procfile nor `_compute`'s in-process pinning until it gets
-    there: an unpinned OpenBLAS pool per compute oversubscribes the host.
-    """
-    env = dict(os.environ)
-    env.update(
-        OPENBLAS_NUM_THREADS="1",
-        OMP_NUM_THREADS="1",
-        MKL_NUM_THREADS="1",
-        VECLIB_MAXIMUM_THREADS="1",
-        NUMEXPR_NUM_THREADS="1",
-    )
-    return env
-
-
-def _child_sites_path() -> str:
-    """The sites directory to hand a child, absolute.
-
-    `frappe.local.sites_path` is "." in a bench process, which runs from the
-    sites directory -- so resolve it against that cwd rather than handing the
-    child a path that means something else wherever it lands. A worker started
-    from somewhere else would resolve to a directory with no site in it, so
-    fall back to the bench layout, which is derived from this app's own
-    location and does not care where anyone was standing.
-    """
-    sites = os.path.abspath(frappe.local.sites_path)
-    if not os.path.isdir(os.path.join(sites, frappe.local.site)):
-        sites = os.path.join(get_bench_path(), "sites")
-    return sites
-
-
-def _spawn_child(args: list[str], timeout: int) -> subprocess.CompletedProcess:
-    """Spawn `compute_child` with `args` after the site and sites path.
-
-    `-u` so the child's breadcrumbs are on the pipe before a fatal signal can
-    strand them in a buffer, and `-X faulthandler` so that signal dumps the
-    Python frames it was in. Without the flag a segfault in a native import
-    reports which C extensions were loaded and nothing about where the process
-    was -- which is how the first one here arrived: `numpy.linalg._umath`
-    loaded, no frames, no line.
-    """
-    sites = _child_sites_path()
-    return subprocess.run(
-        [
-            sys.executable,
-            "-u",
-            "-X",
-            "faulthandler",
-            "-m",
-            "insights.api.ml.compute_child",
-            frappe.local.site,
-            sites,
-            *args,
-        ],
-        cwd=sites,
-        env=_child_env(),
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-
-
-def _run_child(endpoint: str, params: dict, user: str, key: str) -> subprocess.CompletedProcess:
-    """Spawn `compute_child` for one payload and wait for it."""
-    return _spawn_child([endpoint, json.dumps(params, default=str), user, key], _CHILD_TIMEOUT)
-
-
-def _child_output(stderr: str | bytes | None, cap: int = 16000) -> str:
-    """What the child wrote, capped from the middle if it must be capped.
-
-    Not the tail. A fatal-signal dump prints the innermost frame first and ends
-    with a trailer naming every loaded C extension -- 2KB of it in this app, 67
-    modules -- so keeping the last few thousand characters kept the trailer and
-    cut the frames. That is how a production SIGSEGV arrived naming pandas'
-    datetime library but not the call into it.
-
-    Both ends are kept: the head, because the frames are there, and a slice of
-    the tail, because the trailer is all there is when a fault happens before
-    any Python frame exists.
-    """
-    if not stderr:
-        return ""
-    text = (stderr.decode(errors="replace") if isinstance(stderr, bytes) else stderr).strip()
-    if len(text) <= cap:
-        return text
-    head = cap * 3 // 4
-    tail = cap - head
-    return f"{text[:head]}\n...[{len(text) - cap} characters cut]...\n{text[-tail:]}"
-
-
-def _child_said(output: str) -> str:
-    """The child's last word about itself, or "" if it never got one out."""
-    for line in reversed(output.splitlines()):
-        if line.startswith(_CHILD_SAYS):
-            return line[len(_CHILD_SAYS) :]
-    return ""
-
-
-def _child_error(completed: subprocess.CompletedProcess) -> str:
-    """One line about a child that did not finish, for a dashboard to show.
-
-    A signal is the case worth naming: SIGKILL is the platform's OOM killer,
-    SIGSEGV a fault in a native extension -- the crash this app hit whenever
-    its ML code ran inside a forked work-horse, and the one it can still hit
-    where numpy's import initialises the host's BLAS.
-
-    The child's output is not summarised into this line. A fatal dump ends
-    with a trailer of loaded C extensions, so keeping its last few lines threw
-    away precisely the frames that name the crash; the full dump goes to the
-    Error Log instead, and this points at it.
-    """
-    said = _child_said(_child_output(completed.stderr))
-
-    if completed.returncode < 0:
-        try:
-            died_of = signal.Signals(-completed.returncode).name
-        except ValueError:
-            died_of = f"signal {-completed.returncode}"
-        return _("Dashboard compute was killed by {0}. The crash dump is in the Error Log.").format(died_of)
-
-    # A phase marker is this module talking to itself; only a real message is
-    # worth putting in front of a user.
-    message = "" if said.startswith("phase=") else said
-    return message or _("Dashboard compute exited with status {0}.").format(completed.returncode)
 
 
 def refresh_dashboard_caches() -> None:
@@ -648,10 +534,11 @@ def warm_all(users: str | None = None) -> dict:
         bench --site SITE execute insights.api.ml.utils.warm_all
         bench --site SITE execute insights.api.ml.utils.warm_all --kwargs "{'users': 'a@x.com'}"
 
-    Run it from `bench execute`, never through `frappe.enqueue`: in a job it
-    would compute inside the work-horse, which on a forking bench is the crash
-    `compute_child` exists to stay out of. A miss on a live request already
-    queues the safe path.
+    Run it from `bench execute`, never through `frappe.enqueue`: this loop
+    calls `frappe.call` off-request per payload, same as `compute_dashboard`
+    does inside a queued job -- the only difference is that here nothing is
+    consuming a queue on your behalf, so run it by hand when there is no
+    worker, or after a release that flushed Redis.
 
     Payloads are per user (`_scoped`), so what gets warmed is the exact
     (user, endpoint, filter) triples in the demand registry -- what people
@@ -705,43 +592,6 @@ def warm_all(users: str | None = None) -> dict:
     frappe.set_user(caller)
     frappe.db.commit()
     return {"computed": computed, "failed": failed}
-
-
-def child_selftest() -> dict:
-    """Spawn a compute child in probe mode and report where it dies.
-
-    For a host where `compute_dashboard` reports a signal death. This is that
-    same spawn -- same interpreter, same flags, same environment, same sites
-    path -- but instead of computing a dashboard the child walks the imports a
-    payload needs, announcing each step before taking it. A host that faults
-    then says which step does it, which a dashboard's one-line error cannot.
-
-        bench --site SITE execute insights.api.ml.utils.child_selftest
-
-    Run it on the machine that crashed, from `bench execute`: the point is to
-    reproduce the spawn where it fails, not to queue it somewhere healthier.
-    """
-    try:
-        completed = _spawn_child(["--selftest"], _CHILD_TIMEOUT)
-    except subprocess.TimeoutExpired as expired:
-        output = _child_output(expired.stderr)
-        print(output)
-        return {"ok": False, "returncode": None, "died_at": _child_said(output), "output": output}
-
-    output = _child_output(completed.stderr)
-    print(output)
-
-    if completed.returncode == 0:
-        return {"ok": True, "returncode": 0, "died_at": None, "output": output}
-
-    reason = _child_error(completed)
-    print(f"\n{reason}")
-    return {
-        "ok": False,
-        "returncode": completed.returncode,
-        "died_at": _child_said(output),
-        "output": output,
-    }
 
 
 def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, datetime | None]:

@@ -80,6 +80,24 @@
 	</div>
 
 	<!--
+		A `{status: "not_implemented"}` payload is an honest backend admitting a
+		capability isn't built yet (see TODOS.md — "Frontend has zero awareness
+		of status: not_implemented"). Distinct from `error` (something broke) and
+		the empty state below (a real query with no rows): retrying or changing
+		filters cannot help either of those read as "try again" or "no data for
+		this period", which both mislead here.
+	-->
+	<div v-else-if="notImplemented" class="flex flex-1 items-center justify-center p-6">
+		<div class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
+			<Wrench class="mx-auto mb-3 h-8 w-8 text-ink-gray-5" aria-hidden="true" />
+			<p class="font-medium text-ink-gray-8">Not yet available</p>
+			<p class="mt-1 text-sm text-ink-gray-6">
+				{{ notImplementedMessage || `${subject} is not yet available.` }}
+			</p>
+		</div>
+	</div>
+
+	<!--
 		`hasData` requires a payload, not just the absence of an error, so this
 		branch cannot render over empty refs during a retry.
 	-->
@@ -96,7 +114,7 @@
 
 <script setup lang="ts">
 import { Button } from 'frappe-ui'
-import { Lock, TriangleAlert, Loader2 } from 'lucide-vue-next'
+import { Lock, TriangleAlert, Loader2, Wrench } from 'lucide-vue-next'
 import KpiCard from './KpiCard.vue'
 import SkeletonBlock from './SkeletonBlock.vue'
 
@@ -113,6 +131,14 @@ withDefaults(
 		 * (a success with no rows), so it gets its own branch and copy.
 		 */
 		warming?: boolean
+		/**
+		 * True when the API returned `{status: "not_implemented"}` one level down
+		 * — an honest stub, not a failure. Takes precedence over `hasData`: the
+		 * composable also nulls `payload` for this case, so the two never race.
+		 */
+		notImplemented?: boolean
+		/** The backend's explanation shown in place of the generic copy. */
+		notImplementedMessage?: string | null
 		/**
 		 * Lower-case noun phrase completing "permission to view ..." and
 		 * "Could not load ...", e.g. `manufacturing data`. One string rather than
@@ -132,6 +158,8 @@ withDefaults(
 		isPermissionError: false,
 		hasData: false,
 		warming: false,
+		notImplemented: false,
+		notImplementedMessage: null,
 		permissionHint: '',
 		kpiCount: 6,
 	},

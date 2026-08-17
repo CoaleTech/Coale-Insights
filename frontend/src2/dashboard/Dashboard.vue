@@ -109,23 +109,45 @@ async function refreshWithAI() {
 // Train ML models
 async function trainMLModels() {
 	try {
-		const dashboardType = getDashboardType()
 		createToast({
 			title: 'Training ML Models',
 			message: 'This may take a few moments...',
 			variant: 'info'
 		})
-		
-		await apiCall('insights.api.ml.get_dashboard_data', {
-			dashboard_type: dashboardType
-		})
+
+		// insights.api.ml.get_dashboard_data is a permanent `not_implemented`
+		// stub (no generic dashboard_analytics module exists) -- calling it
+		// did nothing and its result was discarded. run_all_models is the
+		// real, fast (<2s) training/recompute endpoint; call that instead so
+		// the button does what its label says.
+		const results = await apiCall<Record<string, { status?: string; message?: string }>>(
+			'insights.api.ml.run_all_models'
+		)
+
+		const jobEntries = Object.entries(results || {})
+		const failed = jobEntries.filter(([, r]) => r?.status === 'error')
+
+		if (jobEntries.length > 0 && failed.length === jobEntries.length) {
+			createToast({
+				title: 'Training Failed',
+				message: failed[0]?.[1]?.message || 'All models failed to train',
+				variant: 'error'
+			})
+			return
+		}
 
 		await refreshWithAI()
+
 		createToast({
 			title: 'ML Models Updated',
-			message: 'Predictions are now available',
-			variant: 'success'
+			message: failed.length > 0
+				? `Trained ${jobEntries.length - failed.length}/${jobEntries.length} models (${failed.length} failed -- see console)`
+				: 'Predictions are now available',
+			variant: failed.length > 0 ? 'warning' : 'success'
 		})
+		if (failed.length > 0) {
+			console.error('run_all_models partial failure:', failed)
+		}
 	} catch (error: any) {
 		createToast({
 			title: 'Training Error',

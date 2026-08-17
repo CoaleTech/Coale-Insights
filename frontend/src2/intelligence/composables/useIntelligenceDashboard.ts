@@ -49,6 +49,16 @@ export interface IntelligenceDashboard<T> {
   isPermissionError: Ref<boolean>
   /** True when the API returned `{status: "warming"}` — cache is cold, background job running. */
   warming: Ref<boolean>
+  /**
+   * True when the *inner* payload itself is `{status: "not_implemented"}` —
+   * an honest backend stub for a capability that isn't computed yet (see
+   * `TODOS.md` — "Frontend has zero awareness of status: not_implemented").
+   * Distinct from `warming` (data is coming) and `error` (something broke):
+   * the feature itself isn't built, so retrying or waiting cannot help.
+   */
+  notImplemented: Ref<boolean>
+  /** The backend's explanation, e.g. "ESG intelligence is not yet backed by real data". */
+  notImplementedMessage: Ref<string | null>
   /** False until a response has landed. Gate summary cards on this, never on data alone. */
   hasData: ComputedRef<boolean>
   reload: () => void
@@ -93,6 +103,8 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
   const error = ref<string | null>(null)
   const isPermissionError = ref(false)
   const warming = ref(false)
+  const notImplemented = ref(false)
+  const notImplementedMessage = ref<string | null>(null)
   const fetched = ref(false)
   const refreshing = ref(false)
   // True between a busy rejection and its retry. Without it the gap reads as
@@ -103,10 +115,20 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
   // `resource.data.<field>` directly renders zeros for every metric.
   const payload = ref<T | null>(null)
 
-  // At most one pending auto-refetch, whether scheduled by a warming response
-  // or by a busy rejection.
   let pollTimer: ReturnType<typeof setTimeout> | null = null
   let busyAttempt = 0
+  // Set by `reload()`/`retry()`, read once by the next `makeParams()`, then
+  // cleared in `onSuccess`/`onError`. Without this, both were pure no-ops
+  // whenever a cache entry already existed: the backend's `cached_run` only
+  // takes the "recompute, but keep serving what you have" branch when the
+  // request itself carries `refresh=1` (see `insights.api.ml.utils
+  // ._refresh_requested`) -- `resource.reload()` alone just re-reads the same
+  // cache entry. It also doubles as the *only* way to clear a tripped
+  // `cached_run` circuit breaker (3 failed background attempts): without it,
+  // a dashboard stuck showing a stale error after a since-fixed backend bug
+  // had no way to recover from the UI at all, ever (verified live against
+  // the marketing-crm-intelligence "Could not load CRM data" incident).
+  let pendingRefresh = false
   function clearPollTimer() {
     if (pollTimer) {
       clearTimeout(pollTimer)
@@ -137,17 +159,31 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     // below, wrapped the same way every reload/retry already is.
     auto: false,
     initialData,
-    makeParams: () => (params ? { ...params.value } : {}),
+    makeParams: () => ({
+      ...(params ? params.value : {}),
+      ...(pendingRefresh ? { refresh: 1 } : {}),
+    }),
     onSuccess: (raw: unknown) => {
       const decoded = readInsightsEnvelope(raw)
       // A 200 carrying `{status: "error"}` is still a failure the user must see.
+      // A 200 carrying `{status: "not_implemented"}` one level down (inside
+      // `decoded.data`) is an honest stub, not a failure and not real data —
+      // see `notImplemented` above.
+      const stub =
+        decoded.data !== null &&
+        typeof decoded.data === 'object' &&
+        (decoded.data as Record<string, unknown>).status === 'not_implemented'
+      const stubMessage = stub ? (decoded.data as Record<string, unknown>).message : null
       isPermissionError.value = false
       warming.value = decoded.warming
       error.value = decoded.error
-      payload.value = decoded.error || decoded.warming ? null : (decoded.data as T)
+      notImplemented.value = stub
+      notImplementedMessage.value = typeof stubMessage === 'string' ? stubMessage : null
+      payload.value = decoded.error || decoded.warming || stub ? null : (decoded.data as T)
       fetched.value = true
       refreshing.value = false
 
+      pendingRefresh = false
       resetRetries()
       if (decoded.warming) {
         scheduleRefetch(WARMING_POLL_MS)
@@ -162,10 +198,13 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
         scheduleRefetch(busyRetryDelay(busyAttempt))
         return
       }
+      pendingRefresh = false
       resetRetries()
       const { permission, message } = readFrappeError(e, 'Could not load this dashboard')
       isPermissionError.value = permission
       warming.value = false
+      notImplemented.value = false
+      notImplementedMessage.value = null
       error.value = message
       payload.value = null
       fetched.value = true
@@ -202,6 +241,8 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     error,
     isPermissionError,
     warming,
+    notImplemented,
+    notImplementedMessage,
     /**
      * Requires a payload, not merely the absence of an error.
      *
@@ -214,11 +255,13 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     hasData: computed(() => fetched.value && !error.value && payload.value !== null),
     reload: () => {
       resetRetries()
+      pendingRefresh = true
       refreshing.value = true
       ignoreRejection(resource.reload())
     },
     retry: () => {
       resetRetries()
+      pendingRefresh = true
       error.value = null
       isPermissionError.value = false
       // Marked refreshing so the caller can show progress. Otherwise a retry

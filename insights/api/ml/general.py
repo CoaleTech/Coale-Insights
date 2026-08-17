@@ -49,18 +49,30 @@ def run_all_models() -> Dict[str, Any]:
         from insights.ml.procurement_intelligence import ProcurementIntelligence
 
         jobs = [
-            ("customer_segmentation", lambda: compute_rfm_segmentation()),
-            ("sales_forecast", lambda: run_sales_forecast()),
-            ("payment_prediction", lambda: PaymentPrediction().train()),
-            ("abc_xyz_classification", lambda: ABCXYZClassification().train()),
-            ("demand_forecast", lambda: DemandForecasting().train()),
-            ("product_recommendations", lambda: ProductRecommendations().train()),
-            ("customer_intelligence", lambda: compute_customer_intelligence(date_filter="12m")),
-            ("procurement_intelligence", lambda: ProcurementIntelligence().train()),
+            ("customer_segmentation", "Customer", lambda: compute_rfm_segmentation()),
+            ("sales_forecast", "Sales Invoice", lambda: run_sales_forecast()),
+            ("payment_prediction", "Sales Invoice", lambda: PaymentPrediction().train()),
+            ("abc_xyz_classification", "Item", lambda: ABCXYZClassification().train()),
+            ("demand_forecast", "Item", lambda: DemandForecasting().train()),
+            ("product_recommendations", "Item", lambda: ProductRecommendations().train()),
+            ("customer_intelligence", "Customer", lambda: compute_customer_intelligence(date_filter="12m")),
+            ("procurement_intelligence", "Purchase Order", lambda: ProcurementIntelligence().train()),
         ]
 
         results = {}
-        for name, trainer in jobs:
+        for name, doctype, trainer in jobs:
+            # Blanket "Sales Invoice" write above doesn't cover the Customer/
+            # Item/Purchase Order domains this batch also trains against --
+            # gate each job on its own doctype and record a per-job denial
+            # instead of aborting the whole batch, matching the per-job
+            # try/except resilience already below. Now directly reachable
+            # from Dashboard.vue's "Train ML Models" button.
+            if not frappe.has_permission(doctype, "write"):
+                results[name] = {
+                    "status": "error",
+                    "message": f"Insufficient permission: {doctype} write access required",
+                }
+                continue
             try:
                 results[name] = trainer()
             except Exception as job_error:

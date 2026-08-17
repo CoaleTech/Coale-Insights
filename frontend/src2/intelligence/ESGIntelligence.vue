@@ -123,7 +123,19 @@ const drillDown = useDrillDown()
 const exporting = ref(false)
 const lastUpdated = ref('')
 
-const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+const {
+  data,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  notImplemented,
+  notImplementedMessage,
+  hasData,
+  reload,
+  retry,
+} =
   useIntelligenceDashboard<EsgPayload>({
     url: 'insights.api.ml.get_esg_overview',
     cache: 'esg-intelligence',
@@ -262,6 +274,8 @@ function handleDashboardRedirect(target: string) {
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="ESG data"
       permission-hint="Ask an administrator for Sustainability read access."
