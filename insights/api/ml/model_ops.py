@@ -14,12 +14,11 @@ that states each model's actual method and precondition is the fix for the class
 of problem, not decoration.
 """
 
-import json
-import os
 from typing import Any, Dict, List
 
 import frappe
 from frappe import _
+from frappe.utils import now
 
 from insights.api.response import error, success
 from insights.api.serialization import sanitize_for_json
@@ -28,8 +27,9 @@ from insights.api.serialization import sanitize_for_json
 # allowed to run at all. This is the health page's data source; it exists
 # because something reads it, not as scaffolding.
 #
-#   key       cache key the model writes via BaseMLModel.cache_results
-#   trainer   dotted path a worker calls; also what the Retrain button queues
+#   trainer   dotted path `retrain`/`_describe` import and call, with no args,
+#             to get this model's current payload -- there is no cache or
+#             disk snapshot behind any of these (see `insights.ml.base`)
 #   gate      human-readable precondition, checked in the model itself
 MODELS: List[Dict[str, str]] = [
     {
@@ -37,19 +37,19 @@ MODELS: List[Dict[str, str]] = [
         "label": "Sales Forecast",
         "kind": "Time series",
         "trainer": "insights.ml.scheduler.train_sales_forecast",
-        "gate": "Prophet needs 730 days of history; below that, Holt-Winters",
+        "gate": "None; closed-form linear trend over daily sales, 0 forecast rows below 2 days of history",
     },
     {
         "key": "demand_forecast",
         "label": "Demand Forecast",
         "kind": "Time series",
         "trainer": "insights.ml.scheduler.train_demand_forecast",
-        "gate": "Holt-Winters per item; needs 12+ weeks of sales per item",
+        "gate": "Needs item-level sales history in the last 24 months",
     },
     {
         "key": "lead_conversion",
         "label": "Lead Conversion",
-        "kind": "Classifier",
+        "kind": "Weighted score",
         "trainer": "insights.ml.scheduler.train_lead_conversion",
         "gate": "50+ won and 50+ lost leads",
     },
@@ -63,60 +63,51 @@ MODELS: List[Dict[str, str]] = [
     {
         "key": "payment_model",
         "label": "Payment Default",
-        "kind": "Classifier",
+        "kind": "Weighted score",
         "trainer": "insights.ml.scheduler.train_payment_prediction",
-        "gate": "50+ late and 50+ on-time invoices, else a rule-based score",
+        "gate": "None; weighted rule score over invoice and customer signals",
     },
     {
         "key": "product_recommendations",
         "label": "Product Recommendations",
-        "kind": "Similarity",
+        "kind": "Co-occurrence",
         "trainer": "insights.ml.scheduler.train_product_recommendations",
-        "gate": "None; cosine similarity over co-purchased items",
+        "gate": "10+ submitted sales invoices with 2+ line items",
     },
     {
         "key": "customer_segmentation",
         "label": "Customer Segmentation",
-        "kind": "Clustering",
+        "kind": "Segmentation",
         "trainer": "insights.ml.scheduler.train_customer_segmentation",
-        "gate": "None; RFM scoring",
+        "gate": "None; RFM quintile scoring",
     },
 ]
 
 
-def _snapshot_for(cache_key: str) -> Dict[str, Any]:
-    """Last-good payload written to disk by `BaseMLModel.cache_results`."""
-    import re
+def _resolve_trainer(dotted_path: str):
+    """Import and return the callable a `MODELS` trainer path names."""
+    import importlib
 
-    directory = frappe.get_site_path("private", "files", "insights_ml_snapshots")
-    path = os.path.join(directory, re.sub(r"\W+", "_", cache_key) + ".json")
-    if not os.path.exists(path):
-        return {}
-    try:
-        # Path is built from a module constant reduced by re.sub(r"\W+", "_"),
-        # so no caller input reaches it.
-        # nosemgrep: frappe-security-file-traversal
-        with open(path, encoding="utf-8") as handle:
-            return json.load(handle) or {}
-    except Exception:
-        return {}
+    module_path, _sep, attr = dotted_path.rpartition(".")
+    return getattr(importlib.import_module(module_path), attr)
 
 
 def _describe(spec: Dict[str, str]) -> Dict[str, Any]:
-    """One row of the health table: is it trained, when, on what, how well."""
-    cached = frappe.cache.get_value(spec["key"])
-    snapshot = {} if cached else _snapshot_for(spec["key"])
-    envelope = cached or snapshot
-    payload = (envelope or {}).get("data") or {}
+    """One row of the health table: is it trained, when, on what, how well.
 
+    There is no cache or disk snapshot to read anymore -- every domain model
+    computes fresh per call (see `insights.ml.base`) -- so this runs the exact
+    trainer the Retrain button queues and reports what it returns right now.
+    "Trained" means this call just succeeded against this site's real data,
+    not that someone clicked Retrain at some point in the past.
+    """
     row: Dict[str, Any] = {
         "key": spec["key"],
         "label": spec["label"],
         "kind": spec["kind"],
         "trainer": spec["trainer"],
         "gate": spec["gate"],
-        "trained_at": (envelope or {}).get("cached_at"),
-        "source": "cache" if cached else ("snapshot" if snapshot else None),
+        "trained_at": None,
         "state": "never_trained",
         "method": None,
         "rows": None,
@@ -124,20 +115,28 @@ def _describe(spec: Dict[str, str]) -> Dict[str, Any]:
         "detail": None,
     }
 
+    try:
+        payload = _resolve_trainer(spec["trainer"])() or {}
+    except Exception as e:
+        row["state"] = "error"
+        row["detail"] = str(e)
+        return row
+
     if not payload:
         return row
 
     status = payload.get("status")
     if status == "insufficient_data":
         row["state"] = "blocked_on_data"
-        row["detail"] = payload.get("message")
+        row["detail"] = payload.get("message") or _("Not enough data yet.")
         return row
     if status == "error":
         row["state"] = "error"
-        row["detail"] = payload.get("message")
+        row["detail"] = payload.get("message") or _("Unknown error.")
         return row
 
     row["state"] = "trained"
+    row["trained_at"] = now()
 
     # Each model reports its shape differently; read what it actually emits
     # rather than forcing a common envelope none of them was written to.
@@ -145,39 +144,41 @@ def _describe(spec: Dict[str, str]) -> Dict[str, Any]:
         row["method"] = payload.get("method")
         row["rows"] = len(payload.get("forecast") or [])
         metrics = payload.get("metrics") or {}
-        # sMAPE, not MAPE: daily sales is zero on non-trading days, and dividing
-        # by a zero actual sends MAPE to hundreds of percent however good the
-        # forecast is. sMAPE is bounded at 200% and defined at zero.
-        if metrics.get("smape") is not None:
-            row["quality"] = f"sMAPE {metrics['smape']}% over {metrics.get('horizon_days')}d"
-        elif metrics.get("mape") is not None:
-            row["quality"] = f"MAPE {metrics['mape']}%"
+        if metrics.get("rmse") is not None:
+            row["quality"] = f"RMSE {metrics['rmse']} over {metrics.get('n_points')} days"
     elif spec["key"] == "demand_forecast":
-        forecasts = payload.get("forecasts") or []
-        row["rows"] = len(forecasts)
-        methods: Dict[str, int] = {}
-        for item in forecasts:
-            key = item.get("forecast_method") or "unknown"
-            methods[key] = methods.get(key, 0) + 1
-        row["method"] = ", ".join(f"{k} {v}" for k, v in sorted(methods.items(), key=lambda kv: -kv[1]))
+        row["method"] = "Weighted 3-month average + trend"
+        row["rows"] = payload.get("total_items_analyzed")
+        row["quality"] = _("{0} reorder now, {1} monitor").format(
+            payload.get("reorder_now_count", 0), payload.get("monitor_count", 0)
+        )
     elif spec["key"] == "lead_conversion":
         training = payload.get("training") or {}
         metrics = payload.get("metrics") or {}
-        row["method"] = "RandomForest"
+        row["method"] = "Weighted rule score"
         row["rows"] = training.get("closed_total")
-        if metrics.get("roc_auc") is not None:
-            row["quality"] = f"ROC-AUC {metrics['roc_auc']}%"
+        row["quality"] = metrics.get("note")
     elif spec["key"] == "gl_anomaly":
-        row["method"] = "IsolationForest"
+        row["method"] = "Z-score vs ledger distribution"
         row["rows"] = payload.get("scanned")
         row["quality"] = _("{0} flagged").format(payload.get("flagged"))
     elif spec["key"] == "payment_model":
         metrics = payload.get("metrics") or {}
-        row["method"] = payload.get("model_type") or "RandomForest"
-        if metrics.get("accuracy") is not None:
-            row["quality"] = f"Accuracy {metrics['accuracy']}%"
-    else:
-        row["rows"] = payload.get("total") or payload.get("count")
+        row["method"] = payload.get("model") or "weighted_rule_score"
+        row["rows"] = payload.get("training_samples")
+        row["quality"] = metrics.get("note")
+    elif spec["key"] == "product_recommendations":
+        summary = payload.get("transaction_summary") or {}
+        rules = payload.get("association_rules") or {}
+        row["method"] = "Co-occurrence pairs"
+        row["rows"] = summary.get("total_transactions")
+        row["quality"] = _("{0} rules, {1} pairs").format(
+            rules.get("total_rules", 0), len(payload.get("frequently_bought_together") or [])
+        )
+    elif spec["key"] == "customer_segmentation":
+        row["method"] = "RFM quintiles"
+        row["rows"] = payload.get("total_customers")
+        row["quality"] = _("{0} segments").format(len(payload.get("segments") or []))
 
     return row
 
@@ -272,15 +273,11 @@ def retrain(model: str) -> Dict[str, Any]:
         spec = next((item for item in MODELS if item["key"] == model), None)
         if not spec:
             frappe.throw(_("Unknown model: {0}").format(model))
-
-        import importlib
+        assert spec is not None  # frappe.throw always raises; narrows the type for the checker
 
         from insights.api.ml.utils import run
 
-        module_path, _sep, attr = spec["trainer"].rpartition(".")
-        trainer_fn = getattr(importlib.import_module(module_path), attr)
-
-        return sanitize_for_json(run(trainer_fn, spec["label"]))
+        return sanitize_for_json(run(_resolve_trainer(spec["trainer"]), spec["label"]))
     except frappe.PermissionError:
         raise
     except Exception as e:

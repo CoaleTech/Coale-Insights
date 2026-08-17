@@ -29,7 +29,6 @@ interface ModelRow {
   kind: string
   gate: string
   trained_at: string | null
-  source: string | null
   state: 'trained' | 'never_trained' | 'blocked_on_data' | 'error'
   method: string | null
   rows: number | null
@@ -51,6 +50,8 @@ const {
   error,
   isPermissionError,
   warming,
+  notImplemented,
+  notImplementedMessage,
   hasData,
   reload,
   retry,
@@ -90,21 +91,38 @@ const emptySources = computed(() => dataRows.value.filter((row) => row.state !==
 
 const retraining = ref<string | null>(null)
 
-/** Queue one model's fit. The endpoint never trains in the request. */
+/** Recompute one model against current data. The endpoint runs synchronously
+ * and answers with the fresh payload -- there is no queue behind this. */
 async function retrain(model: ModelRow) {
   retraining.value = model.key
   try {
     const result = (await apiCall('insights.api.ml.retrain', { model: model.key })) as
       | Record<string, unknown>
       | null
-    createToast({
-      title: 'Training Queued',
-      message: (result?.message as string) || `${model.label}: training queued`,
-      variant: 'success',
-    })
+    const innerStatus = result?.status as string | undefined
+    if (innerStatus === 'error') {
+      createToast({
+        title: 'Recompute failed',
+        message: (result?.message as string) || `${model.label}: recompute failed`,
+        variant: 'error',
+      })
+    } else if (innerStatus === 'insufficient_data') {
+      createToast({
+        title: 'Not enough data',
+        message: (result?.message as string) || `${model.label}: not enough data yet`,
+        variant: 'warning',
+      })
+    } else {
+      createToast({
+        title: 'Recomputed',
+        message: `${model.label}: recomputed from current data`,
+        variant: 'success',
+      })
+    }
+    reload()
   } catch (e: unknown) {
     createToast({
-      title: 'Could not queue training',
+      title: 'Could not recompute',
       message: readFrappeError(e, 'Unknown error').message,
       variant: 'error',
     })
@@ -158,6 +176,8 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="model health"
       permission-hint="Ask an administrator for model health read access."
@@ -184,7 +204,7 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
                 <th class="text-left font-medium px-4 py-3">Method in use</th>
                 <th class="text-right font-medium px-4 py-3">Rows</th>
                 <th class="text-left font-medium px-4 py-3">Quality</th>
-                <th class="text-left font-medium px-4 py-3">Last trained</th>
+                <th class="text-left font-medium px-4 py-3">Verified</th>
                 <th class="px-4 py-3"></th>
               </tr>
             </thead>
@@ -214,9 +234,6 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
                 <td class="px-4 py-3 text-ink-gray-8">{{ model.quality || '—' }}</td>
                 <td class="px-4 py-3 text-ink-gray-6 whitespace-nowrap">
                   {{ model.trained_at ? formatDateTime(model.trained_at) : 'Never' }}
-                  <span v-if="model.source === 'snapshot'" class="text-xs text-ink-gray-5 block">
-                    from disk snapshot
-                  </span>
                 </td>
                 <td class="px-4 py-3 text-right">
                   <Button
