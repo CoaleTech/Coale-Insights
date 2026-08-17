@@ -112,6 +112,7 @@ _LAZY_MAP = {
     "capital_efficiency": ("insights.api.ml.breakeven", "capital_efficiency"),
     "breakeven_summary": ("insights.api.ml.breakeven", "breakeven_summary"),
     "item_lead_breakeven_ratio": ("insights.api.ml.breakeven", "item_lead_breakeven_ratio"),
+    "predict_breakeven_scenario": ("insights.api.ml.breakeven", "predict_breakeven_scenario"),
     # ------------------------------------------------------------------ risk
     "risk_intelligence": ("insights.api.ml.risk", "risk_intelligence"),
     # ------------------------------------------------------------------ procurement

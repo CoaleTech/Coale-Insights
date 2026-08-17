@@ -271,7 +271,10 @@ class BudgetVarianceIntelligence:
             forecast_data = self._get_historical_forecasts()
 
             if not forecast_data:
-                return {}
+                return {
+                    "status": "not_implemented",
+                    "message": "Historical budget forecast tracking is not yet captured; accuracy cannot be computed.",
+                }
 
             accuracies = []
             for item in forecast_data:
@@ -1010,14 +1013,22 @@ class BudgetVarianceIntelligence:
                 monthly_actual = self._get_monthly_actual_amount(month_start, month_end)
 
                 variance = monthly_actual - monthly_budget
-                variance_pct = (variance / monthly_budget * 100) if monthly_budget != 0 else 0
+                # `monthly_budget == 0` means no Budget doctype covers this
+                # month, not that actual spend landed exactly on a real
+                # plan. Masking that as `variance_percentage: 0` reads as
+                # "on budget"; `has_budget` lets consumers (variance
+                # control, in particular) tell the two apart instead of
+                # averaging in a fabricated zero.
+                has_budget = monthly_budget != 0
+                variance_pct = (variance / monthly_budget * 100) if has_budget else 0
 
                 monthly_data.append({
                     "month": month_start.strftime("%Y-%m"),
                     "budget": monthly_budget,
                     "actual": monthly_actual,
                     "variance": variance,
-                    "variance_percentage": variance_pct
+                    "variance_percentage": variance_pct,
+                    "has_budget": has_budget,
                 })
 
                 current_date = frappe.utils.add_months(current_date, 1)
@@ -1260,17 +1271,26 @@ class BudgetVarianceIntelligence:
     def _calculate_budget_efficiency(self) -> dict[str, Any]:
         """Calculate budget efficiency metrics"""
         try:
-            # Budget efficiency = Actual performance / Budget allocation
             performance_metrics = self._get_performance_metrics()
             budget_metrics = self._get_budget_allocation_metrics()
+            resource_utilization = self._calculate_resource_utilization()
+            cost_effectiveness = self._calculate_cost_effectiveness()
 
-            # Simplified efficiency calculation
-            efficiency_score = 75  # Default score
+            # Weighted blend: how well spend tracked plan (cost efficiency),
+            # how tightly the budget was allocated across accounts, and the
+            # utilization/effectiveness of what was actually spent.
+            efficiency_score = round(
+                performance_metrics.get("cost_efficiency", 0) * 0.35
+                + budget_metrics.get("allocation_efficiency", 0) * 0.25
+                + resource_utilization * 0.2
+                + cost_effectiveness * 0.2,
+                2,
+            )
 
             return {
                 "efficiency_score": efficiency_score,
-                "resource_utilization": self._calculate_resource_utilization(),
-                "cost_effectiveness": self._calculate_cost_effectiveness()
+                "resource_utilization": resource_utilization,
+                "cost_effectiveness": cost_effectiveness
             }
 
         except Exception as e:
@@ -1278,16 +1298,29 @@ class BudgetVarianceIntelligence:
             return {}
 
     def _calculate_variance_control(self) -> dict[str, Any]:
-        """Calculate variance control effectiveness"""
+        """Calculate variance control effectiveness, over months with a real budget.
+
+        Months where no Budget doctype covers the period (`has_budget: False`,
+        see `_get_monthly_variances`) carry a fabricated `variance_percentage:
+        0` -- averaging those in reads as "on budget" when the truth is
+        "nothing to compare against". On a site with zero Budget records this
+        previously scored every month 0% variance and reported
+        "Excellent (100/100)" control while actual spend ran millions
+        unbudgeted per month.
+        """
         try:
             monthly_variances = self._get_monthly_variances()
+            budgeted_months = [m for m in monthly_variances if m.get("has_budget")]
 
-            if not monthly_variances:
-                return {}
+            if not budgeted_months:
+                return {
+                    "status": "not_implemented",
+                    "message": "No Budget records cover this period; variance control cannot be assessed.",
+                }
 
             # Calculate control metrics
-            avg_variance = sum(abs(item['variance_percentage']) for item in monthly_variances) / len(monthly_variances)
-            variance_volatility = self._calculate_variance_volatility(monthly_variances)
+            avg_variance = sum(abs(item['variance_percentage']) for item in budgeted_months) / len(budgeted_months)
+            variance_volatility = self._calculate_variance_volatility(budgeted_months)
 
             control_score = max(0, 100 - (avg_variance + variance_volatility) / 2)
 
@@ -1295,7 +1328,9 @@ class BudgetVarianceIntelligence:
                 "control_score": control_score,
                 "average_variance": avg_variance,
                 "volatility": variance_volatility,
-                "control_level": "excellent" if control_score >= 90 else "good" if control_score >= 75 else "needs_improvement"
+                "control_level": "excellent" if control_score >= 90 else "good" if control_score >= 75 else "needs_improvement",
+                "months_assessed": len(budgeted_months),
+                "months_without_budget": len(monthly_variances) - len(budgeted_months),
             }
 
         except Exception as e:
@@ -1544,13 +1579,24 @@ class BudgetVarianceIntelligence:
             return 0
 
     def _get_performance_metrics(self) -> dict[str, Any]:
-        """Get general performance metrics"""
+        """Get general performance metrics, derived from the variance summary"""
         try:
-            # Placeholder for performance metrics
+            summary = self._get_variance_summary()
+            if not summary:
+                return {"cost_efficiency": 0, "profit_margin": 0}
+
+            total_variance_abs = abs(summary.get("total_variance", 0))
+            favorable = summary.get("favorable_variance", 0)
+            # Share of the total budget-vs-actual variance that was favorable.
+            cost_efficiency = (
+                round(favorable / total_variance_abs * 100, 2) if total_variance_abs > 0 else 100.0
+            )
+            # How far actual spend came in under the budget ceiling.
+            profit_margin = round(100 - summary.get("budget_utilization", 0), 2)
+
             return {
-                "revenue_growth": 0,
-                "cost_efficiency": 0,
-                "profit_margin": 0
+                "cost_efficiency": cost_efficiency,
+                "profit_margin": profit_margin
             }
 
         except Exception as e:
@@ -1558,12 +1604,28 @@ class BudgetVarianceIntelligence:
             return {}
 
     def _get_budget_allocation_metrics(self) -> dict[str, Any]:
-        """Get budget allocation metrics"""
+        """Get budget allocation metrics, derived from account-wise variance"""
         try:
-            # Placeholder for allocation metrics
+            accounts = self._get_account_variance()
+            if not accounts:
+                return {"allocation_efficiency": 0, "resource_distribution": {}}
+
+            # Tighter budgets (lower average absolute variance) score higher.
+            avg_abs_variance = sum(abs(a.get("variance_percentage", 0)) for a in accounts) / len(accounts)
+            allocation_efficiency = round(max(0.0, 100 - avg_abs_variance), 2)
+
+            # Actual spend share by root type (Asset/Liability/Income/Expense/Equity).
+            distribution: dict[str, float] = {}
+            for acc in accounts:
+                root_type = acc.get("root_type") or "Unknown"
+                distribution[root_type] = distribution.get(root_type, 0) + abs(acc.get("actual", 0))
+            total_actual = sum(distribution.values())
+            if total_actual > 0:
+                distribution = {k: round(v / total_actual * 100, 2) for k, v in distribution.items()}
+
             return {
-                "allocation_efficiency": 0,
-                "resource_distribution": {}
+                "allocation_efficiency": allocation_efficiency,
+                "resource_distribution": distribution
             }
 
         except Exception as e:
@@ -1571,20 +1633,26 @@ class BudgetVarianceIntelligence:
             return {}
 
     def _calculate_resource_utilization(self) -> float:
-        """Calculate resource utilization efficiency"""
+        """Calculate resource utilization efficiency: share of allocated budget actually spent"""
         try:
-            # Simplified calculation
-            return 80  # Default utilization score
+            summary = self._get_variance_summary()
+            if not summary:
+                return 0
+            return round(summary.get("budget_utilization", 0), 2)
 
         except Exception as e:
             logger.error(f"Error calculating resource utilization: {e}")
             return 0
 
     def _calculate_cost_effectiveness(self) -> float:
-        """Calculate cost effectiveness"""
+        """Calculate cost effectiveness: share of budget where spend was favorable to plan"""
         try:
-            # Simplified calculation
-            return 75  # Default cost effectiveness score
+            summary = self._get_variance_summary()
+            total_budget = summary.get("total_budget", 0) if summary else 0
+            if not summary or total_budget == 0:
+                return 0
+            favorable = summary.get("favorable_variance", 0)
+            return round(min(100.0, favorable / total_budget * 100), 2)
 
         except Exception as e:
             logger.error(f"Error calculating cost effectiveness: {e}")

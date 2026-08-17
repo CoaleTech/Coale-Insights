@@ -109,28 +109,43 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     # Cash Runway
     cash_runway_months = (cash_balance / monthly_expenses) if monthly_expenses > 0 else 999
 
-    # Total Assets (from Asset doctype)
+    # Total Assets, Liabilities, Equity from GL Entry (balance-sheet items
+    # are point-in-time balances, not period-scoped; no `posting_date`
+    # filter, but cancelled entries excluded). Filter to leaf accounts
+    # (`is_group = 0`) -- otherwise the parent "Current Assets" / "Fixed
+    # Liabilities" totals double-count their own children's balances (the
+    # parent's `debit - credit` IS the sum of its leaves'). The previous
+    # code used `tabAsset.purchase_amount` for assets (gross book value
+    # only, and missing entirely on benches where the Asset doctype isn't
+    # used -- e.g. this `jkm` bench shows `total_assets: 0` despite ~3.4
+    # Cr of leaf-account assets in GL) and `SUM(ABS(credit - debit))` for
+    # liabilities/equity (which sums gross activity on each row rather
+    # than the actual balance; on `jkm` the liability total was inflated
+    # ~31x to ~94 Cr when the real leaf-account balance is ~3 Cr).
     total_assets = frappe.db.sql("""
-        SELECT COALESCE(SUM(purchase_amount), 0) as total
-        FROM `tabAsset`
-        WHERE company = %s
-            AND docstatus = 1
-            AND status NOT IN ('Sold', 'Scrapped')
-    """, (intelligence.company,), as_dict=True)[0].total or 0
-
-    # Total Debt (Liabilities)
-    total_liabilities = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(credit - debit)), 0) as amount
+        SELECT COALESCE(SUM(debit - credit), 0) as amount
         FROM `tabGL Entry` gle
         JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Liability'
+        WHERE acc.root_type = 'Asset'
+            AND acc.is_group = 0
             AND gle.company = %s
             AND gle.is_cancelled = 0
     """, (intelligence.company,), as_dict=True)[0].amount or 0
 
-    # Equity
+    # Total Liabilities (credit-normal balance: credit - debit).
+    total_liabilities = frappe.db.sql("""
+        SELECT COALESCE(SUM(credit - debit), 0) as amount
+        FROM `tabGL Entry` gle
+        JOIN `tabAccount` acc ON gle.account = acc.name
+        WHERE acc.root_type = 'Liability'
+            AND acc.is_group = 0
+            AND gle.company = %s
+            AND gle.is_cancelled = 0
+    """, (intelligence.company,), as_dict=True)[0].amount or 0
+
+    # Equity (credit-normal balance, same shape as liabilities).
     total_equity = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(credit - debit)), 0) as amount
+        SELECT COALESCE(SUM(credit - debit), 0) as amount
         FROM `tabGL Entry` gle
         JOIN `tabAccount` acc ON gle.account = acc.name
         WHERE acc.root_type = 'Equity'
@@ -138,12 +153,17 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
             AND gle.is_cancelled = 0
     """, (intelligence.company,), as_dict=True)[0].amount or 0
 
-    # ROE and ROA
-    roe = (ytd_net_income / total_equity * 100) if total_equity > 0 else 0
-    roa = (ytd_net_income / total_assets * 100) if total_assets > 0 else 0
+    # ROE and ROA. Use max(0, balance) so a contra-balance (negative
+    # liabilities/equity) reads as zero rather than a negative ratio --
+    # e.g. an over-paid supplier with `credit - debit = -50000` for that
+    # account would otherwise show negative liabilities and a negative
+    # debt/equity ratio, both nonsensical.
+    roe = (ytd_net_income / max(0.0, total_equity) * 100) if max(0.0, total_equity) > 0 else 0
+    roa = (ytd_net_income / max(0.0, total_assets) * 100) if max(0.0, total_assets) > 0 else 0
 
     # Debt to Equity
-    debt_to_equity = (total_liabilities / total_equity) if total_equity > 0 else 0
+    debt_to_equity = (max(0.0, total_liabilities) / max(0.0, total_equity)) if max(0.0, total_equity) > 0 else 0
+
 
     # Monthly trends (last 12 months)
     monthly_trends = get_monthly_financial_trends(intelligence)

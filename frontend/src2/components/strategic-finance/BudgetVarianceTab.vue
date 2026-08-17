@@ -139,22 +139,33 @@
 
         <!-- Forecast Accuracy -->
         <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-          <div class="flex items-center justify-between">
-            <div>
-              <p class="text-sm font-medium text-ink-gray-6">Forecast Accuracy</p>
-              <p class="text-2xl font-bold mt-1 text-ink-gray-9">
-                {{ formatPercentage(budgetData?.forecast_accuracy?.overall_accuracy || 0) }}
-              </p>
-              <p class="text-xs text-ink-gray-6 mt-1">
-                Grade: {{ budgetData?.forecast_accuracy?.accuracy_grade || 'N/A' }}
-              </p>
+          <template v-if="budgetData?.forecast_accuracy?.status === 'not_implemented'">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium text-ink-gray-6">Forecast Accuracy</p>
+                <p class="text-sm text-ink-gray-6 mt-1">Not tracked yet</p>
+              </div>
+              <Target class="w-6 h-6 text-ink-gray-5" />
             </div>
-            <Target class="w-6 h-6 text-ink-gray-5" />
-          </div>
-          <div class="mt-3 flex items-center text-xs gap-2">
-            <span class="text-ink-gray-6">Trend:</span>
-            <span class="text-ink-gray-7 capitalize">{{ budgetData?.forecast_accuracy?.accuracy_trend || 'stable' }}</span>
-          </div>
+          </template>
+          <template v-else>
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm font-medium text-ink-gray-6">Forecast Accuracy</p>
+                <p class="text-2xl font-bold mt-1 text-ink-gray-9">
+                  {{ formatPercentage(budgetData?.forecast_accuracy?.overall_accuracy || 0) }}
+                </p>
+                <p class="text-xs text-ink-gray-6 mt-1">
+                  Grade: {{ budgetData?.forecast_accuracy?.accuracy_grade || 'N/A' }}
+                </p>
+              </div>
+              <Target class="w-6 h-6 text-ink-gray-5" />
+            </div>
+            <div class="mt-3 flex items-center text-xs gap-2">
+              <span class="text-ink-gray-6">Trend:</span>
+              <span class="text-ink-gray-7 capitalize">{{ budgetData?.forecast_accuracy?.accuracy_trend || 'stable' }}</span>
+            </div>
+          </template>
         </div>
 
         <!-- Alert Count -->

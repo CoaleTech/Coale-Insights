@@ -334,7 +334,8 @@ interface Props {
       description: string
     }>
   } | null
-  expenseBreakdown?: unknown[]
+  /** Rows accept category/name/label + value/amount/percentage keys; see ExpensePieChart's PieRow. */
+  expenseBreakdown?: Record<string, number | string | boolean | null | undefined>[]
 }
 
 const props = defineProps<Props>()

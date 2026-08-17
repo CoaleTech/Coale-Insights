@@ -165,9 +165,7 @@ class BreakevenEngine:
             SELECT
                 item.name as item_code,
                 item.item_name,
-                item.item_group,
-                COALESCE(item.standard_rate, 0) as selling_price,
-                COALESCE(item.valuation_rate, 0) as variable_cost
+                item.item_group
             FROM `tabItem` item
             WHERE item.disabled = 0
                 AND (item.is_sales_item = 1 OR item.is_stock_item = 1)
@@ -178,7 +176,60 @@ class BreakevenEngine:
             as_dict=True,
         )
 
-        # Actual sales quantities for the period
+        # Real selling price = weighted-avg rate from Sales Invoice Items for the
+        # period. Item.standard_rate / Item Price are 0 / unpopulated on many
+        # benches (the standard ERPNext Item master never has prices filled in
+        # when an Item Price list exists) -- falling back to those alone gave
+        # contribution_margin = 0 for every item and broke the whole
+        # per-item break-even view. Only fall back to Item.standard_rate when
+        # no period sales exist; we don't want to silently mix a stale master
+        # price into a real cost basis.
+        sales_prices = frappe.db.sql(
+            """
+            SELECT
+                sii.item_code,
+                SUM(sii.net_amount) as period_revenue,
+                SUM(sii.qty) as period_qty
+            FROM `tabSales Invoice Item` sii
+            JOIN `tabSales Invoice` si ON sii.parent = si.name
+            WHERE si.docstatus = 1
+                AND si.company = %s
+                AND si.posting_date BETWEEN %s AND %s
+            GROUP BY sii.item_code
+            """,
+            (self.company, start, end),
+            as_dict=True,
+        )
+        sales_price_map = {}
+        for sp in sales_prices:
+            revenue = float(sp.period_revenue or 0)
+            qty = float(sp.period_qty or 0)
+            # net_amount / qty -- handles discount-inclusive pricing correctly
+            # (qty is in the same UOM as net_amount, so the ratio is unit price)
+            sales_price_map[sp.item_code] = (revenue / qty) if qty > 0 else 0.0
+
+        # Real variable cost = current Bin valuation_rate (real cost basis
+        # maintained by Stock Ledger). Falls back to the most recent
+        # Stock Ledger Entry.incoming_rate when the item isn't currently in
+        # stock, and finally to Item.valuation_rate for items with neither.
+        costs = frappe.db.sql(
+            """
+            SELECT
+                b.item_code,
+                COALESCE(b.valuation_rate,
+                    (SELECT sle.incoming_rate FROM `tabStock Ledger Entry` sle
+                     WHERE sle.item_code = b.item_code
+                       AND sle.docstatus = 1
+                       AND sle.incoming_rate > 0
+                     ORDER BY sle.posting_date DESC, sle.creation DESC LIMIT 1),
+                    0
+                ) as variable_cost
+            FROM `tabBin` b
+            """,
+            as_dict=True,
+        )
+        bin_cost_map = {c.item_code: float(c.variable_cost or 0) for c in costs}
+
         sales = frappe.db.sql(
             """
             SELECT
@@ -197,19 +248,40 @@ class BreakevenEngine:
         )
         sales_map = {s.item_code: s for s in sales}
 
+        master_prices = frappe.db.sql(
+            """
+            SELECT
+                item.name as item_code,
+                COALESCE(item.standard_rate, 0) as master_selling_price,
+                COALESCE(item.valuation_rate, 0) as master_variable_cost
+            FROM `tabItem` item
+            WHERE item.disabled = 0
+            """,
+            as_dict=True,
+        )
+        master_map = {m.item_code: m for m in master_prices}
+
         # Compute total contribution to allocate fixed costs proportionally
         total_contribution = 0.0
         for item in items:
-            sp = float(item.selling_price or 0)
-            vc = float(item.variable_cost or 0)
+            sp = sales_price_map.get(item.item_code, 0.0)
+            if sp <= 0:
+                sp = float(master_map.get(item.item_code, {}).get("master_selling_price", 0))
+            vc = bin_cost_map.get(item.item_code, 0.0)
+            if vc <= 0:
+                vc = float(master_map.get(item.item_code, {}).get("master_variable_cost", 0))
             cm = sp - vc
             actual_qty = float(sales_map.get(item.item_code, {}).get("total_qty", 0))
             total_contribution += cm * actual_qty
 
         results = []
         for item in items:
-            sp = float(item.selling_price or 0)
-            vc = float(item.variable_cost or 0)
+            sp = sales_price_map.get(item.item_code, 0.0)
+            if sp <= 0:
+                sp = float(master_map.get(item.item_code, {}).get("master_selling_price", 0))
+            vc = bin_cost_map.get(item.item_code, 0.0)
+            if vc <= 0:
+                vc = float(master_map.get(item.item_code, {}).get("master_variable_cost", 0))
             cm = round(sp - vc, 2)
             actual_qty = float(sales_map.get(item.item_code, {}).get("total_qty", 0))
             actual_revenue = float(sales_map.get(item.item_code, {}).get("total_revenue", 0))
@@ -235,7 +307,6 @@ class BreakevenEngine:
                 "actual_revenue": round(actual_revenue, 2),
                 "coverage": coverage,
                 "safety_margin": safety_margin,
-                "rag": self._rag_coverage(coverage),
             })
 
         return {
@@ -623,8 +694,123 @@ class BreakevenEngine:
             return {"status": "error", "message": str(e)}
 
     def predict(self, data: Any) -> dict[str, Any]:
-        """Predict break-even for a given scenario (not implemented)."""
-        return {"status": "not_implemented"}
+        """Recompute item and overall break-even under a hypothetical scenario.
+
+        ``data`` is a dict of percentage deltas applied to the current period's
+        real fixed costs, prices, variable costs, and sold quantities (all
+        optional, default 0):
+            - ``fixed_cost_delta_pct``: change to total fixed costs
+            - ``price_delta_pct``: change to each item's selling price
+            - ``variable_cost_delta_pct``: change to each item's unit variable
+              cost and to the aggregate variable-cost-center total
+            - ``volume_delta_pct``: change to each item's sold quantity --
+              shifts coverage/safety margin, not the break-even qty itself
+            - ``item_group``: optional Item Group filter (same as
+              ``calculate_item_breakeven``)
+
+        Deterministic sensitivity recompute using the same real Item-master
+        prices/costs, actual sales quantities, and fixed-cost allocation
+        formula as ``calculate_item_breakeven``/``get_breakeven_summary`` --
+        not a trained model. Cash flow, payroll, ROCE, and IRR are unaffected
+        by this scenario and are intentionally not recomputed here.
+        """
+        try:
+            scenario = data if isinstance(data, dict) else {}
+            fixed_delta = float(scenario.get("fixed_cost_delta_pct", 0) or 0) / 100
+            price_delta = float(scenario.get("price_delta_pct", 0) or 0) / 100
+            variable_delta = float(scenario.get("variable_cost_delta_pct", 0) or 0) / 100
+            volume_delta = float(scenario.get("volume_delta_pct", 0) or 0) / 100
+            item_group = scenario.get("item_group") or None
+
+            baseline = self.calculate_item_breakeven(item_group=item_group)
+            start, end = self._get_fiscal_dates()
+            base_fixed = baseline["total_fixed_costs"]
+            base_variable = self._get_variable_costs(start, end)
+            scenario_fixed = round(base_fixed * (1 + fixed_delta), 2)
+            scenario_variable = round(base_variable * (1 + variable_delta), 2)
+
+            scenario_items = []
+            for item in baseline["items"]:
+                sp = round(item["selling_price"] * (1 + price_delta), 2)
+                vc = round(item["variable_cost"] * (1 + variable_delta), 2)
+                qty = round(item["actual_qty"] * (1 + volume_delta), 2)
+                scenario_items.append({
+                    "item_code": item["item_code"],
+                    "item_name": item["item_name"],
+                    "item_group": item["item_group"],
+                    "selling_price": sp,
+                    "variable_cost": vc,
+                    "contribution_margin": round(sp - vc, 2),
+                    "qty": qty,
+                })
+
+            total_contribution = sum(i["contribution_margin"] * i["qty"] for i in scenario_items)
+
+            results = []
+            for item in scenario_items:
+                cm = item["contribution_margin"]
+                qty = item["qty"]
+                allocated_fixed = 0.0
+                if total_contribution > 0 and cm > 0:
+                    allocated_fixed = round(scenario_fixed * (cm * qty / total_contribution), 2)
+                be_qty = round(allocated_fixed / cm, 2) if cm > 0 else 0.0
+                coverage = round(qty / be_qty, 2) if be_qty > 0 else 0.0
+                safety_margin = round((qty - be_qty) / qty * 100, 2) if qty > 0 else 0.0
+                results.append({
+                    **item,
+                    "revenue": round(item["selling_price"] * qty, 2),
+                    "be_qty": be_qty,
+                    "coverage": coverage,
+                    "safety_margin": safety_margin,
+                    "rag": self._rag_coverage(coverage),
+                })
+
+            projected_revenue = round(sum(r["revenue"] for r in results), 2)
+            projected_qty = round(sum(r["qty"] for r in results), 2)
+            overall_be_revenue = round(scenario_fixed + scenario_variable, 2)
+            overall_coverage = round(projected_revenue / overall_be_revenue, 2) if overall_be_revenue > 0 else 0.0
+            overall_safety_margin = (
+                round((projected_revenue - overall_be_revenue) / projected_revenue * 100, 2)
+                if projected_revenue > 0 else 0.0
+            )
+
+            current_qty = round(sum(i.get("actual_qty", 0) for i in baseline["items"]), 2)
+            current_revenue = round(sum(i.get("actual_revenue", 0) for i in baseline["items"]), 2)
+            current_be_revenue = round(base_fixed + base_variable, 2)
+            current_coverage = round(current_revenue / current_be_revenue, 2) if current_be_revenue > 0 else 0.0
+
+            return {
+                "status": "success",
+                "scenario": {
+                    "fixed_cost_delta_pct": round(fixed_delta * 100, 2),
+                    "price_delta_pct": round(price_delta * 100, 2),
+                    "variable_cost_delta_pct": round(variable_delta * 100, 2),
+                    "volume_delta_pct": round(volume_delta * 100, 2),
+                    "item_group": item_group,
+                },
+                "items": results,
+                "overall": {
+                    "fixed_costs": scenario_fixed,
+                    "variable_costs": scenario_variable,
+                    "be_revenue": overall_be_revenue,
+                    "projected_qty": projected_qty,
+                    "projected_revenue": projected_revenue,
+                    "coverage": overall_coverage,
+                    "safety_margin": overall_safety_margin,
+                    "rag": self._rag_coverage(overall_coverage),
+                },
+                "current": {
+                    "fixed_costs": base_fixed,
+                    "variable_costs": base_variable,
+                    "be_revenue": current_be_revenue,
+                    "actual_qty": current_qty,
+                    "actual_revenue": current_revenue,
+                    "coverage": current_coverage,
+                },
+            }
+        except Exception as e:
+            frappe.log_error(f"BreakevenEngine predict failed: {e!s}", "BreakevenEngine")
+            return {"status": "error", "message": str(e)}
 
 
 def _polynomial_irr(cash_flows: list[float]) -> float | None:

@@ -26,6 +26,24 @@ def item_breakeven(period: str = "Quarterly", fiscal_year: str = None, item_grou
 
 
 @frappe.whitelist()
+def predict_breakeven_scenario(
+    period: str = "Quarterly", fiscal_year: str = None, scenario: str = None
+) -> Dict[str, Any]:
+    """Recompute item and overall break-even under a hypothetical cost/price/volume scenario."""
+    try:
+        frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.ml.breakeven_engine import BreakevenEngine
+        engine = BreakevenEngine(period=period, fiscal_year=fiscal_year)
+        scenario_data = frappe.parse_json(scenario) if scenario else {}
+        result = engine.predict(scenario_data)
+        return success(result)
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        return error(str(e), exc=e)
+
+
+@frappe.whitelist()
 def employee_breakeven(period: str = "Quarterly", fiscal_year: str = None) -> Dict[str, Any]:
     """Get employee/department-level break-even analysis."""
     try:
