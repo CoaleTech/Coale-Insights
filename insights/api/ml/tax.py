@@ -185,4 +185,178 @@ def get_tax_detail(metric: str, filters: str) -> dict:
             "total": total,
         }
 
+    if metric == "irn_missing":
+        frappe.has_permission("Sales Invoice", throw=True)
+        # Mirrors `get_einvoice_status`'s `needs_irn & (~has_irn)` filter exactly
+        # (insights/ml/india_tax_intelligence/data.py) so the drill-down list
+        # count matches the KPI card it opens from.
+        needs_irn_categories = [
+            "Registered Regular", "Registered Composition",
+            "SEZ supply with payment of tax", "SEZ supply without payment of tax",
+            "Deemed Export", "Overseas", "SEZ",
+        ]
+        conditions = [
+            "si.docstatus = 1",
+            "si.gst_category IN %(needs_irn)s",
+            "(si.irn IS NULL OR si.irn = '')",
+        ]
+        params: Dict[str, Any] = {"needs_irn": needs_irn_categories}
+        if company:
+            conditions.append("si.company = %(company)s")
+            params["company"] = company
+        from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
+        win = IndiaTaxIntelligence(period=period)._window()
+        conditions.append("si.posting_date BETWEEN %(start_date)s AND %(end_date)s")
+        params["start_date"] = str(win.get("start"))
+        params["end_date"] = str(win.get("end"))
+        where = " AND ".join(conditions)
+        rows = frappe.db.sql(
+            f"""
+            SELECT si.name, si.customer, si.posting_date, si.gst_category, si.grand_total
+            FROM `tabSales Invoice` si
+            WHERE {where}
+            ORDER BY si.posting_date DESC, si.name DESC
+            LIMIT %(page_size)s OFFSET %(start)s
+            """,
+            {**params, "page_size": page_size, "start": start},
+            as_dict=True,
+        )
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabSales Invoice` si WHERE {where}", params
+        )[0][0]
+        return {
+            "columns": [
+                {"label": _("Invoice"), "fieldname": "name", "fieldtype": "Link",
+                 "options": "Sales Invoice"},
+                {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link",
+                 "options": "Customer"},
+                {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": _("GST Category"), "fieldname": "gst_category", "fieldtype": "Data"},
+                {"label": _("Grand Total"), "fieldname": "grand_total", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    if metric == "ewaybill_pending":
+        frappe.has_permission("Sales Invoice", throw=True)
+        # Mirrors `get_ewaybill_status`'s `e_waybill_status == "Pending"` bucket.
+        conditions = ["si.docstatus = 1", "si.e_waybill_status = 'Pending'"]
+        params = {}
+        if company:
+            conditions.append("si.company = %(company)s")
+            params["company"] = company
+        from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
+        win = IndiaTaxIntelligence(period=period)._window()
+        conditions.append("si.posting_date BETWEEN %(start_date)s AND %(end_date)s")
+        params["start_date"] = str(win.get("start"))
+        params["end_date"] = str(win.get("end"))
+        where = " AND ".join(conditions)
+        rows = frappe.db.sql(
+            f"""
+            SELECT si.name, si.customer, si.posting_date, si.grand_total
+            FROM `tabSales Invoice` si
+            WHERE {where}
+            ORDER BY si.posting_date DESC, si.name DESC
+            LIMIT %(page_size)s OFFSET %(start)s
+            """,
+            {**params, "page_size": page_size, "start": start},
+            as_dict=True,
+        )
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabSales Invoice` si WHERE {where}", params
+        )[0][0]
+        return {
+            "columns": [
+                {"label": _("Invoice"), "fieldname": "name", "fieldtype": "Link",
+                 "options": "Sales Invoice"},
+                {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link",
+                 "options": "Customer"},
+                {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": _("Grand Total"), "fieldname": "grand_total", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    if metric == "reconciliation_unactioned":
+        frappe.has_permission("GST Inward Supply", throw=True)
+        # Mirrors `get_reconciliation_score`'s `unactioned_count`: rows whose
+        # `action` is still the "No Action" default (fill_null included).
+        conditions = ["(gis.action IS NULL OR gis.action = 'No Action')"]
+        params = {}
+        if company:
+            conditions.append("gis.company = %(company)s")
+            params["company"] = company
+        where = " AND ".join(conditions)
+        rows = frappe.db.sql(
+            f"""
+            SELECT gis.name, gis.supplier_name, gis.supplier_gstin, gis.bill_no,
+                   gis.bill_date, gis.taxable_value, gis.match_status
+            FROM `tabGST Inward Supply` gis
+            WHERE {where}
+            ORDER BY gis.bill_date DESC, gis.name DESC
+            LIMIT %(page_size)s OFFSET %(start)s
+            """,
+            {**params, "page_size": page_size, "start": start},
+            as_dict=True,
+        )
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabGST Inward Supply` gis WHERE {where}", params
+        )[0][0]
+        return {
+            "columns": [
+                {"label": _("Supplier"), "fieldname": "supplier_name", "fieldtype": "Data"},
+                {"label": _("GSTIN"), "fieldname": "supplier_gstin", "fieldtype": "Data"},
+                {"label": _("Bill No"), "fieldname": "bill_no", "fieldtype": "Data"},
+                {"label": _("Bill Date"), "fieldname": "bill_date", "fieldtype": "Date"},
+                {"label": _("Taxable Value"), "fieldname": "taxable_value", "fieldtype": "Currency"},
+                {"label": _("Match Status"), "fieldname": "match_status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    if metric == "itc_at_risk":
+        frappe.has_permission("GST Inward Supply", throw=True)
+        # Mirrors `get_itc_health`'s Sec 16(2)(aa) `at_risk_supplier_unfiled`
+        # bucket (insights/ml/india_tax_intelligence/data.py): inward supply
+        # rows where the supplier has not filed GSTR-1, so the credit is not
+        # yet supported by GSTR-2B and is exposed on reversal.
+        conditions = ["(gis.gstr_1_filled IS NULL OR gis.gstr_1_filled = 0)"]
+        params = {}
+        if company:
+            conditions.append("gis.company = %(company)s")
+            params["company"] = company
+        where = " AND ".join(conditions)
+        rows = frappe.db.sql(
+            f"""
+            SELECT gis.name, gis.supplier_name, gis.supplier_gstin, gis.bill_no,
+                   gis.bill_date, gis.taxable_value,
+                   (COALESCE(gis.igst, 0) + COALESCE(gis.cgst, 0)
+                    + COALESCE(gis.sgst, 0) + COALESCE(gis.cess, 0)) AS at_risk_tax
+            FROM `tabGST Inward Supply` gis
+            WHERE {where}
+            ORDER BY gis.bill_date DESC, gis.name DESC
+            LIMIT %(page_size)s OFFSET %(start)s
+            """,
+            {**params, "page_size": page_size, "start": start},
+            as_dict=True,
+        )
+        total = frappe.db.sql(
+            f"SELECT COUNT(*) FROM `tabGST Inward Supply` gis WHERE {where}", params
+        )[0][0]
+        return {
+            "columns": [
+                {"label": _("Supplier"), "fieldname": "supplier_name", "fieldtype": "Data"},
+                {"label": _("GSTIN"), "fieldname": "supplier_gstin", "fieldtype": "Data"},
+                {"label": _("Bill No"), "fieldname": "bill_no", "fieldtype": "Data"},
+                {"label": _("Bill Date"), "fieldname": "bill_date", "fieldtype": "Date"},
+                {"label": _("Taxable Value"), "fieldname": "taxable_value", "fieldtype": "Currency"},
+                {"label": _("ITC At Risk"), "fieldname": "at_risk_tax", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

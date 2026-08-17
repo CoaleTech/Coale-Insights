@@ -447,7 +447,11 @@ def get_itc_health(intelligence, start: date, end: date) -> Dict[str, Any]:
 
     # Reverse-charge ITC: identified by component (cgst_rcm/sgst_rcm/igst_rcm),
     # tracked apart because under RCM the recipient self-assesses and pays.
-    rcm_expr = _component_sum(joined, *ALL_RCM)
+    # RCM rows on Purchase Taxes and Charges have add_deduct_tax = 'Deduct'
+    # (the company owes the tax it then claims as ITC), so they are
+    # excluded by the `add_deduct_tax = 'Add'` filter applied to
+    # `joined` above — sum against the unfiltered join instead.
+    rcm_expr = _component_sum(pi.join(ptc, pi["name"] == ptc["parent"], how="inner"), *ALL_RCM)
     rcm_itc = float(_scalar_or(rcm_expr, 0.0))
 
     # Claimed ITC: the GL Entry side. Input tax accounts are assets:
@@ -768,6 +772,10 @@ def get_einvoice_status(intelligence, start: date, end: date) -> Dict[str, Any]:
     si = _docstatus_filter(si)
     si = _date_filter(si, start, end, "posting_date")
 
+    # `gst_category` values that require an IRN. India Compliance's standard
+    # set is listed first; the bare "SEZ" / "Deemed Export" / "Tax Deductor"
+    # legacy / aliased values are added because live data on at least one
+    # install uses them in place of the longer labels.
     needs_irn = si["gst_category"].isin(
         [
             "Registered Regular",
@@ -776,6 +784,7 @@ def get_einvoice_status(intelligence, start: date, end: date) -> Dict[str, Any]:
             "SEZ supply without payment of tax",
             "Deemed Export",
             "Overseas",
+            "SEZ",
         ]
     )
     has_irn = (si["irn"].fill_null("") != "") if "irn" in si.columns else ibis.literal(False)
@@ -831,8 +840,16 @@ def get_ewaybill_status(intelligence, start: date, end: date) -> Dict[str, Any]:
     si = _company_filter(t("Sales Invoice"), intelligence.company)
     si = _docstatus_filter(si)
     si = _date_filter(si, start, end, "posting_date")
+    # Same MariaDB REPLACE(str, '', x)-is-a-no-op bug as the reconciliation
+    # score fix below (`get_reconciliation_score`): `.fill_null("").replace("",
+    # "Not Set")` compiles to a no-op REPLACE and never converts the empty
+    # string fill_null just created, so NULL e_waybill_status rows silently
+    # bucketed under key "" instead of "Not Set". Use nullif("")+cases instead.
     status = (
-        si["e_waybill_status"].fill_null("").replace("", "Not Set")
+        ibis.cases(
+            (si["e_waybill_status"].nullif("").isnull(), "Not Set"),
+            else_=si["e_waybill_status"],
+        )
         if "e_waybill_status" in si.columns
         else ibis.literal("Not Set")
     )
@@ -890,15 +907,14 @@ def get_filing_compliance(intelligence, start: date, end: date) -> Dict[str, Any
 
     grl = t("GST Return Log")
     grl = _company_filter(grl, intelligence.company)
-
     # Convert MMYYYY -> YYYY-MM. MariaDB: SUBSTRING(period, 3, 4) for the
-    # year, SUBSTRING(period, 1, 2) for the month. Ibis 10.x exposes those
-    # via .substr(start, length).
+    # year, SUBSTRING(period, 1, 2) for the month. Ibis 10.x's `.substr`
+    # is 0-indexed, so the 1-indexed MariaDB positions 3 and 1 become 2 and 0.
     if "return_period" in grl.columns and start and end:
         norm = (
-            grl["return_period"].substr(3, 4)
+            grl["return_period"].substr(2, 4)
             + "-"
-            + grl["return_period"].substr(1, 2)
+            + grl["return_period"].substr(0, 2)
         )
         start_ym = _to_date(start)[:7]
         end_ym = _to_date(end)[:7]
@@ -1008,8 +1024,15 @@ def get_reconciliation_score(intelligence, start: date, end: date) -> Dict[str, 
     inward = _company_filter(inward, intelligence.company)
 
     if "match_status" in inward.columns:
-        # match_status blanks collapse to 'Unlinked'. group by the coalesced value.
-        ms = inward["match_status"].fill_null("").replace("", "Unlinked").name("match_status")
+        # match_status blanks (NULL or empty string) collapse to 'Unlinked'.
+        # `.replace("", "Unlinked")` is a no-op in MariaDB (REPLACE with
+        # an empty pattern returns its input unchanged), so use ibis.cases
+        # against a nullif('')-coalesced value to actually collapse blanks.
+        coalesced = inward["match_status"].nullif("")
+        ms = ibis.cases(
+            (coalesced.isnull(), "Unlinked"),
+            else_=coalesced,
+        ).name("match_status")
         amount = (
             inward["taxable_value"].fill_null(0)
             + inward["cgst"].fill_null(0)
@@ -1031,7 +1054,15 @@ def get_reconciliation_score(intelligence, start: date, end: date) -> Dict[str, 
     by_status: Dict[str, Dict[str, Any]] = {}
     if rows_df is not None and not rows_df.empty:
         for _, r in rows_df.iterrows():
-            by_status[r.get("match_status", "Unlinked")] = {
+            # pandas may surface the empty-string sentinel for any rows the
+            # cases() expression did not classify; treat that as Unlinked
+            # so the denominator counts every row.
+            raw_key = r.get("match_status", None)
+            if raw_key is None or (isinstance(raw_key, float) and str(raw_key) == "nan") or raw_key == "":
+                key = "Unlinked"
+            else:
+                key = str(raw_key)
+            by_status[key] = {
                 "amount": float(r.get("amount") or 0),
                 "count": int(r.get("count") or 0),
             }
@@ -1044,7 +1075,21 @@ def get_reconciliation_score(intelligence, start: date, end: date) -> Dict[str, 
     suggested_count, suggested_amount = pick("Suggested Match")
     mismatch_count, mismatch_amount = pick("Mismatch")
     unlinked_count, unlinked_amount = pick("Unlinked")
-    total_count = exact_count + suggested_count + mismatch_count + unlinked_count
+    manual_count, manual_amount = pick("Manual Match")
+    amended_count, amended_amount = pick("Amended")
+    other_count = sum(
+        v["count"] for k, v in by_status.items()
+        if k not in ("Exact Match", "Suggested Match", "Mismatch", "Unlinked", "Manual Match", "Amended")
+    )
+    other_amount = sum(
+        v["amount"] for k, v in by_status.items()
+        if k not in ("Exact Match", "Suggested Match", "Mismatch", "Unlinked", "Manual Match", "Amended")
+    )
+    # Denominator covers every classified row, not just the four legacy buckets.
+    total_count = (
+        exact_count + suggested_count + mismatch_count + unlinked_count
+        + manual_count + amended_count + other_count
+    )
 
     if _has_columns(inward, "bill_date", "action"):
         span = inward.aggregate(
@@ -1074,6 +1119,10 @@ def get_reconciliation_score(intelligence, start: date, end: date) -> Dict[str, 
         "mismatch_amount": mismatch_amount,
         "unmatched_count": unlinked_count,
         "unmatched_amount": unlinked_amount,
+        "manual_match_count": manual_count,
+        "manual_match_amount": manual_amount,
+        "amended_count": amended_count,
+        "amended_amount": amended_amount,
         "total_count": total_count,
         "unactioned_count": unactioned_count,
         "data_from": data_from,

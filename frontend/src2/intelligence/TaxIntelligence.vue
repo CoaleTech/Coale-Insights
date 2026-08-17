@@ -83,7 +83,19 @@ const dateRangeOptions = [
 
 const dateParams = computed(() => ({ period: dateFilter.value }))
 
-const { data, loading, refreshing, error, isPermissionError, warming, hasData, reload, retry } =
+const {
+  data,
+  loading,
+  refreshing,
+  error,
+  isPermissionError,
+  warming,
+  notImplemented,
+  notImplementedMessage,
+  hasData,
+  reload,
+  retry,
+} =
   useIntelligenceDashboard<TaxIntelligenceData>({
     url: 'insights.api.ml.tax.tax_intelligence',
     params: dateParams,
@@ -322,6 +334,8 @@ function handleDashboardRedirect(target: string) {
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
+      :not-implemented="notImplemented"
+      :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="tax data"
       permission-hint="Ask an administrator for tax dashboard access."
@@ -541,18 +555,24 @@ function handleDashboardRedirect(target: string) {
                   :value="`${einvoiceStatus.pending ?? 0} of ${einvoiceStatus.total ?? 0}`"
                   :severity="(einvoiceStatus.pending ?? 0) > 0 ? 'critical' : 'none'"
                   :sublabel="`${formatCurrency(einvoiceStatus.pending_value ?? 0)} · Sec 122(1)`"
+                  :clickable="true"
+                  @click="drillDown.open(TAX_ENDPOINT, 'Invoices missing a required IRN', { metric: 'irn_missing', period: dateFilter })"
                 />
                 <KpiCard
                   label="e-Waybills pending"
                   :value="String(ewaybillStatus.pending ?? 0)"
                   :severity="(ewaybillStatus.pending ?? 0) > 0 ? 'high' : 'none'"
                   :sublabel="`Threshold ₹${(einvoiceInfo.eway_bill_threshold_inr ?? 50000).toLocaleString('en-IN')}`"
+                  :clickable="true"
+                  @click="drillDown.open(TAX_ENDPOINT, 'e-Waybills pending', { metric: 'ewaybill_pending', period: dateFilter })"
                 />
                 <KpiCard
                   label="ITC at risk, supplier has not filed"
                   :value="formatCurrency(itcHealth.at_risk_supplier_unfiled ?? 0)"
                   :severity="(itcHealth.at_risk_supplier_unfiled ?? 0) > 0 ? 'high' : 'none'"
-                  :sublabel="`${itcHealth.at_risk_invoice_count ?? 0} invoices · Sec 16(2)(aa)`"
+                  sublabel="Sec 16(2)(aa)"
+                  :clickable="true"
+                  @click="drillDown.open(TAX_ENDPOINT, 'ITC at risk, supplier has not filed', { metric: 'itc_at_risk', period: dateFilter })"
                 />
                 <KpiCard
                   label="2A/2B rows awaiting action"
@@ -563,6 +583,8 @@ function handleDashboardRedirect(target: string) {
                       ? `Reconciled only to ${reconciliationScore.data_through}`
                       : 'No 2A/2B data imported'
                   "
+                  :clickable="true"
+                  @click="drillDown.open(TAX_ENDPOINT, '2A/2B rows awaiting action', { metric: 'reconciliation_unactioned', period: dateFilter })"
                 />
               </div>
 
