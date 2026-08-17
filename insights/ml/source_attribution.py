@@ -1,7 +1,7 @@
 # insights/ml/source_attribution.py
 """Lead-to-Invoice source attribution chain walker.
 
-Walks the path Lead.utm_source -> Opportunity.party_name (when the
+Walks the path Lead.source -> Opportunity.party_name (when the
 opportunity is from a Lead) -> Quotation.opportunity -> Sales Order
 Item.prevdoc_docname -> Sales Invoice Item.sales_order, in one joined
 Ibis expression that compiles to a single SQL statement and runs inside
@@ -37,11 +37,17 @@ def build_source_attribution_map(
 ) -> Dict[str, str]:
     """
     Build a map of Sales Invoice -> Lead Source by walking:
-    Lead.utm_source -> Opportunity.party_name (from a Lead) ->
+    Lead.source -> Opportunity.party_name (from a Lead) ->
     Quotation.opportunity -> Sales Order Item.prevdoc_docname ->
     Sales Invoice Item.sales_order
 
-    Returns: ``{invoice_name: utm_source}``.
+    Returns: ``{invoice_name: source}``.
+
+    ``source`` is the orphaned-but-populated legacy column (this site never
+    adopted UTM, so `utm_source` is ~0% populated across 3,660 leads while
+    `source` is 97.8% populated). `extra_columns` widens the projection
+    without weakening row-level permissions, matching the escape hatch used
+    by `marketing._compute_marketing_overview`.
 
     ``force_refresh`` is accepted for backward compatibility with callers
     (sales_source_analytics / SalesIntelligence) but is unused: there is
@@ -73,9 +79,11 @@ def build_source_attribution_map(
         opportunity_from=t("Opportunity").opportunity_from,
         party_name=t("Opportunity").party_name,
     )
-    lead_p = t("Lead").select(
-        leadname=t("Lead")["name"],
-        utm_source=t("Lead").utm_source,
+    # `extra_columns` widens the projection to include the orphaned-but-populated
+    # `source` column (utm_source is ~0% populated here; source is 97.8%).
+    lead_p = t("Lead", extra_columns=("source",)).select(
+        leadname=t("Lead", extra_columns=("source",))["name"],
+        source=t("Lead", extra_columns=("source",))["source"],
     )
 
     expr = (
@@ -86,26 +94,27 @@ def build_source_attribution_map(
         .inner_join(opp_p, opp_p.oppname == q_p.opportunity)
         .inner_join(lead_p, lead_p.leadname == opp_p.party_name)
         .filter(opp_p.opportunity_from == ibis.literal("Lead"))
-        .filter(lead_p.utm_source.notnull())
-        .filter(lead_p.utm_source != ibis.literal(""))
+        .filter(lead_p.source.notnull())
+        .filter(lead_p.source != ibis.literal(""))
         .filter(si_p.docstatus == 1)
         .filter(si_p.posting_date.between(period_start, period_end))
-        .select(invoice=si_p.invoice, utm_source=lead_p.utm_source)
+        .select(invoice=si_p.invoice, source=lead_p.source)
         .distinct()
     )
 
     try:
         df = expr.execute()
     except Exception:
-        # The Lead table may not have a utm_source column in this ERPNext
-        # version (Lead was reworked between v13 and v14). Return an empty
-        # map so source-attributed KPIs render as zero rather than 500ing.
+        # The Lead projection should always include `source` (orphan column)
+        # via `extra_columns`. If execution still fails on some future
+        # schema, fall back to an empty map so source-attributed KPIs render
+        # as zero rather than 500ing.
         return {}
 
     if df.empty:
         return {}
 
-    return dict(zip(df["invoice"].astype(str), df["utm_source"].astype(str)))
+    return dict(zip(df["invoice"].astype(str), df["source"].astype(str)))
 
 
 def get_invoices_by_source(

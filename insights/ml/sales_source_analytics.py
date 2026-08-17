@@ -31,50 +31,77 @@ from insights.ml.source_attribution import build_source_attribution_map
 def get_source_attributed_sales(period_start: str, period_end: str) -> List[Dict]:
     """Revenue, orders, and gross profit attributed to each lead source.
 
-    Invoices that have no lead attached (or whose lead has no
-    `utm_source`) fall into the "Unattributed" bucket so the totals tie
-    out to the un-attributed Sales Invoice sums in the rest of the
-    Revenue dashboard.
+    Every Sales Invoice in the period lands in some bucket. Only invoices
+    traceable through the full Lead -> Opportunity -> Quotation -> Sales
+    Order -> Sales Invoice chain resolve to a real source (measured 4.6% of
+    invoices on this site: 169 of 3,696); every other invoice goes to
+    "Unattributed" so the per-source totals sum to the same revenue as the
+    rest of the Revenue dashboard instead of silently reporting on a ~5%
+    slice of it.
+
+    The previous version restricted the per-invoice query itself to
+    `si.name.isin(attr_map.keys())`, so `attr_map.get(name, "Unattributed")`
+    could never actually miss -- every row it saw was, by construction,
+    already a key in `attr_map`. "Unattributed" was reachable in neither
+    this function's output nor (when `attr_map` was empty) even as a
+    fallback, since an empty map short-circuited to `[]` before any
+    invoice was read.
     """
     attr_map = build_source_attribution_map(period_start, period_end)
-    if not attr_map:
-        return []
 
-    # Materialise the (invoice, source) map in Python (it is already a few
-    # hundred rows at most), then build a single Ibis expression that
-    # returns revenue + gross profit per invoice. The Python merge into
-    # the per-source bucket at the end is cheap because the post-aggregate
-    # row count is small (number of distinct sources, ~handful).
-    invoices = list(attr_map.keys())
-
-    # Per-invoice revenue + gross profit, computed in a single SQL.
     si = t("Sales Invoice")
     sii = t("Sales Invoice Item")
-    per_invoice = (
+    base = (
+        si.filter(si.docstatus == 1)
+        .filter(si.is_return == 0)
+        .filter(si.posting_date.between(period_start, period_end))
+    )
+
+    # Revenue: `grand_total` is a Sales Invoice HEADER field. Read it off
+    # `si` directly, with no join -- joining to `Sales Invoice Item` first
+    # (as the previous version did) replicates the header row once per line
+    # item, and `.sum()` over that then multiplies every invoice's total by
+    # its own line count. Measured on this site: reported revenue 242.17M
+    # against a raw `SUM(grand_total)` ground truth of 177.30M for the same
+    # 12-month window (1.37x inflation, tracking the ~1.3 lines/invoice
+    # average) -- order_count tied out exactly because that was counted in
+    # Python per DataFrame row post-`group_by(si.name)`, so only the summed
+    # currency columns were affected.
+    revenue_df = base.select(name=si.name, grand_total=si.grand_total).execute()
+    if revenue_df.empty:
+        return []
+
+    # Gross profit genuinely is line-level (`net_amount`, `incoming_rate`),
+    # so summing it per invoice across the invoice's own joined lines is
+    # correct -- unlike `grand_total`, these values are not replicated
+    # header fields.
+    gp_df = (
         si.inner_join(sii, sii.parent == si.name)
         .filter(si.docstatus == 1)
         .filter(si.is_return == 0)
-        .filter(si.name.isin(invoices))
+        .filter(si.posting_date.between(period_start, period_end))
         .group_by(si.name)
         .aggregate(
-            grand_total=si.grand_total.sum(),
             gross_profit=(
                 sii.net_amount.sum() - (sii.qty * sii.incoming_rate.fill_null(0)).sum()
-            ),
+            )
         )
+        .execute()
     )
-    df = per_invoice.execute()
-    if df.empty:
-        return []
+    gp_map = (
+        dict(zip(gp_df["name"].astype(str), gp_df["gross_profit"].astype(float), strict=True))
+        if not gp_df.empty else {}
+    )
 
     source_data: Dict[str, Dict[str, float]] = {}
-    for _, row in df.iterrows():
-        source = attr_map.get(str(row["name"]), "Unattributed")
+    for _, row in revenue_df.iterrows():
+        name = str(row["name"])
+        source = attr_map.get(name, "Unattributed")
         bucket = source_data.setdefault(
             source, {"revenue": 0.0, "gross_profit": 0.0, "order_count": 0}
         )
         bucket["revenue"] += float(row.get("grand_total") or 0)
-        bucket["gross_profit"] += float(row.get("gross_profit") or 0)
+        bucket["gross_profit"] += gp_map.get(name, 0.0)
         bucket["order_count"] += 1
 
     return [
@@ -97,14 +124,22 @@ def get_quotation_analytics(period_start: str, period_end: str) -> Dict[str, Any
     overall = base.aggregate(
         total=base.count(),
         won=base.status.isin(["Ordered"]).sum(),
+        # Count all `Lost` rows here, regardless of whether the
+        # salesperson filled in a reason. The previous version grouped
+        # on `order_lost_reason` and took the SUM of that, silently
+        # dropping ~half of lost quotations on this site (542 total
+        # Lost, 287 with a reason, 255 with NULL/empty reason -- the
+        # reported `lost` was 287, leaving 255 unaccounted for in the
+        # total/won/lost/pending sum).
+        lost_all=base.status.isin(["Lost"]).sum(),
     ).execute().iloc[0]
     total = int(overall["total"] or 0)
     won = int(overall["won"] or 0)
+    total_lost = int(overall["lost_all"] or 0)
 
-    # Lost reasons. Each filter reassigns the intermediate -- the rule is
-    # that columns passed to .group_by() / .aggregate() must come from the
-    # SAME table expression, otherwise Ibis raises "belong to another
-    # relation".
+    # Lost reasons: still per-reason for the bar chart. Quotations
+    # with NULL/empty reason are excluded from the *breakdown* but
+    # counted in `total_lost` above.
     lost = base.filter(base.status == ibis.literal("Lost"))
     lost = lost.filter(lost.order_lost_reason.notnull())
     lost = lost.filter(lost.order_lost_reason != ibis.literal(""))
@@ -122,7 +157,6 @@ def get_quotation_analytics(period_start: str, period_end: str) -> Dict[str, Any
                 "count": int(r["count"]),
             }
         )
-    total_lost = sum(r["count"] for r in lost_reasons)
 
     return {
         "total": total,
@@ -133,45 +167,66 @@ def get_quotation_analytics(period_start: str, period_end: str) -> Dict[str, Any
         "lost_reasons": lost_reasons,
     }
 
-
 def get_territory_performance(period_start: str, period_end: str) -> List[Dict]:
     """Sales invoices and gross profit by territory.
 
-    Territory is a Sales Invoice header field, so the invoice total can be
-    summed directly without the double-counting the naive line-join had.
-    Gross profit still requires the line-level join for `incoming_rate`,
-    and is allocated per-invoice in proportion to net line amount so the
-    sum ties out to the un-attributed invoice gross profit.
+    Territory and `grand_total` are both Sales Invoice header fields.
+    Revenue is aggregated straight off `si` with no join; joining to
+    `Sales Invoice Item` first (the previous version's `inner_join` ->
+    `group_by(territory)` -> `grand_total.sum()`, despite what its old
+    docstring claimed) replicates each invoice's header row once per line
+    item, so the sum multiplies every invoice's total by its own line
+    count. Measured on this site: reported revenue 239.48M against a raw
+    per-invoice ground truth of 175.24M for the same window (1.37x
+    inflation, tracking the ~1.3 lines/invoice average).
+
+    Gross profit still requires the line-level join for `incoming_rate`;
+    grouping the joined result by territory is correct there because
+    those fields are genuinely per-line, not a replicated header value.
     """
-    si = t("Sales Invoice").filter(t("Sales Invoice").docstatus == 1).filter(
-        t("Sales Invoice").is_return == 0
-    ).filter(t("Sales Invoice").posting_date.between(period_start, period_end)).filter(
-        t("Sales Invoice").territory.notnull()
-    ).filter(t("Sales Invoice").territory != ibis.literal(""))
-
+    si = t("Sales Invoice")
     sii = t("Sales Invoice Item")
+    base = (
+        si.filter(si.docstatus == 1)
+        .filter(si.is_return == 0)
+        .filter(si.posting_date.between(period_start, period_end))
+        .filter(si.territory.notnull())
+        .filter(si.territory != ibis.literal(""))
+    )
 
-    expr = (
-        si.inner_join(sii, sii.parent == si.name)
+    revenue_expr = base.group_by(si.territory).aggregate(
+        order_count=si.name.nunique(),
+        revenue=si.grand_total.sum(),
+    )
+    revenue_df = revenue_expr.execute()
+    if revenue_df.empty:
+        return []
+
+    gp_expr = (
+        base.inner_join(sii, sii.parent == si.name)
         .group_by(si.territory)
         .aggregate(
-            order_count=si.name.nunique(),
-            revenue=si.grand_total.sum(),
             gross_profit=(
                 sii.net_amount.sum() - (sii.qty * sii.incoming_rate.fill_null(0)).sum()
-            ),
+            )
         )
-        .order_by(ibis.desc("revenue"))
     )
-    df = expr.execute()
+    gp_df = gp_expr.execute()
+    gp_map = (
+        dict(zip(gp_df["territory"].astype(str), gp_df["gross_profit"].astype(float), strict=True))
+        if not gp_df.empty else {}
+    )
+
     out: List[Dict] = []
-    for _, r in df.iterrows():
+    for _, r in revenue_df.iterrows():
+        territory = str(r["territory"])
         out.append(
             {
-                "territory": str(r["territory"]),
+                "territory": territory,
                 "order_count": int(r["order_count"] or 0),
                 "revenue": float(r["revenue"] or 0),
-                "gross_profit": float(r["gross_profit"] or 0),
+                "gross_profit": gp_map.get(territory, 0.0),
             }
         )
+    out.sort(key=lambda x: x["revenue"], reverse=True)
     return out

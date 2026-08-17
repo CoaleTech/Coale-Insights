@@ -66,11 +66,62 @@ _DIM_HISTORY_MONTHS = 12
 # How many future months the dimensional forecast projects.
 _DIM_FORECAST_MONTHS = 3
 
+# Daily-series forecast: with fewer than this many observations, a
+# closed-form linear trend has 1 degree of freedom per point and
+# extrapolates wildly (a 3-point series spanning 35 days projected
+# 14 days out can yield a 5x slope). Fall back to the historical
+# mean instead, so the forecast at least matches the recent run-rate.
+_DAILY_MIN_SAMPLES = 7
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
+def _flat_mean_forecast(history: pd.DataFrame, periods: int) -> dict[str, Any]:
+    """Forecast a flat line at the historical mean.
+
+    Used as a fallback when the daily history is too short for a
+    closed-form linear trend to be meaningful (fewer than
+    `_DAILY_MIN_SAMPLES` observed days). See
+    `_linear_trend_forecast` for why.
+    """
+    df = history[["ds", "y"]].copy().sort_values("ds").reset_index(drop=True)
+    y = df["y"].astype(float).to_numpy()
+    n = len(y)
+    mean = float(y.mean())
+    std = float(y.std(ddof=1)) if n > 1 else 0.0
+    band = 2.0 * std
+    last_date = df["ds"].iloc[-1]
+    if hasattr(last_date, "date") and callable(last_date.date):
+        last_date = last_date.date()
+    future_rows: list[dict[str, Any]] = [
+        {
+            "ds": (last_date + timedelta(days=i)).isoformat(),
+            "yhat": round(max(0.0, mean), 2),
+            "yhat_lower": round(max(0.0, mean - band), 2),
+            "yhat_upper": round(mean + band, 2),
+        }
+        for i in range(1, periods + 1)
+    ]
+    return {
+        "method": "linear_trend",
+        "forecast": future_rows,
+        "forecast_summary": {
+            "total_forecast": round(mean * periods, 2),
+            "avg_daily_forecast": round(mean, 2),
+            "trend": "stable",
+            "days": periods,
+        },
+        "metrics": {
+            "method_tested": "linear_trend",
+            "horizon_days": min(14, max(1, n // 4)),
+            "rmse": round(std, 2),
+            "mae": round(std, 2),
+            "n_points": int(n),
+            "smape": 0.0,
+        },
+    }
 
 def _linear_trend_forecast(
     history: pd.DataFrame,
@@ -83,6 +134,7 @@ def _linear_trend_forecast(
 
     `history` must have a 'ds' (date) and a 'y' (scalar) column.
     """
+    import numpy as np
     import pandas as pd
 
     if history.empty or len(history) < 2:
@@ -90,6 +142,17 @@ def _linear_trend_forecast(
             "method": "linear_trend",
             "forecast": [],
         }
+
+    n_raw = len(history)
+    if n_raw < _DAILY_MIN_SAMPLES:
+        # Fall back to a flat mean forecast: a 3-4 point series is one
+        # degree of freedom per point, so a least-squares line fits
+        # perfectly and then projects wildly. Mean is the honest answer
+        # for "we don't have enough data yet" and matches the recent
+        # run-rate. The method name is kept as `linear_trend` for
+        # forward-compat with the dashboard's rendering path, but the
+        # slope is forced to zero below.
+        return _flat_mean_forecast(history, periods)
 
     df = history[["ds", "y"]].copy()
     # With the PyArrow execute path `ds` is object-dtype datetime.date objects,
@@ -118,7 +181,19 @@ def _linear_trend_forecast(
     residual_std = float(residuals.std(ddof=1)) if n > 1 else 0.0
     band = 2.0 * residual_std
 
+    # Symmetric MAPE: bounded 0-200 and defined at zero, unlike plain MAPE
+    # which this site's sparse series can push past 100% (rendering as a
+    # nonsensical negative "accuracy" on the dashboard). The model-health
+    # page already reports sMAPE; this brings the forecast panel in line.
+    fitted = a + b * x
+    smape_denom = np.abs(y) + np.abs(fitted)
+    smape = float(np.mean(np.where(smape_denom == 0, 0.0, 2.0 * np.abs(residuals) / smape_denom))) * 100
+
     last_date = df["ds"].iloc[-1]
+    if hasattr(last_date, "date") and callable(last_date.date):
+        # `Timestamp`/`datetime` under the default (pandas) materialization path --
+        # normalize once so every arithmetic step below sees a plain `date`.
+        last_date = last_date.date()
     future_rows: list[dict[str, Any]] = []
     for i in range(1, periods + 1):
         step_idx = n + i - 1
@@ -126,7 +201,7 @@ def _linear_trend_forecast(
         yhat_floor = max(0.0, float(yhat))
         future_rows.append(
             {
-                "ds": (last_date + timedelta(days=i)).date().isoformat(),
+                "ds": (last_date + timedelta(days=i)).isoformat(),
                 "yhat": round(yhat_floor, 2),
                 "yhat_lower": round(max(0.0, yhat_floor - band), 2),
                 "yhat_upper": round(yhat_floor + band, 2),
@@ -160,6 +235,7 @@ def _linear_trend_forecast(
             "rmse": round(float((residuals ** 2).mean() ** 0.5), 2),
             "mae": round(float(abs(residuals).mean()), 2),
             "n_points": int(n),
+            "smape": round(smape, 2),
         },
     }
 

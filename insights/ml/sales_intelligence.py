@@ -90,7 +90,7 @@ def calculate_revenue_metrics(
     ]
 
     # Weekly series (ISO week, last 12 weeks).
-    si_weekly = si.mutate(year_week=si.posting_date.strftime("%x-W%V")).filter(
+    si_weekly = si.mutate(year_week=si.posting_date.strftime("%x-W%v")).filter(
         si.posting_date >= (datetime.now() - timedelta(weeks=12)).date()
     )
     weekly_df = (
@@ -225,9 +225,11 @@ def calculate_payment_mix(
         cash = float(r["Cash"] or 0)
         credit = float(r["Credit"] or 0)
         total_d = cash + credit
+        pd = r["posting_date"]
+        sale_date = pd.date().isoformat() if hasattr(pd, "date") else str(pd)[:10]
         daily_mix.append(
             {
-                "sale_date": str(r["posting_date"]),
+                "sale_date": sale_date,
                 "Cash": cash,
                 "Credit": credit,
                 "total": total_d,
@@ -288,40 +290,55 @@ def analyze_sales_reps(
     date_filter: str = "12m",
     company: str | None = None,
 ) -> dict[str, Any]:
-    """Per-owner (the Sales Invoice's `owner` field) performance.
+    """Per-sales-person performance via the `Sales Team` child table.
 
-    The previous implementation used a LEFT JOIN to `tabUser` to get a
-    friendly name. We do the same in one query.
+    ERPNext attributes a Sales Invoice to whoever actually sold it through
+    the `Sales Team` child table: `allocated_amount` is that rep's share of
+    the invoice (a sale can be split across reps), `incentives` is a real
+    per-rep figure. The previous version grouped by `Sales Invoice.owner`
+    -- the Frappe document *creator*, e.g. an accounts/billing mailbox that
+    keys invoices into the system -- a different person from whoever sold
+    the order. On this site that made "billing@jkmchemtrade.com" (1,452
+    invoices) the #1 "sales rep" and never surfaced any of the 6 real
+    Sales Person records (Milan Mavani, Khushboo, Roja, ...) at all.
+    On this site the `Sales Team` child table itself is unreliable at the
+    row level: 2,220 of 2,229 invoices in a trailing-12m sample have an
+    `allocated_amount` sum that does not reconcile to the invoice's
+    `grand_total` (stale carry-over amounts on credit notes, partial/
+    rounded splits, zeroed rows) -- so summing it, while still the best
+    available per-rep signal, understates true revenue by ~14%
+    (₹157.4M allocated vs ₹182.1M invoiced in that sample). Rather than
+    guess a reallocation, `unattributed_revenue` reports the shortfall
+    directly, mirroring the `uncosted_revenue` transparency pattern in
+    `analyze_margins` below.
     """
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    )
+    ).filter(t("Sales Invoice").is_return == 0)
     start, _ = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
 
-    # Project to only the columns we need to avoid name collisions.
-    si_p = si.select(
-        sales_person=si.owner,
-        invoice=si["name"],
-        customer=si.customer,
-        posting_date=si.posting_date,
-        grand_total=si.grand_total,
-    )
-    user_p = t("User").select(
-        user_name=t("User")["name"],
-        full_name=t("User").full_name,
+    total_invoice_revenue = float(si.grand_total.sum().execute() or 0)
+
+    si_p = si.select(invoice=si["name"], customer=si.customer)
+
+    team = t("Sales Team")
+    team_p = team.filter(team.parenttype == "Sales Invoice").select(
+        parent=team.parent,
+        sales_person=team.sales_person,
+        allocated_amount=team.allocated_amount.fill_null(0),
+        incentives=team.incentives.fill_null(0),
     )
 
     expr = (
-        si_p.left_join(user_p, user_p.user_name == si_p.sales_person)
-        .group_by(si_p.sales_person, user_p.full_name)
+        si_p.inner_join(team_p, team_p.parent == si_p.invoice)
+        .group_by(team_p.sales_person)
         .aggregate(
-            total_revenue=si_p.grand_total.sum(),
+            total_revenue=team_p.allocated_amount.sum(),
+            total_incentives=team_p.incentives.sum(),
             total_orders=si_p.invoice.nunique(),
             unique_customers=si_p.customer.nunique(),
-            first_sale=si_p.posting_date.min(),
-            last_sale=si_p.posting_date.max(),
         )
         .order_by(ibis.desc("total_revenue"))
     )
@@ -332,62 +349,66 @@ def analyze_sales_reps(
             "top_performer": None,
             "total_reps": 0,
             "total_team_revenue": 0,
+            "unattributed_revenue": round(total_invoice_revenue, 2),
+            "unattributed_revenue_pct": 100.0 if total_invoice_revenue > 0 else 0,
         }
 
     reps: list[dict[str, Any]] = []
     for idx, (_, r) in enumerate(df.iterrows(), start=1):
-        email = str(r["sales_person"])
-        name = (str(r["full_name"]) if r["full_name"] else email) if "full_name" in df.columns else email
+        name = str(r["sales_person"])
         total_rev = float(r["total_revenue"] or 0)
         total_orders = int(r["total_orders"] or 0)
         unique = int(r["unique_customers"] or 0)
         aov = round(total_rev / total_orders, 2) if total_orders else 0
         reps.append(
             {
-                "sales_person": email,
+                "sales_person": name,
                 "sales_person_name": name,
                 "rank": idx,
                 "total_revenue": total_rev,
                 "total_orders": total_orders,
                 "unique_customers": unique,
                 "avg_order_value": aov,
-                "total_incentives": 0,
+                "total_incentives": float(r["total_incentives"] or 0),
                 "trend": [],
             }
         )
 
     total_team_revenue = sum(r["total_revenue"] for r in reps)
+    unattributed = max(0.0, total_invoice_revenue - total_team_revenue)
     return {
         "reps": reps,
         "top_performer": reps[0] if reps else None,
         "total_reps": len(reps),
         "total_team_revenue": round(total_team_revenue, 2),
+        "unattributed_revenue": round(unattributed, 2),
+        "unattributed_revenue_pct": (
+            round(unattributed / total_invoice_revenue * 100, 1) if total_invoice_revenue > 0 else 0
+        ),
     }
 
 
 # ---------------------------------------------------------------------------
 # MoM and YoY comparisons
 # ---------------------------------------------------------------------------
-
-
 def calculate_comparisons(
     date_filter: str = "12m",
     company: str | None = None,
 ) -> dict[str, Any]:
     """Month-over-month and year-over-year revenue and AOV comparison.
-
     The current month is compared against:
       * the same day-of-month slice of the previous month (avoids
         reporting -98% growth on day 6 against a 31-day prior month)
       * the same day-of-month slice of the same month last year
-    """
-    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
-        t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
-    start, _ = parse_date_filter(date_filter)
-    if start is not None:
-        si = si.filter(si.posting_date >= start.date())
 
+    The YoY slice is by definition outside the user's date filter
+    window (e.g. a 12m filter ends ~today-360d, but the same month
+    last year starts ~today-1y). Applying the filter to it forces
+    `last_year_revenue = 0` and `yoy_growth = 0` even when there is
+    real data -- previously the dashboard silently reported "0% YoY
+    growth" whenever the 12m date filter was selected. The MoM slice
+    is inside the window and the filter is still applied to it.
+    """
     today = datetime.now().date()
     current_month_start = today.replace(day=1)
     last_month_final_day = current_month_start - timedelta(days=1)
@@ -399,16 +420,33 @@ def calculate_comparisons(
     last_year_month_start = current_month_start.replace(year=current_month_start.year - 1)
     last_year_month_end = last_year_month_start.replace(day=min(today.day, 28))
 
-    def _slice(start_d, end_d):
-        si_period = si.filter(si.posting_date.between(start_d, end_d))
+    # MoM slice: subject to the user's date filter (both endpoints
+    # live inside the window).
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    start, _ = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+
+    # YoY slice: filter from the Sales Invoice table directly, skipping
+    # the user's `date_filter` (which would push the cutoff past the
+    # YoY window's start). Date filter is still respected for the
+    # day-of-month comparison to stay apples-to-apples.
+    si_yoy = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+
+    def _slice(si_base, start_d, end_d):
+        si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))
         return si_period.aggregate(
             revenue=si_period.grand_total.sum(),
             transactions=si_period.count(),
         ).execute().iloc[0]
 
-    cur = _slice(current_month_start, today)
-    last = _slice(last_month_start, last_month_end)
-    last_year = _slice(last_year_month_start, last_year_month_end)
+    cur = _slice(si, current_month_start, today)
+    last = _slice(si, last_month_start, last_month_end)
+    last_year = _slice(si_yoy, last_year_month_start, last_year_month_end)
 
     current_revenue = float(cur["revenue"] or 0)
     last_month_revenue = float(last["revenue"] or 0)
@@ -497,9 +535,16 @@ def analyze_by_dimensions(
         si = si.filter(si.posting_date >= start.date())
 
     # By customer_group / territory -- header fields, no fan-out.
-    dim_df = (
-        si.group_by([si.customer_group.fill_null("Uncategorized").name("customer_group"),
-                     si.territory.fill_null("Unassigned").name("territory")])
+    #
+    # We previously did ONE group-by on (customer_group, territory) and
+    # combined rows in Python via `customers = max(per-combo count)`.
+    # That was wrong: a segment that has 100 customers in Surat and 50
+    # in Vadodara was reported as 100 (max), and a customer who buys in
+    # both territories would have been double-counted in either count.
+    # Two separate group-bys (one per dimension) give the true unique
+    # customer count for each.
+    seg_df = (
+        si.group_by(si.customer_group.fill_null("Uncategorized").name("customer_group"))
         .aggregate(
             revenue=si.grand_total.sum(),
             transactions=si.count(),
@@ -508,7 +553,17 @@ def analyze_by_dimensions(
         .order_by(ibis.desc("revenue"))
         .execute()
     )
-    if dim_df.empty:
+    terr_df = (
+        si.group_by(si.territory.fill_null("Unassigned").name("territory"))
+        .aggregate(
+            revenue=si.grand_total.sum(),
+            transactions=si.count(),
+            unique_customers=si.customer.nunique(),
+        )
+        .order_by(ibis.desc("revenue"))
+        .execute()
+    )
+    if seg_df.empty:
         return {
             "by_product_group": [],
             "by_customer_segment": [],
@@ -516,45 +571,30 @@ def analyze_by_dimensions(
             "total_revenue": 0,
         }
 
-    total_revenue = float(dim_df["revenue"].sum())
-    by_segment_map: dict[str, dict[str, Any]] = {}
-    by_territory_map: dict[str, dict[str, Any]] = {}
-    for _, r in dim_df.iterrows():
-        seg = str(r["customer_group"])
-        terr = str(r["territory"])
-        rev = float(r["revenue"] or 0)
-        txns = int(r["transactions"] or 0)
-        uniq = int(r["unique_customers"] or 0)
-        by_segment_map[seg] = by_segment_map.get(seg, {"revenue": 0, "transactions": 0, "customers": 0})
-        by_segment_map[seg]["revenue"] += rev
-        by_segment_map[seg]["transactions"] += txns
-        by_segment_map[seg]["customers"] = max(by_segment_map[seg]["customers"], uniq)
-
-        by_territory_map[terr] = by_territory_map.get(terr, {"revenue": 0, "transactions": 0, "customers": 0})
-        by_territory_map[terr]["revenue"] += rev
-        by_territory_map[terr]["transactions"] += txns
-        by_territory_map[terr]["customers"] = max(by_territory_map[terr]["customers"], uniq)
-
+    total_revenue = float(seg_df["revenue"].sum())
     by_segment = [
         {
-            "customer_group": k,
-            "revenue": round(v["revenue"], 2),
-            "transactions": v["transactions"],
-            "customers": v["customers"],
-            "pct": round(v["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
+            "customer_group": str(r["customer_group"]),
+            "revenue": round(float(r["revenue"] or 0), 2),
+            "transactions": int(r["transactions"] or 0),
+            "customers": int(r["unique_customers"] or 0),
+            "pct": round(float(r["revenue"] or 0) / total_revenue * 100, 1) if total_revenue > 0 else 0,
         }
-        for k, v in sorted(by_segment_map.items(), key=lambda x: x[1]["revenue"], reverse=True)
+        for _, r in seg_df.iterrows()
     ]
+    by_segment.sort(key=lambda x: x["revenue"], reverse=True)
+
     by_territory = [
         {
-            "territory": k,
-            "revenue": round(v["revenue"], 2),
-            "transactions": v["transactions"],
-            "customers": v["customers"],
-            "pct": round(v["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
+            "territory": str(r["territory"]),
+            "revenue": round(float(r["revenue"] or 0), 2),
+            "transactions": int(r["transactions"] or 0),
+            "customers": int(r["unique_customers"] or 0),
+            "pct": round(float(r["revenue"] or 0) / total_revenue * 100, 1) if total_revenue > 0 else 0,
         }
-        for k, v in sorted(by_territory_map.items(), key=lambda x: x[1]["revenue"], reverse=True)
+        for _, r in terr_df.iterrows()
     ]
+    by_territory.sort(key=lambda x: x["revenue"], reverse=True)
 
     # By product_group -- from the item-level join, allocating invoice
     # total to lines in proportion to their net amount (no double-count).
@@ -646,6 +686,19 @@ def analyze_margins(
             gross_profit=line_profit,
             qty_sold=sii.qty.sum(),
             unique_items=sii.item_code.nunique(),
+            # Revenue from lines where the cost could not be measured
+            # (incoming_rate NULL or 0) -- surfaced per-group so a
+            # 100% margin row visibly reflects a costing gap, not a
+            # genuine 100% margin product. Mirrors the
+            # `uncosted_items_excluded` accounting the per-item
+            # leaderboard already does.
+            uncosted_revenue=(
+                ibis.ifelse(
+                    sii.incoming_rate.isnull() | (sii.incoming_rate == 0),
+                    sii.net_amount,
+                    0,
+                ).sum()
+            ),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
@@ -654,6 +707,7 @@ def analyze_margins(
     for _, r in pg_df.iterrows():
         rev = float(r["revenue"] or 0)
         profit = float(r["gross_profit"] or 0)
+        uncosted_rev = float(r.get("uncosted_revenue") or 0)
         by_product_group.append(
             {
                 "item_group": str(r["item_group"]),
@@ -662,6 +716,10 @@ def analyze_margins(
                 "qty_sold": float(r["qty_sold"] or 0),
                 "unique_items": int(r["unique_items"] or 0),
                 "margin_pct": round(profit / rev * 100, 1) if rev > 0 else 0,
+                "uncosted_revenue": round(uncosted_rev, 2),
+                "uncosted_revenue_pct": (
+                    round(uncosted_rev / rev * 100, 1) if rev > 0 else 0
+                ),
             }
         )
 
@@ -689,7 +747,16 @@ def analyze_margins(
         threshold = float(item_df["revenue"].quantile(0.5))
         significant = item_df[item_df["revenue"] >= threshold].copy()
         significant["margin_pct"] = (significant["gross_profit"] / significant["revenue"] * 100).fillna(0).round(1)
-        top_margin = significant.nlargest(10, "margin_pct")
+        # gross_profit >= revenue means the line carried no incoming_rate at
+        # all (see the NULL-cost note above), not a genuine 100% margin. Left
+        # in, these costing gaps swamp the "top margin" leaderboard instead
+        # of real top performers, so they are excluded from that ranking
+        # pool; the count/value is still reported so the gap stays visible.
+        uncosted_mask = significant["gross_profit"] >= significant["revenue"]
+        uncosted_items_excluded = int(uncosted_mask.sum())
+        uncosted_revenue = round(float(significant.loc[uncosted_mask, "revenue"].sum()), 2)
+        costed = significant[~uncosted_mask]
+        top_margin = costed.nlargest(10, "margin_pct")
         low_margin = significant[significant["revenue"] > 0].nsmallest(10, "margin_pct")
         top_margin_items = [
             {
@@ -718,6 +785,8 @@ def analyze_margins(
     else:
         top_margin_items = []
         low_margin_items = []
+        uncosted_items_excluded = 0
+        uncosted_revenue = 0.0
 
     # Margin trend (last 12 months).
     trend_df = (
@@ -752,6 +821,8 @@ def analyze_margins(
         "top_margin_items": top_margin_items,
         "low_margin_items": low_margin_items,
         "margin_trend": margin_trend,
+        "uncosted_items_excluded": uncosted_items_excluded,
+        "uncosted_revenue": uncosted_revenue,
     }
 
 

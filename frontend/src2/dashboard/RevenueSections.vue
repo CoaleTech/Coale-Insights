@@ -356,23 +356,24 @@ const transposedDailyCashRatio = computed(() => {
 })
 
 // ── Weekly performance transposed table ───────────────────────────────────
-interface WeeklySalesItem { week: number; year: number; revenue?: number; transactions?: number }
+interface WeeklySalesItem { year_week: string; revenue?: number; transactions?: number }
 const transposedWeeklyPerformance = computed(() => {
   const weeklyData = (revenueMetrics.value.weekly_sales as WeeklySalesItem[]) || []
-  if (!weeklyData.length) return { weeks: [] as { label: string; year: number; week: number }[], rows: [] as TransposedRow[] }
+  if (!weeklyData.length) return { weeks: [] as { label: string }[], rows: [] as TransposedRow[] }
   const recentWeeks = weeklyData.slice(-8)
-  const weeks = recentWeeks.map(w => ({ label: `W${w.week}`, year: w.year, week: w.week }))
+  const weekKey = (w: WeeklySalesItem) => w.year_week.replace(/^\d{4}-/, '')
+  const weeks = recentWeeks.map(w => ({ label: weekKey(w) }))
   const rows = [
     {
       metric: 'Revenue',
-      values: recentWeeks.reduce((acc, w) => { acc[`W${w.week}`] = w.revenue ?? 0; return acc }, {} as Record<string, number>),
+      values: recentWeeks.reduce((acc, w) => { acc[weekKey(w)] = w.revenue ?? 0; return acc }, {} as Record<string, number>),
       total: recentWeeks.reduce((sum, w) => sum + (w.revenue ?? 0), 0),
       colorClass: 'text-ink-gray-9 font-bold',
       isCurrency: true,
     },
     {
       metric: 'Orders',
-      values: recentWeeks.reduce((acc, w) => { acc[`W${w.week}`] = w.transactions ?? 0; return acc }, {} as Record<string, number>),
+      values: recentWeeks.reduce((acc, w) => { acc[weekKey(w)] = w.transactions ?? 0; return acc }, {} as Record<string, number>),
       total: recentWeeks.reduce((sum, w) => sum + (w.transactions ?? 0), 0),
       colorClass: 'text-ink-gray-7',
       isCurrency: false,
@@ -380,7 +381,7 @@ const transposedWeeklyPerformance = computed(() => {
     {
       metric: 'AOV',
       values: recentWeeks.reduce((acc, w) => {
-        acc[`W${w.week}`] = (w.transactions ?? 0) > 0 ? (w.revenue ?? 0) / (w.transactions ?? 1) : 0
+        acc[weekKey(w)] = (w.transactions ?? 0) > 0 ? (w.revenue ?? 0) / (w.transactions ?? 1) : 0
         return acc
       }, {} as Record<string, number>),
       total: recentWeeks.reduce((sum, w) => sum + (w.revenue ?? 0), 0) / Math.max(1, recentWeeks.reduce((sum, w) => sum + (w.transactions ?? 0), 0)),
@@ -831,7 +832,12 @@ onMounted(() => {
   <div v-if="activeTab === 'rev-reps'">
     <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
       <KpiCard label="Total Sales Reps" :value="String(salesReps.total_reps ?? 0)" />
-      <KpiCard label="Team Revenue" :value="money(salesReps.total_team_revenue as number)" />
+      <div>
+        <KpiCard label="Team Revenue" :value="money(salesReps.total_team_revenue as number)" />
+        <p v-if="(salesReps.unattributed_revenue as number) > 0" class="text-xs text-ink-gray-5 mt-1">
+          + {{ money(salesReps.unattributed_revenue as number) }} ({{ pct(salesReps.unattributed_revenue_pct as number) }}) invoiced with no reconciling Sales Team allocation
+        </p>
+      </div>
       <div v-if="salesReps.top_performer" class="lg:col-span-2 bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
         <p class="text-sm text-ink-gray-6">Top Performer</p>
         <p class="text-xl font-bold text-ink-gray-9">
@@ -920,6 +926,9 @@ onMounted(() => {
       <div class="space-y-6">
         <div>
           <SectionHeader variant="caption" title="Top Margin Items" :level="3" />
+          <p v-if="(margins.uncosted_items_excluded as number) > 0" class="text-xs text-ink-gray-5 mt-1">
+            {{ margins.uncosted_items_excluded }} item(s) with no recorded cost excluded from this ranking ({{ money(margins.uncosted_revenue as number) }} revenue)
+          </p>
           <div class="mt-2 space-y-2">
             <div v-for="item in (margins.top_margin_items as Record<string, unknown>[])?.slice(0, 10)" :key="item.item_code as string"
               class="flex justify-between items-center text-sm bg-surface-gray-1 rounded p-2">
