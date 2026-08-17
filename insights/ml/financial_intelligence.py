@@ -229,7 +229,7 @@ class FinancialIntelligence:
                 joined["parent_account"].coalesce(joined["account"]).name("category")
             )
             .aggregate(amount=_rev_diff.sum())
-            .order_by("amount")
+            .order_by(ibis.desc("amount"))
             .limit(10)
         )
         rev_rows = self._rows(rev_break)
@@ -250,7 +250,7 @@ class FinancialIntelligence:
                 joined["parent_account"].coalesce(joined["account"]).name("category")
             )
             .aggregate(amount=_exp_diff.sum())
-            .order_by("amount")
+            .order_by(ibis.desc("amount"))
             .limit(10)
         )
         exp_rows = self._rows(exp_break)
@@ -412,14 +412,18 @@ class FinancialIntelligence:
         else:
             ar_total_dict = {"total": 0, "invoice_count": 0}
 
-        # Aging buckets via a CASE expression on the due-date diff (in days).
-        diff_expr = (si["due_date"] - datetime.now().date()).cast("int32")
+        # Aging buckets via a CASE expression on days-overdue (today minus
+        # due date). Positive = overdue by that many days; <= 0 = not yet
+        # due. (Was previously `due_date - today`, which put invoices
+        # overdue by up to 354 days into "Current" and not-yet-due invoices
+        # into the aged buckets -- exactly backwards. Fixed 2026-08-17.)
+        days_overdue_expr = (datetime.now().date() - si["due_date"]).cast("int32")
 
         bucket_expr = ibis.cases(
-            (diff_expr <= 0, "Current"),
-            ((diff_expr >= 1) & (diff_expr <= 30), "1-30 Days"),
-            ((diff_expr >= 31) & (diff_expr <= 60), "31-60 Days"),
-            ((diff_expr >= 61) & (diff_expr <= 90), "61-90 Days"),
+            (days_overdue_expr <= 0, "Current"),
+            ((days_overdue_expr >= 1) & (days_overdue_expr <= 30), "1-30 Days"),
+            ((days_overdue_expr >= 31) & (days_overdue_expr <= 60), "31-60 Days"),
+            ((days_overdue_expr >= 61) & (days_overdue_expr <= 90), "61-90 Days"),
             else_="90+ Days",
         ).name("bucket")
 
@@ -456,7 +460,13 @@ class FinancialIntelligence:
 
         # Top overdue customers
         si_overdue = si.filter(si["due_date"] < datetime.now().date())
-        overdue_diff = (si_overdue["due_date"] - datetime.now().date()).cast("int32")
+        # Positive days-overdue (today minus due date); si_overdue is already
+        # filtered to due_date < today so this is always > 0. Previously
+        # `due_date - today` (negative) with `.max()` picked each customer's
+        # LEAST overdue invoice and reported it as a negative number, which
+        # the frontend's severity badge (lower=better) always painted green
+        # regardless of actual severity. Fixed 2026-08-17.
+        overdue_diff = (datetime.now().date() - si_overdue["due_date"]).cast("int32")
         overdue_agg = (
             si_overdue
             .group_by(si_overdue["customer"], si_overdue["customer_name"])
@@ -518,11 +528,20 @@ class FinancialIntelligence:
         ap_dict = ap_total_row[0] if ap_total_row else {"total": 0, "invoice_count": 0}
 
         diff_expr = (pi["due_date"] - datetime.now().date()).cast("int32")
+        # Aging buckets use days-overdue (today minus due date) -- the
+        # mirror image of `diff_expr` above, which the Payment Schedule
+        # section below correctly uses as "days until due" (negative =
+        # overdue). Reusing diff_expr's sign directly here previously put
+        # invoices overdue by months into "Current" and not-yet-due
+        # invoices into the aged buckets -- exactly backwards, and directly
+        # contradicted by Payment Schedule's own "Overdue" bucket a few
+        # lines down using the opposite polarity. Fixed 2026-08-17.
+        days_overdue_expr = (datetime.now().date() - pi["due_date"]).cast("int32")
         bucket_expr = ibis.cases(
-            (diff_expr <= 0, "Current"),
-            ((diff_expr >= 1) & (diff_expr <= 30), "1-30 Days"),
-            ((diff_expr >= 31) & (diff_expr <= 60), "31-60 Days"),
-            ((diff_expr >= 61) & (diff_expr <= 90), "61-90 Days"),
+            (days_overdue_expr <= 0, "Current"),
+            ((days_overdue_expr >= 1) & (days_overdue_expr <= 30), "1-30 Days"),
+            ((days_overdue_expr >= 31) & (days_overdue_expr <= 60), "31-60 Days"),
+            ((days_overdue_expr >= 61) & (days_overdue_expr <= 90), "61-90 Days"),
             else_="90+ Days",
         ).name("bucket")
         aging_agg = (

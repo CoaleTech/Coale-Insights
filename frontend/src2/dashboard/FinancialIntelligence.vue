@@ -36,10 +36,12 @@
 			:error="error ?? undefined"
 			:is-permission-error="isPermissionError"
 			:warming="warming"
+			:not-implemented="notImplemented"
+			:not-implemented-message="notImplementedMessage"
 			:has-data="hasData"
 			subject="finance data"
 			permission-hint="Ask an administrator for finance read access."
-			:kpi-count="6"
+			:kpi-count="7"
 			@retry="retry"
 		>
 			<!-- Summary Cards -->
@@ -74,6 +76,17 @@
 					:loading="refreshing"
 					:error="error ?? undefined"
 					@click="drillDown.open(FIN_ENDPOINT, 'Outstanding AR', { metric: 'outstanding_ar' })"
+				/>
+				<KpiCard
+					label="90+ Days Overdue AR"
+					:amount="summary.overdueAR90Amount"
+					:currency="baseCurrency"
+					:sublabel="`${formatCount(summary.overdueAR90Count)} invoices`"
+					:severity="summary.overdueAR90Amount > 0 ? 'high' : undefined"
+					:clickable="true"
+					:loading="refreshing"
+					:error="error ?? undefined"
+					@click="drillDown.open(FIN_ENDPOINT, '90+ Days Overdue AR', { metric: 'overdue_ar_90' })"
 				/>
 				<KpiCard
 					label="Outstanding AP"
@@ -124,7 +137,15 @@
 					not blank the actuals tabs or vice versa.
 				-->
 				<div
-					v-if="activeGroup === 'planning' && strategicError"
+					v-if="activeGroup === 'planning' && strategicPermissionError"
+					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
+				>
+					<Lock class="h-8 w-8 text-ink-gray-5" aria-hidden="true" />
+					<p class="font-medium text-ink-gray-8">Access restricted</p>
+					<p class="max-w-md text-sm text-ink-gray-6">{{ strategicError }}</p>
+				</div>
+				<div
+					v-else-if="activeGroup === 'planning' && strategicError"
 					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
 				>
 					<AlertTriangle class="h-8 w-8 text-warn-fill" aria-hidden="true" />
@@ -239,6 +260,11 @@
 					<div v-if="beLoading" class="flex items-center justify-center py-12">
 						<LoadingIndicator class="w-8 h-8" />
 					</div>
+					<div v-else-if="bePermissionError" class="flex flex-col items-center justify-center gap-3 py-12 text-center">
+						<Lock class="w-8 h-8 text-ink-gray-5" aria-hidden="true" />
+						<p class="font-medium text-ink-gray-8">Access restricted</p>
+						<p class="text-sm text-ink-gray-6">{{ beError }}</p>
+					</div>
 					<div v-else-if="beError" class="text-center py-12 text-ink-gray-6">{{ beError }}</div>
 					<BreakEvenOverviewTab v-else-if="beData" :data="beData" />
 					<div v-else class="text-center py-12 text-ink-gray-6">No break-even data available</div>
@@ -277,7 +303,7 @@ defineOptions({ name: 'FinancialIntelligence' })
 import { ref, computed, onMounted, onBeforeUnmount, watch, provide } from 'vue'
 import { Button, Tabs, TabButtons, createResource, LoadingIndicator } from 'frappe-ui'
 import { useRouter } from 'vue-router'
-import { AlertTriangle } from 'lucide-vue-next'
+import { AlertTriangle, Lock } from 'lucide-vue-next'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
 import { scoreSeverity } from '../utils/status'
 import { formatCount } from '../utils/format'
@@ -316,7 +342,7 @@ import ScenarioAnalysisTab from '../components/strategic-finance/ScenarioAnalysi
 import PeriodComparisonTab from '../components/strategic-finance/PeriodComparisonTab.vue'
 import BudgetVarianceTab from '../components/strategic-finance/BudgetVarianceTab.vue'
 import BreakEvenOverviewTab from '../components/strategic-finance/BreakEvenOverviewTab.vue'
-import { ignoreRejection, readInsightsEnvelope } from '../helpers/api'
+import { ignoreRejection, readInsightsEnvelope, readFrappeError } from '../helpers/api'
 
 interface FrappeResponse { status: string; message?: string; [key: string]: unknown }
 
@@ -443,6 +469,8 @@ const {
 	error,
 	isPermissionError,
 	warming,
+	notImplemented,
+	notImplementedMessage,
 	hasData,
 	reload,
 	retry,
@@ -482,6 +510,18 @@ const receivablesData = computed<ReceivablesData>(() => financialData.value?.rec
 const payablesData = computed<PayablesData>(() => financialData.value?.payables ?? {})
 const forexData = computed<ForexData>(() => financialData.value?.forex ?? {})
 
+/**
+ * "90+ Days" is Financial's own aging bucket (`financial_intelligence.py`'s
+ * `_analyze_receivables`, unrelated to Risk's separate aging_buckets),
+ * already computed and shipped in `receivablesData.aging_buckets` -- just
+ * never surfaced as its own KPI (TODOS.md, 2026-08-17 drill-down/coverage
+ * audit). `get_finance_detail(metric: 'overdue_ar_90')` already serves the
+ * matching drill-down list.
+ */
+const overdueAR90Bucket = computed(() =>
+	(receivablesData.value.aging_buckets ?? []).find((b) => b.bucket === '90+ Days'),
+)
+
 const summary = computed(() => ({
 	netProfit: (overviewData.value.ytd_profit as number) || 0,
 	profitMargin: (overviewData.value.net_margin as number) || 0,
@@ -489,6 +529,8 @@ const summary = computed(() => ({
 	cashRunwayMonths: cashFlowData.value.runway_months as number | undefined,
 	outstandingAR: (receivablesData.value.total_outstanding as number) || 0,
 	avgDSO: receivablesData.value.current_dso != null ? Math.round(receivablesData.value.current_dso as number) : undefined,
+	overdueAR90Amount: (overdueAR90Bucket.value?.amount as number) || 0,
+	overdueAR90Count: (overdueAR90Bucket.value?.count as number) || 0,
 	outstandingAP: (payablesData.value.total_outstanding as number) || 0,
 	avgDPO: payablesData.value.current_dpo != null ? Math.round(payablesData.value.current_dpo as number) : undefined,
 	forexExposure: Math.abs((forexData.value.net_exposure_base as number) || 0),
@@ -535,6 +577,7 @@ const strategicWarming = ref(false)
 const strategicData = ref<Record<string, unknown> | null>(null)
 /** Mirrors `error` for the planning engine; same two failure paths. */
 const strategicError = ref<string | null>(null)
+const strategicPermissionError = ref(false)
 const strategicTyped = computed<StrategicFinanceData | null>(() => strategicData.value as unknown as StrategicFinanceData | null)
 
 /**
@@ -584,8 +627,10 @@ const strategicResource = createResource({
 	},
 	onError(err: unknown) {
 		console.error('Strategic Finance Intelligence error:', err)
+		const decoded = readFrappeError(err, 'Planning data could not be loaded')
 		strategicWarming.value = false
-		strategicError.value = 'Planning data could not be loaded'
+		strategicPermissionError.value = decoded.permission
+		strategicError.value = decoded.message
 		strategicLoading.value = false
 	},
 })
@@ -600,6 +645,7 @@ const fetchStrategicData = (refresh = false) => {
 		strategicPollTimer = null
 	}
 	strategicLoading.value = true
+	strategicPermissionError.value = false
 	ignoreRejection(strategicResource.submit({ refresh }))
 }
 
@@ -638,6 +684,7 @@ watch(dateFilter, () => {
 const beData = ref<BreakevenSummary | null>(null)
 const beLoading = ref(false)
 const beError = ref<string | null>(null)
+const bePermissionError = ref(false)
 
 const beSummaryResource = createResource({
 	url: 'insights.api.ml.breakeven.breakeven_summary',
@@ -653,7 +700,9 @@ const beSummaryResource = createResource({
 	},
 	onError(err: unknown) {
 		console.error('Break-even summary error:', err)
-		beError.value = 'An error occurred while loading break-even data'
+		const decoded = readFrappeError(err, 'An error occurred while loading break-even data')
+		bePermissionError.value = decoded.permission
+		beError.value = decoded.message
 		beLoading.value = false
 	},
 })
@@ -661,6 +710,7 @@ const beSummaryResource = createResource({
 const fetchBreakEvenData = () => {
 	beLoading.value = true
 	beError.value = null
+	bePermissionError.value = false
 	ignoreRejection(beSummaryResource.submit({}))
 }
 
