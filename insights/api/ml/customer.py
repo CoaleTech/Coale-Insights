@@ -365,4 +365,37 @@ def get_customer_detail(metric: str, filters: str) -> dict:
             "total": frappe.db.count("Customer", filters=db_filters),
         }
 
+    if metric == "customer_invoices":
+        frappe.has_permission("Sales Invoice", throw=True)
+        customer = f.get("customer")
+        if not customer:
+            frappe.throw(_("customer is required"), frappe.ValidationError)
+        bucket = f.get("bucket", "all")  # all | outstanding | overdue
+        db_filters = {"docstatus": 1, "customer": customer}
+        if company:
+            db_filters["company"] = company
+        if bucket in ("outstanding", "overdue"):
+            db_filters["outstanding_amount"] = (">", 0)
+        if bucket == "overdue":
+            db_filters["due_date"] = ("<", frappe.utils.today())
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "status"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

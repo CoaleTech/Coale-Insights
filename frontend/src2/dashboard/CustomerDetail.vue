@@ -13,6 +13,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { createToast } from '../helpers/toasts'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import {
@@ -29,6 +31,8 @@ const route = useRoute()
 const router = useRouter()
 
 const customerId = computed(() => route.params.customerId as string)
+const drillDown = useDrillDown()
+const CUSTOMER_ENDPOINT = 'insights.api.ml.customer.get_customer_detail'
 
 // State
 const isLoading = ref(true)
@@ -307,12 +311,16 @@ watch(customerId, () => {
                 :value="money(totalRevenue)"
                 sublabel="Lifetime Value"
                 :loading="!hasData"
+                :clickable="true"
+                @click="drillDown.open(CUSTOMER_ENDPOINT, 'Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'all' })"
               />
               <KpiCard
                 label="Total Orders"
                 :value="formatNumber(totalOrders)"
                 :sublabel="`AOV: ${money(avgOrderValue)}`"
                 :loading="!hasData"
+                :clickable="true"
+                @click="drillDown.open(CUSTOMER_ENDPOINT, 'Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'all' })"
               />
               <KpiCard
                 label="Predicted CLV (12m)"
@@ -743,6 +751,8 @@ watch(customerId, () => {
                   label="Outstanding Amount"
                   :value="money(customer?.outstanding_amount as number)"
                   :severity="(customer?.outstanding_amount as number) > 0 ? 'high' : undefined"
+                  :clickable="true"
+                  @click="drillDown.open(CUSTOMER_ENDPOINT, 'Outstanding Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'outstanding' })"
                 />
                 <KpiCard
                   label="Payment Score"
@@ -753,6 +763,8 @@ watch(customerId, () => {
                   label="Overdue Invoices"
                   :value="asNumber(customer?.overdue_count)"
                   :severity="(customer?.overdue_count as number) > 0 ? 'high' : undefined"
+                  :clickable="true"
+                  @click="drillDown.open(CUSTOMER_ENDPOINT, 'Overdue Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'overdue' })"
                 />
               </div>
             </div>
@@ -771,6 +783,22 @@ watch(customerId, () => {
     <DashboardChatButton
       dashboard-type="Customer"
       :dashboard-context="chatContext"
+    />
+
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
     />
   </div>
 </template>

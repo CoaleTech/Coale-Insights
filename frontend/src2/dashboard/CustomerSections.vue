@@ -146,9 +146,10 @@ function money(value: number | undefined | null): string {
 
 // ── Severity helpers ───────────────────────────────────────────────────────
 function healthSeverity(status: string | undefined | null): Severity {
+  // Backend `_classify_health()` only ever returns these four buckets.
   const map: Record<string, Severity> = {
-    Excellent: 'none', Good: 'none', Healthy: 'none',
-    Average: 'medium', 'At Risk': 'high', Poor: 'high', Critical: 'critical',
+    Excellent: 'none', Healthy: 'none',
+    'At Risk': 'high', Critical: 'critical',
   }
   return map[String(status ?? '')] ?? 'none'
 }

@@ -95,6 +95,22 @@ def _classify_rfm(r: int, f: int, m: int) -> str:
     return "Need Attention"
 
 
+def _as_date(value):
+    """Normalize a purchase-date value to a plain `date`.
+
+    `.execute()` hands back `datetime.date` (default path, DB `DATE`
+    columns) or `pandas.Timestamp`/`datetime.datetime` (PyArrow
+    materialisation, or a filled-in `datetime.now()` default) depending on
+    which path ran -- and Python (and pandas' scalar-vs-Series arithmetic)
+    refuses to subtract a bare `date` from a `datetime`. Truncate anything
+    datetime-shaped to a `date` so every subtraction in this module compares
+    like with like, regardless of which execute path produced the column.
+    """
+    if value is None:
+        return None
+    return value.date() if isinstance(value, datetime) else value
+
+
 def _classify_clv(score: float) -> str:
     """CLV score 0-100 -> tier, matches the original pandas cut."""
     if score >= 80:
@@ -373,6 +389,51 @@ def compute_customer_intelligence(
         df = df.merge(overdue_df, on="customer", how="left")
     else:
         df["overdue_count"] = 0
+
+    # Real avg days-to-pay per customer, from fully-closed invoices in the
+    # period: days between `posting_date` and `modified` -- the same
+    # definition `payment_prediction.py._fetch_customer_history` uses for
+    # the whole book (closest signal to "date it was fully paid" without a
+    # dedicated payment-date column here). Previously this column never
+    # existed here, so `_composite_health_score` silently fell back to a
+    # flat 30-day/50-score default for every customer -- "Payment Score"
+    # never actually reflected anyone's payment behaviour. Fixed 2026-08-17.
+    import ibis
+
+    closed_si = si.filter(si.outstanding_amount == 0)
+    closed_si = closed_si.mutate(
+        days_to_pay=ibis.ifelse(
+            closed_si.modified.isnull() | closed_si.posting_date.isnull(),
+            ibis.null(),
+            closed_si.modified.cast("date").delta(closed_si.posting_date.cast("date"), unit="day"),
+        )
+    )
+    dtp_per_customer = closed_si.group_by(closed_si.customer).aggregate(
+        avg_days_to_pay=closed_si.days_to_pay.mean(),
+    )
+    dtp_df = dtp_per_customer.execute()
+    if not dtp_df.empty:
+        df = df.merge(dtp_df, on="customer", how="left")
+    else:
+        df["avg_days_to_pay"] = None
+
+    # Real recent (90-day) vs period average order value, for `value_trend`.
+    # Previously `value_trend` compared `avg_order_value` to
+    # `historical_clv / order_count` -- the identical quantity computed two
+    # ways over the same row set, so it was mathematically guaranteed to be
+    # ~0 for every customer. Fixed 2026-08-17.
+    recent_cutoff = today_date - timedelta(days=90)
+    recent_si = si.filter(si.posting_date >= recent_cutoff)
+    recent_per_customer = recent_si.group_by(recent_si.customer).aggregate(
+        recent_avg_order_value=recent_si.grand_total.mean(),
+        recent_order_count=recent_si.count(),
+    )
+    recent_df = recent_per_customer.execute()
+    if not recent_df.empty:
+        df = df.merge(recent_df, on="customer", how="left")
+    else:
+        df["recent_avg_order_value"] = None
+        df["recent_order_count"] = 0
     if df.empty:
         return {
             "status": "error",
@@ -389,22 +450,39 @@ def compute_customer_intelligence(
         }
 
     now = datetime.now()
-    df["first_purchase"] = df["first_purchase"].fillna(now)
-    df["last_purchase"] = df["last_purchase"].fillna(now)
+    today_date = now.date()
+    df["first_purchase"] = df["first_purchase"].fillna(now).apply(_as_date)
+    df["last_purchase"] = df["last_purchase"].fillna(now).apply(_as_date)
     df["historical_clv"] = df["historical_clv"].fillna(0).astype(float)
     df["avg_order_value"] = df["avg_order_value"].fillna(0).astype(float)
     df["order_count"] = df["order_count"].fillna(0).astype(int)
     df["outstanding_amount"] = df["outstanding_amount"].fillna(0).astype(float)
     df["overdue_count"] = df["overdue_count"].fillna(0).astype(int)
+    # ibis/MariaDB hands DECIMAL aggregates back as `object`-dtype Series of
+    # `decimal.Decimal` -- fine for the merges above, but the vectorized
+    # arithmetic below (`_rule_based_churn_score`) mixes these with float
+    # columns and `Decimal / float` raises TypeError. `avg_days_to_pay`
+    # deliberately keeps NaN for "no closed invoices yet" (consumed via a
+    # None-aware guard in `_composite_health_score`, where 0 would wrongly
+    # mean "always pays same-day"); the other two are only ever read behind
+    # a `recent_order_count > 0` mask so 0-filling is safe. Fixed 2026-08-17.
+    df["avg_days_to_pay"] = df["avg_days_to_pay"].astype(float)
+    df["recent_avg_order_value"] = df["recent_avg_order_value"].fillna(0).astype(float)
+    df["recent_order_count"] = df["recent_order_count"].fillna(0).astype(int)
 
-    # With the PyArrow execute path these columns are object-dtype Python
-    # date/datetime objects, not datetime64, so .dt.days is unavailable.
+    # Both execute paths hand back `date`, `datetime`, or `Timestamp`
+    # depending on the column and path; `_as_date` above normalizes every
+    # value to a plain `date` first, so every subtraction here is date-minus-
+    # date -- either Series-vs-Series (elementwise, no scalar promotion) or
+    # scalar-vs-Series done through `.apply()` rather than pandas' own
+    # arithmetic dispatch, which promotes a `datetime` scalar to `Timestamp`
+    # and cannot then subtract a bare `date` element.
     df["lifespan_months"] = ((df["last_purchase"] - df["first_purchase"]).apply(lambda x: x.days) / 30.44).clip(lower=1)
     df["purchase_frequency"] = df["order_count"] / df["lifespan_months"]
-    df["recency_days"] = (now - df["last_purchase"]).apply(lambda x: x.days)
+    df["recency_days"] = df["last_purchase"].apply(lambda x: (today_date - x).days)
 
     # predicted 12-month CLV = orders/month * 12 * AOV, adjusted by tenure
-    df["tenure_months"] = ((now - df["first_purchase"]).apply(lambda x: x.days) / 30.44)
+    df["tenure_months"] = df["first_purchase"].apply(lambda x: (today_date - x).days) / 30.44
     df["tenure_factor"] = (df["tenure_months"] / 24).clip(upper=1.5)
     df["predicted_12m_clv"] = df["purchase_frequency"] * 12 * df["avg_order_value"]
     df["adjusted_predicted_clv"] = df["predicted_12m_clv"] * df["tenure_factor"]
@@ -431,11 +509,13 @@ def compute_customer_intelligence(
     df = _rule_based_churn_score(df)
     df["churn_risk"] = df["churn_score"].apply(_classify_churn)
 
-    # Health score: composite of revenue/engagement/payment/longevity/growth.
-    df = _composite_health_score(df)
-    df["health_status"] = df["health_score"].apply(_classify_health)
-
-    # CLV component scores (0-100 each)
+    # CLV component scores (0-100 each) -- computed BEFORE health_score so
+    # the "Health Components" / "CLV Components" breakdown the frontend
+    # renders is built from these exact same numbers (see
+    # `_composite_health_score`). Previously these were computed a SECOND
+    # time, with different formulas, inside `_composite_health_score` and
+    # immediately overwritten here -- health_score's average and the
+    # on-screen component bars silently disagreed. Fixed 2026-08-17.
     df["revenue_score"] = df["historical_clv"].rank(pct=True, method="average") * 100
     max_freq = df["purchase_frequency"].quantile(0.99) or 1
     df["engagement_score"] = (df["purchase_frequency"] / max_freq * 50).clip(upper=50) + \
@@ -443,6 +523,10 @@ def compute_customer_intelligence(
     df["longevity_score"] = (df["tenure_months"] / 24 * 100).clip(lower=0, upper=100)
     safe_hist = df["historical_clv"].replace(0, 1)
     df["growth_score"] = ((df["predicted_12m_clv"] / safe_hist - 0.5) * 50).clip(lower=0, upper=100)
+
+    # Health score: composite of revenue/engagement/payment/longevity/growth.
+    df = _composite_health_score(df)
+    df["health_status"] = df["health_score"].apply(_classify_health)
 
     # ---- Geographic analysis (territory + customer group rollups) ----
     geo_analysis = _geographic_analysis(df)
@@ -533,8 +617,13 @@ def _rule_based_churn_score(df):
         + overdue_count > 0 ? 15 : 0
         + min(receivables_ratio * 10, 15)
 
-    The trend estimates are computed in pure pandas (small DF) rather than
-    re-running an SQL aggregate per customer.
+    `frequency_trend` is tenure-based (population-independent, no
+    per-customer SQL hop). `value_trend` compares the customer's average
+    order value over the last 90 days (`recent_avg_order_value`, merged in
+    by the caller) against their period average order value -- real signal.
+    It used to compare `avg_order_value` to `historical_clv / order_count`,
+    the identical quantity restated, so it was mathematically guaranteed to
+    evaluate to ~0 for every customer. Fixed 2026-08-17.
     """
     df = df.copy()
     df["churn_score"] = 50.0
@@ -548,10 +637,18 @@ def _rule_based_churn_score(df):
     df["recency_risk"] = ((df["recency_days"] / max(avg_cycle_days, 30.0)) * 20.0).clip(upper=30)
     df["churn_score"] = df["churn_score"] + df["recency_risk"]
 
-    # Trend proxies: tenure-based, no per-customer SQL hop.
     df["frequency_trend"] = ((df["order_count"] / df["lifespan_months"]) - 1.0).clip(-2, 2)
-    safe_order_count = df["order_count"].replace(0, 1)
-    df["value_trend"] = ((df["avg_order_value"] / (df["historical_clv"] / safe_order_count)) - 1.0).clip(-2, 2)
+
+    if "recent_order_count" not in df.columns:
+        df["recent_order_count"] = 0
+        df["recent_avg_order_value"] = None
+    has_recent = df["recent_order_count"].fillna(0) > 0
+    safe_period_aov = df["avg_order_value"].replace(0, 1)
+    df["value_trend"] = 0.0
+    if has_recent.any():
+        df.loc[has_recent, "value_trend"] = (
+            (df.loc[has_recent, "recent_avg_order_value"] / safe_period_aov[has_recent]) - 1.0
+        ).clip(-2, 2)
     df["gap_increasing"] = (df["recency_days"] > avg_cycle_days * 1.5).astype(int)
 
     df["churn_score"] = df["churn_score"] - df["frequency_trend"].clip(-2, 2) * 10
@@ -567,22 +664,33 @@ def _rule_based_churn_score(df):
 
 
 def _composite_health_score(df):
-    """Composite health score 0-100 = mean of five sub-scores. Sub-scores
-    are each 0-100 so the mean is bounded. Matches the original code's
-    0.20 weight per component without making a per-row DataFrame.copy().
+    """Composite health score 0-100 = mean of five sub-scores: revenue_score,
+    engagement_score, longevity_score, growth_score (already computed by the
+    caller -- these are the exact same numbers the "Health Components" /
+    "CLV Components" breakdown on the customer detail page renders) plus
+    payment_score, derived here from avg_days_to_pay via
+    `payment_prediction._component_avg_days_to_pay` (that function returns
+    a 0-100 *risk* score on a credit-terms-anchored scale -- <15d->0,
+    30d->30, 60d->80, 90d+->100, None->50 -- so payment_score is simply
+    ``100 - risk``, reusing the same business-calibrated scale rather than
+    inventing a second one). All five are 0-100 so the mean is bounded.
+
+    This function used to compute its OWN revenue/engagement/longevity/
+    growth formulas (different from the ones above) and have every one of
+    them silently overwritten by the caller before the response was built
+    -- so health_score never actually reconciled with the component
+    breakdown shown under it. `payment_score` also fell back to a flat 50
+    for literally every customer because `avg_days_to_pay` was never
+    merged into `df` upstream. Both fixed 2026-08-17.
     """
+    from insights.ml.payment_prediction import _component_avg_days_to_pay
+
     df = df.copy()
-    df["revenue_score"] = df["historical_clv"].rank(pct=True, method="average") * 100
-    df["engagement_score"] = (df["purchase_frequency"].rank(pct=True, method="average") * 50) + \
-                             ((1 - df["recency_days"].rank(pct=True, method="average")) * 50)
     if "avg_days_to_pay" not in df.columns:
-        df["avg_days_to_pay"] = 30.0
-        df["payment_score"] = 50.0
-    else:
-        max_days = max(df["avg_days_to_pay"].max() or 0, 60)
-        df["payment_score"] = ((1 - df["avg_days_to_pay"] / max_days) * 100).clip(0, 100)
-    df["longevity_score"] = (df["tenure_months"].rank(pct=True, method="average") * 100)
-    df["growth_score"] = (50 + df["frequency_trend"].clip(-2, 2) * 15 + df["value_trend"].clip(-2, 2) * 10).clip(0, 100)
+        df["avg_days_to_pay"] = None
+    df["payment_score"] = df["avg_days_to_pay"].apply(
+        lambda v: 100.0 - _component_avg_days_to_pay(float(v) if (v is not None and v == v) else None)
+    )
     df["health_score"] = (
         df["revenue_score"] * 0.20
         + df["engagement_score"] * 0.20
@@ -947,6 +1055,18 @@ def compute_customer_360(customer_id: str,
 
     Pulls the same per-customer aggregate the dashboard uses, restricted to
     this customer, and produces the same payload the frontend expects.
+
+    Unlike `compute_customer_intelligence` this is lifetime (no
+    `date_filter`), so the CLV/health numbers here are not literally
+    apples-to-apples with the list dashboard's windowed figures for the
+    same customer -- that pre-existing scope difference is unchanged by
+    this fix. What IS fixed here: the "CLV Components" / "Health
+    Components" breakdown the frontend renders (`revenue_score`,
+    `engagement_score`, `payment_score`, `longevity_score`,
+    `growth_score`) plus `avg_days_to_pay`, `frequency_trend`,
+    `value_trend`, `gross_profit`, and `margin_pct` used to be entirely
+    absent from this endpoint's response, so those sections always
+    rendered blank/zero -- see TODOS.md.
     """
     if not frappe.db.exists("Customer", customer_id):
         return {"status": "error", "message": f"Customer '{customer_id}' not found"}
@@ -976,6 +1096,12 @@ def compute_customer_360(customer_id: str,
     per_customer = base.execute()
     if not per_customer.empty:
         per_customer["overdue_count"] = overdue_n
+        per_customer["avg_days_to_pay"] = _customer_avg_days_to_pay(customer_id, company)
+        per_customer["recent_avg_order_value"] = _customer_recent_avg_order_value(customer_id, company, today_date)
+        gross_profit, margin_pct = _customer_profitability(customer_id, company)
+        per_customer["gross_profit"] = gross_profit
+        per_customer["margin_pct"] = margin_pct
+        per_customer["clv_reference"] = _population_clv_reference(company)
     if per_customer.empty:
         customer = _blank_customer_row(cust)
     else:
@@ -989,6 +1115,92 @@ def compute_customer_360(customer_id: str,
     if include_recommendations:
         response["cross_sell"] = _cross_sell_for_one_customer(customer_id, company=company)
     return _to_native(response)
+
+
+def _customer_avg_days_to_pay(customer_id: str, company: Optional[str]):
+    """Real average days-to-pay for one customer, from fully-closed
+    (`outstanding_amount == 0`) invoices: days between `posting_date` and
+    `modified` -- same definition `payment_prediction.py` uses for the
+    whole book. Returns `None` when the customer has no closed invoices
+    yet -- callers must treat that as "unknown", not "paid instantly".
+    """
+    import ibis
+
+    si = company_filter(t("Sales Invoice"), company)
+    si = si.filter((si.docstatus == 1) & (si.customer == customer_id)
+                   & (si.outstanding_amount == 0))
+    si = si.mutate(
+        days_to_pay=ibis.ifelse(
+            si.modified.isnull() | si.posting_date.isnull(),
+            ibis.null(),
+            si.modified.cast("date").delta(si.posting_date.cast("date"), unit="day"),
+        )
+    )
+    row = si.aggregate(avg_days_to_pay=si.days_to_pay.mean()).execute().iloc[0]
+    value = row["avg_days_to_pay"]
+    if value is None or (isinstance(value, float) and value != value):
+        return None
+    return float(value)
+
+
+def _customer_recent_avg_order_value(customer_id: str, company: Optional[str], today_date):
+    """Average order value over the last 90 days, for comparison against
+    the customer's lifetime average (`value_trend`). `None` when there
+    were no orders in that window (customer inactive recently).
+    """
+    cutoff = today_date - timedelta(days=90)
+    si = company_filter(t("Sales Invoice"), company)
+    si = si.filter((si.docstatus == 1) & (si.customer == customer_id)
+                   & (si.posting_date >= cutoff))
+    row = si.aggregate(recent_avg_order_value=si.grand_total.mean(),
+                        recent_order_count=si.count()).execute().iloc[0]
+    if not row["recent_order_count"]:
+        return None
+    return float(row["recent_avg_order_value"] or 0)
+
+
+def _customer_profitability(customer_id: str, company: Optional[str]):
+    """Gross profit and margin % for one customer, lifetime (no date
+    filter, matching this endpoint's scope). Identical formula to
+    `compute_customer_rankings`'s top_profit/top_margin so the same
+    customer's profitability reconciles across both views: line-level
+    `net_amount - qty * incoming_rate` summed against `sii.amount`
+    revenue. A line with a NULL `incoming_rate` drops out of the
+    gross_profit sum (SQL NULL propagation), matching that convention.
+    """
+    sii = t("Sales Invoice Item")
+    si_for_profit = t("Sales Invoice")
+    lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    if company:
+        lines = lines.filter(si_for_profit.company == company)
+    lines = lines.filter((si_for_profit.docstatus == 1) & (si_for_profit.customer == customer_id))
+    row = lines.aggregate(
+        gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum(),
+        revenue=sii.amount.sum(),
+    ).execute().iloc[0]
+    revenue = float(row["revenue"] or 0)
+    gross_profit = float(row["gross_profit"] or 0)
+    margin_pct = round(gross_profit / revenue * 100, 1) if revenue > 0 else None
+    return gross_profit, margin_pct
+
+
+def _population_clv_reference(company: Optional[str]) -> float:
+    """Average lifetime historical CLV per customer across the whole
+    customer base: one company-filtered SUM + COUNT DISTINCT (not a
+    per-customer GROUP BY) -- a currency-agnostic, self-calibrating
+    reference point for scoring a single customer's CLV/revenue without
+    the O(all customers) per-customer aggregate the list dashboard runs.
+    """
+    si = company_filter(t("Sales Invoice"), company)
+    si = si.filter((si.docstatus == 1) & si.customer.notnull() & (si.customer != ""))
+    row = si.aggregate(
+        total_revenue=si.grand_total.sum(),
+        customer_count=si.customer.nunique(),
+    ).execute().iloc[0]
+    customer_count = int(row["customer_count"] or 0)
+    if customer_count <= 0:
+        return 0.0
+    return float(row["total_revenue"] or 0) / customer_count
 
 
 def _blank_customer_row(cust):
@@ -1015,19 +1227,47 @@ def _blank_customer_row(cust):
         "churn_risk": "Low",
         "health_score": 0.0,
         "health_status": "Critical",
+        "revenue_score": 0.0,
+        "engagement_score": 0.0,
+        "payment_score": 50.0,
+        "longevity_score": 0.0,
+        "growth_score": 0.0,
+        "frequency_trend": 0.0,
+        "value_trend": 0.0,
+        "avg_days_to_pay": None,
         "outstanding_amount": 0.0,
         "overdue_count": 0,
+        "gross_profit": 0.0,
+        "margin_pct": None,
         "recommendations": [],
     }
 
 
 def _score_one_customer_row(row, cust):
     """Build the per-customer payload the customer_360 view expects. Same
-    logic as the engine's per-customer block, just for one row.
+    per-customer logic as the bulk engine, just for one row -- plus real
+    payment/trend/profitability numbers from this customer's own invoices
+    (see `compute_customer_360`).
+
+    `clv_score` / `revenue_score` are scored against a cheap
+    population-average CLV reference (`clv_reference`, see
+    `_population_clv_reference`) rather than the bulk dashboard's true
+    percentile rank across every customer -- a true rank needs the whole
+    per-customer distribution, which is exactly the O(all customers) query
+    this endpoint is deliberately scoped to avoid on a single detail-page
+    open. `longevity_score`, `growth_score`, and `frequency_trend` use the
+    *exact* formulas the bulk dashboard ships (they only need this one
+    customer's own numbers), so those three match the list dashboard
+    exactly for the same customer. `payment_score` reuses
+    `payment_prediction._component_avg_days_to_pay` (see
+    `_composite_health_score`'s docstring), same as the bulk fix.
     """
+    from insights.ml.payment_prediction import _component_avg_days_to_pay
+
     now = datetime.now()
-    first_purchase = row.get("first_purchase") or now
-    last_purchase = row.get("last_purchase") or now
+    today_date = now.date()
+    first_purchase = _as_date(row.get("first_purchase")) or today_date
+    last_purchase = _as_date(row.get("last_purchase")) or today_date
     order_count = int(row.get("order_count") or 0)
     historical_clv = float(row.get("historical_clv") or 0)
     avg_order_value = float(row.get("avg_order_value") or 0)
@@ -1036,19 +1276,26 @@ def _score_one_customer_row(row, cust):
 
     lifespan_months = max(1.0, ((last_purchase - first_purchase).days / 30.44))
     purchase_frequency = order_count / lifespan_months
-    recency_days = (now - last_purchase).days
-    tenure_months = max(0.0, ((now - first_purchase).days / 30.44))
+    recency_days = (today_date - last_purchase).days
+    tenure_months = max(0.0, ((today_date - first_purchase).days / 30.44))
 
     predicted_12m = purchase_frequency * 12 * avg_order_value
     tenure_factor = min(tenure_months / 24.0, 1.5)
     adjusted_predicted = predicted_12m * tenure_factor
     total_clv = historical_clv + adjusted_predicted
-    # Score: p99-style cap so 1 customer doesn't dominate.
-    p99 = max(1.0, total_clv * 0.99 + 1)
-    clv_score = min(100.0, (total_clv / p99) * 100) if total_clv > 0 else 0.0
+
+    # CLV score: saturating scale against a population-average reference
+    # (3x the average customer's lifetime spend maps to 100) instead of
+    # the old self-referential `total_clv / (total_clv * 0.99 + 1)`, which
+    # algebraically simplifies to ~100 for any customer above small change
+    # -- every customer showed CLV Tier "Diamond" regardless of actual
+    # size. Fixed 2026-08-17.
+    clv_reference = float(row.get("clv_reference") or 0)
+    clv_ceiling = max(1.0, clv_reference * 3.0)
+    clv_score = max(0.0, min(100.0, (total_clv / clv_ceiling) * 100))
     clv_tier = _classify_clv(clv_score)
 
-    # Rule-based churn.
+    # Rule-based churn (unchanged).
     churn_score = 50.0
     churn_score += min(30.0, (recency_days / 30.0) * 20.0)
     if order_count > 0:
@@ -1062,18 +1309,55 @@ def _score_one_customer_row(row, cust):
     churn_score = max(0.0, min(100.0, churn_score))
     churn_risk = _classify_churn(churn_score)
 
-    # Composite health.
-    health_score = 50.0
-    if historical_clv > 0:
-        health_score += min(20.0, math.log10(historical_clv + 1) * 5.0)
-    if recency_days < 30:
-        health_score += 10.0
-    elif recency_days > 90:
-        health_score -= 10.0
-    if outstanding > 0 and historical_clv > 0 and (outstanding / historical_clv) > 0.3:
-        health_score -= 10.0
-    health_score = max(0.0, min(100.0, health_score))
+    # CLV/health component scores -- these are the numbers the "CLV
+    # Components" / "Health Components" breakdown renders, and health_score
+    # below is their weighted mean, so the two always reconcile.
+    revenue_score = max(0.0, min(100.0, (historical_clv / clv_ceiling) * 100))
+    recency_component = max(0.0, min(50.0, (1 - recency_days / 90.0) * 50.0))
+    frequency_component = max(0.0, min(50.0, purchase_frequency * 25.0))
+    engagement_score = recency_component + frequency_component
+    longevity_score = max(0.0, min(100.0, (tenure_months / 24.0) * 100.0))
+    safe_hist = historical_clv if historical_clv > 0 else 1.0
+    growth_score = max(0.0, min(100.0, ((predicted_12m / safe_hist) - 0.5) * 50.0))
+
+    # Trends. `frequency_trend` matches the bulk formula exactly (already
+    # population-independent). `value_trend` compares this customer's last
+    # 90 days' average order value to their lifetime average -- real
+    # signal, not the previous tautology (avg_order_value compared to
+    # itself via historical_clv/order_count, always 0).
+    frequency_trend = max(-2.0, min(2.0, purchase_frequency - 1.0))
+    recent_aov = row.get("recent_avg_order_value")
+    if recent_aov is None or avg_order_value <= 0:
+        value_trend = 0.0
+    else:
+        value_trend = max(-2.0, min(2.0, (float(recent_aov) / avg_order_value) - 1.0))
+
+    # Payment behaviour: real avg days-to-pay from this customer's closed
+    # invoices, scored via the same credit-terms-anchored scale
+    # `payment_prediction.py` uses (None -> neutral 50, not "paid
+    # instantly").
+    avg_days_to_pay = row.get("avg_days_to_pay")
+    if avg_days_to_pay is not None and not (isinstance(avg_days_to_pay, float) and avg_days_to_pay != avg_days_to_pay):
+        avg_days_to_pay = float(avg_days_to_pay)
+    else:
+        avg_days_to_pay = None
+    payment_score = 100.0 - _component_avg_days_to_pay(avg_days_to_pay)
+
+    # Composite health: same 5-way 20%-weighted mean as the bulk dashboard,
+    # over the same five scores in the "Health Components" breakdown above.
+    health_score = (
+        revenue_score * 0.20
+        + engagement_score * 0.20
+        + payment_score * 0.20
+        + longevity_score * 0.20
+        + growth_score * 0.20
+    )
     health_status = _classify_health(health_score)
+
+    gross_profit = float(row.get("gross_profit") or 0)
+    margin_pct = row.get("margin_pct")
+    if margin_pct is not None:
+        margin_pct = float(margin_pct)
 
     return {
         "customer_id": cust.name,
@@ -1098,8 +1382,18 @@ def _score_one_customer_row(row, cust):
         "churn_risk": churn_risk,
         "health_score": health_score,
         "health_status": health_status,
+        "revenue_score": revenue_score,
+        "engagement_score": engagement_score,
+        "payment_score": payment_score,
+        "longevity_score": longevity_score,
+        "growth_score": growth_score,
+        "frequency_trend": frequency_trend,
+        "value_trend": value_trend,
+        "avg_days_to_pay": avg_days_to_pay,
         "outstanding_amount": outstanding,
         "overdue_count": overdue_count,
+        "gross_profit": gross_profit,
+        "margin_pct": margin_pct,
         "recommendations": [],
     }
 
@@ -1262,8 +1556,8 @@ def compute_customer_counts(date_filter: str = "12m",
     advance = _scalar_int(pe.select(pe.party).distinct().count())
 
     try:
-        manufacturers = _scalar_int(cust.filter((cust.disabled == 0) & (cust.customer_type == "Company")).count())
-        traders = _scalar_int(cust.filter((cust.disabled == 0) & (cust.customer_type == "Individual")).count())
+        manufacturers = _scalar_int(cust.filter((cust.disabled == 0) & (cust.custom_customer_type == "Manufacturer")).count())
+        traders = _scalar_int(cust.filter((cust.disabled == 0) & (cust.custom_customer_type == "Trader")).count())
     except Exception:
         manufacturers = 0
         traders = 0
@@ -1523,7 +1817,7 @@ def compute_purchase_patterns(top_percentile: int = 20,
     ).fillna(0).reset_index()
     quarter_names = {1: "Q1 (Jan-Mar)", 2: "Q2 (Apr-Jun)", 3: "Q3 (Jul-Sep)", 4: "Q4 (Oct-Dec)"}
 
-    peak_day = day_analysis.loc[day_analysis["order_count"].idxmax(), "day_name"] if not day_analysis.empty else None
+    peak_day = day_analysis.loc[day_analysis["total_revenue"].idxmax(), "day_name"] if not day_analysis.empty else None
     peak_month = month_analysis.loc[month_analysis["total_revenue"].idxmax(), "month_name"] if not month_analysis.empty else None
     peak_quarter_raw = quarter_analysis.loc[quarter_analysis["total_revenue"].idxmax(), "quarter"] if not quarter_analysis.empty else None
     peak_quarter = quarter_names.get(int(peak_quarter_raw), None) if peak_quarter_raw is not None else None
