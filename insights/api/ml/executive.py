@@ -624,3 +624,162 @@ def get_executive_detail(metric: str, filters: str) -> dict:
         }
 
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)
+
+
+# ─── Action Tracker (CEO cross-department action items) ──────────────────────
+
+
+def _require_department_permission(department: str) -> None:
+    """Raise the standard 403 unless the caller can read the doctype that
+    backs `department` (see `_DEPARTMENT_DOCTYPE`). Actions are scoped by
+    the same department boundary as `alerts`/`kpis` -- a Sales-only user
+    must not create or resolve an HR action any more than they can read
+    HR figures."""
+    doctype = _DEPARTMENT_DOCTYPE.get((department or "").lower())
+    if not doctype:
+        frappe.throw(_("Unknown department: {0}").format(department), frappe.ValidationError)
+    frappe.has_permission(doctype, "read", throw=True)
+
+
+def _readable_department_titles(permitted: set) -> List[str]:
+    """Title-Case department values (matching the doctype's Select options)
+    for every lowercase key in `permitted`. `_DEPARTMENT_DOCTYPE` carries a
+    "marketing" entry the 7-department dashboard/action tracker don't use;
+    harmless here since it would just never match a stored record."""
+    return [("HR" if d == "hr" else d.title()) for d in _DEPARTMENT_DOCTYPE if d in permitted]
+
+
+# Doctype `Select` options for `department`, verified against
+# `insights_financial_action.json`. `_DEPARTMENT_DOCTYPE` carries an extra
+# "marketing" entry that other endpoints tolerate as a harmless no-op filter
+# (see `_readable_department_titles`'s docstring), but offering it as a
+# *create* choice here would let a Marketing-permitted user submit a value
+# the doctype's Select field rejects on `.insert()`. Intersect against this
+# list instead of reusing that helper's output directly.
+_ACTION_DEPARTMENTS = ("Financial", "Sales", "Customer", "Operations", "Risk", "HR", "Manufacturing")
+
+
+@frappe.whitelist()
+def get_permitted_departments() -> Dict[str, Any]:
+    """Departments the current user can create/read actions for, restricted
+    to the Action doctype's actual Select options. Powers the Action
+    Tracker's department pickers so a user is never offered a choice whose
+    create or filter call will fail."""
+    try:
+        permitted = _permitted_departments()
+        titles = set(_readable_department_titles(permitted))
+        return success([d for d in _ACTION_DEPARTMENTS if d in titles])
+    except Exception as e:
+        return error(str(e))
+
+@frappe.whitelist()
+def list_actions(department: Optional[str] = None, status: Optional[str] = None) -> Dict[str, Any]:
+    """List action-tracker items, scoped to departments the caller can read.
+    `status` filters to one status (e.g. "Open"); omit for all statuses."""
+    try:
+        permitted = _permitted_departments()
+        _require_any_department(permitted)
+        filters: Dict[str, Any] = {}
+        if department:
+            _require_department_permission(department)
+            filters["department"] = department
+        else:
+            filters["department"] = ["in", _readable_department_titles(permitted)]
+        if status:
+            filters["status"] = status
+        rows = frappe.get_list(
+            "Insights Financial Action",
+            filters=filters,
+            fields=["name", "title", "department", "priority", "status", "description",
+                    "source_alert", "assigned_to", "due_date", "resolved_on", "resolved_by", "creation"],
+            order_by="due_date asc, creation desc",
+            page_length=500,
+            ignore_permissions=True,
+        )
+        # Frappe v16's `order_by` validator only accepts plain/linked field
+        # names (see `_validate_and_parse_field_for_clause`) -- no raw SQL
+        # expressions like `FIELD(priority, ...)`. Priority rank is applied
+        # here instead, as a stable secondary sort on top of the DB's
+        # due_date/creation ordering (Python's `sort` is stable, so ties
+        # within the same priority keep the SQL-supplied order).
+        _priority_rank = {"Urgent": 0, "High": 1, "Medium": 2, "Low": 3}
+        rows.sort(key=lambda r: _priority_rank.get(r.get("priority"), 4))
+        return success(rows)
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def create_action(title: str, department: str, priority: str = "Medium",
+                  description: str = "", due_date: Optional[str] = None,
+                  assigned_to: Optional[str] = None, source_alert: Optional[str] = None) -> Dict[str, Any]:
+    """Create a cross-department action item. Gated on read access to the
+    target department's underlying doctype (see `_require_department_permission`)."""
+    try:
+        _require_department_permission(department)
+        doc = frappe.new_doc("Insights Financial Action")
+        doc.title = title
+        doc.department = department
+        doc.priority = priority or "Medium"
+        doc.description = description or ""
+        doc.due_date = due_date or None
+        doc.assigned_to = assigned_to or None
+        doc.source_alert = source_alert or None
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return success({"name": doc.name})
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def update_action_status(name: str, status: str) -> Dict[str, Any]:
+    """Transition an action's status (Open/In Progress/Resolved/Dismissed).
+    Gated on read access to the ACTION's own department, fetched from the
+    document itself -- so a caller cannot bypass department scoping by
+    guessing another department's action name."""
+    try:
+        doc = frappe.get_doc("Insights Financial Action", name)
+        _require_department_permission(doc.department)
+        valid_statuses = ("Open", "In Progress", "Resolved", "Dismissed")
+        if status not in valid_statuses:
+            frappe.throw(_("Invalid status: {0}").format(status), frappe.ValidationError)
+        doc.status = status
+        doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        return success({"name": doc.name, "status": doc.status,
+                        "resolved_on": doc.resolved_on, "resolved_by": doc.resolved_by})
+    except frappe.PermissionError:
+        raise
+    except frappe.DoesNotExistError:
+        return error(_("Action not found"))
+    except Exception as e:
+        return error(str(e))
+
+
+@frappe.whitelist()
+def action_tracker_summary() -> Dict[str, Any]:
+    """Open/overdue counts across departments the caller can read -- a
+    compact badge for the Action Tracker section header."""
+    try:
+        permitted = _permitted_departments()
+        _require_any_department(permitted)
+        rows = frappe.get_list(
+            "Insights Financial Action",
+            filters={"department": ["in", _readable_department_titles(permitted)],
+                    "status": ["in", ["Open", "In Progress"]]},
+            fields=["department", "status", "due_date"],
+            page_length=500,
+            ignore_permissions=True,
+        )
+        today = frappe.utils.today()
+        overdue_count = sum(1 for r in rows if r.get("due_date") and str(r["due_date"]) < today)
+        return success({"open_count": len(rows), "overdue_count": overdue_count})
+    except frappe.PermissionError:
+        raise
+    except Exception as e:
+        return error(str(e))
