@@ -758,3 +758,123 @@ While wiring `TaxIntelligence.vue`-style drill-downs into the Revenue dashboard'
 **Effort:** S.
 **Priority:** Done.
 **Depends on:** None.
+
+---
+
+### [RESOLVED 2026-08-18] Financial Ratios: EBITDA, EBITDA Margin, Working Capital Turnover, Interest Coverage, and DSCR missing from every financial KPI surface
+
+**What:** None of the standard debt/coverage ratios a CEO or lender actually asks for existed anywhere in the Financial Intelligence stack. `strategic_finance/summary.py::calculate_executive_summary` and `financial_intelligence.py::_calculate_financial_overview` computed `ytd_profit`/`net_margin`/`gross_margin` but no EBITDA; `strategic_finance/analysis.py::calculate_ratio_trends` computed only 6 ratios (gross margin, net margin, ROE, ROA, debt/equity, asset turnover) — no EBITDA margin, no working capital turnover, no interest coverage, no DSCR (debt service coverage ratio). `types.ts`'s `RatioTrendRow`/`FinancialRatiosData` interfaces had no fields for any of them, so even if the backend had shipped them the frontend couldn't have rendered them.
+
+**Why:** These are the ratios lenders and boards actually benchmark a business against (interest coverage and DSCR specifically gate loan covenants); their total absence meant the "Financial Ratios" tab was materially incomplete for its stated purpose, not just missing nice-to-haves.
+
+**Resolved:**
+1. **Backend — EBITDA.** Added YTD interest expense + depreciation lookups (same GL `account_type`-matching convention `calculate_ratio_trends` already used) to both `strategic_finance/summary.py` (`calculate_executive_summary`) and `financial_intelligence.py` (`_calculate_financial_overview`): `ytd_ebitda = ytd_profit + ytd_interest_expense + ytd_depreciation`, `ebitda_margin = (ytd_ebitda / ytd_revenue * 100)`. Both now return `ytd_ebitda`/`ebitda_margin` alongside the existing `ytd_profit`/`net_margin` fields.
+2. **Backend — Working Capital Turnover, Interest Coverage, DSCR.** Added to `calculate_ratio_trends`'s per-quarter loop in `strategic_finance/analysis.py`: `working_capital_turnover = revenue / working_capital` (working capital from the existing current-assets/current-liabilities quarter-end balances), `interest_coverage = ebitda / interest_expense` (`None` when no interest expense that quarter — division-by-zero guarded, not silently zeroed), `dscr = ebitda / (interest_expense + principal_repayment)` (principal from the prior quarter's loan balance delta). Each gets a `_status()` classification (`good`/`warning`/`unavailable`) against a benchmark dict, matching the existing ratio cards' severity convention.
+3. **Frontend types.** `types.ts`: `RatioTrendRow` gained `ebitda_margin?`, `working_capital_turnover?`, `interest_coverage?`, `dscr?`; `FinancialRatiosData.ratio_cards` gained matching `RatioCard` entries; `ExecutiveSummaryData`/`StrategicFinanceData` gained `ytd_ebitda`/`ebitda_margin`.
+4. **Frontend wiring.** `FinancialIntelligence.vue`'s Summary Cards grid gained an EBITDA `KpiCard` (amount + margin sublabel, matching the existing Net Profit card's shape). `FinancialRatiosTab.vue` gained a 4th ratio category, "Debt & Coverage Ratios" (alongside the existing Liquidity/Profitability/Efficiency sections), with Working Capital Turnover, Interest Coverage, and DSCR cards. Two formatting bugs caught and fixed while wiring this in: the ratio-card top-strip mapper hid any *negative* margin/ROE/ROA as `"N/A"` (a lossmaking period's negative EBITDA would have silently disappeared instead of showing red), and turnover/coverage-style cards had no `x` multiple suffix (`formatMultiple()` helper added, `0`-gated so a genuine zero doesn't render as `"0x"`).
+
+   **Not wired (2026-08-18):** `ExecutiveSummaryTab.vue` was *not* changed — it has no EBITDA card. `strategic_finance/summary.py::calculate_executive_summary`'s `ytd_ebitda`/`ebitda_margin` therefore has no frontend consumer today; only `financial_intelligence.py::_calculate_financial_overview`'s copy is rendered. Either add the card to that tab or drop the unread fields from `calculate_executive_summary`.
+
+**Live-verified:** Backend smoke-tested directly against the live `jkm` site before frontend work (`ytd_ebitda: 2758855.28`, `ebitda_margin: 4.4`), then confirmed rendering end-to-end in a real browser after a full frontend rebuild + `web` restart: Finance dashboard's summary strip shows `EBITDA ₹2,758,855 ↑4.4% margin`; the Ratios & Trends tab's new Debt & Coverage Ratios section shows `Working Capital Turnover 9.04x` (Benchmark 4.00x), `Interest Coverage -` and `DSCR -` (both correctly rendering the NO_VALUE sentinel, not a bug — this site's latest quarter has `interest_coverage: None`/`dscr: None` per the same direct backend call). Zero console errors.
+
+**Effort:** M (backend) + M (frontend).
+**Priority:** Done.
+**Depends on:** None.
+
+---
+
+### [RESOLVED 2026-08-18] Customer Rankings: no way to see the worst-performing customers, only the best
+
+**What:** `insights.api.ml.customer.customer_rankings` (backend: `compute_customer_rankings`) ranked customers by revenue/gross profit/margin %/consistency — best performers only. `CustomerSections.vue`'s Rankings tab rendered exactly that: three "Top Customers" tables, no bottom/worst view anywhere in the app.
+
+**Why:** A CEO doing account-health triage needs the weak tail at least as much as the strong head — which accounts are shrinking, erratic, or barely worth servicing. That view didn't exist anywhere.
+
+**Resolved:** Refactored `insights/ml/customer.py`'s `compute_customer_rankings` into a shared `_rank_customers(date_filter, limit, company, ascending)` helper (same four Ibis aggregates — revenue, gross profit, margin %, consistency — sort direction as the only parameter), then added `compute_bottom_customers()` calling it with `ascending=True`. New whitelisted endpoint `insights.api.ml.customer.bottom_customers`, mirroring `customer_rankings`'s permission gate (`Customer`, `read`) and parameter contract exactly (`date_filter`, `limit`, `company`). `CustomerSections.vue`'s Rankings tab gained a Top/Bottom `Button` toggle; the "Bottom Performers" table set is lazy-loaded on first toggle to "bottom" rather than fetched on every page load.
+
+**Live-verified:** Toggled to Bottom Performers in a real browser against the live `jkm` site — table renders genuinely weakest accounts by revenue, ascending: Nupur Sales & Service ₹1,838, Hemraj ₹1,956, Plant X Crop ₹1,969, Kalsariya Mansukhbhai Chitharbhai ₹2,065, Herbal Cult ₹2,100, and so on. Zero console errors.
+
+**Effort:** S (backend) + S (frontend).
+**Priority:** Done.
+**Depends on:** None.
+
+---
+
+### [RESOLVED 2026-08-18] CEO Action Tracker: complete backend (doctype + 5 endpoints), zero frontend
+
+**What:** `insights/api/ml/executive.py` had five fully-implemented whitelisted endpoints — `list_actions`, `create_action`, `update_action_status`, `action_tracker_summary`, `get_permitted_departments` — backed by a real `Insights Financial Action` doctype (title, department, priority, status, description, source_alert, assigned_to, due_date, resolved_on/resolved_by workflow, department-scoped permissions). None of it was reachable: no route in `router.ts`, no nav entry in `AppSidebar.vue`, no Vue component at all. Every cross-department alert surfaced by the Intelligence dashboards had a backend built to track follow-up action on it, and nowhere for a CEO to actually see or work that list.
+
+**Why:** Same "finished feature, zero way to reach it" class of gap as the three stranded views documented in the entry above (Board Presentation Mode, Executive Reports, Cross-Dashboard Search) — except this one didn't even have a component to wire up; the whole frontend half was missing.
+
+**Resolved:** Built `frontend/src2/intelligence/ActionTracker.vue`: department/status filtered list table (title, department, priority badge, status badge, due date with overdue highlighting, assigned to, created-relative-time), a summary strip (open count + overdue count from `action_tracker_summary`), a "New Action" creation dialog (title, department — populated from `get_permitted_departments` — priority, description, due date, assigned to), and inline status-transition buttons (Resolve/Dismiss on open items, Reopen on closed ones) calling `update_action_status`. Registered at `/action-tracker` in `router.ts`; added to `AppSidebar.vue`'s Executive nav group (new `ListChecks` icon import) alongside Overview.
+
+**Live-verified:** Full CRUD loop exercised through the actual browser UI against the live `jkm` site, not mocks: empty state ("No action items") on first load with the real department list populated (Financial, Sales, Customer, Operations, Risk, HR, Manufacturing); created a test action via the dialog (summary badge `0 open` -> `1 open`, row appeared with correct department/priority/status); clicked Resolve (badge -> `0 open`, row shows Resolved status + Reopen button); clicked Reopen (badge -> `1 open`, row shows Open status + Resolve/Dismiss buttons again). Zero console or HTTP errors through the whole sequence. Test record deleted afterward (`frappe.delete_doc`, matched by title) to leave the live site's action tracker clean.
+
+**Superseded 2026-08-18:** Per explicit user direction, `ActionTracker.vue` and its
+`router.ts`/`AppSidebar.vue` wiring were removed — this frontend (and the
+`Insights Financial Action` doctype it tracked) is no longer the intended mechanism.
+Removal live-verified against the rebuilt `jkm` site: sidebar's Executive group now
+renders only `Overview` (confirmed via headless browser page-text dump, zero console
+errors); `/insights/action-tracker` now renders the app's NotFound 404 page instead of
+the tracker; `vue-tsc` shows no new errors from the removal (same 4 pre-existing
+environment-config warnings as before, none in the touched files/lines).
+Instead, all 12 Intelligence dashboards now interpret into action items through the
+`jkm_finance` app's existing weekly pipeline: `weekly_pipeline._call_insights()` calls
+eleven Insights ML domains directly (bypassing `executive.py`'s Action Tracker
+endpoints and the `Insights Financial Action` doctype entirely); six of them (risk,
+customer, financial, procurement, inventory, hr) are adapted by
+`weekly_pipeline._insights_findings()` into native-shaped findings, merged into
+`agent_results` alongside the SQL agents' own findings, and classified into real
+`JKM Action` records by `action_plans.build_action_plans()` /
+`reconcile_actions()` — Strategic-tier findings (cashflow, forex exposure, supplier
+concentration, churn risk, attrition risk) routed to CFO/Sales Manager/HR Manager,
+day-to-day findings (AR/AP aging, dead stock, credit/stockout alerts) left on the
+Operational/Finance Manager default. Live-verified end-to-end against the `jkm` site:
+all 11 domains called with zero errors; the 6 adapted domains produced 9 real findings
+this run (595 customers at churn risk, 1 critical cashflow finding, 20 single-sourced
+items, 1 dead-stock item, 15 overdue receivables, 15 overdue payables, high attrition
+risk); all persisted as `JKM Action` records on a real `JKM Weekly Report`
+(`JKM-WR-2026-08-23`), with the five Strategic-tier reclassifications correctly
+auto-resolving their prior Operational-bucket duplicates via `reconcile_actions`'
+existing carry/resolve semantics — no manual cleanup needed. The `Insights Financial
+Action` doctype and its five `executive.py` endpoints are untouched (still valid,
+just no longer the active integration path) in case they're needed again.
+
+**Effort:** M (frontend component + wiring).
+**Priority:** Done.
+**Depends on:** None.
+
+### [RESOLVED 2026-08-18] `jkm_finance` Desk page: 6 new Insights sections had no metric chips
+
+**What:** `weekly_report.js` (the Desk page that actually renders `JKM Weekly
+Report` for a CFO — separate render path from the JSON `_render_findings_html`
+snapshot) keys its per-section "figures" strip off a hardcoded client-side
+`METRIC_LABELS[section.key]` dict, deliberately isolated from the raw agent
+payload ("keeps a new agent from leaking snake_case onto the executive
+surface" — see the file's own comment). The 6 new `insights_*` sections were
+correctly titled and findings-populated (via the generic `report.sections`
+loop, unaffected), but silently had zero metric chips: same class of gap as
+`SECTION_TITLES`/`_CODE_BUCKETS` above — a parallel presentation-layer dict
+nobody told about the new agents.
+**Fix:** Added six entries to `METRIC_LABELS` matching the exact metric keys
+`_insights_findings` emits: `insights_risk.aggregate_risk_score`,
+`insights_customer.at_risk_customer_count`,
+`insights_financial.{overdue_customer_count,net_unrealized}`,
+`insights_procurement.risk_score`, `insights_inventory.dead_stock_value`,
+`insights_hr.attrition_risk_score`.
+**Live-verified** against the real `/app/weekly-report` Desk page (not just the
+doc JSON) on `JKM-WR-2026-08-23`, no rebuild step needed (Desk page JS is
+un-bundled): all 6 rows show correct title, RED/AMBER status color, headline,
+and now the metric chip — `48.9 overall risk score /100`, `42.5 procurement
+risk score /100`, `595 customers at churn risk`, `15 customers overdue 60+
+days` (financial's second metric, `net_unrealized`, correctly stays hidden —
+genuinely zero forex exposure this run, matching the earlier finding), `75
+attrition risk score /100`, `KES 1.4M in dead stock`. Clicked through all 5
+report tabs (Report/Findings/Strategic/Operational/Tax), zero `pageerror`
+events. The only HTTP failures on the page (2 files 500, socket.io 404) are
+pre-existing site infrastructure unrelated to this change (missing uploaded
+company-logo/WhatsApp-image files, no socket.io server in this dev
+environment) — confirmed by URL, none touch `weekly_report.js` or any file
+this session modified.
+**Effort:** S.
+**Priority:** Done.
+**Depends on:** None.
