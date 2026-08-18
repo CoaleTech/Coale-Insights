@@ -41,7 +41,7 @@
 			:has-data="hasData"
 			subject="finance data"
 			permission-hint="Ask an administrator for finance read access."
-			:kpi-count="7"
+			:kpi-count="8"
 			@retry="retry"
 		>
 			<!-- Summary Cards -->
@@ -51,6 +51,16 @@
 					:amount="summary.netProfit"
 					:currency="baseCurrency"
 					:delta="summary.profitMargin || undefined"
+					:delta-higher-is-better="true"
+					sublabel="margin"
+					:loading="refreshing"
+					:error="error ?? undefined"
+				/>
+				<KpiCard
+					label="EBITDA"
+					:amount="summary.ebitda"
+					:currency="baseCurrency"
+					:delta="summary.ebitdaMargin ?? undefined"
 					:delta-higher-is-better="true"
 					sublabel="margin"
 					:loading="refreshing"
@@ -525,6 +535,8 @@ const overdueAR90Bucket = computed(() =>
 const summary = computed(() => ({
 	netProfit: (overviewData.value.ytd_profit as number) || 0,
 	profitMargin: (overviewData.value.net_margin as number) || 0,
+	ebitda: (overviewData.value.ytd_ebitda as number) || 0,
+	ebitdaMargin: (overviewData.value.ebitda_margin as number | null | undefined) ?? undefined,
 	cashPosition: (cashFlowData.value.total_cash as number) || 0,
 	cashRunwayMonths: cashFlowData.value.runway_months as number | undefined,
 	outstandingAR: (receivablesData.value.total_outstanding as number) || 0,

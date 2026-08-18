@@ -187,6 +187,32 @@ class FinancialIntelligence:
         ytd_expenses = ytd_expenses
         ytd_profit = ytd_revenue - ytd_expenses
 
+        # YTD Interest and Depreciation for EBITDA. Same account-matching
+        # convention as `calculate_ratio_trends` (analysis.py) and
+        # `calculate_executive_summary` (summary.py) -- interest by account
+        # name (this CoA tags no account_type for borrowing costs),
+        # depreciation by `account_type == 'Depreciation'` -- so EBITDA
+        # means the same thing across every dashboard that reports it. No
+        # tax add-back: this CoA carries no income-tax / provision-for-tax
+        # account distinct from indirect taxes (customs duty, GST) that are
+        # real operating costs.
+        ytd_interest_exp = joined.filter(
+            (joined["root_type"] == "Expense")
+            & (joined["posting_date"] >= fy_start)
+            & (joined["account"].like("%Interest%"))
+        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
+        ytd_interest_expense = self._scalar(ytd_interest_exp["amount"].abs())
+
+        ytd_deprec = joined.filter(
+            (joined["account_type"] == "Depreciation")
+            & (joined["posting_date"] >= fy_start)
+        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
+        ytd_depreciation = self._scalar(ytd_deprec["amount"].abs())
+
+        ytd_ebit = ytd_profit + ytd_interest_expense
+        ytd_ebitda = ytd_ebit + ytd_depreciation
+        ebitda_margin = round((ytd_ebitda / ytd_revenue * 100), 1) if ytd_revenue > 0 else None
+
         # Monthly P&L trend: aggregate by YYYY-MM over the last 12 calendar months
         twelve_months_ago = datetime.now().replace(year=datetime.now().year - 1)
         import ibis
@@ -271,6 +297,8 @@ class FinancialIntelligence:
             "ytd_expenses": ytd_expenses,
             "ytd_profit": ytd_profit,
             "gross_margin": None,
+            "ytd_ebitda": round(ytd_ebitda, 2),
+            "ebitda_margin": ebitda_margin,
             "net_margin": net_margin,
             "monthly_trend": monthly_trend,
             "revenue_breakdown": rev_rows,

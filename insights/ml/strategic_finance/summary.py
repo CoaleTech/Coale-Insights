@@ -43,6 +43,39 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     ytd_net_income = ytd_revenue - ytd_expenses
     net_margin = (ytd_net_income / ytd_revenue * 100) if ytd_revenue > 0 else 0
 
+    # YTD Interest and Depreciation for EBITDA. Same account-matching
+    # convention as `calculate_ratio_trends` (analysis.py) -- interest by
+    # name (this CoA tags no account_type for borrowing costs), depreciation
+    # by `account_type = 'Depreciation'` -- so EBITDA means the same thing
+    # on the Executive Summary as it does on the Ratios tab. No tax
+    # add-back: this CoA carries no income-tax / provision-for-tax account
+    # distinct from indirect taxes (customs duty, GST) that are real
+    # operating costs.
+    ytd_interest_expense = frappe.db.sql("""
+        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
+        FROM `tabGL Entry` gle
+        JOIN `tabAccount` acc ON gle.account = acc.name
+        WHERE acc.root_type = 'Expense'
+            AND acc.name LIKE '%%Interest%%'
+            AND gle.posting_date BETWEEN %s AND %s
+            AND gle.company = %s
+            AND gle.is_cancelled = 0
+    """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
+
+    ytd_depreciation = frappe.db.sql("""
+        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
+        FROM `tabGL Entry` gle
+        JOIN `tabAccount` acc ON gle.account = acc.name
+        WHERE acc.account_type = 'Depreciation'
+            AND gle.posting_date BETWEEN %s AND %s
+            AND gle.company = %s
+            AND gle.is_cancelled = 0
+    """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
+
+    ytd_ebit = ytd_net_income + ytd_interest_expense
+    ytd_ebitda = ytd_ebit + ytd_depreciation
+    ebitda_margin = (ytd_ebitda / ytd_revenue * 100) if ytd_revenue > 0 else None
+
     # YTD Cost of Goods Sold (COGS) for Gross Margin calculation
     ytd_cogs = frappe.db.sql("""
         SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
@@ -200,6 +233,8 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "gross_margin": round(gross_margin, 2) if gross_margin is not None else None,
         "ytd_net_income": ytd_net_income,
         "net_margin": round(net_margin, 2),
+        "ytd_ebitda": round(ytd_ebitda, 2),
+        "ebitda_margin": round(ebitda_margin, 2) if ebitda_margin is not None else None,
         "revenue_growth_yoy": round(revenue_growth, 2) if revenue_growth is not None else None,
         "revenue_growth": round(revenue_growth, 2) if revenue_growth is not None else None,  # alias for frontend compatibility
         # Exposed so a suppressed percentage is disclosed rather than concealed.
@@ -224,6 +259,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "kpis": [
             {"label": "Total Revenue", "value": ytd_revenue, "format": "currency", "subtitle": "Year to Date", "trend": round(revenue_growth, 1) if revenue_growth is not None else None},
             {"label": "Net Profit", "value": ytd_net_income, "format": "currency", "subtitle": f"{net_margin:.1f}% margin"},
+            {"label": "EBITDA", "value": ytd_ebitda, "format": "currency", "subtitle": f"{ebitda_margin:.1f}% margin" if ebitda_margin is not None else "Year to Date"},
             {"label": "Gross Margin", "value": gross_margin, "format": "percent", "subtitle": "Revenue - COGS"},
             {"label": "Revenue Growth", "value": revenue_growth, "format": "percent", "subtitle": "YoY"},
             {"label": "Cash Position", "value": cash_balance, "format": "currency", "subtitle": f"{cash_runway_months:.0f} months runway"},

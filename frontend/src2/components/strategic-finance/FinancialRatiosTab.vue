@@ -96,6 +96,33 @@
           </div>
         </div>
       </div>
+
+      <!-- Debt & Coverage Ratios -->
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+        <SectionHeader variant="caption" title="Debt & Coverage Ratios" :level="3">
+          <template #actions>
+            <ShieldCheck class="h-5 w-5 text-ink-gray-5" />
+          </template>
+        </SectionHeader>
+        <div class="space-y-4 mt-4">
+          <div
+            v-for="ratio in debtCoverageRatios"
+            :key="ratio.name"
+            class="flex justify-between items-center"
+          >
+            <div>
+              <p class="text-sm font-medium text-ink-gray-7">{{ ratio.name }}</p>
+              <p class="text-xs text-ink-gray-6">{{ ratio.description }}</p>
+            </div>
+            <div class="text-right">
+              <p class="font-semibold text-ink-gray-9">{{ ratio.value }}</p>
+              <p :class="['text-xs', deltaInk(ratio.trend)]">
+                {{ deltaGlyph(ratio.trend) }}{{ Math.abs(ratio.trend).toFixed(1) }}%
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Quarterly Ratio Trends -->
@@ -232,6 +259,7 @@ import {
   Droplets,
   TrendingUp,
   Gauge,
+  ShieldCheck,
   LineChart as LineChartIcon,
   BarChart3,
 } from 'lucide-vue-next'
@@ -256,6 +284,13 @@ const props = defineProps<Props>()
 const formatRatio = (value: number | null | undefined) => {
   if (value === null || value === undefined) return NO_VALUE
   return value.toFixed(2)
+}
+
+/** Ratio with an 'x' multiple suffix (e.g. "2.4x"), omitted -- not appended
+ * to the "-" placeholder -- when the server sent no meaningful value. */
+const formatMultiple = (value: number | null | undefined) => {
+  if (value === null || value === undefined) return NO_VALUE
+  return `${value.toFixed(2)}x`
 }
 
 const formatPercent = (value: number | null | undefined) => {
@@ -339,8 +374,14 @@ const efficiencyRatios = computed(() => {
   return [
     {
       name: 'Asset Turnover',
-      value: formatRatio(current.asset_turnover) + 'x',
+      value: formatMultiple(current.asset_turnover),
       description: 'Revenue / Total Assets',
+      trend: 0,
+    },
+    {
+      name: 'Working Capital Turnover',
+      value: formatMultiple(current.working_capital_turnover),
+      description: 'Revenue / Working Capital',
       trend: 0,
     },
     {
@@ -352,19 +393,44 @@ const efficiencyRatios = computed(() => {
   ]
 })
 
+const debtCoverageRatios = computed(() => {
+  if (!props.data) return []
+  const current: Partial<RatioTrendRow> = props.data.current_ratios ?? {}
+  return [
+    {
+      name: 'Interest Coverage',
+      value: formatMultiple(current.interest_coverage),
+      description: 'EBIT / Interest Expense',
+      trend: 0,
+    },
+    {
+      name: 'DSCR',
+      value: formatMultiple(current.dscr),
+      description: 'EBITDA / (Interest + Principal Repaid)',
+      trend: 0,
+    },
+  ]
+})
+
 const ratioCards = computed(() => {
   if (!props.data?.ratio_cards) return []
-  return props.data.ratio_cards.map((card: RatioCard) => ({
-    name: card.name,
-    value: card.name.includes('Margin') || card.name.includes('RO')
-      ? ((card.value ?? 0) > 0 ? formatPercent(card.value) : 'N/A')
-      : formatRatio(card.value),
-    benchmark: card.name.includes('Margin') || card.name.includes('RO')
-      ? formatPercent(card.benchmark)
-      : formatRatio(card.benchmark),
-    status: card.status,
-    severity: ratioStatusSeverity(card.status),
-  }))
+  return props.data.ratio_cards.map((card: RatioCard) => {
+    // `>0`-gated formatting previously read a genuinely negative margin/
+    // return (a lossmaking period -- exactly the signal a CEO most needs to
+    // see) as "unavailable" and hid it behind 'N/A', identically to how a
+    // truly-missing value renders. `formatPercent`/`formatMultiple` already
+    // null-guard correctly; the extra `> 0` gate only ever hid real data.
+    const isPercent = card.name.includes('Margin') || card.name.includes('RO')
+    const isMultiple = card.name.includes('Turnover') || card.name.includes('Coverage') || card.name === 'DSCR'
+    const fmt = isPercent ? formatPercent : isMultiple ? formatMultiple : formatRatio
+    return {
+      name: card.name,
+      value: fmt(card.value),
+      benchmark: fmt(card.benchmark),
+      status: card.status,
+      severity: ratioStatusSeverity(card.status),
+    }
+  })
 })
 
 const quarterlyTrends = computed(() => props.data?.trends?.slice(-4) || [])

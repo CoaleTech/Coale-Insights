@@ -205,7 +205,11 @@ export interface RatioTrendRow {
 	asset_turnover?: number
 	debt_to_equity?: number
 	debt_ratio?: number
+	ebitda?: number
+	ebitda_margin?: number
+	working_capital_turnover?: number
 	interest_coverage?: number
+	dscr?: number
 }
 
 export interface FinancialRatiosData {

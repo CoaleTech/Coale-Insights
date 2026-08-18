@@ -556,12 +556,20 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         })
 
     ratio_trends = []
+    # Loan-type liability balance as of the *previous* (older) iteration's
+    # quarter-end, which is exactly this quarter's start balance: the 90-day
+    # windows built above are contiguous (quarter q's start == quarter q+1's
+    # end) and this walk runs oldest-to-newest. Recomputed fresh every call,
+    # never cached, so a mid-quarter repayment shows up the same day.
+    prev_loan_balance = None
     for q in reversed(quarters):
         # Revenue and expenses for the quarter
         financials = frappe.db.sql("""
             SELECT
                 SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(credit - debit) ELSE 0 END) as revenue,
-                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(debit - credit) ELSE 0 END) as expenses
+                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(debit - credit) ELSE 0 END) as expenses,
+                SUM(CASE WHEN acc.account_type = 'Depreciation' THEN ABS(debit - credit) ELSE 0 END) as depreciation,
+                SUM(CASE WHEN acc.root_type = 'Expense' AND acc.name LIKE '%%Interest%%' THEN ABS(debit - credit) ELSE 0 END) as interest_expense
             FROM `tabGL Entry` gle
             JOIN `tabAccount` acc ON gle.account = acc.name
             WHERE gle.posting_date BETWEEN %s AND %s
@@ -569,12 +577,25 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
                 AND gle.is_cancelled = 0
         """, (q["start"], q["end"], intelligence.company), as_dict=True)[0]
 
-        # Get cumulative balance sheet items as of quarter end
+        # Get cumulative balance sheet items as of quarter end. Current-asset
+        # and current-liability buckets mirror `analyze_working_capital`
+        # above exactly (same account_type classification), so "working
+        # capital" means the same thing in both places on this dashboard.
+        # `loan_balance` name-matches the way `interest_expense` above does:
+        # this CoA tags no account_type for borrowings at all (Secured
+        # Loans, Unsecured Loans, Bank Overdraft all carry account_type ''),
+        # only the account name identifies them.
         balance_sheet = frappe.db.sql("""
             SELECT
                 SUM(CASE WHEN acc.root_type = 'Asset' THEN (debit - credit) ELSE 0 END) as assets,
                 SUM(CASE WHEN acc.root_type = 'Liability' THEN (credit - debit) ELSE 0 END) as liabilities,
-                SUM(CASE WHEN acc.root_type = 'Equity' THEN (credit - debit) ELSE 0 END) as equity
+                SUM(CASE WHEN acc.root_type = 'Equity' THEN (credit - debit) ELSE 0 END) as equity,
+                SUM(CASE WHEN acc.account_type IN ('Cash', 'Bank') THEN (debit - credit) ELSE 0 END) as cash,
+                SUM(CASE WHEN acc.account_type = 'Receivable' THEN (debit - credit) ELSE 0 END) as receivables,
+                SUM(CASE WHEN acc.account_type = 'Stock' THEN (debit - credit) ELSE 0 END) as inventory,
+                SUM(CASE WHEN acc.account_type = 'Payable' THEN (credit - debit) ELSE 0 END) as payables,
+                SUM(CASE WHEN acc.root_type = 'Liability' AND (acc.name LIKE '%%Loan%%' OR acc.name LIKE '%%Overdraft%%')
+                    THEN (credit - debit) ELSE 0 END) as loan_balance
             FROM `tabGL Entry` gle
             JOIN `tabAccount` acc ON gle.account = acc.name
             WHERE gle.posting_date <= %s
@@ -584,14 +605,34 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
 
         revenue = float(financials.revenue or 0)
         expenses = float(financials.expenses or 0)
+        depreciation = float(financials.depreciation or 0)
+        interest_expense = float(financials.interest_expense or 0)
         assets = abs(float(balance_sheet.assets or 0))
         liabilities = abs(float(balance_sheet.liabilities or 0))
         equity = abs(float(balance_sheet.equity or 0))
         net_income = revenue - expenses
 
+        current_assets = float(balance_sheet.cash or 0) + float(balance_sheet.receivables or 0) + float(balance_sheet.inventory or 0)
+        current_liabilities = abs(float(balance_sheet.payables or 0))
+        working_capital = current_assets - current_liabilities
+
+        loan_balance = abs(float(balance_sheet.loan_balance or 0))
+        # Only a *reduction* counts as debt service; a rise in balance is
+        # financing inflow (new borrowing), not an outflow DSCR should penalise.
+        principal_repaid = max(0.0, prev_loan_balance - loan_balance) if prev_loan_balance is not None else 0.0
+        prev_loan_balance = loan_balance
+
         # Avoid division issues - use reasonable defaults
         assets = assets if assets > 1000 else 1
         equity = equity if equity > 1000 else 1
+
+        # EBIT/EBITDA add back interest and D&A, both already netted into
+        # `expenses` above. No tax add-back: this CoA carries no income-tax /
+        # provision-for-tax account distinct from indirect taxes (customs
+        # duty, GST) that are real operating costs and must stay expensed.
+        ebit = net_income + interest_expense
+        ebitda = ebit + depreciation
+        total_debt_service = interest_expense + principal_repaid
 
         ratio_trends.append({
             "period": q["label"],
@@ -600,7 +641,17 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             "roe": round(net_income / equity * 100, 1) if equity > 1000 else 0,
             "roa": round(net_income / assets * 100, 1) if assets > 1000 else 0,
             "debt_to_equity": round(liabilities / equity, 2) if equity > 1000 else 0,
-            "asset_turnover": round(revenue / assets, 2) if assets > 1000 else 0
+            "asset_turnover": round(revenue / assets, 2) if assets > 1000 else 0,
+            "ebitda": round(ebitda, 2),
+            "ebitda_margin": round(ebitda / revenue * 100, 1) if revenue > 0 else None,
+            # Capped like `current_ratio`/`dso`/`ccc` above: a turnover or
+            # coverage ratio computed from a denominator just over the 1000
+            # epsilon (e.g. working capital of 1,050 against six-figure
+            # revenue) explodes into triple digits that are a threshold
+            # artifact, not a business signal.
+            "working_capital_turnover": max(-20.0, min(20.0, round(revenue / working_capital, 2))) if working_capital > 1000 else None,
+            "interest_coverage": max(-20.0, min(20.0, round(ebit / interest_expense, 2))) if interest_expense > 1000 else None,
+            "dscr": max(-10.0, min(10.0, round(ebitda / total_debt_service, 2))) if total_debt_service > 1000 else None,
         })
 
     # Current period ratios
@@ -613,8 +664,20 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         "roe": 15.0,
         "roa": 8.0,
         "debt_to_equity": 1.5,
-        "asset_turnover": 1.2
+        "asset_turnover": 1.2,
+        "ebitda_margin": 15.0,
+        "working_capital_turnover": 4.0,
+        "interest_coverage": 3.0,
+        "dscr": 1.25,
     }
+
+    def _status(value, benchmark):
+        """'unavailable' (neutral, not a red flag) when the ratio has no
+        meaningful denominator -- e.g. no debt to service -- rather than
+        forcing it through the good/warning split with a fabricated 0."""
+        if value is None:
+            return "unavailable"
+        return "good" if value >= benchmark else "warning"
 
     return {
         "current_ratios": current,
@@ -656,6 +719,30 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
                 "value": current.get("asset_turnover", 0),
                 "benchmark": benchmarks["asset_turnover"],
                 "status": "good" if current.get("asset_turnover", 0) >= benchmarks["asset_turnover"] else "warning"
+            },
+            {
+                "name": "EBITDA Margin",
+                "value": current.get("ebitda_margin"),
+                "benchmark": benchmarks["ebitda_margin"],
+                "status": _status(current.get("ebitda_margin"), benchmarks["ebitda_margin"])
+            },
+            {
+                "name": "Working Capital Turnover",
+                "value": current.get("working_capital_turnover"),
+                "benchmark": benchmarks["working_capital_turnover"],
+                "status": _status(current.get("working_capital_turnover"), benchmarks["working_capital_turnover"])
+            },
+            {
+                "name": "Interest Coverage",
+                "value": current.get("interest_coverage"),
+                "benchmark": benchmarks["interest_coverage"],
+                "status": _status(current.get("interest_coverage"), benchmarks["interest_coverage"])
+            },
+            {
+                "name": "DSCR",
+                "value": current.get("dscr"),
+                "benchmark": benchmarks["dscr"],
+                "status": _status(current.get("dscr"), benchmarks["dscr"])
             }
         ]
     }
