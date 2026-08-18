@@ -271,6 +271,20 @@ def customer_rankings(date_filter: str = "12m",
 
 
 @frappe.whitelist()
+def bottom_customers(date_filter: str = "12m",
+                     limit: int = 20,
+                     company: Optional[str] = None) -> Dict[str, Any]:
+    """Bottom customers by revenue, gross profit, margin %, consistency --
+    weakest accounts, biggest losses, worst margins, most erratic spend."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_bottom_customers
+    return run(lambda: compute_bottom_customers(date_filter=date_filter,
+                                                limit=int(limit),
+                                                company=company),
+               "Bottom customers")
+
+
+@frappe.whitelist()
 def customer_variance(date_filter: str = "12m",
                       company: Optional[str] = None) -> Dict[str, Any]:
     """Per-customer actual revenue vs territory target."""
@@ -322,11 +336,25 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         db_filters = {"docstatus": 1}
         if company:
             db_filters["company"] = company
+        # The only caller (CustomerSections.vue Top/Bottom Customers by
+        # Revenue tables) always passes `customer` -- one row's click drills
+        # into that row's own invoices. Without this filter every row
+        # returned the identical system-wide top-invoices list regardless
+        # of which customer was clicked, under a misleading "<Name> Orders"
+        # title. When a customer IS scoped, order by recency (most useful
+        # for a single account); the unscoped fallback keeps the original
+        # grand_total-desc browse behaviour.
+        customer = f.get("customer")
+        if customer:
+            db_filters["customer"] = customer
+            order_by = "posting_date desc"
+        else:
+            order_by = "grand_total desc"
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
             fields=["name", "customer", "posting_date", "grand_total", "outstanding_amount"],
-            start=start, page_length=page_size, order_by="grand_total desc",
+            start=start, page_length=page_size, order_by=order_by,
             ignore_permissions=False,
         )
         return {

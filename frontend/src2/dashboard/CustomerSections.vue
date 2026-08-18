@@ -20,7 +20,7 @@ import {
   tierFilterOptions, rfmSegmentFilterOptions, riskFilterOptions,
   getRecentCustomers, addRecentCustomer, actionLabel,
 } from '../utils/customerUtils'
-import { severityBadge, severityFill, scoreSeverity, ragSeverity, prioritySeverity, type Severity } from '../utils/status'
+import { severityBadge, severityFill, scoreSeverity, ragSeverity, prioritySeverity, deltaInk, type Severity } from '../utils/status'
 import type { DrillDownParams } from '../intelligence/composables/useDrillDown'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
@@ -76,9 +76,12 @@ const REC_TIER_LABELS: Record<number, string> = {
 // ── State ──────────────────────────────────────────────────────────────────
 const counts = ref<any>(null)
 const rankings = ref<any>(null)
+const bottomRankings = ref<any>(null)
+const rankingsView = ref<'top' | 'bottom'>('top')
 const purchasePatternsData = ref<any>(null)
 const activeCutoff = ref('6')
 const isLoadingPatterns = ref(false)
+const isLoadingBottomRankings = ref(false)
 
 // ── Filters ────────────────────────────────────────────────────────────────
 const customerFilter = ref('')
@@ -200,6 +203,19 @@ async function loadRankings() {
   }
 }
 
+async function loadBottomRankings() {
+  isLoadingBottomRankings.value = true
+  try {
+    bottomRankings.value = await apiCall('insights.api.ml.customer.bottom_customers', {
+      date_filter: props.dateFilter,
+    }) as Record<string, unknown>
+  } catch (e: unknown) {
+    console.error('Failed to load bottom rankings:', readFrappeError(e).message)
+  } finally {
+    isLoadingBottomRankings.value = false
+  }
+}
+
 
 // ── Watchers ───────────────────────────────────────────────────────────────
 watch(activeCutoff, () => loadCustomerCounts())
@@ -209,9 +225,18 @@ watch(() => props.activeTab, (tab) => {
   if (tab === 'cust-rankings') loadRankings()
 })
 
+// Bottom Performers is opt-in via the toggle, not loaded by default —
+// fetch lazily the first time the user switches to it.
+watch(rankingsView, (view) => {
+  if (view === 'bottom' && !bottomRankings.value) loadBottomRankings()
+})
+
 watch(() => props.dateFilter, () => {
   loadCustomerCounts()
   loadRankings()
+  // Only refetch bottom rankings if the user has actually viewed them —
+  // mirrors the lazy-load-once-then-keep-fresh behaviour above.
+  if (bottomRankings.value) loadBottomRankings()
 })
 
 onMounted(() => {
@@ -699,6 +724,20 @@ onMounted(() => {
 
   <!-- ═══ Rankings ═══ -->
   <div v-if="activeTab === 'cust-rankings' && rankings" class="p-6 space-y-6">
+    <div class="flex items-center gap-2">
+      <Button
+        :variant="rankingsView === 'top' ? 'solid' : 'outline'"
+        label="Top Performers"
+        @click="rankingsView = 'top'"
+      />
+      <Button
+        :variant="rankingsView === 'bottom' ? 'solid' : 'outline'"
+        label="Bottom Performers"
+        @click="rankingsView = 'bottom'"
+      />
+    </div>
+
+    <template v-if="rankingsView === 'top'">
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
       <SectionHeader variant="caption" title="Top Customers by Revenue" :level="3" />
       <table class="w-full text-sm mt-3">
@@ -764,6 +803,81 @@ onMounted(() => {
           </tr>
         </tbody>
       </table>
+    </div>
+    </template>
+
+    <template v-else-if="bottomRankings">
+    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
+      <SectionHeader variant="caption" title="Weakest Customers by Revenue" :level="3" />
+      <table class="w-full text-sm mt-3">
+        <caption class="sr-only">Weakest customers by revenue.</caption>
+        <thead><tr class="text-left border-b border-outline-gray-1">
+          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Revenue</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="c in (bottomRankings.top_revenue as Record<string, unknown>[])" :key="c.customer as string"
+            class="border-b border-outline-gray-1 last:border-0 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
+            tabindex="0"
+            @click="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })"
+            @keydown.enter="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })">
+            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
+            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ money(c.revenue as number) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
+      <SectionHeader variant="caption" title="Customers with Biggest Losses" :level="3" />
+      <table class="w-full text-sm mt-3">
+        <caption class="sr-only">Customers with the lowest or most negative gross profit.</caption>
+        <thead><tr class="text-left border-b border-outline-gray-1">
+          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Gross Profit</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="c in (bottomRankings.top_profit as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
+            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
+            <td class="py-2 text-right tnum font-medium" :class="deltaInk(c.gross_profit as number)">{{ money(c.gross_profit as number) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
+      <SectionHeader variant="caption" title="Worst Margin %" :level="3" />
+      <table class="w-full text-sm mt-3">
+        <caption class="sr-only">Customers with the worst margin percentage.</caption>
+        <thead><tr class="text-left border-b border-outline-gray-1">
+          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Margin %</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Revenue</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="c in (bottomRankings.top_margin as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
+            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
+            <td class="py-2 text-right tnum font-medium" :class="deltaInk(c.margin_pct as number)">{{ c.margin_pct }}%</td>
+            <td class="py-2 text-right tnum text-ink-gray-7">{{ money(c.revenue as number) }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
+      <SectionHeader variant="caption" title="Most Erratic Customers" :level="3" />
+      <table class="w-full text-sm mt-3">
+        <caption class="sr-only">Least consistent customers by score and months active.</caption>
+        <thead><tr class="text-left border-b border-outline-gray-1">
+          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Score</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Months Active</th>
+        </tr></thead>
+        <tbody>
+          <tr v-for="c in (bottomRankings.top_consistent as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
+            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
+            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ c.consistency_score }}</td>
+            <td class="py-2 text-right text-ink-gray-7">{{ c.months_active }}/{{ c.total_months }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    </template>
+
+    <div v-else class="text-center py-12">
+      <Activity class="w-12 h-12 mx-auto text-ink-gray-4 animate-pulse" aria-hidden="true" />
+      <p class="mt-4 text-ink-gray-6">Loading bottom performers…</p>
     </div>
   </div>
 </template>

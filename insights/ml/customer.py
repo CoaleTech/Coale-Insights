@@ -1633,11 +1633,12 @@ def compute_customer_revenue_split(date_filter: str = "12m",
 # Customer rankings
 # ---------------------------------------------------------------------------
 
-def compute_customer_rankings(date_filter: str = "12m", limit: int = 20,
-                                company: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
-    """Top-N by revenue, gross profit, margin %, and consistency. All four
-    are one Ibis aggregate each; the consistency score is computed in pure
-    Python from a fifth small aggregate (one row per customer-month).
+def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascending: bool) -> Dict[str, List[Dict[str, Any]]]:
+    """Shared implementation for `compute_customer_rankings` (best performers)
+    and `compute_bottom_customers` (worst performers). Same four Ibis
+    aggregates either way -- revenue, gross profit, margin %, consistency --
+    with sort direction as the only difference, so a customer's numbers
+    reconcile whether they show up in the top list or the bottom one.
     """
     from insights.api.ml.utils import parse_date_filter
     import ibis
@@ -1647,20 +1648,22 @@ def compute_customer_rankings(date_filter: str = "12m", limit: int = 20,
         end = datetime.now().date()
         start = end - timedelta(days=365)
 
-    # top revenue
+    order = ibis.asc if ascending else ibis.desc
+
+    # top/bottom revenue
     si = company_filter(t("Sales Invoice"), company)
     si = si.filter((si.docstatus == 1) & si.posting_date.between(start, end))
-    top_revenue = (
+    revenue_rows = (
         si.group_by(si.customer, si.customer_name)
         .aggregate(revenue=si.grand_total.sum())
-        .order_by(ibis.desc("revenue"))
+        .order_by(order("revenue"))
         .limit(limit)
         .execute()
         .fillna({"customer_name": ""})
         .to_dict("records")
     )
 
-    # top gross profit
+    # top/bottom gross profit
     sii = t("Sales Invoice Item")
     si_for_profit = t("Sales Invoice")
     profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
@@ -1669,18 +1672,27 @@ def compute_customer_rankings(date_filter: str = "12m", limit: int = 20,
     profit_lines = profit_lines.filter(
         (si_for_profit.docstatus == 1) & si_for_profit.posting_date.between(start, end)
     )
-    profit_per_cust = (
+    # `.execute()` returns `gross_profit`/`revenue` as object-dtype
+    # `decimal.Decimal` (Ibis + MariaDB DECIMAL aggregates), not float64 --
+    # the same defect already fixed in `compute_customer_intelligence`'s
+    # bulk path (see CHANGELOG). Left uncast, `.round()` on the Decimal
+    # `margin_pct` division below raises `TypeError: Expected numeric
+    # dtype, got object instead` -- this endpoint has never returned
+    # `top_margin`/`bottom_margin` successfully. Cast immediately after
+    # each `.execute()`, before any arithmetic.
+    profit_df = (
         profit_lines.group_by(si_for_profit.customer, si_for_profit.customer_name)
         .aggregate(
             gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum(),
             revenue=sii.amount.sum(),
         )
-        .order_by(ibis.desc("gross_profit"))
+        .order_by(order("gross_profit"))
         .limit(limit)
         .execute()
-        .fillna(0)
-        .to_dict("records")
     )
+    profit_df["gross_profit"] = profit_df["gross_profit"].astype(float)
+    profit_df["revenue"] = profit_df["revenue"].astype(float)
+    profit_rows = profit_df.fillna(0).to_dict("records")
 
     margin_per_cust = (
         profit_lines.group_by(si_for_profit.customer, si_for_profit.customer_name)
@@ -1690,10 +1702,12 @@ def compute_customer_rankings(date_filter: str = "12m", limit: int = 20,
         )
         .execute()
     )
+    margin_per_cust["gross_profit"] = margin_per_cust["gross_profit"].astype(float)
+    margin_per_cust["revenue"] = margin_per_cust["revenue"].astype(float)
     margin_per_cust = margin_per_cust[margin_per_cust["revenue"] > 0].copy()
     margin_per_cust["margin_pct"] = (margin_per_cust["gross_profit"] / margin_per_cust["revenue"] * 100).round(1)
-    top_margin = (
-        margin_per_cust.sort_values("margin_pct", ascending=False)
+    margin_rows = (
+        margin_per_cust.sort_values("margin_pct", ascending=ascending)
         .head(limit)
         .fillna({"customer_name": ""})
         .to_dict("records")
@@ -1730,15 +1744,38 @@ def compute_customer_rankings(date_filter: str = "12m", limit: int = 20,
                 "consistency_score": round(0.5 * frequency_score + 0.5 * stability, 3),
                 "avg_monthly_spend": round(mean_spend, 2),
             })
-        consistency.sort(key=lambda r: r["consistency_score"], reverse=True)
+        # Top: most consistent first (reverse=True). Bottom: least
+        # consistent/most erratic first -- `ascending` and `reverse` are
+        # already inverse of each other, so `reverse=not ascending` covers
+        # both callers with the one sort.
+        consistency.sort(key=lambda r: r["consistency_score"], reverse=not ascending)
         consistency = consistency[:limit]
 
     return {
-        "top_revenue": top_revenue,
-        "top_profit": profit_per_cust,
-        "top_margin": top_margin,
+        "top_revenue": revenue_rows,
+        "top_profit": profit_rows,
+        "top_margin": margin_rows,
         "top_consistent": consistency,
     }
+
+
+def compute_customer_rankings(date_filter: str = "12m", limit: int = 20,
+                                company: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+    """Top-N by revenue, gross profit, margin %, and consistency. All four
+    are one Ibis aggregate each; the consistency score is computed in pure
+    Python from a fifth small aggregate (one row per customer-month).
+    """
+    return _rank_customers(date_filter, limit, company, ascending=False)
+
+
+def compute_bottom_customers(date_filter: str = "12m", limit: int = 20,
+                               company: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
+    """Bottom-N by revenue, gross profit, margin %, and consistency --
+    weakest accounts, biggest losses, worst margins, most erratic spend.
+    Same four aggregates as `compute_customer_rankings`, sorted the other
+    way, so a customer's numbers reconcile in whichever list they land.
+    """
+    return _rank_customers(date_filter, limit, company, ascending=True)
 
 
 # ---------------------------------------------------------------------------
