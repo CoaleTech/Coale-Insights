@@ -43,6 +43,19 @@ DEVICE_REDIRECT_URI = "https://auth.openai.com/deviceauth/callback"
 # id_token claim namespace carrying the ChatGPT account id / plan.
 AUTH_CLAIM_NS = "https://api.openai.com/auth"
 
+# Models the Codex backend serves to a ChatGPT subscription. This is *not* the
+# platform catalog: every other id -- including the API-only `gpt-4o` family and
+# every `-codex` id the Codex CLI itself uses -- is refused with
+# "The 'X' model is not supported when using Codex with a ChatGPT account."
+# Verified live against chatgpt.com/backend-api/codex on 2026-08-18 by sweeping
+# the full catalog; order is preference order.
+SUBSCRIPTION_MODELS = [
+	"gpt-5.6-terra",
+	"gpt-5.6-luna",
+	"gpt-5.5",
+	"gpt-5.4-mini",
+]
+
 PENDING_CACHE_KEY = "insights:openai_codex_device_login"
 PENDING_TTL = 900  # device codes expire well inside 15 minutes
 REFRESH_SKEW = 120  # refresh this many seconds before nominal expiry

@@ -14,6 +14,7 @@ import frappe
 from frappe.utils import cint
 from typing import Dict, List, Optional, Any
 from insights.ai.base_provider import BaseAIProvider
+from insights.ai.openai_codex_auth import SUBSCRIPTION_MODELS
 
 
 class OpenAIClient(BaseAIProvider):
@@ -78,6 +79,16 @@ class OpenAIClient(BaseAIProvider):
 
 		self.primary_model = getattr(self.settings, "openai_model", None) or self.DEFAULT_MODEL
 		self.fallback_model = self.DEFAULT_FALLBACK
+		if self.is_subscription:
+			# Coerce to what the Codex backend will actually serve, here at the
+			# single place both models are set: callers build their own candidate
+			# list by prepending `primary_model`/`fallback_model` before they ever
+			# consult get_available_models(), so filtering only the getter leaks
+			# an unsupported id straight into the first request.
+			if self.primary_model not in SUBSCRIPTION_MODELS:
+				self.primary_model = SUBSCRIPTION_MODELS[0]
+			if self.fallback_model not in SUBSCRIPTION_MODELS:
+				self.fallback_model = SUBSCRIPTION_MODELS[-1]
 
 	def _get_headers(self) -> Dict[str, str]:
 		headers = {
@@ -114,6 +125,17 @@ class OpenAIClient(BaseAIProvider):
 		frappe.db.commit()
 
 	def get_available_models(self) -> List[str]:
+		"""Ordered fallback candidates for the active auth mode."""
+		if self.is_subscription:
+			# Offering the full catalog to a subscription spends one doomed
+			# round-trip per gated id and then reports "tried 11 models" when
+			# only four of them could ever have answered.
+			models = [self.primary_model] if self.primary_model in SUBSCRIPTION_MODELS else []
+			for m in SUBSCRIPTION_MODELS:
+				if m not in models:
+					models.append(m)
+			return models
+
 		models = [self.primary_model]
 		if self.fallback_model and self.fallback_model not in models:
 			models.append(self.fallback_model)
@@ -146,21 +168,25 @@ class OpenAIClient(BaseAIProvider):
 	def _to_responses_input(self, messages: List[Dict]) -> Dict[str, Any]:
 		"""Fold chat messages into the Responses API shape.
 
-		System turns become `instructions`; the rest are flattened into a single
-		string input. Analytics prompts are effectively single-shot, and a plain
-		string sidesteps the input_text/output_text content-type rules.
+		System turns become `instructions`; every other turn stays its own
+		role-tagged item, so conversation history survives as turns instead of
+		being flattened into one `role: text` blob.
+
+		`input` must be a **list**: unlike api.openai.com, this backend answers a
+		bare string with "Input must be a list". Each item carries plain-string
+		content, which the backend accepts for every role -- typed parts would
+		work too but must pair `output_text` with assistant turns and
+		`input_text` with user turns, and mismatching them is a hard 400.
 		"""
 		instructions = "\n\n".join(
 			str(m.get("content") or "") for m in messages if m.get("role") == "system"
 		)
-		body = [m for m in messages if m.get("role") != "system"]
-		if len(body) == 1:
-			text = str(body[0].get("content") or "")
-		else:
-			text = "\n\n".join(
-				f"{m.get('role', 'user')}: {m.get('content') or ''}" for m in body
-			)
-		return {"instructions": instructions, "input": text}
+		items = [
+			{"role": m.get("role") or "user", "content": str(m.get("content") or "")}
+			for m in messages
+			if m.get("role") != "system"
+		]
+		return {"instructions": instructions, "input": items}
 
 	def _parse_responses_sse(self, raw: str) -> str:
 		"""Accumulate output text from a Responses API SSE stream."""
@@ -186,12 +212,15 @@ class OpenAIClient(BaseAIProvider):
 							completed += str(part.get("text") or "")
 		return "".join(chunks) or completed
 
-	def _codex_request(self, messages: List[Dict], model: str,
-					   max_tokens: int) -> Optional[Dict]:
+	def _codex_request(self, messages: List[Dict], model: str) -> Optional[Dict]:
 		"""Call the ChatGPT backend on behalf of a Plus/Pro subscription."""
 		if not self.account_id:
 			return {"request_error": "ChatGPT subscription is not connected. Sign in from Insights Settings."}
 
+		# `stream` must be true and `max_output_tokens` must be absent -- the
+		# backend rejects either with "Stream must be set to true" /
+		# "Unsupported parameter: max_output_tokens". There is no output cap to
+		# set here; reasoning effort is the only length control it accepts.
 		payload: Dict[str, Any] = {
 			"model": model,
 			"stream": True,
@@ -200,9 +229,6 @@ class OpenAIClient(BaseAIProvider):
 		}
 		if self._is_reasoning_model(model):
 			payload["reasoning"] = {"effort": "low"}
-			payload["max_output_tokens"] = max(max_tokens, self.REASONING_MIN_OUTPUT_TOKENS)
-		else:
-			payload["max_output_tokens"] = max_tokens
 
 		response = requests.post(
 			f"{self.BASE_URL}/responses",
@@ -238,7 +264,7 @@ class OpenAIClient(BaseAIProvider):
 					 temperature: float = 0.7, max_tokens: int = 2000) -> Optional[Dict]:
 		try:
 			if self.is_subscription:
-				return self._codex_request(messages, model, max_tokens)
+				return self._codex_request(messages, model)
 
 			payload = self._build_payload(messages, model, temperature, max_tokens)
 			response = requests.post(
@@ -305,7 +331,7 @@ class OpenAIClient(BaseAIProvider):
 
 			if self.is_subscription:
 				result = self._codex_request(
-					[{"role": "user", "content": "ping"}], self.primary_model, 16
+					[{"role": "user", "content": "ping"}], self.primary_model
 				)
 				if result and result.get("request_error"):
 					return {"success": False, "error": result["request_error"]}
