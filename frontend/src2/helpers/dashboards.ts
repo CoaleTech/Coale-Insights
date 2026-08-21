@@ -9,6 +9,7 @@ import {
 	Receipt,
 	ShieldAlert,
 	ShoppingCart,
+	Tag,
 	TrendingUp,
 	UserCog,
 } from 'lucide-vue-next'
@@ -121,6 +122,20 @@ export const INTELLIGENCE_DASHBOARDS: IntelligenceDashboard[] = [
 		searchName: 'Procurement Intelligence',
 		icon: ShoppingCart,
 		chatType: 'Procurement',
+	},
+	{
+		id: 'price',
+		route: 'PriceIntelligence',
+		label: 'Pricing',
+		searchName: 'Price Intelligence',
+		icon: Tag,
+		// No `Price` agent exists server-side (`get_agent_for_dashboard` throws on
+		// an unknown type), so this surface mounts no chat rather than a button
+		// that fails into console.error.
+		chatType: null,
+		// `CrossDashboardSearchService._get_domain_data` has no `price` branch, so
+		// offering it as a search filter would find nothing.
+		searchable: false,
 	},
 	{
 		id: 'inventory',

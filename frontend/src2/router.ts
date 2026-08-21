@@ -68,6 +68,11 @@ const routes = [
 		component: () => import('./dashboard/ProcurementIntelligence.vue'),
 	},
 	{
+		path: '/price-intelligence',
+		name: 'PriceIntelligence',
+		component: () => import('./dashboard/PriceIntelligence.vue'),
+	},
+	{
 		path: '/financial-intelligence',
 		name: 'FinancialIntelligence',
 		component: () => import('./dashboard/FinancialIntelligence.vue'),

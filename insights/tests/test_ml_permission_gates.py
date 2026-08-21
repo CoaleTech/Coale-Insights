@@ -32,6 +32,7 @@ from insights.api.ml import customer as customer_api
 from insights.api.ml import general as general_api
 from insights.api.ml import breakeven as breakeven_api
 from insights.api.ml import executive as executive_api
+from insights.api.ml import price as price_api
 
 
 class TestMLPermissionGates(FrappeTestCase):
@@ -225,4 +226,52 @@ class TestOutsideVoiceFixes(FrappeTestCase):
             self.assertFalse(
                 getattr(fn, "whitelisted", False),
                 f"{module.__name__}.{name} is still whitelisted -- parallel unguarded surface reopened",
+            )
+
+
+class TestPriceIntelligenceGates(FrappeTestCase):
+    """The two selling-price endpoints, gated on the same principle as the rest.
+
+    Both derive entirely from invoiced prices, so ``Sales Invoice`` read is the
+    access that matters - not ``Item``, which almost every role can read.
+    ``price_forecast`` is the one on the hot path: the ``price-intelligence``
+    Desk page calls it on every keystroke, so an ungated copy here would leak
+    realised customer pricing to anyone who can open a form.
+    """
+
+    def test_price_forecast_checks_sales_invoice_permission(self):
+        with patch.object(frappe, "has_permission") as mock_has_perm, patch(
+            "insights.ml.price_intelligence.price_forecast", return_value={}
+        ):
+            price_api.price_forecast(item_code="ANY")
+            mock_has_perm.assert_called_once_with("Sales Invoice", "read", throw=True)
+
+    def test_price_forecast_permission_denial_propagates(self):
+        with patch.object(frappe, "has_permission", side_effect=frappe.PermissionError("denied")):
+            with self.assertRaises(frappe.PermissionError):
+                price_api.price_forecast(item_code="ANY")
+
+    def test_dashboard_payload_checks_sales_invoice_permission(self):
+        with patch.object(frappe, "has_permission") as mock_has_perm, patch(
+            "insights.ml.price_intelligence.get_selling_price_intelligence", return_value={}
+        ):
+            price_api.get_selling_price_intelligence()
+            mock_has_perm.assert_called_once_with("Sales Invoice", "read", throw=True)
+
+    def test_dashboard_payload_permission_denial_propagates(self):
+        """A cache hit must not bypass the gate: `cached_run` is called *after*
+        `has_permission`, so a denial has to raise before any cache read."""
+        with patch.object(frappe, "has_permission", side_effect=frappe.PermissionError("denied")):
+            with self.assertRaises(frappe.PermissionError):
+                price_api.get_selling_price_intelligence()
+
+    def test_ml_module_price_functions_are_not_whitelisted(self):
+        """No parallel unguarded surface: the module functions are plain."""
+        import insights.ml.price_intelligence as price_ml
+
+        for name in ("price_forecast", "get_selling_price_intelligence"):
+            fn = getattr(price_ml, name)
+            self.assertFalse(
+                getattr(fn, "whitelisted", False),
+                f"insights.ml.price_intelligence.{name} is whitelisted -- ungated surface",
             )

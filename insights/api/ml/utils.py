@@ -100,6 +100,10 @@ _DASHBOARD_ENDPOINTS = (
     "insights.api.ml.tax_intelligence",
     "insights.api.ml.get_marketing_overview",
     "insights.api.ml.get_hr_overview",
+    # Selling-side pricing. Full dotted path because this one is not re-exported
+    # on `insights.api.ml`: `get_price_intelligence` there is procurement's
+    # buying-side price variance, and two endpoints cannot share one attribute.
+    "insights.api.ml.price.get_selling_price_intelligence",
 )
 
 
