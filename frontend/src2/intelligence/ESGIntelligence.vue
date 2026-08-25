@@ -255,7 +255,7 @@ function handleDashboardRedirect(target: string) {
           Environmental, Social &amp; Governance analytics
         </p>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <span v-if="lastUpdated" class="text-sm text-ink-gray-6">
           Updated: {{ formatDateTime(lastUpdated) }}
         </span>

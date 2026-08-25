@@ -244,7 +244,7 @@ onBeforeUnmount(() => {
         <h1 class="text-xl font-semibold text-ink-gray-9">Revenue & Customers</h1>
         <p class="text-sm text-ink-gray-6 mt-0.5">Sales performance and customer intelligence</p>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <IntelligenceDateFilter v-model="dateFilter" />
         <Button
           variant="solid"
@@ -252,7 +252,7 @@ onBeforeUnmount(() => {
           :loading="isRefreshing"
           @click="loadData(true)"
         >
-          <RefreshCcw class="w-4 h-4 mr-2" />
+          <template #prefix><RefreshCcw class="w-4 h-4" /></template>
           {{ isRefreshing ? 'Refreshing...' : 'Refresh' }}
         </Button>
       </div>

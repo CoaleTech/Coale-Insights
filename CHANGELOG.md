@@ -4,6 +4,63 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-08-25
+
+### Fixed — refresh/action button icons stacked above their label instead of beside it
+
+`Refresh Analysis`, `Refresh Data`, `Export`, `Generate Report` and similar buttons across
+the intelligence dashboards rendered their icon on its own line, above the text, on every
+viewport width -- not a wrap caused by a narrow container, since a zoomed screenshot of a
+fully unconstrained clone of the button (no flex parent, `position:fixed`, 1400px of open
+viewport) reproduced it identically. The icon was passed as a child of `<Button>`'s
+default slot instead of through the `iconLeft`/`#prefix` named slot frappe-ui's `Button.vue`
+expects, so it landed inside the same auto-generated `<span>` as the label text rather than
+as a sibling flex item. Tailwind's preflight sets `svg { display: block }`, and a block
+element opening a span forces a line break before the text that follows it -- a markup
+anti-pattern, not a missing `flex-wrap`/`whitespace-nowrap`, which is why it reproduced at
+every width tested (375-1400px) and was never a squeeze/overflow bug at all.
+
+Fixed at all 21 affected instances across seven files by moving each icon into
+`<template #prefix>`: `TaxIntelligence.vue` (Refresh Analysis), `ExecutiveReports.vue`
+(Refresh, Generate Report), `ExecutiveDashboard.vue` (4 Quick Action cards),
+`BoardPresentationMode.vue` (Maximize, Fullscreen, Export, Reset, Generate Presentation),
+`CrossDashboardSearch.vue` (Filter, Search History, Help, Download/Export),
+`dashboard/InventoryIntelligence.vue` (Refresh Data, Retrain Model) and
+`dashboard/RevenueCustomerIntelligence.vue` (Refresh). `frappe-ui`'s `Button.vue` renders
+`iconLeft` as a proper sibling flex item, so the fix is byte-identical to the pattern the
+codebase already used correctly on every other button. Verified with `yarn build`, `yarn
+lint`, and a live DOM sweep across all seven pages at 10 widths (375-1400px) each: zero
+overflow, zero icon/text line breaks.
+
+### Changed — every intelligence dashboard hand-rolled its own date-range option list
+
+`TaxIntelligence.vue`, `ExecutiveDashboard.vue`, `HRIntelligence.vue` and
+`MarketingCRMIntelligence.vue` each declared their own inline `dateRangeOptions` /
+`periodOptions` / `periods` array and rendered it through a raw frappe-ui `<Select>`,
+independently of the `IntelligenceDateFilter.vue` component eight sibling dashboards
+(Financial, Revenue & Customers, Inventory, ESG, Manufacturing, Procurement, Risk, Price)
+already share. Two different vocabularies were duplicated this way: a rolling lookback
+window (`3m`/`6m`/`12m`/`fy`, consumed by `insights.api.ml.tax.tax_intelligence` and
+`_coerce_period`) and a fiscal-period keyword (`MTD`/`QTD`/`YTD`/`TTM`, matched by string
+equality in three independent backend resolvers --
+`insights.api.ml.marketing._period_start`, `hr_intelligence._period_start_date`, and
+executive's period plumbing). A typo'd or re-cased token in either copy would silently mis-
+scope a dashboard's data rather than fail loudly, and the two vocabularies were never
+interchangeable to begin with.
+
+Both are now named exports of `frontend/src2/utils/dateRangePresets.ts`
+(`DEFAULT_DATE_RANGES` and `FISCAL_PERIOD_RANGES`), guarded by
+`dateRangePresets.spec.ts` against a value drifting outside what the backend actually
+parses. `IntelligenceDateFilter.vue` takes a configurable `options` prop (defaulting to
+`DEFAULT_DATE_RANGES`, unchanged for its eight existing callers) instead of a hardcoded
+list, and all four remaining dashboards now render it in place of their local `<Select>`,
+passing their own preset -- `TaxIntelligence` keeps its lookback-window options, the other
+three pass `FISCAL_PERIOD_RANGES`. No dashboard's default selected period or API param
+name changed. Verified with `yarn build`, `yarn lint`, and a live check of all four pages:
+correct per-dashboard option labels/values, correct preserved defaults (Tax `fy`, Executive
+`YTD`, HR/Marketing `TTM`), and a live interaction test confirming the bound value updates
+and a reload fires on selection change.
+
 ## [Unreleased] — 2026-08-13
 
 ### Fixed — dashboard payloads were computed inside the web request, so a mount 502/503'd

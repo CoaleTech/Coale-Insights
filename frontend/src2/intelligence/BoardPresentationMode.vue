@@ -28,23 +28,23 @@
           </div>
 
           <Button @click="generatePresentation" :loading="generating" variant="solid" theme="gray">
-            <FileText class="w-4 h-4 mr-2" />
+            <template #prefix><FileText class="w-4 h-4" /></template>
             Generate
           </Button>
 
           <template v-if="presentationEnabled">
             <Button @click="toggleFullscreen" variant="outline">
-              <Maximize class="w-4 h-4 mr-2" />
+              <template #prefix><Maximize class="w-4 h-4" /></template>
               Fullscreen
             </Button>
 
             <Button @click="exportPresentation" variant="outline">
-              <Download class="w-4 h-4 mr-2" />
+              <template #prefix><Download class="w-4 h-4" /></template>
               Export
             </Button>
 
             <Button @click="resetPresentation" variant="subtle">
-              <X class="w-4 h-4 mr-2" />
+              <template #prefix><X class="w-4 h-4" /></template>
               Reset
             </Button>
           </template>
@@ -82,7 +82,7 @@
           Select a dashboard type and click <strong>Generate</strong> to create a board-ready presentation with executive summaries, key insights, and strategic recommendations.
         </p>
         <Button @click="generatePresentation" variant="solid" theme="gray" size="lg">
-          <FileText class="w-4 h-4 mr-2" />
+          <template #prefix><FileText class="w-4 h-4" /></template>
           Generate Presentation
         </Button>
       </div>

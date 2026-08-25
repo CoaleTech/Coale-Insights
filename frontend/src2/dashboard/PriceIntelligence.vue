@@ -19,14 +19,14 @@
 -->
 <template>
 	<div class="flex flex-col h-full bg-surface-gray-1">
-		<header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex items-center justify-between">
+		<header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
 			<div>
 				<h1 class="text-2xl font-bold text-ink-gray-9">Price Intelligence</h1>
 				<p class="text-sm text-ink-gray-6 mt-0.5">
 					Realised pricing over the last {{ lookbackDays }} days
 				</p>
 			</div>
-			<div class="flex items-center gap-3">
+			<div class="flex flex-wrap items-center gap-3">
 				<span v-if="lastUpdated" class="text-sm text-ink-gray-5">
 					Updated {{ formatDateTime(lastUpdated) }}
 				</span>

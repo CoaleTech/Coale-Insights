@@ -11,11 +11,11 @@
       </div>
       <div class="flex items-center space-x-3">
         <Button @click="reload" :loading="refreshing" variant="subtle" theme="gray" size="sm">
-          <RotateCcw class="w-4 h-4 mr-2" />
+          <template #prefix><RotateCcw class="w-4 h-4" /></template>
           Refresh
         </Button>
         <Button @click="exportReport" variant="subtle" theme="gray" size="sm">
-          <Download class="w-4 h-4 mr-2" />
+          <template #prefix><Download class="w-4 h-4" /></template>
           Export
         </Button>
       </div>
@@ -43,7 +43,7 @@
       <h3 class="text-lg font-medium text-ink-gray-9 mb-2">Unable to Load Data</h3>
       <p class="text-ink-gray-6 mb-4">{{ error }}</p>
       <Button @click="retry" variant="outline" theme="gray">
-        <RefreshCw class="w-4 h-4 mr-2" />
+        <template #prefix><RefreshCw class="w-4 h-4" /></template>
         Try Again
       </Button>
     </div>

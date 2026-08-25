@@ -116,7 +116,7 @@
           size="sm"
           @click="toggleAdvancedFilters"
         >
-          <Filter class="w-4 h-4 mr-1" />
+          <template #prefix><Filter class="w-4 h-4" /></template>
           {{ showAdvancedFilters ? 'Hide' : 'Show' }} Filters
         </Button>
 
@@ -125,7 +125,7 @@
           size="sm"
           @click="showSearchHistory = !showSearchHistory"
         >
-          <Clock class="w-4 h-4 mr-1" />
+          <template #prefix><Clock class="w-4 h-4" /></template>
           Search History
         </Button>
 
@@ -134,7 +134,7 @@
           size="sm"
           @click="showSearchHelp = true"
         >
-          <HelpCircle class="w-4 h-4 mr-1" />
+          <template #prefix><HelpCircle class="w-4 h-4" /></template>
           Help
         </Button>
       </div>
@@ -179,7 +179,7 @@
             size="sm"
             @click="exportSearchResults"
           >
-            <Download class="w-4 h-4 mr-1" />
+            <template #prefix><Download class="w-4 h-4" /></template>
             Export
           </Button>
         </div>

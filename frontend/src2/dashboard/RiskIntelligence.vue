@@ -237,7 +237,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
 <template>
   <div class="flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
-    <header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col flex-wrap items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <h1 class="text-2xl font-bold text-ink-gray-9">Risk Intelligence & Analytics</h1>
         <p v-if="lastUpdated" class="text-sm text-ink-gray-6 mt-1">

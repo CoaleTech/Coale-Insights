@@ -5,7 +5,7 @@
       <div>
         <h1 class="text-2xl font-bold text-ink-gray-9">Procurement Intelligence</h1>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <span v-if="lastUpdated" class="text-sm text-ink-gray-6">
           Updated: {{ formatDate(lastUpdated) }}
         </span>

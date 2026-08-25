@@ -1,6 +1,6 @@
 <script setup lang="ts">
 defineOptions({ name: 'HRIntelligence' })
-import { Badge, Button, Select, Tabs } from 'frappe-ui'
+import { Badge, Button, Tabs } from 'frappe-ui'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -13,7 +13,9 @@ import {
   type Severity,
 } from '../utils/status'
 import { formatCount, formatMoney, formatPercent } from '../utils/format'
+import { FISCAL_PERIOD_RANGES } from '../utils/dateRangePresets'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import KpiCard from './components/KpiCard.vue'
@@ -208,12 +210,6 @@ const HR_ENDPOINT = 'insights.api.ml.hr.get_hr_detail'
 const drillDown = useDrillDown()
 
 const period = ref('TTM')
-const periods = [
-  { value: 'MTD', label: 'Month to Date' },
-  { value: 'QTD', label: 'Quarter to Date' },
-  { value: 'YTD', label: 'Year to Date' },
-  { value: 'TTM', label: 'Trailing 12 Months' },
-]
 
 const tabIndex = ref(0)
 const tabs = [
@@ -378,8 +374,8 @@ function handleChatNavigation(path: string) {
           <h1 class="text-2xl font-bold text-ink-gray-9">HR Intelligence</h1>
           <p class="text-sm text-ink-gray-6 mt-1">Workforce analytics, talent management, organisational health</p>
         </div>
-        <div class="flex items-center gap-3">
-          <Select v-model="period" :options="periods" />
+        <div class="flex flex-wrap items-center gap-3">
+          <IntelligenceDateFilter v-model="period" :options="FISCAL_PERIOD_RANGES" />
           <Button variant="subtle" :loading="refreshing" @click="reload">Refresh</Button>
         </div>
       </div>

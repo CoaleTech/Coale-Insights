@@ -282,7 +282,7 @@ function handleDashboardRedirect(target: string) {
         <Breadcrumbs :items="breadcrumbs" />
         <h1 class="text-2xl font-bold text-ink-gray-9 mt-1">Inventory Intelligence</h1>
       </div>
-      <div class="flex items-center gap-3">
+      <div class="flex flex-wrap items-center gap-3">
         <span v-if="lastUpdated" class="text-sm text-ink-gray-6">
           Updated: {{ formatDateTime(lastUpdated) }}
         </span>

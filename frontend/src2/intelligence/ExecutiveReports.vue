@@ -6,13 +6,13 @@
         <h1 class="text-2xl font-semibold text-ink-gray-9">Executive Reports</h1>
         <p class="text-ink-gray-6 mt-1">Automated business intelligence reports for C-suite management</p>
       </div>
-      <div class="flex gap-3">
+      <div class="flex flex-wrap gap-3">
         <Button
           variant="outline"
           @click="fetchReportsStatus"
           :loading="loadingStatus"
         >
-          <RefreshCw class="w-4 h-4 mr-2" />
+          <template #prefix><RefreshCw class="w-4 h-4" /></template>
           Refresh
         </Button>
         <Button
@@ -20,7 +20,7 @@
           theme="gray"
           @click="generateReportModal = true"
         >
-          <Plus class="w-4 h-4 mr-2" />
+          <template #prefix><Plus class="w-4 h-4" /></template>
           Generate Report
         </Button>
       </div>

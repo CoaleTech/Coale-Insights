@@ -1,23 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { DEFAULT_DATE_RANGES, type DateRangeOption } from '../utils/dateRangePresets'
 
-const props = defineProps<{
-  modelValue: string
-}>()
+const props = withDefaults(
+	defineProps<{
+		modelValue: string
+		options?: DateRangeOption[]
+	}>(),
+	{ options: () => DEFAULT_DATE_RANGES },
+)
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', value: string): void
+	(e: 'update:modelValue', value: string): void
 }>()
-
-const dateRanges = [
-  { value: '7d', label: 'Last 7 Days' },
-  { value: '30d', label: 'Last 30 Days' },
-  { value: '90d', label: 'Last 90 Days' },
-  { value: '6m', label: 'Last 6 Months' },
-  { value: '12m', label: 'Last 12 Months' },
-  { value: '24m', label: 'Last 24 Months' },
-  { value: 'all', label: 'All Time' },
-]
 
 const selectedValue = computed({
   get: () => props.modelValue,
@@ -41,7 +36,7 @@ const selectedValue = computed({
     aria-label="Reporting period"
     class="min-h-11 w-auto shrink-0 cursor-pointer rounded-md border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-sm text-ink-gray-7 hover:border-outline-gray-3 focus:outline-none focus:ring-2 focus:ring-outline-gray-3 sm:min-h-0"
   >
-    <option v-for="range in dateRanges" :key="range.value" :value="range.value">
+    <option v-for="range in options" :key="range.value" :value="range.value">
       {{ range.label }}
     </option>
   </select>

@@ -8,10 +8,7 @@
       </div>
       <div class="flex flex-wrap items-center gap-2 sm:gap-3">
         <!-- Period Selector -->
-        <Select
-          v-model="selectedPeriod"
-          :options="periodOptions"
-        />
+        <IntelligenceDateFilter v-model="selectedPeriod" :options="FISCAL_PERIOD_RANGES" />
 
         <Button
           :loading="refreshing"
@@ -19,7 +16,7 @@
           theme="gray"
           @click="reload"
         >
-          <RefreshCw class="w-4 h-4 mr-2" />
+          <template #prefix><RefreshCw class="w-4 h-4" /></template>
           Refresh
         </Button>
         <Button
@@ -27,7 +24,7 @@
           :disabled="!data"
           @click="exportData"
         >
-          <Download class="w-4 h-4 mr-2" />
+          <template #prefix><Download class="w-4 h-4" /></template>
           Export
         </Button>
       </div>
@@ -224,7 +221,7 @@
             class="flex items-center gap-3 p-4 text-left h-auto"
             @click="generateStrategicReport"
           >
-            <FileText class="w-5 h-5 text-ink-gray-6" />
+            <template #prefix><FileText class="w-5 h-5 text-ink-gray-6" /></template>
             <div>
               <div class="text-sm font-medium text-ink-gray-9">Strategic Report</div>
               <div class="text-xs text-ink-gray-6">Generate board-ready summary</div>
@@ -236,7 +233,7 @@
             class="flex items-center gap-3 p-4 text-left h-auto"
             @click="exportExecutiveData"
           >
-            <Download class="w-5 h-5 text-ink-gray-6" />
+            <template #prefix><Download class="w-5 h-5 text-ink-gray-6" /></template>
             <div>
               <div class="text-sm font-medium text-ink-gray-9">Export Data</div>
               <div class="text-xs text-ink-gray-6">Download PDF/Excel report</div>
@@ -248,7 +245,7 @@
             class="flex items-center gap-3 p-4 text-left h-auto"
             @click="openAIChat"
           >
-            <Brain class="w-5 h-5 text-accent" />
+            <template #prefix><Brain class="w-5 h-5 text-accent" /></template>
             <div>
               <div class="text-sm font-medium text-ink-gray-9">Ask AI</div>
               <div class="text-xs text-ink-gray-6">Get insights &amp; recommendations</div>
@@ -260,7 +257,7 @@
             class="flex items-center gap-3 p-4 text-left h-auto"
             @click="scheduleReport"
           >
-            <Calendar class="w-5 h-5 text-ink-gray-6" />
+            <template #prefix><Calendar class="w-5 h-5 text-ink-gray-6" /></template>
             <div>
               <div class="text-sm font-medium text-ink-gray-9">Schedule Reports</div>
               <div class="text-xs text-ink-gray-6">Setup automated delivery</div>
@@ -307,7 +304,9 @@ import {
   UserCog,
   Factory
 } from 'lucide-vue-next'
-import { Button, Badge, Select, LoadingIndicator } from 'frappe-ui'
+import { Button, Badge, LoadingIndicator } from 'frappe-ui'
+import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
+import { FISCAL_PERIOD_RANGES } from '../utils/dateRangePresets'
 import { useRouter } from 'vue-router'
 import { useDrillDown } from './composables/useDrillDown'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
@@ -341,13 +340,6 @@ function getExecMetric(label) {
 
 const selectedPeriod = ref('YTD')
 const companyCurrency = ref(null)
-
-const periodOptions = [
-  { label: 'Month to Date', value: 'MTD' },
-  { label: 'Quarter to Date', value: 'QTD' },
-  { label: 'Year to Date', value: 'YTD' },
-  { label: 'Trailing 12 Months', value: 'TTM' },
-]
 
 const periodParams = computed(() => ({ period: selectedPeriod.value }))
 

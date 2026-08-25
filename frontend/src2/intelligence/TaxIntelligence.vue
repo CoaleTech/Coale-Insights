@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import IntelligenceChart from './components/IntelligenceChart.vue'
 defineOptions({ name: 'TaxIntelligence' })
-import { Breadcrumbs, Button, Badge, Select, Tabs } from 'frappe-ui'
+import { Breadcrumbs, Button, Badge, Tabs } from 'frappe-ui'
 import {
   RefreshCcw, AlertTriangle, CheckCircle, FileText,
 } from 'lucide-vue-next'
@@ -11,6 +11,7 @@ import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard
 import { severityBadge, severityFill, scoreSeverity, deltaInk, type Severity } from '../utils/status'
 import { formatCount, formatMoney, formatPercent as sharedPercent } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
+import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import BaseChart from '../charts/components/BaseChart.vue'
 import KpiCard from './components/KpiCard.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
@@ -309,12 +310,8 @@ function handleDashboardRedirect(target: string) {
         <h1 class="text-2xl font-bold text-ink-gray-9 mt-1">Tax Intelligence</h1>
         <p class="text-sm text-ink-gray-6">India GST, TDS, ITC analytics, compliance monitoring, and tax planning</p>
       </div>
-      <div class="flex items-center gap-3">
-        <Select
-          v-model="dateFilter"
-          :options="dateRangeOptions"
-          class="text-sm"
-        />
+      <div class="flex flex-wrap items-center gap-3">
+        <IntelligenceDateFilter v-model="dateFilter" :options="dateRangeOptions" />
 
         <Button
           :loading="refreshing"
@@ -322,7 +319,7 @@ function handleDashboardRedirect(target: string) {
           theme="gray"
           @click="reload"
         >
-          <RefreshCcw class="w-4 h-4 mr-2" />
+          <template #prefix><RefreshCcw class="w-4 h-4" /></template>
           {{ refreshing ? 'Refreshing...' : 'Refresh Analysis' }}
         </Button>
       </div>

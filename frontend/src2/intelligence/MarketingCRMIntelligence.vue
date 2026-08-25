@@ -29,7 +29,7 @@
         </p>
       </div>
       <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-        <Select v-model="period" :options="periodOptions" />
+        <IntelligenceDateFilter v-model="period" :options="FISCAL_PERIOD_RANGES" />
         <Button
           variant="subtle"
           :loading="refreshing"
@@ -372,7 +372,7 @@
 </template>
 
 <script setup lang="ts">
-import { Badge, Button, Select, Tabs } from 'frappe-ui'
+import { Badge, Button, Tabs } from 'frappe-ui'
 import { computed, ref } from 'vue'
 import IntelligenceChart from './components/IntelligenceChart.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
@@ -384,6 +384,8 @@ import { useDrillDown, type DrillDownParams } from './composables/useDrillDown'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import { chartPalette, themeColor } from '../utils/chartTheme'
 import { formatMoney, formatCount as formatNumber } from '../utils/format'
+import { FISCAL_PERIOD_RANGES } from '../utils/dateRangePresets'
+import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import {
   deltaInk,
   scoreSeverity,
@@ -456,12 +458,6 @@ interface MarketingPayload {
   alerts?: AlertRow[]
 }
 
-const periodOptions = [
-  { label: 'Month to date', value: 'MTD' },
-  { label: 'Quarter to date', value: 'QTD' },
-  { label: 'Year to date', value: 'YTD' },
-  { label: 'Trailing 12 months', value: 'TTM' },
-]
 const period = ref('TTM')
 
 const tabs = [
