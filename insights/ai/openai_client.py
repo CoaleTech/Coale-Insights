@@ -11,6 +11,7 @@ import json
 import uuid
 import requests
 import frappe
+from frappe import _
 from frappe.utils import cint
 from typing import Dict, List, Optional, Any
 from insights.ai.base_provider import BaseAIProvider
@@ -103,6 +104,43 @@ class OpenAIClient(BaseAIProvider):
 			headers["originator"] = "insights"
 			headers["session_id"] = str(uuid.uuid4())
 		return headers
+
+	EMBEDDING_MODEL = "text-embedding-3-small"
+
+	def embed_documents(self, texts: List[str], model: Optional[str] = None) -> List[List[float]]:
+		"""Embed a batch of texts via the OpenAI embeddings endpoint.
+
+		Independent of the configured chat auth mode: a ChatGPT subscription
+		has no /embeddings endpoint, so this always needs a metered API key
+		even when `openai_auth_mode` is "ChatGPT Subscription" for chat.
+		"""
+		if not texts:
+			return []
+		if self.is_subscription:
+			frappe.throw(
+				_(
+					"Knowledge Base embeddings need an OpenAI API key -- a ChatGPT "
+					"subscription has no embeddings endpoint. Set 'OpenAI API Key' "
+					"in Insights Settings."
+				)
+			)
+		if not self.api_key:
+			frappe.throw(_("Set 'OpenAI API Key' in Insights Settings to use embeddings."))
+
+		response = requests.post(
+			f"{self.BASE_URL}/embeddings",
+			headers=self._get_headers(),
+			json={"model": model or self.EMBEDDING_MODEL, "input": texts},
+			timeout=120,
+		)
+		if response.status_code != 200:
+			frappe.throw(
+				_("OpenAI embeddings error (HTTP {0}): {1}").format(
+					response.status_code, response.text[:500]
+				)
+			)
+		data = response.json()["data"]
+		return [item["embedding"] for item in sorted(data, key=lambda d: d["index"])]
 
 	def is_enabled(self) -> bool:
 		provider = getattr(self.settings, "ai_provider", None)

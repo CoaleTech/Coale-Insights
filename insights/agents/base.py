@@ -12,7 +12,10 @@ from typing import Dict, List, Optional, Any
 
 import frappe
 from frappe.utils import now_datetime
+from opentelemetry import trace
+from opentelemetry.trace import Status, StatusCode
 
+_tracer = trace.get_tracer(__name__)
 
 def _safe_log_error(message: str, title: str = "Intelligence Agent"):
     """Safely log an error, truncating to avoid CharacterLengthExceededError"""
@@ -151,6 +154,38 @@ class BaseIntelligenceAgent(ABC):
         """Get default system prompt — must be implemented by subclasses"""
         pass
 
+    def _get_grounding_context(self, query: str, context: Optional[Dict] = None) -> str:
+        """Ground answers in the Knowledge Base referenced by this dashboard's
+        `Dashboard AI Agent Config.knowledge_base`, when one is set.
+
+        Every dashboard type has the same UX promise: a user uploads reference
+        docs (circulars, SOPs, playbooks) into an AI Knowledge Base and links
+        it from the per-dashboard AI Agent Config. The retrieval-then-append
+        flow is the same for all of them, so it lives on the base class.
+        A broken or unset KB degrades silently (returns "") -- grounding is
+        an optional augmentation, not a hard dependency on the chat turn."""
+        kb_name = self.config.knowledge_base if self.config else None
+        if not kb_name:
+            return ""
+        try:
+            from insights.ai.knowledge_base import embed_texts, get_store
+
+            [query_embedding] = embed_texts([query])
+            matches = get_store(kb_name).query(query_embedding, n_results=5)
+        except Exception as e:
+            _safe_log_error(
+                f"{type(self).__name__} grounding failed: {str(e)[:300]}",
+                f"Agent Grounding: {self.dashboard_type}",
+            )
+            return ""
+        if not matches:
+            return ""
+        excerpts = "\n\n".join(f"[{m['metadata'].get('title', 'Document')}] {m['text']}" for m in matches)
+        return (
+            f"Reference material from the '{kb_name}' Knowledge Base "
+            f"(cite the document title when you use these excerpts):\n\n{excerpts}"
+        )
+
     def get_quick_actions(self) -> List[Dict]:
         """Get quick action buttons for the chat interface"""
         if self.config:
@@ -192,13 +227,45 @@ class BaseIntelligenceAgent(ABC):
         Returns:
             Dict with response, metadata, and any redirect info
         """
-        from insights.ai.provider_factory import AIProviderFactory
-
         ctx = context or self.compressed_context
+        with _tracer.start_as_current_span(
+            f"insights.agent.execute.{self.dashboard_type}"
+        ) as _span:
+            _span.set_attribute("insights.agent.dashboard_type", self.dashboard_type)
+            _span.set_attribute("insights.agent.class", type(self).__name__)
+            _span.set_attribute("insights.agent.query_length", len(query or ""))
+            _span.set_attribute("insights.agent.session_id", session_id or "")
+            return self._execute(
+                query=query,
+                session_id=session_id,
+                ctx=ctx,
+                conversation_history=conversation_history,
+                span=_span,
+            )
+
+    def _execute(
+        self,
+        query: str,
+        session_id: str,
+        ctx: Optional[Dict],
+        conversation_history: Optional[List[Dict]],
+        span: "trace.Span",
+    ) -> Dict[str, Any]:
+        """Inner work for `execute()`, called inside an OpenTelemetry span so
+        every chat turn emits `insights.agent.execute.<DashboardType>` with
+        dashboard/agent identity, query length, whether grounding fired, and
+        an ERROR status + recorded exception if anything blew up. The span
+        itself is a documented no-op when no OTLP collector is configured."""
+        from insights.ai.provider_factory import AIProviderFactory
 
         messages = []
         system_prompt = self.build_system_prompt(ctx)
         messages.append({"role": "system", "content": system_prompt})
+
+        grounding = self._get_grounding_context(query, ctx)
+        if grounding:
+            messages.append({"role": "system", "content": grounding})
+        span.set_attribute("insights.agent.grounded", bool(grounding))
 
         if conversation_history and self.config and self.config.include_conversation_history:
             for msg in conversation_history[-5:]:
@@ -216,6 +283,7 @@ class BaseIntelligenceAgent(ABC):
         client = AIProviderFactory.get_client()
 
         if not client.is_enabled():
+            span.set_status(Status(StatusCode.ERROR, "ai_provider_disabled"))
             return {
                 "success": False,
                 "error": "AI Analytics is not enabled. Please configure your API key in Insights Settings.",
@@ -224,6 +292,7 @@ class BaseIntelligenceAgent(ABC):
             }
 
         if not client.check_quota():
+            span.set_status(Status(StatusCode.ERROR, "quota_exceeded"))
             return {
                 "success": False,
                 "error": "Daily AI quota exceeded. Please try again tomorrow or increase your quota in Insights Settings.",
@@ -268,7 +337,10 @@ class BaseIntelligenceAgent(ABC):
                     client.increment_quota()
                     _elapsed = round(_time.time() - _start, 2)
                     _tokens = result.get("usage", {}).get("total_tokens")
-
+                    span.set_attribute("insights.agent.model_used", try_model)
+                    span.set_attribute("insights.agent.tokens_used", _tokens or 0)
+                    span.set_attribute("insights.agent.processing_time", _elapsed)
+                    span.set_status(Status(StatusCode.OK))
                     return {
                         "success": True,
                         "response": response_text,
@@ -285,6 +357,7 @@ class BaseIntelligenceAgent(ABC):
                         if result.get("rate_limited"):
                             _rl_count += 1
                             if _rl_count >= 3:
+                                span.set_status(Status(StatusCode.ERROR, "all_models_rate_limited"))
                                 return {
                                     "success": False,
                                     "error": "All free AI models are currently rate-limited. Please wait a few minutes and try again.",
@@ -300,6 +373,7 @@ class BaseIntelligenceAgent(ABC):
                 "AI Model Failure",
             )
             error_detail = _last_error or "AI models are temporarily unavailable."
+            span.set_status(Status(StatusCode.ERROR, "all_models_failed"))
             return {
                 "success": False,
                 "error": f"{error_detail} (tried {len(models_to_try)} models)",
@@ -308,6 +382,8 @@ class BaseIntelligenceAgent(ABC):
             }
 
         except Exception as e:
+            span.record_exception(e)
+            span.set_status(Status(StatusCode.ERROR, str(e)[:200]))
             _safe_log_error(f"Agent error: {str(e)[:300]}", "Agent Error")
             return {
                 "success": False,
@@ -315,6 +391,7 @@ class BaseIntelligenceAgent(ABC):
                 "dashboard_type": self.dashboard_type,
                 "session_id": session_id,
             }
+
 
     def format_context_for_display(self) -> str:
         """Format compressed context as readable markdown for debugging"""

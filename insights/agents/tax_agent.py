@@ -7,6 +7,8 @@ Specialized AI agent for India Tax Intelligence dashboard insights
 
 from typing import Dict, List, Optional
 
+import frappe
+
 from insights.agents.base import BaseIntelligenceAgent
 from insights.agents.registry import AgentRegistry
 
@@ -153,6 +155,7 @@ class TaxIntelligenceAgent(BaseIntelligenceAgent):
     def _extract_advance_tax_schedule(self, context: Dict) -> List[Dict]:
         """Extract advance tax schedule"""
         return context.get("advance_tax_schedule", [])
+
 
     def _get_default_system_prompt(self, context: Optional[Dict] = None) -> str:
         """Get default system prompt for tax agent"""

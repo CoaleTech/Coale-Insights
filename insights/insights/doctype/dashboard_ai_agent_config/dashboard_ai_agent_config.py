@@ -209,6 +209,7 @@ class DashboardAIAgentConfig(Document):
         dashboard_type: DF.Literal["", "Sales", "Risk", "Inventory", "Procurement", "Financial", "Customer"]
         is_enabled: DF.Check
         model_preference: DF.Literal["auto", "nvidia/nemotron-3-super-120b-a12b:free", "nvidia/nemotron-3-ultra-550b-a55b:free", "nvidia/nemotron-3-nano-30b-a3b:free", "google/gemma-4-31b-it:free", "openai/gpt-oss-20b:free", "openai/gpt-5.6-terra", "openai/gpt-5.6-luna", "anthropic/claude-haiku-4.5", "google/gemini-3.5-flash"]
+        knowledge_base: DF.Link | None
         max_context_tokens: DF.Int
         system_prompt: DF.LongText | None
         quick_actions: DF.JSON | None

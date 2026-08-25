@@ -201,6 +201,17 @@ const routes = [
 		component: () => import('./data_source/DataSourceTable.vue'),
 	},
 	{
+		path: '/knowledge-base',
+		name: 'KnowledgeBaseList',
+		component: () => import('./knowledge_base/KnowledgeBaseList.vue'),
+	},
+	{
+		props: true,
+		path: '/knowledge-base/:name',
+		name: 'KnowledgeBaseDetail',
+		component: () => import('./knowledge_base/KnowledgeBaseDetail.vue'),
+	},
+	{
 		path: '/data-store',
 		name: 'DataStoreList',
 		component: () => import('./data_store/DataStoreList.vue'),

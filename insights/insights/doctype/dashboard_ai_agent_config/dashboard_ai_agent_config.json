@@ -10,6 +10,7 @@
   "is_enabled",
   "column_break_1",
   "model_preference",
+  "knowledge_base",
   "max_context_tokens",
   "section_break_prompt",
   "system_prompt",
@@ -50,6 +51,13 @@
    "fieldtype": "Select",
    "label": "Model Preference",
    "options": "auto\nnvidia/nemotron-3-super-120b-a12b:free\nnvidia/nemotron-3-ultra-550b-a55b:free\nnvidia/nemotron-3-nano-30b-a3b:free\ngoogle/gemma-4-31b-it:free\nopenai/gpt-oss-20b:free\nopenai/gpt-5.6-terra\nopenai/gpt-5.6-luna\nanthropic/claude-haiku-4.5\ngoogle/gemini-3.5-flash"
+  },
+  {
+   "fieldname": "knowledge_base",
+   "fieldtype": "Link",
+   "label": "Knowledge Base",
+   "options": "AI Knowledge Base",
+   "description": "Optional. When set, this dashboard's AI agent grounds answers in the Knowledge Base's uploaded reference material before falling back to general knowledge."
   },
   {
    "default": "2000",

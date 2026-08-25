@@ -58,13 +58,32 @@ dependencies = [
     # bench that wants it via `pip install prophet` + the FRAPPE_BACKGROUND_
     # WORKERS_NOFORK=true env var, or use the no-fork worker class.
     # xgboost and lightgbm are removed: nothing in the app imports them.
+
+    # --- AI Knowledge Base --------------------------------------------------
+    # The KB doctype (insights.ai.knowledge_base) hard-imports chromadb
+    # unconditionally -- it was only reachable before because some other app
+    # in the shared bench env happened to install it transitively. Promoted
+    # out of the `vectordb` extra below: this is no longer optional.
+    "chromadb>=0.4.0",
+    # Routes AI Knowledge Base embeddings through whichever chat provider
+    # Insights Settings already has configured, instead of hard-requiring a
+    # second, separate OpenAI key (see insights.ai.base_provider).
+    "litellm>=1.50.0",
+    # Sentence/paragraph-boundary-aware chunker for the KB pipeline, replacing
+    # the hand-rolled separator walk in insights.ai.knowledge_base.chunk_text.
+    "langchain-text-splitters>=0.3.0",
+    # Spans around agents/base.py's make_request/execute and the KB
+    # embed/query path. An unconfigured SDK is a documented no-op by design,
+    # so this is safe with no OTLP collector present.
+    "opentelemetry-api>=1.42.0",
+    "opentelemetry-sdk>=1.42.0",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.42.0",
 ]
 
 [project.optional-dependencies]
 ml = ["prophet>=1.1.4"]
 nlp = ["transformers>=4.36.0", "spacy>=3.7.0", "langchain>=0.0.350"]
-vectordb = ["chromadb>=0.4.0", "faiss-cpu>=1.7.4", "elasticsearch>=8.11.0"]
-export = ["plotly>=5.17.0", "weasyprint>=60.0", "python-pptx>=0.6.23", "reportlab>=4.0.0"]
+vectordb = ["faiss-cpu>=1.7.4", "elasticsearch>=8.11.0"]
 all = ["insights[ml,nlp,vectordb,export]"]
 
 [build-system]

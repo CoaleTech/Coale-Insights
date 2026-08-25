@@ -69,6 +69,7 @@
 import { useStorage } from '@vueuse/core'
 import {
 	Book,
+	BookOpen,
 	Database,
 	DatabaseZap,
 	LayoutDashboard,
@@ -162,6 +163,7 @@ const navGroups = computed<{ label: string; links: NavLink[] }[]>(() => [
 				to: 'DataStoreList',
 				hidden: !settings.doc.enable_data_store,
 			},
+			{ label: 'Knowledge Base', icon: BookOpen, to: 'KnowledgeBaseList' },
 		],
 	},
 ])
