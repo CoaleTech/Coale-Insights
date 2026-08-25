@@ -18,8 +18,10 @@ from insights.api.ml.utils import cached_run, run
 
 
 # `period` is one of `3m` / `6m` / `12m` / `fy` and is resolved inside the
-# model. Both names (`date_filter` and `period`) are accepted so callers
-# that use either form continue to work without modification.
+# model. Anything else -- including an unset value -- coerces to `fy`;
+# see `_coerce_period`. `date_filter` is a different endpoint family's
+# param name (see `insights.api.ml.utils.parse_date_filter`) and is not
+# accepted here.
 _PERIOD_KEYS = ("3m", "6m", "12m", "fy")
 
 
