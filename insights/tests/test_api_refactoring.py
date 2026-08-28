@@ -194,6 +194,50 @@ class TestDateFilterUtilities(FrappeTestCase):
         self.assertIsNone(start_date)
         self.assertIsNone(end_date)
 
+    def test_parse_date_filter_custom_range(self):
+        """A ``custom:<start>:<end>`` value routes through parse_custom_range
+        instead of falling through to the day/month/year suffix branches."""
+        from insights.api.ml import parse_date_filter
+
+        start_date, end_date = parse_date_filter('custom:2026-01-01:2026-02-15')
+        assert start_date is not None and end_date is not None
+        self.assertEqual(start_date.date().isoformat(), '2026-01-01')
+        self.assertEqual(end_date.date().isoformat(), '2026-02-15')
+
+    def test_parse_custom_range_valid(self):
+        """Well-formed ``custom:<start>:<end>`` decodes to matching dates"""
+        from insights.api.ml.utils import parse_custom_range
+
+        result = parse_custom_range('custom:2026-03-01:2026-03-31')
+        assert result is not None
+        start_date, end_date = result
+        self.assertEqual(start_date.date().isoformat(), '2026-03-01')
+        self.assertEqual(end_date.date().isoformat(), '2026-03-31')
+
+    def test_parse_custom_range_rejects_non_custom_values(self):
+        """Preset keywords and empty input are not custom ranges"""
+        from insights.api.ml.utils import parse_custom_range
+
+        self.assertIsNone(parse_custom_range('12m'))
+        self.assertIsNone(parse_custom_range('all'))
+        self.assertIsNone(parse_custom_range(None))
+
+    def test_parse_custom_range_rejects_malformed_dates(self):
+        """Non-ISO, missing, or invalid-calendar dates return None instead
+        of raising, so a corrupted value degrades to the caller's default"""
+        from insights.api.ml.utils import parse_custom_range
+
+        self.assertIsNone(parse_custom_range('custom:not-a-date:2026-02-01'))
+        self.assertIsNone(parse_custom_range('custom:2026-01-01'))
+        self.assertIsNone(parse_custom_range('custom::'))
+        self.assertIsNone(parse_custom_range('custom:2026-02-30:2026-03-01'))
+
+    def test_parse_custom_range_rejects_inverted_dates(self):
+        """An end date before the start date is invalid, not an empty range"""
+        from insights.api.ml.utils import parse_custom_range
+
+        self.assertIsNone(parse_custom_range('custom:2026-02-01:2026-01-01'))
+
     # ``test_get_date_filter_sql_with_dates/_all_dates/_with_alias`` were
     # removed 2026-08-11. ``get_date_filter_sql`` no longer exists -- see
     # ``TestDataValidation.test_sql_injection_prevention``'s removal note in
@@ -201,6 +245,27 @@ class TestDateFilterUtilities(FrappeTestCase):
     # returns ``(start_date, end_date)`` as ``datetime`` objects (tested above
     # by ``test_parse_date_filter_months/_days/_all``) and every call site
     # binds them through Ibis instead of formatting SQL text.
+
+
+def run():
+    """Manual entrypoint: `bench --site <site> execute insights.tests.test_api_refactoring.run`.
+
+    `bench run-tests` walks every test_*.py in the app upfront to preload
+    dependency test records (frappe/deprecation_dumpster.py
+    compat_preload_test_records_upfront); on this bench that chain reaches
+    erpnext's Company/Fiscal Year bootstrap and collides with jkm's real
+    Fiscal Year 22-23 (see insights.tests.test_knowledge_base.run -- this is
+    pre-existing and app-wide, not specific to this module). Running via
+    `bench execute` reuses the site connection `bench execute` already sets
+    up and calls unittest directly, skipping that CLI-only phase.
+    """
+    import sys
+    import unittest
+
+    suite = unittest.TestLoader().loadTestsFromModule(sys.modules[__name__])
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if not result.wasSuccessful():
+        sys.exit(1)
 
 
 if __name__ == '__main__':

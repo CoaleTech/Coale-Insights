@@ -67,7 +67,13 @@ def _scalar(expr, default: float = 0.0):
 
 
 def _period_start_date(period: str) -> date:
-    """Resolve period keyword to a ``date``."""
+    """Resolve a period keyword, or the start of an encoded custom range
+    (see `insights.api.ml.utils.parse_custom_range`), to a ``date``."""
+    from insights.api.ml.utils import parse_custom_range
+
+    custom = parse_custom_range(period)
+    if custom:
+        return custom[0].date()
     today = date.today()
     if period == "MTD":
         return today.replace(day=1)
@@ -79,6 +85,18 @@ def _period_start_date(period: str) -> date:
     # TTM
     end = today
     return add_months(end.strftime("%Y-%m-%d"), -12) if isinstance(end, date) else add_months(str(end), -12)
+
+
+def _period_end_date(period: str) -> date:
+    """End date paired with `_period_start_date`: today, unless `period` is
+    an encoded custom range, in which case its own end. Every HR query
+    genuinely enforces this as an upper bound (``.between(from_date,
+    to_date)``), unlike Marketing's, which are start-bounded only -- see
+    the comment on `marketing_intelligence._period_start_date`."""
+    from insights.api.ml.utils import parse_custom_range
+
+    custom = parse_custom_range(period)
+    return custom[1].date() if custom else date.today()
 
 
 def _base_currency(company: Optional[str]) -> str:
@@ -138,7 +156,7 @@ class HRIntelligence:
         self.model_name = "HRIntelligence"
         self.period = period
         self.from_date = _period_start_date(period)
-        self.to_date = date.today()
+        self.to_date = _period_end_date(period)
         self.company = (
             get_user_default("Company")
             or frappe.db.get_single_value("Global Defaults", "default_company")

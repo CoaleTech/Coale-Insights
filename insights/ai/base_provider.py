@@ -66,8 +66,11 @@ class BaseAIProvider(ABC):
         "openai": "text-embedding-3-small",
         # Ollama's local daemon serves any model the operator has pulled;
         # nomic-embed-text is the canonical embedding model in their library.
-        "ollama": "nomic-embed-text",
-        "ollama_cloud": "nomic-embed-text",
+        # litellm requires the `ollama/` prefix to route here at all --
+        # without it, `get_llm_provider` raises "LLM Provider NOT provided"
+        # for every single embed call, local or cloud.
+        "ollama": "ollama/nomic-embed-text",
+        "ollama_cloud": "ollama/nomic-embed-text",
         # OpenRouter forwards to upstream providers; the OpenAI embedding
         # model is the most reliable choice on their catalog.
         "openrouter": "openai/text-embedding-3-small",

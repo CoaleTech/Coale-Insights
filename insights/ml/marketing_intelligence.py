@@ -123,7 +123,19 @@ def _int(expr, default: int = 0) -> int:
 
 
 def _period_start_date(period: str) -> date:
-    """Resolve a period keyword to an inclusive start ``date``."""
+    """Resolve a period keyword, or the start of an encoded custom range
+    (see `insights.api.ml.utils.parse_custom_range`), to an inclusive start
+    ``date``. There is no matching `_period_end_date` here: every query in
+    this module is start-bounded only (filters ``>= from_date``, no upper
+    bound beyond "whenever this request runs"), so a custom range's end is
+    stored on ``self.to_date`` for display but never reaches a filter --
+    matching how MTD/QTD/YTD/TTM already behave today. HR's ``to_date`` is
+    different: see ``hr_intelligence._period_end_date``."""
+    from insights.api.ml.utils import parse_custom_range
+
+    custom = parse_custom_range(period)
+    if custom:
+        return custom[0].date()
     today = date.today()
     if period == "MTD":
         return today.replace(day=1)

@@ -23,7 +23,12 @@
  * Every dashboard renders its set through the same shared
  * `IntelligenceDateFilter` component (`options` prop), so only the value
  * vocabulary differs across dashboards -- never the picker markup,
- * styling, or accessibility.
+ * styling, or accessibility. That component also always offers a fourth,
+ * cross-cutting "Custom Range" choice on top of whichever preset set it
+ * is given -- see `encodeCustomRange`/`decodeCustomRange` below -- which
+ * every backend period resolver in every one of those endpoint families
+ * honours ahead of its own preset table (`insights.api.ml.utils.parse_custom_range`
+ * is the one place that decodes it).
  */
 
 export interface DateRangeOption {
@@ -47,3 +52,45 @@ export const FISCAL_PERIOD_RANGES: DateRangeOption[] = [
 	{ value: 'YTD', label: 'Year to Date' },
 	{ value: 'TTM', label: 'Trailing 12 Months' },
 ]
+
+/**
+ * Explicit "from / to" date range support, layered onto every dashboard by
+ * `IntelligenceDateFilter` regardless of which preset set it renders.
+ *
+ * `custom:<start>:<end>` (ISO `YYYY-MM-DD` dates) is the one encoding every
+ * backend period resolver understands -- see
+ * `insights.api.ml.utils.parse_custom_range` for the authoritative grammar
+ * this must stay byte-for-byte compatible with. `CUSTOM_RANGE_VALUE` is a
+ * separate, purely local sentinel: it never leaves `IntelligenceDateFilter`
+ * or reaches the backend, it only tells that component's own `<select>`
+ * "show the custom-range option as selected" without needing a `start`/`end`
+ * pair to already exist.
+ */
+export const CUSTOM_RANGE_PREFIX = 'custom:'
+export const CUSTOM_RANGE_VALUE = '__custom_range__'
+
+export interface CustomDateRange {
+	/** ISO `YYYY-MM-DD` */
+	start: string
+	/** ISO `YYYY-MM-DD` */
+	end: string
+}
+
+export function isCustomRange(value: string): boolean {
+	return value.startsWith(CUSTOM_RANGE_PREFIX)
+}
+
+export function encodeCustomRange(range: CustomDateRange): string {
+	return `${CUSTOM_RANGE_PREFIX}${range.start}:${range.end}`
+}
+
+/** Inverse of `encodeCustomRange`. Returns `null` for anything that isn't
+ * a well-formed `custom:<start>:<end>` value, mirroring the backend's
+ * `parse_custom_range` returning `None` on malformed input rather than
+ * throwing. */
+export function decodeCustomRange(value: string): CustomDateRange | null {
+	if (!isCustomRange(value)) return null
+	const [start, end] = value.slice(CUSTOM_RANGE_PREFIX.length).split(':')
+	if (!start || !end) return null
+	return { start, end }
+}

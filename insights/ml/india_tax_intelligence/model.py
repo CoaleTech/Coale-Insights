@@ -109,7 +109,9 @@ class IndiaTaxIntelligence:
 
     def __init__(self, period: str = "fy"):
         self.model_name = "IndiaTaxIntelligence"
-        self.period = period if period in _PERIODS else "fy"
+        from insights.api.ml.utils import parse_custom_range
+
+        self.period = period if (period in _PERIODS or parse_custom_range(period)) else "fy"
         self.company = _default_company()
         self.base_currency = _base_currency(self.company)
         self.fiscal_year = _fiscal_year_for(self.company) if self.company else None
@@ -118,6 +120,12 @@ class IndiaTaxIntelligence:
     # ------------------------------------------------------------------ window
     def _window(self) -> Dict[str, Any]:
         """Resolve the reporting window for the requested period."""
+        from insights.api.ml.utils import parse_custom_range
+
+        custom = parse_custom_range(self.period)
+        if custom:
+            start, end = custom
+            return {"name": "Custom Range", "start": start.date(), "end": end.date()}
         if self.period == "fy":
             fy = self.fiscal_year or _fiscal_year_for(self.company)
             return {

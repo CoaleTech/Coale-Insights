@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -598,14 +599,50 @@ def warm_all(users: str | None = None) -> dict:
     return {"computed": computed, "failed": failed}
 
 
+_CUSTOM_RANGE_RE = re.compile(r"^custom:(\d{4}-\d{2}-\d{2}):(\d{4}-\d{2}-\d{2})$")
+
+
+def parse_custom_range(period: str | None) -> tuple[datetime, datetime] | None:
+    """Decode a ``custom:<start>:<end>`` token (ISO ``YYYY-MM-DD`` dates) into
+    ``(start, end)`` datetimes, or ``None`` if `period` is not one.
+
+    This is the encoding ``IntelligenceDateFilter.vue`` emits when a user
+    picks an explicit "from / to" range instead of a preset. It is the one
+    place that understands that encoding -- every period resolver in the
+    intelligence domains (`parse_date_filter` below, HR's and Marketing's
+    `_period_start_date`, Tax's `_coerce_period` + `IndiaTaxIntelligence._window`,
+    Manufacturing's `get_manufacturing_overview`) checks this first, so a
+    custom range is honoured everywhere a preset already is. Malformed or
+    inverted (``end`` before ``start``) input returns ``None`` rather than
+    raising, so a corrupted value degrades to the caller's own default
+    instead of a 500.
+    """
+    if not period or not period.startswith("custom:"):
+        return None
+    match = _CUSTOM_RANGE_RE.match(period)
+    if not match:
+        return None
+    try:
+        start = datetime.strptime(match.group(1), "%Y-%m-%d")
+        end = datetime.strptime(match.group(2), "%Y-%m-%d")
+    except ValueError:
+        return None
+    return None if end < start else (start, end)
+
+
 def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, datetime | None]:
     """Parse a date filter string into (start_date, end_date).
 
     Supported: ``"7d"``/``"30d"``/``"90d"`` (days), ``"3m"``-``"24m"``
-    (months, x30d), ``"1y"``-``"3y"`` (years, x365d), ``"ytd"``, ``"all"``.
+    (months, x30d), ``"1y"``-``"3y"`` (years, x365d), ``"ytd"``, ``"all"``,
+    or a ``custom:<start>:<end>`` range (see `parse_custom_range`).
     """
     if not date_filter or date_filter == "all":
         return None, None
+
+    custom = parse_custom_range(date_filter)
+    if custom:
+        return custom
 
     end_date = datetime.now()
 

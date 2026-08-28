@@ -24,6 +24,17 @@ dependencies = [
     "python-telegram-bot==21.4",
     "duckdb~=1.3.0",
     "sqlglot<28.0.0",
+    # sql-metadata 3.x rewrote its parser onto sqlglot>=30.12, which conflicts
+    # with the <28.0.0 pin above (ibis/pandas compat, see above). Left
+    # unpinned, a later app's `uv pip install --upgrade` in the same shared
+    # venv (e.g. exim, installed after this app but before sql_metadata's own
+    # owner -- frappe -- gets re-resolved) can silently drift sql_metadata to
+    # 3.x while sqlglot stays capped here, breaking `from sql_metadata import
+    # Parser` (and therefore frappe.desk.reportview, and therefore every
+    # app's bench build) with `ModuleNotFoundError: No module named
+    # 'sqlglot.parsers'`. Pinned here because this app installs early
+    # (idx 3 in sites/apps.json) and already owns the sqlglot cap.
+    "sql_metadata<3.0",
     # 11 is what this app is verified against; `~=10.5.0` excluded it while
     # every bench ran it anyway. ibis declares no pandas or numpy constraint of
     # its own, so the two above are the only thing pinning the native stack

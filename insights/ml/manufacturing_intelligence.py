@@ -46,20 +46,27 @@ class ManufacturingIntelligence:
         Get comprehensive manufacturing overview with key metrics
         
         Args:
-            period: One of MTD, QTD, YTD, TTM
+            period: One of MTD, QTD, YTD, TTM, or a `custom:<start>:<end>`
+                range (see `insights.api.ml.utils.parse_custom_range`)
         """
         try:
-            # Set date range based on period
-            if period == "MTD":
-                from_date = self.current_month_start
-            elif period == "QTD":
-                from_date = self.current_quarter_start
-            elif period == "YTD":
-                from_date = self.current_year_start
-            else:  # TTM
-                from_date = add_months(self.today, -12)
-            
-            to_date = self.today
+            from insights.api.ml.utils import parse_custom_range
+
+            custom = parse_custom_range(period)
+            if custom:
+                from_date, to_date = custom[0].date(), custom[1].date()
+            else:
+                # Set date range based on period
+                if period == "MTD":
+                    from_date = self.current_month_start
+                elif period == "QTD":
+                    from_date = self.current_quarter_start
+                elif period == "YTD":
+                    from_date = self.current_year_start
+                else:  # TTM
+                    from_date = add_months(self.today, -12)
+
+                to_date = self.today
             
             # Collect production data
             collector = ProductionDataCollector({

@@ -17,9 +17,10 @@ from insights.api.response import success, error
 from insights.api.ml.utils import cached_run, run
 
 
-# `period` is one of `3m` / `6m` / `12m` / `fy` and is resolved inside the
-# model. Anything else -- including an unset value -- coerces to `fy`;
-# see `_coerce_period`. `date_filter` is a different endpoint family's
+# `period` is one of `3m` / `6m` / `12m` / `fy`, or a `custom:<start>:<end>`
+# range (see `insights.api.ml.utils.parse_custom_range`), and is resolved
+# inside the model. Anything else -- including an unset value -- coerces to
+# `fy`; see `_coerce_period`. `date_filter` is a different endpoint family's
 # param name (see `insights.api.ml.utils.parse_date_filter`) and is not
 # accepted here.
 _PERIOD_KEYS = ("3m", "6m", "12m", "fy")
@@ -29,7 +30,10 @@ def _coerce_period(period: str | None) -> str:
     if not period:
         return "fy"
     p = str(period).strip().lower()
-    return p if p in _PERIOD_KEYS else "fy"
+    if p in _PERIOD_KEYS:
+        return p
+    from insights.api.ml.utils import parse_custom_range
+    return p if parse_custom_range(p) else "fy"
 
 
 def _compute(period: str) -> Dict[str, Any]:
