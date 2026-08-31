@@ -130,19 +130,19 @@ class TestOutsideVoiceFixes(FrappeTestCase):
         -- the gate must match the doctype the requested department actually
         exposes. See outside-voice finding 2.
 
-        get_department_insights now slices its department block out of the
-        pure-Ibis get_executive_summary() rollup (no ExecutiveIntelligence
-        class, no cache) -- mock that function directly."""
+        get_department_insights now slices its department block out of
+        get_cached_executive_summary()'s envelope (cached/backgrounded via
+        insights.api.ml.utils.cached_run) -- mock that function directly."""
         with patch.object(frappe, "has_permission") as mock_has_perm, \
-             patch("insights.ml.executive_intelligence.get_executive_summary",
-                   return_value={"kpis": {}, "alerts": []}) as mock_summary:
+             patch("insights.ml.executive_intelligence.get_cached_executive_summary",
+                   return_value={"status": "success", "data": {"kpis": {}, "alerts": []}}) as mock_summary:
             executive_api.get_department_insights(department="hr")
             mock_has_perm.assert_called_once_with("Salary Slip", "read", throw=True)
             mock_summary.assert_called_once_with("YTD")
 
         with patch.object(frappe, "has_permission") as mock_has_perm, \
-             patch("insights.ml.executive_intelligence.get_executive_summary",
-                   return_value={"kpis": {}, "alerts": []}):
+             patch("insights.ml.executive_intelligence.get_cached_executive_summary",
+                   return_value={"status": "success", "data": {"kpis": {}, "alerts": []}}):
             executive_api.get_department_insights(department="manufacturing")
             mock_has_perm.assert_called_once_with("Work Order", "read", throw=True)
 

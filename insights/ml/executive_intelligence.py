@@ -4,15 +4,21 @@ Executive Intelligence — pure-Ibis rewrite.
 Aggregates the C-suite rollup from the already-rewritten domain modules
 (sales / customer / inventory / procurement / financial / hr / risk /
 manufacturing / marketing) instead of re-implementating each KPI in
-pandas. Every domain call returns synchronously in well under a second
-because the underlying aggregates compile to one SQL statement each
-(see ``insights.api.ml.ibis_source``); we never need a Redis cache, a
-background job, or a warm-up.
+pandas. Every *individual* domain call returns synchronously in well
+under a second because the underlying aggregates compile to one SQL
+statement each (see ``insights.api.ml.ibis_source``) -- but fanning out
+to all nine of them in one rollup (see :func:`get_executive_summary`)
+measured ~60-215s cold on the live jkm DB, well past most gateway/
+reverse-proxy timeouts. Request-time callers MUST go through
+:func:`get_cached_executive_summary`, which serves a cached payload and
+recomputes it in a background job, the same pattern every other
+``insights.ml.*`` dashboard uses (see ``insights.api.ml.utils.cached_run``).
 
-The module exposes a single function, :func:`get_executive_summary`, plus
+The module exposes :func:`get_executive_summary` (the pure compute) and
+:func:`get_cached_executive_summary` (its cached/backgrounded form), plus
 a thin :class:`ExecutiveIntelligence` shim that ``executive_reports.py``
-already calls. The shim has no instance state of its own — every call
-runs the same rollup.
+and ``executive_agent.py`` already call. The shim has no instance state
+of its own -- every call delegates to the module-level functions.
 
 Frontend contract (see ``ExecutiveDashboard.vue``):
 
@@ -133,17 +139,35 @@ def _unavailable(domain: str) -> Dict[str, Any]:
         "status": "unavailable",
     }
 
-
 # ────────────────────────────────────────────────────────────────────────────
 # Domain data loaders (each returns the raw domain payload or {status:error})
 # ────────────────────────────────────────────────────────────────────────────
+
+
+def _resolve_date_filter(period: str) -> str:
+    """Translate the executive period vocabulary (`MTD`/`QTD`/`YTD`/`TTM`, or
+    an already-encoded `custom:<start>:<end>` range) into the `date_filter`
+    encoding Financial/Inventory/Sales/Customer intelligence expect
+    (`insights.api.ml.utils.parse_date_filter`'s vocabulary), by reusing the
+    fiscal-period resolver HR already ships (`insights.ml.hr_intelligence.
+    _period_start_date`/`_period_end_date`, which itself checks
+    `parse_custom_range` first).
+
+    Without this, the four domains below silently stayed on a hardcoded
+    `"12m"` window no matter what the dashboard's period selector was set
+    to -- the composite health score and HR/Manufacturing KPIs moved with
+    the picker, everything else did not.
+    """
+    from insights.ml.hr_intelligence import _period_end_date, _period_start_date
+
+    return f"custom:{_period_start_date(period)}:{_period_end_date(period)}"
 
 
 def _load_sales(period: str) -> Dict[str, Any]:
     try:
         from insights.ml.sales_intelligence import run_sales_intelligence
 
-        return run_sales_intelligence(date_filter="12m") or {}
+        return run_sales_intelligence(date_filter=_resolve_date_filter(period)) or {}
     except Exception as e:
         frappe.log_error(f"Executive: sales load failed: {e}", "Executive Intelligence")
         return {"error": str(e)}
@@ -153,7 +177,7 @@ def _load_customer(period: str) -> Dict[str, Any]:
     try:
         from insights.ml.customer import compute_customer_intelligence
 
-        return compute_customer_intelligence(date_filter="12m") or {}
+        return compute_customer_intelligence(date_filter=_resolve_date_filter(period)) or {}
     except Exception as e:
         frappe.log_error(f"Executive: customer load failed: {e}", "Executive Intelligence")
         return {"error": str(e)}
@@ -163,7 +187,7 @@ def _load_inventory(period: str) -> Dict[str, Any]:
     try:
         from insights.ml.inventory_intelligence import InventoryIntelligence
 
-        return InventoryIntelligence(date_filter="12m").train() or {}
+        return InventoryIntelligence(date_filter=_resolve_date_filter(period)).train() or {}
     except Exception as e:
         frappe.log_error(f"Executive: inventory load failed: {e}", "Executive Intelligence")
         return {"error": str(e)}
@@ -183,7 +207,7 @@ def _load_financial(period: str) -> Dict[str, Any]:
     try:
         from insights.ml.financial_intelligence import FinancialIntelligence
 
-        return FinancialIntelligence(date_filter="12m").train() or {}
+        return FinancialIntelligence(date_filter=_resolve_date_filter(period)).train() or {}
     except Exception as e:
         frappe.log_error(f"Executive: financial load failed: {e}", "Executive Intelligence")
         return {"error": str(e)}
@@ -910,81 +934,88 @@ def _narrative(kpis: Dict[str, Any], health: Dict[str, Any], period: str) -> str
 
 
 def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
-    """Compute the executive summary rollup, cached for 1 hour.
+    """Compute the executive summary rollup.
 
-    Every other endpoint in this app is a single domain's Ibis pipeline and
-    computes fresh on every call by design (see module docstrings across
-    ``insights/ml/``). This function is the one exception: it fans out to
-    *nine* of those pipelines in one request (sales, customer, inventory,
-    procurement, financial, risk, hr, manufacturing, marketing) to build
-    KPIs, and each one runs its own full computation -- there is no
-    lighter-weight "KPIs only" path into any of them. Measured cold on the
-    live jkm DB: 9 loaders sum to ~57s, the full rollup ~62s -- past most
-    gateway/reverse-proxy timeouts, and it was recomputing that from
-    scratch on *every* dashboard load. A synchronous read-through cache
-    (compute happens inline, in this request, on a miss -- no background
-    job, no fork) turns repeat loads within the TTL into a Redis read. The
-    1h TTL matches ``insights.ml.scheduler.run_daily_intelligence`` and
-    ``warm_dashboard_caches``, which both warm this cache for every period
-    ("MTD", "QTD", "YTD", "TTM") -- see their "Warm executive summary
-    cache (separate 1h TTL)" comments.
+    Every other domain module in ``insights/ml/`` computes fresh on every
+    call by design (see their own docstrings). This function is the one
+    exception in shape, not in caching policy: it fans out to *nine* of
+    those pipelines in one call (sales, customer, inventory, procurement,
+    financial, risk, hr, manufacturing, marketing), and each one runs its
+    own full computation -- there is no lighter-weight "KPIs only" path
+    into any of them. Measured cold on the live jkm DB: 9 loaders sum to
+    ~57s, the full rollup ~62-215s -- past most gateway/reverse-proxy
+    timeouts, so nothing that can be reached from a web request may call
+    this directly. Use :func:`get_cached_executive_summary` instead, which
+    serves this from cache and recomputes it in a background job.
+
+    This function itself is a pure, uncached compute like every other
+    domain module: it raises on failure instead of swallowing the error,
+    so ``insights.api.ml.utils.run`` (the caller inside
+    :func:`get_cached_executive_summary`) decides whether to cache or
+    surface it -- an error dict returned from here instead of raised
+    would look like a valid payload to ``cached_run`` and get cached for
+    a full day.
     """
-    cache_key = f"insights_ml_executive_summary:{period}"
-    cached = frappe.cache.get_value(cache_key)
-    if cached is not None:
-        return cached
+    sales = _load_sales(period)
+    customer = _load_customer(period)
+    inventory = _load_inventory(period)
+    procurement = _load_procurement(period)
+    financial = _load_financial(period)
+    risk = _load_risk(period)
+    hr = _load_hr(period)
+    manufacturing = _load_manufacturing(period)
+    # marketing is loaded for trend data only; we do not surface a marketing
+    # KPI block in the dashboard (the existing dashboard has no marketing
+    # KPI section; marketing is consumed via the Marketing dashboard
+    # directly). Loading here keeps the dependency alive for the day
+    # someone adds a marketing KPI block.
+    _marketing = _load_marketing(period)  # noqa: F841
 
-    try:
-        sales = _load_sales(period)
-        customer = _load_customer(period)
-        inventory = _load_inventory(period)
-        procurement = _load_procurement(period)
-        financial = _load_financial(period)
-        risk = _load_risk(period)
-        hr = _load_hr(period)
-        manufacturing = _load_manufacturing(period)
-        # marketing is loaded for trend data only; we do not surface a marketing
-        # KPI block in the dashboard (the existing dashboard has no marketing
-        # KPI section; marketing is consumed via the Marketing dashboard
-        # directly). Loading here keeps the dependency alive for the day
-        # someone adds a marketing KPI block.
-        _marketing = _load_marketing(period)  # noqa: F841
+    kpis: Dict[str, Any] = {
+        "financial": _financial_kpis(financial),
+        "sales": _sales_kpis(sales),
+        "customer": _customer_kpis(customer),
+        "operations": _operations_kpis(inventory, procurement),
+        "risk": _risk_kpis(risk),
+        "hr": _hr_kpis(hr),
+        "manufacturing": _manufacturing_kpis(manufacturing),
+    }
+    health = _business_health_score(kpis)
+    alerts = _executive_alerts(kpis)
+    trends = _trend_sparklines(period)
+    narrative = _narrative(kpis, health, period)
 
-        kpis: Dict[str, Any] = {
-            "financial": _financial_kpis(financial),
-            "sales": _sales_kpis(sales),
-            "customer": _customer_kpis(customer),
-            "operations": _operations_kpis(inventory, procurement),
-            "risk": _risk_kpis(risk),
-            "hr": _hr_kpis(hr),
-            "manufacturing": _manufacturing_kpis(manufacturing),
-        }
-        health = _business_health_score(kpis)
-        alerts = _executive_alerts(kpis)
-        trends = _trend_sparklines(period)
-        narrative = _narrative(kpis, health, period)
+    return {
+        "period": period,
+        "generated_at": _now_iso(),
+        "currency": _base_currency(),
+        "kpis": kpis,
+        "alerts": alerts,
+        "trends": trends,
+        "narrative": narrative,
+        "business_health_score": health,
+    }
 
-        result = {
-            "period": period,
-            "generated_at": _now_iso(),
-            "currency": _base_currency(),
-            "kpis": kpis,
-            "alerts": alerts,
-            "trends": trends,
-            "narrative": narrative,
-            "business_health_score": health,
-        }
-        # Cache only on success -- a transient failure should retry fresh on
-        # the next request, not serve (or lock in) an error for an hour.
-        frappe.cache.set_value(cache_key, result, expires_in_sec=3600)
-        return result
-    except Exception as e:
-        frappe.log_error(f"Executive summary failed: {e}", "Executive Intelligence")
-        return {
-            "error": str(e),
-            "period": period,
-            "generated_at": _now_iso(),
-        }
+
+def get_cached_executive_summary(period: str = "YTD") -> Dict[str, Any]:
+    """The full, unfiltered rollup for ``period``: served from cache and
+    recomputed in a background job on a miss (see
+    ``insights.api.ml.utils.cached_run``), instead of blocking the request
+    for the ~60-215s cold compute in :func:`get_executive_summary`.
+
+    Returns the standard envelope (``{"status": "success", "data": ...}``,
+    ``"error"``, or ``"warming"``) -- callers unwrap ``envelope["data"]``
+    themselves. This has no permission gate of its own: callers must check
+    permission *before* calling this (see
+    ``insights.api.ml.executive._permitted_departments``), same as every
+    other ``cached_run``-backed endpoint.
+    """
+    from insights.api.ml.utils import cached_run, run
+
+    return cached_run(
+        lambda: run(lambda: get_executive_summary(period), "executive_summary"),
+        cache_key=f"insights_ml_executive_summary:{period}",
+    )
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -993,13 +1024,22 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
 
 
 class ExecutiveIntelligence:
-    """Thin compatibility shim. ``insights.reports.executive_reports`` and a
-    few legacy tests instantiate this class and call ``.get_executive_summary``.
-    The class has no instance state; every method delegates to the
-    module-level functions."""
+    """Thin compatibility shim. ``insights.reports.executive_reports`` and
+    ``insights.agents.executive_agent`` instantiate this class and call
+    ``.get_executive_summary``. The class has no instance state; every
+    method delegates to the module-level functions."""
 
     def get_executive_summary(self, period: str = "YTD") -> Dict[str, Any]:
-        return get_executive_summary(period)
+        """Cached/backgrounded rollup, unwrapped back to the plain dict
+        shape this shim's callers were built against (pre-cache)."""
+        envelope = get_cached_executive_summary(period)
+        if envelope.get("status") == "success":
+            return envelope["data"]
+        return {
+            "error": envelope.get("message") or _("Executive summary is still being prepared."),
+            "period": period,
+            "generated_at": _now_iso(),
+        }
 
     def get_department_deep_dive(self, department: str, period: str = "YTD") -> Dict[str, Any]:
         """Pull the underlying domain module's full payload."""

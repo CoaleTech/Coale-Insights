@@ -4,7 +4,7 @@
 """
 Executive Intelligence API endpoints.
 
-Thin whitelisted wrappers around the pure-Ibis rollup in
+Thin whitelisted wrappers around the rollup in
 ``insights.ml.executive_intelligence``. Every endpoint:
 
 1. Gates on ``frappe.has_permission(<doctype>, "read", throw=True)``
@@ -12,13 +12,17 @@ Thin whitelisted wrappers around the pure-Ibis rollup in
    the requested department actually exposes (see ``_DEPARTMENT_DOCTYPE``
    below) so a Sales-only user cannot pass department="hr" and read
    payroll data.
-2. Computes the rollup synchronously via Ibis aggregates (no cache,
-   no background job, no ``compute_or_cache``). The rollup is the same
-   pure-Ibis function the dashboard already calls; nothing here does
-   pandas or sklearn work.
+2. Reads the rollup via ``get_cached_executive_summary``, which serves it
+   from cache and recomputes it in a background job on a miss (the same
+   ``cached_run`` pattern every other ``insights.api.ml.*`` dashboard
+   uses) instead of computing the ~60-215s nine-domain fan-out inline in
+   the request. Endpoints then apply their own permission-scoping /
+   department filtering to whatever the cache returns -- see
+   ``_scoped_rollup``.
 3. Returns the standard ``{"status": "success", "data": ...}`` envelope
-   on success, or ``{"status": "error", "message": ...}`` on a non-
-   permission failure. ``frappe.PermissionError`` is re-raised so
+   on success, ``{"status": "error", "message": ...}`` on a non-
+   permission failure, or ``{"status": "warming"}`` while the first
+   compute is still running. ``frappe.PermissionError`` is re-raised so
    Frappe's own auth layer returns 403.
 """
 
@@ -114,35 +118,37 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
     read, and the cross-domain composites are omitted unless the caller
     can read every department (see ``_scoped_rollup``).
     """
-    try:
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        return success(_scoped_rollup(get_executive_summary(period), permitted))
-    except frappe.PermissionError:
-        raise
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        return success(_scoped_rollup(envelope["data"], permitted))
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
-def get_business_health_score() -> Dict[str, Any]:
+def get_business_health_score(period: str = "YTD") -> Dict[str, Any]:
     """Return the ``business_health_score`` block, if the caller can read
     every department -- it is a composite across all of them (see
     ``_scoped_rollup``)."""
-    try:
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        scoped = _scoped_rollup(get_executive_summary("YTD"), permitted)
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        scoped = _scoped_rollup(envelope["data"], permitted)
         health = scoped.get("business_health_score")
         if health is None:
             return success({"restricted_note": scoped.get("restricted_note")})
         return success(health)
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))
 
@@ -151,39 +157,43 @@ def get_business_health_score() -> Dict[str, Any]:
 def get_executive_kpis(department: Optional[str] = None, period: str = "YTD") -> Dict[str, Any]:
     """Return the KPI block: one domain if ``department`` is given (gated on
     that domain's doctype), otherwise every domain the caller can read."""
-    try:
-        if department:
-            frappe.has_permission(_DEPARTMENT_DOCTYPE.get(department, "Sales Invoice"), "read", throw=True)
-            from insights.ml.executive_intelligence import get_executive_summary
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-            rollup = get_executive_summary(period)
-            kpis = rollup.get("kpis", {}) or {}
+    if department:
+        frappe.has_permission(_DEPARTMENT_DOCTYPE.get(department, "Sales Invoice"), "read", throw=True)
+        envelope = get_cached_executive_summary(period)
+        if envelope.get("status") != "success":
+            return envelope
+        try:
+            kpis = envelope["data"].get("kpis", {}) or {}
             return success(kpis.get(department, {}))
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
-
-        rollup = get_executive_summary(period)
-        kpis = rollup.get("kpis", {}) or {}
+        except Exception as e:
+            return error(str(e))
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        kpis = envelope["data"].get("kpis", {}) or {}
         return success({k: v for k, v in kpis.items() if k in permitted})
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
-def get_executive_alerts() -> Dict[str, Any]:
+def get_executive_alerts(period: str = "YTD") -> Dict[str, Any]:
     """Return the alerts list, filtered to departments the caller can read."""
-    try:
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        alerts = get_executive_summary("YTD").get("alerts", []) or []
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        alerts = envelope["data"].get("alerts", []) or []
         return success([a for a in alerts if a.get("department", "").lower() in permitted])
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))
 
@@ -192,18 +202,19 @@ def get_executive_alerts() -> Dict[str, Any]:
 def get_executive_trends(period: str = "YTD") -> Dict[str, Any]:
     """Return the trend sparkline series, if the caller can read every
     department -- the series span all of them (see ``_scoped_rollup``)."""
-    try:
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        scoped = _scoped_rollup(get_executive_summary(period), permitted)
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        scoped = _scoped_rollup(envelope["data"], permitted)
         trends = scoped.get("trends")
         if trends is None:
             return success({"restricted_note": scoped.get("restricted_note")})
         return success(trends)
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))
 
@@ -212,7 +223,7 @@ def get_executive_trends(period: str = "YTD") -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def get_executive_insights(query: str, complexity: str = "Medium") -> Dict[str, Any]:
+def get_executive_insights(query: str, complexity: str = "Medium", period: str = "YTD") -> Dict[str, Any]:
     """Return the executive rollup as a snapshot for an open-ended query,
     scoped to the caller's departments (see ``_scoped_rollup``).
 
@@ -223,37 +234,41 @@ def get_executive_insights(query: str, complexity: str = "Medium") -> Dict[str, 
     permission gate, success/error envelope, and contract are
     preserved.
     """
-    try:
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
         return success(
             {
                 "query": query,
                 "complexity": complexity,
-                "rollup": _scoped_rollup(get_executive_summary("YTD"), permitted),
+                "rollup": _scoped_rollup(envelope["data"], permitted),
             }
         )
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
-def get_department_insights(department: str, query: Optional[str] = None) -> Dict[str, Any]:
+def get_department_insights(department: str, query: Optional[str] = None, period: str = "YTD") -> Dict[str, Any]:
     """Return one department's KPI block plus its underlying rollup.
 
     Permission is gated on the doctype that the requested department
     exposes — see ``_DEPARTMENT_DOCTYPE``. A user with Sales Invoice
     read access cannot use department="hr" to read payroll data.
     """
-    try:
-        frappe.has_permission(_DEPARTMENT_DOCTYPE.get(department, "Sales Invoice"), "read", throw=True)
-        from insights.ml.executive_intelligence import get_executive_summary
+    frappe.has_permission(_DEPARTMENT_DOCTYPE.get(department, "Sales Invoice"), "read", throw=True)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        rollup = get_executive_summary("YTD")
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        rollup = envelope["data"]
         kpis = rollup.get("kpis", {}) or {}
         dept_kpis = kpis.get(department, {})
         return success(
@@ -264,14 +279,12 @@ def get_department_insights(department: str, query: Optional[str] = None) -> Dic
                 "alerts": [a for a in (rollup.get("alerts") or []) if a.get("department", "").lower() == department],
             }
         )
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
-def get_strategic_recommendations(focus_area: str = "overall") -> Dict[str, Any]:
+def get_strategic_recommendations(focus_area: str = "overall", period: str = "YTD") -> Dict[str, Any]:
     """Return strategic recommendations derived from the rollup.
 
     No LLM call: the recommendations are the alerts list (each alert
@@ -279,12 +292,15 @@ def get_strategic_recommendations(focus_area: str = "overall") -> Dict[str, Any]
     filtered to departments the caller can read and optionally further
     narrowed to the focus area's department.
     """
-    try:
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        rollup = get_executive_summary("YTD")
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        rollup = envelope["data"]
         alerts = [a for a in (rollup.get("alerts", []) or []) if a.get("department", "").lower() in permitted]
         # Map focus area to a department when the user picks one.
         focus_dept = {
@@ -298,14 +314,12 @@ def get_strategic_recommendations(focus_area: str = "overall") -> Dict[str, Any]
         }.get(focus_area.lower())
         recs = [a for a in alerts if not focus_dept or a.get("department", "").lower() == focus_dept.lower()]
         return success({"focus_area": focus_area, "recommendations": recs})
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))
 
 
 @frappe.whitelist()
-def analyze_executive_query(query: str) -> Dict[str, Any]:
+def analyze_executive_query(query: str, period: str = "YTD") -> Dict[str, Any]:
     """Return the rollup tagged with the user's query, scoped to the
     caller's departments (see ``_scoped_rollup``).
 
@@ -314,14 +328,15 @@ def analyze_executive_query(query: str) -> Dict[str, Any]:
     difference is only that the data it returns is now real instead of
     fabricated from pandas/sklearn models that never saw this site.)
     """
-    try:
-        permitted = _permitted_departments()
-        _require_any_department(permitted)
-        from insights.ml.executive_intelligence import get_executive_summary
+    permitted = _permitted_departments()
+    _require_any_department(permitted)
+    from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        return success({"query": query, "analysis": _scoped_rollup(get_executive_summary("YTD"), permitted)})
-    except frappe.PermissionError:
-        raise
+    envelope = get_cached_executive_summary(period)
+    if envelope.get("status") != "success":
+        return envelope
+    try:
+        return success({"query": query, "analysis": _scoped_rollup(envelope["data"], permitted)})
     except Exception as e:
         return error(str(e))
 
@@ -435,9 +450,14 @@ def test_executive_intelligence_data() -> Dict[str, Any]:
     """Sanity check: does the rollup return anything for this user/site?"""
     try:
         frappe.has_permission("Executive Report", "read", throw=True)
-        from insights.ml.executive_intelligence import get_executive_summary
+        from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        rollup = get_executive_summary("YTD")
+        envelope = get_cached_executive_summary("YTD")
+        if envelope.get("status") == "warming":
+            return success({"test": "warming", "data_available": False, "kpi_domains": [], "alert_count": 0})
+        if envelope.get("status") != "success":
+            return envelope
+        rollup = envelope["data"]
         has_data = bool(rollup.get("business_health_score") or rollup.get("kpis"))
         return success(
             {

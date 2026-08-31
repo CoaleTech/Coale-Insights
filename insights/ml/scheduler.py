@@ -282,13 +282,16 @@ def run_daily_intelligence():
             frappe.log_error(f"Daily intelligence {name} failed: {str(e)}", "ML Scheduler")
             results[name] = {"status": "error", "message": str(e)}
 
-    # Warm executive summary cache (separate 1h TTL)
+    # Warm executive summary cache. Runs as whichever user the scheduler
+    # runs as (Administrator, by default) -- `get_cached_executive_summary`
+    # caches per-user like every other insights.ml dashboard, so this only
+    # pre-warms the Administrator's own view; other users' views are warmed
+    # on demand by the hourly `insights.api.ml.utils.refresh_dashboard_caches`.
     try:
-        from insights.ml.executive_intelligence import ExecutiveIntelligence
+        from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        executive = ExecutiveIntelligence()
         for period in ("MTD", "QTD", "YTD", "TTM"):
-            executive.get_executive_summary(period)
+            get_cached_executive_summary(period)
         frappe.logger().info("Executive intelligence cache warmed for all periods")
     except Exception as e:
         frappe.log_error(f"Executive cache warmup failed: {str(e)}", "ML Scheduler")
@@ -316,11 +319,10 @@ def warm_dashboard_caches():
             frappe.log_error(f"Dashboard cache warm failed for {name}: {str(e)}", "ML Scheduler")
 
     try:
-        from insights.ml.executive_intelligence import ExecutiveIntelligence
+        from insights.ml.executive_intelligence import get_cached_executive_summary
 
-        executive = ExecutiveIntelligence()
         for period in ("MTD", "QTD", "YTD", "TTM"):
-            executive.get_executive_summary(period)
+            get_cached_executive_summary(period)
         warmed.append("executive_summary")
     except Exception as e:
         frappe.log_error(f"Executive cache warm failed: {str(e)}", "ML Scheduler")
