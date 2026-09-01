@@ -392,6 +392,21 @@ def _approval_queue() -> dict[str, Any]:
             "message": frappe._("The JKM Finance pricing app is not installed on this site."),
             "rows": [],
         }
+    if not frappe.db.has_column("JKM Sales Pricing Request", "workflow_state"):
+        # The DocType is installed but `create_pricing_workflow()` (which owns
+        # this Custom Field via `Workflow.save()`) never completed -- an
+        # `after_install` that aborted partway through an older install, or
+        # `after_migrate` not having run yet. `bench migrate` self-heals this
+        # (`create_pricing_workflow` is idempotent), so point at that instead
+        # of a raw "Unknown column" SQL error.
+        return {
+            "status": "unavailable",
+            "message": frappe._(
+                "The pricing approval workflow has not finished setting up on this site."
+                " Run `bench migrate` to complete it."
+            ),
+            "rows": [],
+        }
     # `frappe.qb`, not `get_all(fields=["count(name) as count"])`: v16's query
     # builder rejects SQL functions written as strings in `fields`.
     SPR = frappe.qb.DocType("JKM Sales Pricing Request")
