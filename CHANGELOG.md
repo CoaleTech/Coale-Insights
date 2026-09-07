@@ -6,6 +6,24 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-04
 
+### Fixed — Customers tab search and tier/segment/risk filters silently died
+
+The Customers tab on the Revenue & Customer Intelligence dashboard crashed its
+entire tab body the instant anything was typed into the search box, which also
+made the tier/RFM/risk `Select` filters appear dead (the whole `CustomerSections`
+subtree had unmounted). Root cause: `compute_customer_intelligence` in
+`insights/ml/customer.py` ran `.fillna(0)` over the per-customer frame, filling
+the *string* `territory` column with the integer `0` for the 23 customers with no
+territory. The search filter in `CustomerSections.vue` called
+`c.territory?.toLowerCase()`; optional chaining only guards `null`/`undefined`, so
+`(0).toLowerCase()` threw a `TypeError` inside the `customers` computed, and Vue's
+error handler tore the tab down with no console output. Fixed both ends: the
+collector now stringifies `territory`/`customer_group`/`customer_name` alongside
+the other categoricals (empty string for missing), and the search filter coerces
+each field with a `typeof v === 'string'` guard so no payload value can crash it.
+Verified live: search narrows (588 → 1 for "pharma" within High risk), tier=13,
+RFM=82, risk=88, combinations compose, reset returns 588, zero crashes.
+
 ### Fixed — Executive dashboard's Custom Range narrative leaked the raw filter encoding
 
 `_narrative` in `insights/ml/executive_intelligence.py` interpolated the `period`

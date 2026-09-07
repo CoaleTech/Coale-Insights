@@ -636,7 +636,8 @@ def compute_customer_intelligence(
         .fillna(0)
         .to_dict("records")
     )
-    for col in ("clv_tier", "churn_risk", "health_status", "rfm_segment", "rfm_score"):
+    for col in ("clv_tier", "churn_risk", "health_status", "rfm_segment", "rfm_score",
+                "territory", "customer_group", "customer_name"):
         for r in customers_list:
             r[col] = str(r.get(col) or "")
     customers_list.sort(key=lambda c: float(c.get("total_clv") or 0), reverse=True)

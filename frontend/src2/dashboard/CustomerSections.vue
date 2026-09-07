@@ -98,10 +98,11 @@ const customers = computed(() => {
   if (customerFilter.value) {
     const search = customerFilter.value.toLowerCase()
     list = list.filter((c: CustomerRow) =>
-      c.customer_name?.toLowerCase().includes(search) ||
-      c.customer_id?.toLowerCase().includes(search) ||
-      c.territory?.toLowerCase().includes(search) ||
-      c.rfm_segment?.toLowerCase().includes(search),
+      // Coerce each field: the payload occasionally carries a non-string
+      // (e.g. territory `0` for customers with no territory), and calling
+      // `.toLowerCase()` on it throws, crashing the whole tab.
+      [c.customer_name, c.customer_id, c.territory, c.rfm_segment]
+        .some(v => typeof v === 'string' && v.toLowerCase().includes(search)),
     )
   }
   if (tierFilter.value) list = list.filter(c => c.clv_tier === tierFilter.value)
