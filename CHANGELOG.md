@@ -6,6 +6,25 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Added — Gross Profit column on the Customers and Geography tabs
+
+Extended the Patterns-tab gross-profit work to two more views. The Customers
+list showed Total CLV but no margin, and the Territory Performance table
+(Geography tab) showed Revenue but no margin — a high-revenue customer or
+territory could be carrying thin profit with no way to see it.
+
+- **Customers tab**: `Gross Profit` column after Total CLV.
+- **Geography tab** (Territory Performance): `Gross Profit` column after Revenue.
+
+`compute_customer_intelligence` now merges a per-customer line-level gross-profit
+aggregate (`net_amount - qty * incoming_rate`, the same formula as the Rankings
+scorecard) into the per-customer frame, so both the customer list and the
+territory rollup (a sum over that frame) carry it — one source, no second query.
+
+Live-verified on the JKM ledger: Sujata Nutri-Pharma total CLV ₹30,442,395 /
+gross profit ₹2,952,375; Surat territory revenue ₹69,228,233 / gross profit
+₹13,053,664. Zero console errors.
+
 ### Added — Gross Profit column on the Patterns tab
 
 The Customers → Patterns tab showed Orders, Revenue and Avg Order per day-of-week

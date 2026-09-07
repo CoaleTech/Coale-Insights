@@ -63,6 +63,7 @@ interface CustomerRow {
   health_score?: number
   order_count?: number
   recency_days?: number
+  gross_profit?: number
 }
 
 interface ScorecardRow {
@@ -574,6 +575,7 @@ onMounted(() => {
             <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">RFM Segment</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">CLV Tier</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Total CLV</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Gross Profit</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-center text-ink-gray-6">Health</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-center text-ink-gray-6">Churn Risk</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Orders</th>
@@ -598,6 +600,7 @@ onMounted(() => {
             <td class="px-4 py-3"><Badge theme="gray" variant="subtle" :label="customer.rfm_segment || '-'" size="sm" /></td>
             <td class="px-4 py-3"><Badge theme="gray" variant="subtle" :label="customer.clv_tier || '-'" size="sm" /></td>
             <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(customer.total_clv || customer.historical_clv) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(customer.gross_profit) }}</td>
             <td class="px-4 py-3 text-center">
               <Badge v-bind="severityBadge(healthSeverity(customer.health_status))" :label="String(Math.round(customer.health_score || 0))" size="sm" />
             </td>
@@ -654,6 +657,7 @@ onMounted(() => {
             <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">Territory</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Customers</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Revenue</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Gross Profit</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Share</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Avg AOV</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Health</th>
@@ -670,6 +674,7 @@ onMounted(() => {
             </td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ territory.customer_count }}</td>
             <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(territory.total_revenue as number) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(territory.gross_profit as number) }}</td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ formatPercent(territory.revenue_share as number) }}</td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(territory.avg_order_value as number) }}</td>
             <td class="px-4 py-3 text-right">

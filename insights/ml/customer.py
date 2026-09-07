@@ -494,6 +494,27 @@ def compute_customer_intelligence(
     else:
         df["recent_avg_order_value"] = None
         df["recent_order_count"] = 0
+
+    # Per-customer gross profit (line-level, same formula as the rankings
+    # scorecard), so the customer list and territory rollup can show margin.
+    sii = t("Sales Invoice Item")
+    si_for_profit = t("Sales Invoice")
+    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    if company:
+        profit_lines = profit_lines.filter(si_for_profit.company == company)
+    profit_lines = profit_lines.filter(
+        (si_for_profit.docstatus == 1) & si_for_profit.posting_date.between(start, end)
+    )
+    gp_df = (
+        profit_lines.group_by(si_for_profit.customer)
+        .aggregate(gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum())
+        .execute()
+    )
+    if not gp_df.empty:
+        gp_df["gross_profit"] = gp_df["gross_profit"].astype(float)
+        df = df.merge(gp_df, on="customer", how="left")
+    else:
+        df["gross_profit"] = 0.0
     if df.empty:
         return {
             "status": "error",
@@ -516,6 +537,7 @@ def compute_customer_intelligence(
     df["avg_order_value"] = df["avg_order_value"].fillna(0).astype(float)
     df["order_count"] = df["order_count"].fillna(0).astype(int)
     df["outstanding_amount"] = df["outstanding_amount"].fillna(0).astype(float)
+    df["gross_profit"] = df["gross_profit"].fillna(0).astype(float)
     df["overdue_count"] = df["overdue_count"].fillna(0).astype(int)
     # ibis/MariaDB hands DECIMAL aggregates back as `object`-dtype Series of
     # `decimal.Decimal` -- fine for the merges above, but the vectorized
@@ -631,6 +653,7 @@ def compute_customer_intelligence(
             "churn_score", "churn_risk", "health_score", "health_status",
             "outstanding_amount", "rfm_score", "rfm_segment",
             "revenue_score", "engagement_score", "longevity_score", "growth_score",
+            "gross_profit",
         ]]
         .rename(columns={"customer": "customer_id"})
         .fillna(0)
@@ -754,6 +777,7 @@ def _geographic_analysis(df):
             avg_churn_risk=("churn_score", "mean"),
             avg_health_score=("health_score", "mean"),
             total_orders=("order_count", "sum"),
+            gross_profit=("gross_profit", "sum"),
         )
         .reset_index()
         .sort_values("total_revenue", ascending=False)
