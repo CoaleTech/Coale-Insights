@@ -353,6 +353,29 @@ def analyze_sales_reps(
             "unattributed_revenue_pct": 100.0 if total_invoice_revenue > 0 else 0,
         }
 
+    # Per-rep gross profit, allocated to each sales person by their share of
+    # the invoice (allocated_amount / grand_total), so margin reconciles with
+    # the allocated revenue shown. Line-level GP mirrors analyze_margins:
+    # net_amount - qty * incoming_rate (NULL incoming_rate treated as zero).
+    sii = t("Sales Invoice Item")
+    inv_gp_df = (
+        si.inner_join(sii, sii.parent == si.name)
+        .group_by(invoice=si.name)
+        .aggregate(
+            invoice_gp=sii.net_amount.sum() - (sii.qty * sii.incoming_rate.fill_null(0)).sum(),
+            grand_total=si.grand_total.max(),
+        )
+        .execute()
+    )
+    team_df = team_p.execute()
+    gp_by_rep: dict[str, float] = {}
+    if not inv_gp_df.empty and not team_df.empty:
+        m = team_df.merge(inv_gp_df, left_on="parent", right_on="invoice", how="inner")
+        gt = m["grand_total"].astype(float)
+        frac = (m["allocated_amount"].astype(float) / gt).where(gt != 0, 0.0)
+        m["rep_gp"] = m["invoice_gp"].astype(float).fillna(0.0) * frac
+        gp_by_rep = m.groupby("sales_person")["rep_gp"].sum().to_dict()
+
     reps: list[dict[str, Any]] = []
     for idx, (_, r) in enumerate(df.iterrows(), start=1):
         name = str(r["sales_person"])
@@ -360,6 +383,8 @@ def analyze_sales_reps(
         total_orders = int(r["total_orders"] or 0)
         unique = int(r["unique_customers"] or 0)
         aov = round(total_rev / total_orders, 2) if total_orders else 0
+        gp = float(gp_by_rep.get(name, 0.0))
+        margin = round(gp / total_rev * 100, 1) if total_rev else 0
         reps.append(
             {
                 "sales_person": name,
@@ -370,6 +395,8 @@ def analyze_sales_reps(
                 "unique_customers": unique,
                 "avg_order_value": aov,
                 "total_incentives": float(r["total_incentives"] or 0),
+                "gross_profit": round(gp, 2),
+                "margin_pct": margin,
                 "trend": [],
             }
         )

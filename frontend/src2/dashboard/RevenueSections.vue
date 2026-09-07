@@ -857,6 +857,8 @@ onMounted(() => {
             <th scope="col" class="px-4 py-2 text-left text-ink-gray-7">Rank</th>
             <th scope="col" class="px-4 py-2 text-left text-ink-gray-7">Sales Person</th>
             <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Revenue</th>
+            <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Gross Profit</th>
+            <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Margin %</th>
             <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Orders</th>
             <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">AOV</th>
             <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Customers</th>
@@ -879,6 +881,10 @@ onMounted(() => {
               {{ (rep.sales_person_name as string) || (rep.sales_person as string) }}
             </td>
             <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money(rep.total_revenue as number) }}</td>
+            <td class="px-4 py-2 text-right text-ink-gray-7">{{ money(rep.gross_profit as number) }}</td>
+            <td class="px-4 py-2 text-right">
+              <Badge v-bind="severityBadge(scoreSeverity(rep.margin_pct as number, { good: 30, warn: 15 }))" :label="pct(rep.margin_pct as number)" size="sm" />
+            </td>
             <td class="px-4 py-2 text-right text-ink-gray-7">{{ rep.total_orders }}</td>
             <td class="px-4 py-2 text-right text-ink-gray-7">{{ money(rep.avg_order_value as number) }}</td>
             <td class="px-4 py-2 text-right text-ink-gray-7">{{ rep.unique_customers }}</td>

@@ -6,6 +6,23 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Added — Gross Profit and Margin % columns on the Sales Reps leaderboard
+
+The Sales Rep Leaderboard showed each rep's allocated Revenue but no margin, so
+a high-revenue rep carrying thin profit was invisible. Added `Gross Profit`
+(amount) and `Margin %` (severity badge) columns after Revenue.
+
+Rep revenue is the `Sales Team.allocated_amount` — a proportional split of each
+invoice, not `grand_total` — so gross profit is allocated the same way to
+reconcile: each invoice's line-level GP (`net_amount − qty × incoming_rate`, the
+same formula as `analyze_margins`) is distributed to its sales persons by their
+share of the invoice (`allocated_amount / grand_total`), then summed per rep.
+Margin % is that allocated GP over the rep's allocated revenue.
+
+Live-verified on the JKM ledger: Milan Mavani revenue ₹139,294,010 / gross
+profit ₹26,649,258 / 19.1%; Khushboo 14.6%; Roja 11.6%; Priyanka 10.7%. Zero
+console errors.
+
 ### Added — Gross Profit column on the Customers and Geography tabs
 
 Extended the Patterns-tab gross-profit work to two more views. The Customers
