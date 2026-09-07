@@ -6,6 +6,23 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Changed — Redesigned the Forecasts tab to lead with a plain-language summary
+
+The tab opened with an "ML Forecast Training" panel and a "Sales Forecast (Next
+90 Days)" section split into 30-day bucket tiles — jargon and buckets that were
+mostly empty for the 30-day model. Replaced the top of the tab with a four-card
+summary band (Forecast · Next N Days, Average / Day, Trend, Forecast Reliability)
+and a single **Revenue Trend & Projection** line chart: a solid line for the
+monthly actuals and a dashed line for the model's projection, built from the
+dimensional product-group data already loaded (no extra call). Raw model enums
+like `linear_trend` now render as "Linear trend"; the sMAPE error is expressed
+as a High/Medium/Low reliability band with a plain caption ("missed by about
+68.4% on average … treat projected months as directional"). Dropped the
+contradicting severity badge that showed a red "High" beside a "Low" value.
+Removed the now-dead `forecastBuckets`/`reliabilitySeverity` computeds.
+Live-verified on jkm: summary band and dashed-projection chart render, zero
+console errors.
+
 ### Fixed — Forecasts tab labelled the current month "Actual" over forecast cells
 
 The dimensional forecast tables (Sales by Product Group / Territory) labelled

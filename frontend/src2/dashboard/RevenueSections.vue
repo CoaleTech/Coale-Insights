@@ -61,7 +61,7 @@ const forecasts = computed(() => (props.data.forecasts ?? {}) as Record<string, 
  */
 interface SalesForecastPayload {
   forecast?: { yhat?: number }[]
-  forecast_summary?: { total_forecast?: number; days?: number }
+  forecast_summary?: { total_forecast?: number; avg_daily_forecast?: number; trend?: string; days?: number }
   method?: string
   metrics?: Record<string, number>
 }
@@ -71,19 +71,6 @@ const salesForecast = computed(
 const forecastDays = computed(
   () => salesForecast.value?.forecast_summary?.days ?? salesForecast.value?.forecast?.length ?? 0,
 )
-/** 30-day buckets, but only the ones the horizon actually covers. */
-const forecastBuckets = computed(() => {
-  const rows = salesForecast.value?.forecast ?? []
-  const buckets: { label: string; amount: number }[] = []
-  for (let start = 0; start < rows.length; start += 30) {
-    const slice = rows.slice(start, start + 30)
-    buckets.push({
-      label: start === 0 ? `Next ${slice.length} days` : `Days ${start + 1}-${start + slice.length}`,
-      amount: slice.reduce((sum, row) => sum + (row.yhat || 0), 0),
-    })
-  }
-  return buckets
-})
 /**
  * Forecast error, reported as error rather than as "accuracy".
  *
@@ -103,6 +90,34 @@ const forecastError = computed(() => {
     return { label: 'MAPE', value: metrics.mape, days: metrics.horizon_days }
   }
   return null
+})
+/** Friendly model name — the payload carries raw enums like `linear_trend`. */
+const METHOD_LABELS: Record<string, string> = {
+  linear_trend: 'Linear trend',
+  moving_average: 'Moving average',
+  seasonal_naive: 'Seasonal naïve',
+  prophet: 'Prophet',
+  arima: 'ARIMA',
+}
+const methodLabel = computed(() => {
+  const m = salesForecast.value?.method
+  return m ? (METHOD_LABELS[m] ?? m.replace(/_/g, ' ')) : '—'
+})
+/** Plain-language direction from the payload's `trend`. */
+const forecastTrendLabel = computed(() => {
+  const t = salesForecast.value?.forecast_summary?.trend
+  return t === 'up' ? 'Rising' : t === 'down' ? 'Falling' : t ? 'Flat' : '—'
+})
+/**
+ * sMAPE/MAPE is meaningless to most readers. Turn it into a High/Medium/Low
+ * reliability band (lower error = higher reliability) and keep the raw figure
+ * as a sublabel for anyone who wants it.
+ */
+const forecastReliability = computed(() => {
+  const e = forecastError.value
+  if (!e) return null
+  const level = e.value < 20 ? 'High' : e.value < 40 ? 'Medium' : 'Low'
+  return { level, value: e.value, label: e.label, days: e.days }
 })
 const fulfillmentSeverity = computed(() =>
   scoreSeverity((fulfillment.value.fulfillment_rate as number) || summary.value.fulfillment_rate, { good: 95, warn: 85 }),
@@ -303,6 +318,52 @@ const transposedTerritoryData = computed(() =>
 const paginatedTransposedTerritories = computed(() => {
   const start = territoryPage.value * 15
   return transposedTerritoryData.value.rows.slice(start, start + 15)
+})
+/**
+ * Overall monthly revenue — actuals then the model's projection — built by
+ * summing the product-group dimensional rows across groups per month. Reuses
+ * data already loaded for the tables (no extra call). `Actual` and `Forecast`
+ * are separate columns so the chart draws a solid history line and a dashed
+ * projection line; the last actual month is also written into `Forecast` so
+ * the dashed line visually connects to where the solid one ends.
+ */
+const monthlyTrend = computed(() => {
+  const rows = (dimensionalForecast.value.combined_product_group as DimItem[]) || []
+  if (!rows.length) return null
+  const byPeriod = new Map<string, { revenue: number; is_forecast: boolean }>()
+  for (const r of rows) {
+    const b = byPeriod.get(r.period) ?? { revenue: 0, is_forecast: false }
+    b.revenue += r.revenue || 0
+    if (r.is_forecast) b.is_forecast = true
+    byPeriod.set(r.period, b)
+  }
+  const periods = Array.from(byPeriod.keys()).sort()
+  const data = periods.map(p => {
+    const { revenue, is_forecast } = byPeriod.get(p)!
+    return {
+      period: formatPeriod(p),
+      Actual: is_forecast ? null : revenue,
+      Forecast: is_forecast ? revenue : null,
+    } as Record<string, unknown>
+  })
+  const lastActual = data.map(d => d.Actual !== null).lastIndexOf(true)
+  if (lastActual >= 0 && lastActual < data.length - 1) data[lastActual].Forecast = data[lastActual].Actual
+  return data
+})
+const revenueProjectionConfig = computed(() => {
+  const d = monthlyTrend.value
+  if (!d) return null
+  const palette = chartPalette(2)
+  return {
+    data: d,
+    title: '',
+    xAxis: { key: 'period', type: 'category' as const },
+    yAxis: { title: 'Revenue' },
+    series: [
+      { name: 'Actual', type: 'line' as const, color: palette[0], showDataPoints: true },
+      { name: 'Forecast', type: 'line' as const, color: palette[1], lineType: 'dashed' as const, showDataPoints: true },
+    ],
+  }
 })
 
 interface TransposedRow {
@@ -990,59 +1051,49 @@ onMounted(() => {
 
   <!-- ═══ Forecasts ═══ -->
   <div v-if="activeTab === 'rev-forecasts'">
-    <div class="mb-6 bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
-      <div class="flex flex-wrap items-center justify-between gap-4">
-        <SectionHeader variant="caption" title="ML Forecast Training" hint="Train models to generate sales forecasts" :level="3" />
-        <div class="flex gap-2">
-          <Button variant="solid" theme="gray" :loading="isTraining === 'sales'" :disabled="!!isTraining" @click="trainForecasts('sales')">
-            Train Sales Forecast
-          </Button>
-        </div>
-      </div>
-      <p v-if="trainingStatus" class="mt-2 text-sm" :class="trainingStatus.includes('successfully') ? 'text-ink-gray-8' : 'text-ink-red-4'">{{ trainingStatus }}</p>
+    <!-- Summary band -->
+    <div v-if="salesForecast" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <KpiCard :label="`Forecast · Next ${forecastDays} Days`"
+        :amount="salesForecast.forecast_summary?.total_forecast || 0" :currency="props.currency"
+        :sublabel="`${methodLabel} model`" />
+      <KpiCard label="Average / Day"
+        :amount="salesForecast.forecast_summary?.avg_daily_forecast || 0" :currency="props.currency" />
+      <KpiCard label="Trend" :value="forecastTrendLabel" sublabel="direction of the projection" />
+      <KpiCard v-if="forecastReliability" label="Forecast Reliability" :value="forecastReliability.level"
+        :sublabel="`${forecastReliability.label} ${pct(forecastReliability.value)}`" />
+      <KpiCard v-else label="Forecast Reliability" value="—" />
     </div>
 
-    <div class="mb-6">
-      <div v-if="salesForecast">
-        <SectionHeader
-          variant="caption"
-          :title="`Sales Forecast (Next ${forecastDays} Days)`"
-          :level="3"
-        >
+    <!-- Revenue trend & projection -->
+    <div class="mb-6 bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <SectionHeader variant="caption" title="Revenue Trend & Projection"
+          hint="Monthly revenue — the solid line is actual, the dashed line is the model’s projection" :level="3">
           <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
-        <div class="mt-4 bg-surface-gray-1 rounded-lg p-4 mb-4 border border-outline-gray-1">
-          <p class="text-sm text-ink-gray-6">Predicted Total ({{ forecastDays }} days)</p>
-          <p class="text-3xl font-bold text-ink-gray-9">
-            {{ money(salesForecast.forecast_summary?.total_forecast || 0) }}
-          </p>
-          <p class="text-sm text-ink-gray-6 mt-1">Method: {{ salesForecast.method || '—' }}</p>
-        </div>
-        <p v-if="forecastError" class="text-sm text-ink-gray-6">
-          Forecast error ({{ forecastError.label }}): {{ pct(forecastError.value) }}
-          <span v-if="forecastError.days" class="text-ink-gray-5">
-            · measured on a {{ forecastError.days }}-day held-out tail
-          </span>
-        </p>
-        <div v-if="forecastBuckets.length" class="mt-4">
-          <h4 class="text-sm font-medium text-ink-gray-7 mb-2">Monthly Breakdown</h4>
-          <div class="grid gap-2" :class="forecastBuckets.length > 1 ? 'grid-cols-3' : 'grid-cols-1'">
-            <KpiCard
-              v-for="bucket in forecastBuckets"
-              :key="bucket.label"
-              :label="bucket.label"
-              :amount="bucket.amount"
-              :currency="props.currency"
-              variant="tile"
-            />
-          </div>
-        </div>
+        <Button variant="subtle" theme="gray" :loading="isTraining === 'sales'" :disabled="!!isTraining" @click="trainForecasts('sales')">
+          Retrain model
+        </Button>
       </div>
-      <div v-else class="text-center py-8 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
-        <Activity class="w-12 h-12 mx-auto text-ink-gray-6 opacity-40 mb-2" aria-hidden="true" />
-        <p class="font-medium text-ink-gray-7">No sales forecast available</p>
-        <p class="text-xs text-ink-gray-6">Click "Train Sales Forecast" to generate predictions</p>
+      <p v-if="trainingStatus" class="mt-2 text-sm" :class="trainingStatus.includes('successfully') ? 'text-ink-gray-8' : 'text-ink-red-4'">{{ trainingStatus }}</p>
+      <div v-if="revenueProjectionConfig" class="mt-4 h-64 sm:h-72 lg:h-80">
+        <IntelligenceChart :config="revenueProjectionConfig" class="h-64 sm:h-72 lg:h-80" />
       </div>
+      <div v-else-if="isLoadingDimensional" class="mt-4 text-center py-12 text-ink-gray-6">
+        <Activity class="w-10 h-10 mx-auto opacity-40 mb-2 animate-pulse" aria-hidden="true" />
+        <p class="text-sm">Loading revenue trend…</p>
+      </div>
+      <div v-else class="mt-4 text-center py-12 text-ink-gray-6">
+        <Activity class="w-10 h-10 mx-auto opacity-40 mb-2" aria-hidden="true" />
+        <p class="font-medium text-ink-gray-7">No forecast available yet</p>
+        <p class="text-xs">Click “Retrain model” to generate projections</p>
+      </div>
+      <p v-if="forecastReliability" class="mt-3 text-xs text-ink-gray-6 border-t border-outline-gray-1 pt-3">
+        <span class="font-medium text-ink-gray-7">Reliability: {{ forecastReliability.level }}.</span>
+        On a {{ forecastReliability.days }}-day held-out test the daily model missed by about
+        {{ pct(forecastReliability.value) }} on average ({{ forecastReliability.label }}). Treat projected
+        months as directional, not exact.
+      </p>
     </div>
 
     <!-- Dimensional forecast by product group -->
