@@ -57,7 +57,7 @@ def _category_total(company: str, start: str, end: str, keywords: List[str]) -> 
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .select(Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"))
         .where(acc.root_type == "Expense")
         .where(gle.company == company)
         .where(gle.posting_date.between(start, end))
@@ -83,7 +83,7 @@ def _get_fixed_cost(company: str, start: str, end: str, settings) -> float:
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .select(Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"))
         .where(acc.root_type == "Expense")
         .where(gle.company == company)
         .where(gle.posting_date.between(start, end))
@@ -101,16 +101,12 @@ def _root_type_sum(company: str, start: str, end: str, root_type: str) -> float:
     and `COALESCE(SUM(ABS(debit - credit)), 0)` for Expense (debit-normal)."""
     gle = DocType("GL Entry")
     acc = DocType("Account")
-    expr = (
-        Abs(gle.credit - gle.debit)
-        if root_type == "Income"
-        else Abs(gle.debit - gle.credit)
-    )
+    expr = gle.debit - gle.credit
     rows = (
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select(Coalesce(Sum(expr), 0).as_("amount"))
+        .select(Abs(Coalesce(Sum(expr), 0)).as_("amount"))
         .where(acc.root_type == root_type)
         .where(gle.posting_date.between(start, end))
         .where(gle.company == company)
@@ -131,7 +127,7 @@ def _cogs_total(company: str, start: str, end: str) -> float:
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .select(Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"))
         .where((type_filter | name_filter) & (acc.root_type == "Expense"))
         .where(gle.posting_date.between(start, end))
         .where(gle.company == company)
@@ -391,7 +387,7 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
         .on(gle.account == acc.name)
         .select(
             month_expr,
-            Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"),
+            Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"),
         )
         .where(acc.root_type == "Expense")
         .where(gle.company == company)

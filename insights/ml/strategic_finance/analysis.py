@@ -710,29 +710,29 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
     for q in reversed(quarters):
         # Revenue and expenses for the quarter. Four separate CASE-aggregated
         # sums in a single SELECT.
-        revenue_q = Sum(
+        revenue_q = Abs(Sum(
             Case()
-            .when(acc.root_type == "Income", Abs(gle.credit - gle.debit))
+            .when(acc.root_type == "Income", gle.credit - gle.debit)
             .else_(0)
-        ).as_("revenue")
-        expenses_q = Sum(
+        )).as_("revenue")
+        expenses_q = Abs(Sum(
             Case()
-            .when(acc.root_type == "Expense", Abs(gle.debit - gle.credit))
+            .when(acc.root_type == "Expense", gle.debit - gle.credit)
             .else_(0)
-        ).as_("expenses")
-        depreciation_q = Sum(
+        )).as_("expenses")
+        depreciation_q = Abs(Sum(
             Case()
-            .when(acc.account_type == "Depreciation", Abs(gle.debit - gle.credit))
+            .when(acc.account_type == "Depreciation", gle.debit - gle.credit)
             .else_(0)
-        ).as_("depreciation")
-        interest_q = Sum(
+        )).as_("depreciation")
+        interest_q = Abs(Sum(
             Case()
             .when(
                 (acc.root_type == "Expense") & acc.name.like("%Interest%"),
-                Abs(gle.debit - gle.credit),
+                gle.debit - gle.credit,
             )
             .else_(0)
-        ).as_("interest_expense")
+        )).as_("interest_expense")
 
         financials_rows = (
             frappe.qb.from_(gle)

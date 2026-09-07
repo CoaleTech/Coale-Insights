@@ -106,20 +106,20 @@ def get_monthly_financial_trends(intelligence) -> List[Dict]:
     twelve_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
 
     period_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
-    revenue_expr = (
+    revenue_expr = Abs(
         Sum(
             Case()
-            .when(acc.root_type == "Income", Abs(gle.credit - gle.debit))
+            .when(acc.root_type == "Income", gle.credit - gle.debit)
             .else_(0)
-        ).as_("revenue")
-    )
-    expense_expr = (
+        )
+    ).as_("revenue")
+    expense_expr = Abs(
         Sum(
             Case()
-            .when(acc.root_type == "Expense", Abs(gle.debit - gle.credit))
+            .when(acc.root_type == "Expense", gle.debit - gle.credit)
             .else_(0)
-        ).as_("expenses")
-    )
+        )
+    ).as_("expenses")
 
     trends = (
         frappe.qb.from_(gle)
@@ -165,7 +165,7 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
         frappe.qb.from_(gle)
         .select(
             gle.account.as_("account"),
-            Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"),
+            Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"),
         )
         .where(gle.is_cancelled == 0)
         .where(gle.posting_date.between(fy_start, today))

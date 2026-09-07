@@ -6,6 +6,26 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Fixed — Executive Summary overstated expenses (SUM(ABS) double-counted contra entries)
+
+On the Financial Intelligence dashboard the **Executive Summary** band (strategic
+engine) disagreed with the KPI cards + Overview (actuals engine) rendered on the
+same screen: `62,260,536.74 → 62,155,486.74` revenue, `670,480.76 → 2,649,626.28`
+net income, `1.08% → 4.26%` net margin, `779,709.76 → 2,758,855.28` YTD EBITDA,
+`1.25% → 4.44%` EBITDA margin. Root cause: the strategic GL aggregations summed
+`ABS(debit − credit)` **per row** (`SUM(ABS(...))`), so every offsetting contra
+posting — returns, reversals, adjustments — was added instead of netted. On the JKM
+ledger this inflated YTD expenses by ~2.08M (and revenue by ~105K). The actuals
+engine already nets first (`ABS(SUM(...))`) and reconciles to the GL P&L exactly.
+Changed all strategic P&L root-type aggregations to abs the **aggregate**, not each
+row — `_gl_account_root_type_total` and depreciation (`summary.py`),
+`_category_total`/`_get_fixed_cost`/`_root_type_sum`/`_cogs_total` and monthly
+expense (`cost_ratios.py`), monthly trend + expense breakdown (`data.py`), scenario
+baseline + monthly revenue (`scenarios.py`), and quarterly ratio trends
+(`analysis.py`). Balance-sheet nets (working capital) and the large-transactions
+listing keep per-row abs by design. Verified live on jkm: Executive Summary EBITDA
+now matches the Overview KPI to the cent; scenario baseline expenses 59.51M (netted).
+
 ### Added — Cost of Sales, Gross Margin and Gross Margin % rows on the Revenue Overview tables
 
 The Monthly Summary, Weekly Performance and Daily Sales Detail tables showed

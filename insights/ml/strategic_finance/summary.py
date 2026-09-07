@@ -33,12 +33,15 @@ def _gl_account_root_type_total(
     gle = DocType("GL Entry")
     acc = DocType("Account")
 
-    expr = Abs(gle.debit - gle.credit) if apply_abs else (gle.debit - gle.credit)
+    expr = gle.debit - gle.credit
+    amount = Coalesce(Sum(expr), 0)
+    if apply_abs:
+        amount = Abs(amount)
     query = (
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select(Coalesce(Sum(expr), 0).as_("amount"))
+        .select(amount.as_("amount"))
         .where(acc.root_type == root_type)
         .where(gle.company == company)
         .where(gle.is_cancelled == 0)
@@ -98,7 +101,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .select(Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"))
         .where(acc.account_type == "Depreciation")
         .where(gle.posting_date.between(fy_start, today))
         .where(gle.company == company)

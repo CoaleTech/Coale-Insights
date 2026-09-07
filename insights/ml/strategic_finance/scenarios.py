@@ -26,15 +26,19 @@ def _period_root_type_breakdown(company: str, start: str, end: str) -> Dict[str,
     gle = DocType("GL Entry")
     acc = DocType("Account")
 
-    revenue_expr = Sum(
-        Case()
-        .when(acc.root_type == "Income", Abs(gle.credit - gle.debit))
-        .else_(0)
+    revenue_expr = Abs(
+        Sum(
+            Case()
+            .when(acc.root_type == "Income", gle.credit - gle.debit)
+            .else_(0)
+        )
     ).as_("revenue")
-    expense_expr = Sum(
-        Case()
-        .when(acc.root_type == "Expense", Abs(gle.debit - gle.credit))
-        .else_(0)
+    expense_expr = Abs(
+        Sum(
+            Case()
+            .when(acc.root_type == "Expense", gle.debit - gle.credit)
+            .else_(0)
+        )
     ).as_("expenses")
 
     rows = (
@@ -122,7 +126,7 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
         .on(gle.account == acc.name)
         .select(
             month_expr,
-            Sum(Abs(gle.credit - gle.debit)).as_("revenue"),
+            Abs(Sum(gle.credit - gle.debit)).as_("revenue"),
         )
         .where(acc.root_type == "Income")
         .where(gle.posting_date >= twelve_months_ago)
