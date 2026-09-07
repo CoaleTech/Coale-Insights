@@ -1837,6 +1837,115 @@ def compute_bottom_customers(date_filter: str = "12m", limit: int = 20,
     return _rank_customers(date_filter, limit, company, ascending=True)
 
 
+def compute_customer_scorecard(date_filter: str = "12m",
+                                 company: Optional[str] = None) -> Dict[str, Any]:
+    """One unified per-customer frame for the Rankings tab -- every customer
+    with the same metrics the four ranking mini-tables split apart: revenue
+    (grand_total), gross profit and margin %% (line-level, same formula as
+    `_rank_customers`), and months-active / consistency score. Unlike
+    `compute_customer_rankings` this applies no limit and does not sort --
+    the frontend does the filtering, sorting, and thresholding client-side
+    against this single list, so the four views become one filterable table.
+    """
+    from insights.api.ml.utils import parse_date_filter
+    import pandas as pd
+
+    start, end = parse_date_filter(date_filter)
+    company = company or default_company()
+    if not (start and end):
+        end = datetime.now().date()
+        start = end - timedelta(days=365)
+
+    # Revenue (grand_total) -- canonical customer set, matches top_revenue
+    # and the drill-down.
+    si = company_filter(t("Sales Invoice"), company)
+    si = si.filter((si.docstatus == 1) & si.posting_date.between(start, end))
+    base = (
+        si.group_by(si.customer)
+        .aggregate(customer_name=si.customer_name.min(), revenue=si.grand_total.sum())
+        .execute()
+    )
+    if base.empty:
+        return {"customers": [], "total_months": 1}
+    base["revenue"] = base["revenue"].astype(float)
+    base = base.fillna({"customer_name": ""})
+
+    # Gross profit + margin % (line-level, identical formula to _rank_customers)
+    sii = t("Sales Invoice Item")
+    si_for_profit = t("Sales Invoice")
+    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    if company:
+        profit_lines = profit_lines.filter(si_for_profit.company == company)
+    profit_lines = profit_lines.filter(
+        (si_for_profit.docstatus == 1) & si_for_profit.posting_date.between(start, end)
+    )
+    profit = (
+        profit_lines.group_by(si_for_profit.customer)
+        .aggregate(
+            gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum(),
+            line_revenue=sii.amount.sum(),
+        )
+        .execute()
+    )
+    if not profit.empty:
+        profit["gross_profit"] = profit["gross_profit"].astype(float)
+        profit["line_revenue"] = profit["line_revenue"].astype(float)
+        profit["margin_pct"] = 0.0
+        nonzero = profit["line_revenue"] > 0
+        profit.loc[nonzero, "margin_pct"] = (
+            profit.loc[nonzero, "gross_profit"] / profit.loc[nonzero, "line_revenue"] * 100
+        ).round(1)
+        profit = profit.drop(columns=["line_revenue"])
+    else:
+        profit = pd.DataFrame(columns=["customer", "gross_profit", "margin_pct"])
+
+    # Months-active / consistency score (pure-Python over customer-month rows)
+    si_monthly = si.mutate(month=si.posting_date.truncate("M"))
+    monthly = (
+        si_monthly.group_by([si_monthly.customer, si_monthly.month])
+        .aggregate(monthly_spend=si_monthly.grand_total.sum())
+        .execute()
+    )
+    total_months = max(((end.year - start.year) * 12 + (end.month - start.month)), 1)
+    consistency_rows = []
+    if not monthly.empty:
+        for cust, rows in monthly.groupby("customer"):
+            spends = rows["monthly_spend"].astype(float).tolist()
+            months_active = len(spends)
+            frequency_score = months_active / total_months
+            mean_spend = sum(spends) / max(1, len(spends))
+            if mean_spend > 0 and len(spends) > 1:
+                var = sum((s - mean_spend) ** 2 for s in spends) / (len(spends) - 1)
+                cv = math.sqrt(var) / mean_spend
+            else:
+                cv = 1.0
+            stability = max(0.0, 1.0 - cv)
+            consistency_rows.append({
+                "customer": cust,
+                "months_active": months_active,
+                "consistency_score": round(0.5 * frequency_score + 0.5 * stability, 3),
+                "avg_monthly_spend": round(mean_spend, 2),
+            })
+    consistency = pd.DataFrame(
+        consistency_rows,
+        columns=["customer", "months_active", "consistency_score", "avg_monthly_spend"],
+    )
+
+    merged = base.merge(profit, on="customer", how="left")
+    merged = merged.merge(consistency, on="customer", how="left")
+    merged = merged.fillna({
+        "gross_profit": 0.0, "margin_pct": 0.0,
+        "months_active": 0, "consistency_score": 0.0, "avg_monthly_spend": 0.0,
+    })
+    merged["months_active"] = merged["months_active"].astype(int)
+    merged["total_months"] = total_months
+
+    return {
+        "customers": merged.to_dict("records"),
+        "total_months": total_months,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Purchase patterns (day-of-week, monthly, seasonal)
 # ---------------------------------------------------------------------------

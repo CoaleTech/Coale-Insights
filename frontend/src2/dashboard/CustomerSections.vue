@@ -64,6 +64,28 @@ interface CustomerRow {
   order_count?: number
   recency_days?: number
 }
+
+interface ScorecardRow {
+  customer: string
+  customer_name: string
+  revenue: number
+  gross_profit: number
+  margin_pct: number
+  months_active: number
+  total_months: number
+  consistency_score: number
+  avg_monthly_spend: number
+  clv_tier?: string
+  rfm_segment?: string
+  churn_risk?: string
+  health_status?: string
+  health_score?: number
+}
+interface ScorecardData {
+  customers: ScorecardRow[]
+  total_months: number
+}
+type RankSortKey = 'revenue' | 'gross_profit' | 'margin_pct' | 'months_active' | 'consistency_score' | 'health_score'
 interface GeoPoint { name: string; value: number }
 interface UnmappedTerritory { territory: string; value: number }
 interface DayOfWeekDataRow { order_count: number }
@@ -75,13 +97,31 @@ const REC_TIER_LABELS: Record<number, string> = {
 
 // ── State ──────────────────────────────────────────────────────────────────
 const counts = ref<any>(null)
-const rankings = ref<any>(null)
-const bottomRankings = ref<any>(null)
-const rankingsView = ref<'top' | 'bottom'>('top')
+const scorecard = ref<ScorecardData | null>(null)
+const isLoadingRankings = ref(false)
 const purchasePatternsData = ref<any>(null)
 const activeCutoff = ref('6')
 const isLoadingPatterns = ref(false)
-const isLoadingBottomRankings = ref(false)
+// Rankings filters + sort — all client-side over the one scorecard list.
+const rankSearch = ref('')
+const rankTier = ref('')
+const rankSegment = ref('')
+const rankRisk = ref('')
+const minRevenue = ref('')
+const minGrossProfit = ref('')
+const minMargin = ref('')
+const minMonths = ref('')
+const minScore = ref('')
+const rankSort = ref<RankSortKey>('revenue')
+const rankDir = ref<'asc' | 'desc'>('desc')
+const sortableCols: { key: RankSortKey; label: string }[] = [
+  { key: 'revenue', label: 'Revenue' },
+  { key: 'gross_profit', label: 'Gross Profit' },
+  { key: 'margin_pct', label: 'Margin %' },
+  { key: 'months_active', label: 'Months' },
+  { key: 'consistency_score', label: 'Score' },
+  { key: 'health_score', label: 'Health' },
+]
 
 // ── Filters ────────────────────────────────────────────────────────────────
 const customerFilter = ref('')
@@ -116,6 +156,68 @@ const recentCustomerDetails = computed(() => {
     .map((id: string) => allCustomers.find((c: CustomerRow) => c.customer_id === id))
     .filter((c): c is CustomerRow => c !== undefined)
 })
+
+// ── Rankings scorecard (unified, filterable, sortable) ──────────────────────
+// The scorecard endpoint carries revenue/profit/margin/months/consistency;
+// tier, segment, risk and health come from the shell's customer payload,
+// joined by customer id so the Rankings tab shares one row per customer.
+const rankMeta = computed(() => {
+  const m = new Map<string, CustomerRow>()
+  for (const c of ((props.data.customers ?? []) as unknown as CustomerRow[])) {
+    if (c.customer_id) m.set(String(c.customer_id), c)
+  }
+  return m
+})
+const scorecardRows = computed<ScorecardRow[]>(() => {
+  const meta = rankMeta.value
+  let rows = (scorecard.value?.customers ?? []).map((r) => {
+    const md = meta.get(String(r.customer))
+    return {
+      ...r,
+      clv_tier: md?.clv_tier,
+      rfm_segment: md?.rfm_segment ?? r.rfm_segment,
+      churn_risk: md?.churn_risk,
+      health_status: md?.health_status,
+      health_score: md?.health_score,
+    } as ScorecardRow
+  })
+  const q = rankSearch.value.trim().toLowerCase()
+  if (q) {
+    rows = rows.filter(r =>
+      [r.customer_name, r.customer].some(v => typeof v === 'string' && v.toLowerCase().includes(q)))
+  }
+  if (rankTier.value) rows = rows.filter(r => r.clv_tier === rankTier.value)
+  if (rankSegment.value) rows = rows.filter(r => r.rfm_segment === rankSegment.value)
+  if (rankRisk.value) rows = rows.filter(r => r.churn_risk === rankRisk.value)
+  const gte = (v: number | undefined, min: string) => {
+    const n = parseFloat(min)
+    return Number.isNaN(n) || (typeof v === 'number' && v >= n)
+  }
+  rows = rows.filter(r =>
+    gte(r.revenue, minRevenue.value) &&
+    gte(r.gross_profit, minGrossProfit.value) &&
+    gte(r.margin_pct, minMargin.value) &&
+    gte(r.months_active, minMonths.value) &&
+    gte(r.consistency_score, minScore.value))
+  const key = rankSort.value
+  const dir = rankDir.value === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) => (Number(a[key] ?? 0) - Number(b[key] ?? 0)) * dir)
+})
+function setRankSort(key: RankSortKey) {
+  if (rankSort.value === key) rankDir.value = rankDir.value === 'asc' ? 'desc' : 'asc'
+  else { rankSort.value = key; rankDir.value = 'desc' }
+}
+function clearRankFilters() {
+  rankSearch.value = ''
+  rankTier.value = ''
+  rankSegment.value = ''
+  rankRisk.value = ''
+  minRevenue.value = ''
+  minGrossProfit.value = ''
+  minMargin.value = ''
+  minMonths.value = ''
+  minScore.value = ''
+}
 const atRiskCustomers = computed(() => (props.data.at_risk_customers ?? []) as unknown[])
 const topCustomers = computed(() => (props.data.top_customers ?? []) as unknown[])
 const geoAnalysis = computed(() => (props.data.geographic_analysis ?? {}) as any)
@@ -195,25 +297,15 @@ async function loadCustomerCounts() {
 }
 
 async function loadRankings() {
+  isLoadingRankings.value = true
   try {
-    rankings.value = await apiCall('insights.api.ml.customer.customer_rankings', {
+    scorecard.value = await apiCall('insights.api.ml.customer.customer_scorecard', {
       date_filter: props.dateFilter,
-    }) as Record<string, unknown>
+    }) as ScorecardData
   } catch (e: unknown) {
     console.error('Failed to load rankings:', readFrappeError(e).message)
-  }
-}
-
-async function loadBottomRankings() {
-  isLoadingBottomRankings.value = true
-  try {
-    bottomRankings.value = await apiCall('insights.api.ml.customer.bottom_customers', {
-      date_filter: props.dateFilter,
-    }) as Record<string, unknown>
-  } catch (e: unknown) {
-    console.error('Failed to load bottom rankings:', readFrappeError(e).message)
   } finally {
-    isLoadingBottomRankings.value = false
+    isLoadingRankings.value = false
   }
 }
 
@@ -225,18 +317,9 @@ watch(() => props.activeTab, (tab) => {
   if (tab === 'cust-rankings') loadRankings()
 })
 
-// Bottom Performers is opt-in via the toggle, not loaded by default —
-// fetch lazily the first time the user switches to it.
-watch(rankingsView, (view) => {
-  if (view === 'bottom' && !bottomRankings.value) loadBottomRankings()
-})
-
 watch(() => props.dateFilter, () => {
   loadCustomerCounts()
   loadRankings()
-  // Only refetch bottom rankings if the user has actually viewed them —
-  // mirrors the lazy-load-once-then-keep-fresh behaviour above.
-  if (bottomRankings.value) loadBottomRankings()
 })
 
 onMounted(() => {
@@ -725,161 +808,103 @@ onMounted(() => {
   </div>
 
   <!-- ═══ Rankings ═══ -->
-  <div v-if="activeTab === 'cust-rankings' && rankings" class="p-6 space-y-6">
-    <div class="flex items-center gap-2">
-      <Button
-        :variant="rankingsView === 'top' ? 'solid' : 'outline'"
-        label="Top Performers"
-        @click="rankingsView = 'top'"
-      />
-      <Button
-        :variant="rankingsView === 'bottom' ? 'solid' : 'outline'"
-        label="Bottom Performers"
-        @click="rankingsView = 'bottom'"
-      />
+  <div v-if="activeTab === 'cust-rankings'" class="p-6 space-y-4">
+    <!-- Category filters -->
+    <div class="flex flex-wrap items-center gap-3 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
+      <div class="flex-1 min-w-[200px]">
+        <FormControl v-model="rankSearch" type="text" :debounce="300"
+          placeholder="Search by name or ID..." aria-label="Search customers">
+          <template #prefix><Search class="w-4 h-4 text-ink-gray-5" aria-hidden="true" /></template>
+        </FormControl>
+      </div>
+      <Filter class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
+      <Select v-model="rankTier" :options="tierFilterOptions" aria-label="Filter by tier" class="text-sm" />
+      <Select v-model="rankSegment" :options="rfmSegmentFilterOptions" aria-label="Filter by segment" class="text-sm" />
+      <Select v-model="rankRisk" :options="riskFilterOptions" aria-label="Filter by risk level" class="text-sm" />
+    </div>
+    <!-- Numeric thresholds -->
+    <div class="flex flex-wrap items-end gap-3 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
+      <label class="text-xs text-ink-gray-6">Min Revenue
+        <FormControl v-model="minRevenue" type="number" placeholder="0" aria-label="Minimum revenue" class="mt-1 w-32" />
+      </label>
+      <label class="text-xs text-ink-gray-6">Min Gross Profit
+        <FormControl v-model="minGrossProfit" type="number" placeholder="0" aria-label="Minimum gross profit" class="mt-1 w-32" />
+      </label>
+      <label class="text-xs text-ink-gray-6">Min Margin %
+        <FormControl v-model="minMargin" type="number" placeholder="0" aria-label="Minimum margin percent" class="mt-1 w-24" />
+      </label>
+      <label class="text-xs text-ink-gray-6">Min Months Active
+        <FormControl v-model="minMonths" type="number" placeholder="0" aria-label="Minimum months active" class="mt-1 w-24" />
+      </label>
+      <label class="text-xs text-ink-gray-6">Min Score
+        <FormControl v-model="minScore" type="number" placeholder="0" aria-label="Minimum consistency score" class="mt-1 w-24" />
+      </label>
+      <Button variant="outline" label="Clear filters" @click="clearRankFilters" />
     </div>
 
-    <template v-if="rankingsView === 'top'">
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Top Customers by Revenue" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Top customers by revenue.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Revenue</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (rankings.top_revenue as Record<string, unknown>[])" :key="c.customer as string"
-            class="border-b border-outline-gray-1 last:border-0 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
-            tabindex="0"
-            @click="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })"
-            @keydown.enter="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ money(c.revenue as number) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Top Customers by Gross Profit" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Top customers by gross profit.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Gross Profit</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (rankings.top_profit as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ money(c.gross_profit as number) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Top Customers by Margin %" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Top customers by margin percentage.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Margin %</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Revenue</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (rankings.top_margin as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ c.margin_pct }}%</td>
-            <td class="py-2 text-right tnum text-ink-gray-7">{{ money(c.revenue as number) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Most Consistent Customers" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Most consistent customers by score and months active.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Score</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Months Active</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (rankings.top_consistent as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ c.consistency_score }}</td>
-            <td class="py-2 text-right text-ink-gray-7">{{ c.months_active }}/{{ c.total_months }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    </template>
-
-    <template v-else-if="bottomRankings">
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Weakest Customers by Revenue" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Weakest customers by revenue.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Revenue</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (bottomRankings.top_revenue as Record<string, unknown>[])" :key="c.customer as string"
-            class="border-b border-outline-gray-1 last:border-0 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
-            tabindex="0"
-            @click="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })"
-            @keydown.enter="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ money(c.revenue as number) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Customers with Biggest Losses" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Customers with the lowest or most negative gross profit.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Gross Profit</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (bottomRankings.top_profit as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium" :class="deltaInk(c.gross_profit as number)">{{ money(c.gross_profit as number) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Worst Margin %" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Customers with the worst margin percentage.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Margin %</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Revenue</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (bottomRankings.top_margin as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium" :class="deltaInk(c.margin_pct as number)">{{ c.margin_pct }}%</td>
-            <td class="py-2 text-right tnum text-ink-gray-7">{{ money(c.revenue as number) }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-      <SectionHeader variant="caption" title="Most Erratic Customers" :level="3" />
-      <table class="w-full text-sm mt-3">
-        <caption class="sr-only">Least consistent customers by score and months active.</caption>
-        <thead><tr class="text-left border-b border-outline-gray-1">
-          <th scope="col" class="pb-2 text-ink-gray-6">Customer</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Score</th><th scope="col" class="pb-2 text-right text-ink-gray-6">Months Active</th>
-        </tr></thead>
-        <tbody>
-          <tr v-for="c in (bottomRankings.top_consistent as Record<string, unknown>[])" :key="c.customer as string" class="border-b border-outline-gray-1 last:border-0">
-            <td class="py-2 text-ink-gray-8">{{ c.customer_name }}</td>
-            <td class="py-2 text-right tnum font-medium text-ink-gray-9">{{ c.consistency_score }}</td>
-            <td class="py-2 text-right text-ink-gray-7">{{ c.months_active }}/{{ c.total_months }}</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-    </template>
-
-    <div v-else class="text-center py-12">
+    <div v-if="isLoadingRankings && !scorecard" class="text-center py-12">
       <Activity class="w-12 h-12 mx-auto text-ink-gray-4 animate-pulse" aria-hidden="true" />
-      <p class="mt-4 text-ink-gray-6">Loading bottom performers…</p>
+      <p class="mt-4 text-ink-gray-6">Loading customer scorecard…</p>
+    </div>
+
+    <div v-else class="overflow-hidden bg-surface-white rounded-lg border border-outline-gray-1">
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <caption class="sr-only">Customer scorecard with revenue, gross profit, margin, months active and consistency. Click a metric header to sort, or a row to drill into that customer's orders.</caption>
+          <thead class="bg-surface-gray-1">
+            <tr>
+              <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Customer</th>
+              <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Tier</th>
+              <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Segment</th>
+              <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Risk</th>
+              <th v-for="col in sortableCols" :key="col.key" scope="col"
+                class="px-4 py-3 text-right font-medium text-ink-gray-6 cursor-pointer select-none hover:text-ink-gray-8"
+                :aria-sort="rankSort === col.key ? (rankDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+                @click="setRankSort(col.key)">
+                <span class="inline-flex items-center gap-1 justify-end">
+                  {{ col.label }}
+                  <ChevronRight v-if="rankSort === col.key" class="w-3 h-3"
+                    :class="rankDir === 'asc' ? '-rotate-90' : 'rotate-90'" aria-hidden="true" />
+                </span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in scorecardRows.slice(0, 200)" :key="c.customer"
+              class="border-b border-outline-gray-1 last:border-0 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
+              tabindex="0"
+              @click="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })"
+              @keydown.enter="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })">
+              <td class="px-4 py-2 text-ink-gray-8">{{ c.customer_name }}</td>
+              <td class="px-4 py-2">
+                <Badge v-if="c.clv_tier" theme="gray" variant="subtle" :label="c.clv_tier" size="sm" />
+                <span v-else class="text-ink-gray-4">—</span>
+              </td>
+              <td class="px-4 py-2 text-ink-gray-7">{{ c.rfm_segment || '—' }}</td>
+              <td class="px-4 py-2">
+                <Badge v-if="c.churn_risk" v-bind="severityBadge(churnSeverity(c.churn_risk))" :label="c.churn_risk" size="sm" />
+                <span v-else class="text-ink-gray-4">—</span>
+              </td>
+              <td class="px-4 py-2 text-right tnum font-medium text-ink-gray-9">{{ money(c.revenue) }}</td>
+              <td class="px-4 py-2 text-right tnum font-medium" :class="deltaInk(c.gross_profit)">{{ money(c.gross_profit) }}</td>
+              <td class="px-4 py-2 text-right tnum" :class="deltaInk(c.margin_pct)">{{ c.margin_pct }}%</td>
+              <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ c.months_active }}/{{ c.total_months }}</td>
+              <td class="px-4 py-2 text-right tnum text-ink-gray-9">{{ c.consistency_score }}</td>
+              <td class="px-4 py-2 text-right">
+                <Badge v-if="c.health_score != null" v-bind="severityBadge(healthSeverity(c.health_status))" :label="String(Math.round(c.health_score))" size="sm" />
+                <span v-else class="text-ink-gray-4">—</span>
+              </td>
+            </tr>
+            <tr v-if="!scorecardRows.length">
+              <td colspan="10" class="px-4 py-12 text-center text-ink-gray-6">No customers match these filters.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="px-4 py-3 text-xs text-center text-ink-gray-6 bg-surface-gray-1">
+        Showing {{ Math.min(scorecardRows.length, 200) }} of {{ scorecardRows.length }} filtered
+        <span v-if="scorecard">({{ scorecard.customers.length }} customers total)</span>
+      </div>
     </div>
   </div>
 </template>

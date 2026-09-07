@@ -285,6 +285,19 @@ def bottom_customers(date_filter: str = "12m",
 
 
 @frappe.whitelist()
+def customer_scorecard(date_filter: str = "12m",
+                       company: Optional[str] = None) -> Dict[str, Any]:
+    """Unified per-customer scorecard for the Rankings tab: every customer
+    with revenue, gross profit, margin %, months-active and consistency in
+    one list, filtered and sorted client-side."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_scorecard
+    return run(lambda: compute_customer_scorecard(date_filter=date_filter,
+                                                  company=company),
+               "Customer scorecard")
+
+
+@frappe.whitelist()
 def customer_variance(date_filter: str = "12m",
                       company: Optional[str] = None) -> Dict[str, Any]:
     """Per-customer actual revenue vs territory target."""

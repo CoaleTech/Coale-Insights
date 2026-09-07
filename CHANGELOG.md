@@ -4,6 +4,42 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-09-07
+
+### Changed — Rankings tab is now one unified, filterable, sortable scorecard
+
+The Customers → Rankings tab used to be a Top/Bottom toggle over eight separate
+mini-tables (top/bottom × revenue, gross profit, margin %, consistency), each a
+different set of customers, none of them filterable and none showing more than
+one metric per customer. You could not answer "which high-margin customers are
+also low-frequency?" without cross-referencing four tables by eye.
+
+Replaced with a single per-customer scorecard: one row per customer carrying
+revenue, gross profit, margin %, months-active and consistency score side by
+side, plus tier / segment / risk / health joined from the shell payload. New
+backend `compute_customer_scorecard` (whitelisted `customer_scorecard`) returns
+every customer unlimited and unsorted; the frontend does all filtering and
+sorting client-side. Filters: name/ID search, tier / segment / risk selects, and
+min-thresholds for revenue, gross profit, margin %, months-active and score.
+Every metric column header sorts (click to toggle asc/desc). Row click still
+drills into that customer's orders. Table caps the rendered set at 200 rows with
+a "showing X of Y" footer.
+
+The old `customer_rankings` / `bottom_customers` endpoints are untouched (still
+whitelisted, still valid) — the tab simply no longer consumes them.
+
+`compute_customer_scorecard`'s revenue aggregate groups by `customer` alone
+(taking `customer_name` via `.min()`), not by `(customer, customer_name)`. A
+customer whose name is spelled differently across invoices would otherwise
+produce multiple rows sharing one `customer` id — duplicate Vue `:key`s that
+pinned unsortable phantom rows to the top of the list (589 rows / 1 dup →
+collapsed to 588 unique).
+
+Live-verified against the JKM ledger (588 customers): search "pharma" → 10,
+tier Diamond → 13, min-margin ≥ 20% → 243; margin sort desc → Ganesh/Navchetan
+100% top, asc → Kabir −14.4% top; months sort desc → The Drona 12/12 top. Zero
+console errors, 200-row render, no phantom rows.
+
 ## [Unreleased] — 2026-09-04
 
 ### Fixed — Customers tab search and tier/segment/risk filters silently died
