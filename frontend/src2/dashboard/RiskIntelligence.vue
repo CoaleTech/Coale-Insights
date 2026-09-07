@@ -10,8 +10,9 @@ import { useIntelligenceDashboard } from '../intelligence/composables/useIntelli
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import LedgerAnomalies from '../intelligence/components/LedgerAnomalies.vue'
+import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import {
-  severityBadge, severityFill, severityAria, scoreSeverity, type Severity,
+  severityBadge, severityFill, severityAria, scoreSeverity, normaliseSeverity, type Severity,
 } from '../utils/status'
 import { formatDateTime, formatMoney } from '../utils/format'
 
@@ -190,8 +191,15 @@ const summary = computed(() => {
   }
 })
 
-// Risk score: higher = worse, so higherIsBetter: false.
-// Thresholds mirror the original bar colouring: <=20 low, <=40 medium, else high.
+// Risk score: higher = worse, so higherIsBetter: false. Scoped to the risk
+// matrix's Probability/Impact bars only, which have no server-computed
+// category of their own. The four risk *components* and the overall score
+// each carry an authoritative category from the backend's `_risk_category()`
+// (Low <=25, Medium <=50, High <=75, Critical >75) -- use
+// `normaliseSeverity(summary.xRisk)` for those instead of recomputing a
+// second, differently-thresholded classification here. That divergence used
+// to show a KPI card as "High" while the identical score's category badge
+// lower on the same page said "Medium" (e.g. Credit Risk at 43.5/100).
 function riskScoreSeverity(score: number): Severity {
   return scoreSeverity(score, { good: 20, warn: 40, higherIsBetter: false })
 }
@@ -274,31 +282,31 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         <KpiCard
           label="Overall Risk Score"
           :value="hasData ? `${summary.overallScore}/100` : 'N/A'"
-          :severity="hasData ? riskScoreSeverity(summary.overallScore) : undefined"
+          :severity="hasData ? normaliseSeverity(summary.overallRisk) : undefined"
           :loading="loading"
         />
         <KpiCard
           label="Credit Risk"
           :value="hasData ? `${summary.creditScore}/100` : 'N/A'"
-          :severity="hasData ? riskScoreSeverity(summary.creditScore) : undefined"
+          :severity="hasData ? normaliseSeverity(summary.creditRisk) : undefined"
           :loading="loading"
         />
         <KpiCard
           label="Cash Flow Risk"
           :value="hasData ? `${summary.cashflowScore}/100` : 'N/A'"
-          :severity="hasData ? riskScoreSeverity(summary.cashflowScore) : undefined"
+          :severity="hasData ? normaliseSeverity(summary.cashflowRisk) : undefined"
           :loading="loading"
         />
         <KpiCard
           label="Operational Risk"
           :value="hasData ? `${summary.operationalScore}/100` : 'N/A'"
-          :severity="hasData ? riskScoreSeverity(summary.operationalScore) : undefined"
+          :severity="hasData ? normaliseSeverity(summary.operationalRisk) : undefined"
           :loading="loading"
         />
         <KpiCard
           label="Compliance Risk"
           :value="hasData ? `${summary.complianceScore}/100` : 'N/A'"
-          :severity="hasData ? riskScoreSeverity(summary.complianceScore) : undefined"
+          :severity="hasData ? normaliseSeverity(summary.complianceRisk) : undefined"
           :loading="loading"
         />
         <KpiCard
@@ -445,11 +453,11 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 <div class="w-32 text-sm font-medium text-ink-gray-7">Credit Risk</div>
                 <div
                   class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                  :aria-label="severityAria('Credit Risk', riskScoreSeverity(summary.creditScore), `${summary.creditScore}/100`)"
+                  :aria-label="severityAria('Credit Risk', normaliseSeverity(summary.creditRisk), `${summary.creditScore}/100`)"
                   role="img"
                 >
                   <div
-                    :class="[severityFill(riskScoreSeverity(summary.creditScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :class="[severityFill(normaliseSeverity(summary.creditRisk)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
                     :style="{ width: summary.creditScore + '%' }"
                   />
                 </div>
@@ -462,11 +470,11 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 <div class="w-32 text-sm font-medium text-ink-gray-7">Cash Flow Risk</div>
                 <div
                   class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                  :aria-label="severityAria('Cash Flow Risk', riskScoreSeverity(summary.cashflowScore), `${summary.cashflowScore}/100`)"
+                  :aria-label="severityAria('Cash Flow Risk', normaliseSeverity(summary.cashflowRisk), `${summary.cashflowScore}/100`)"
                   role="img"
                 >
                   <div
-                    :class="[severityFill(riskScoreSeverity(summary.cashflowScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :class="[severityFill(normaliseSeverity(summary.cashflowRisk)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
                     :style="{ width: summary.cashflowScore + '%' }"
                   />
                 </div>
@@ -479,11 +487,11 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 <div class="w-32 text-sm font-medium text-ink-gray-7">Operational Risk</div>
                 <div
                   class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                  :aria-label="severityAria('Operational Risk', riskScoreSeverity(summary.operationalScore), `${summary.operationalScore}/100`)"
+                  :aria-label="severityAria('Operational Risk', normaliseSeverity(summary.operationalRisk), `${summary.operationalScore}/100`)"
                   role="img"
                 >
                   <div
-                    :class="[severityFill(riskScoreSeverity(summary.operationalScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :class="[severityFill(normaliseSeverity(summary.operationalRisk)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
                     :style="{ width: summary.operationalScore + '%' }"
                   />
                 </div>
@@ -496,11 +504,11 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 <div class="w-32 text-sm font-medium text-ink-gray-7">Compliance Risk</div>
                 <div
                   class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                  :aria-label="severityAria('Compliance Risk', riskScoreSeverity(summary.complianceScore), `${summary.complianceScore}/100`)"
+                  :aria-label="severityAria('Compliance Risk', normaliseSeverity(summary.complianceRisk), `${summary.complianceScore}/100`)"
                   role="img"
                 >
                   <div
-                    :class="[severityFill(riskScoreSeverity(summary.complianceScore)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
+                    :class="[severityFill(normaliseSeverity(summary.complianceRisk)), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
                     :style="{ width: summary.complianceScore + '%' }"
                   />
                 </div>

@@ -810,6 +810,7 @@ import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillD
 import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 import KpiCard from '../intelligence/components/KpiCard.vue'
+import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { themeColor } from '../utils/chartTheme'
 import { formatDate, formatMoney, NO_VALUE } from '../utils/format'
 import { formatPeriod } from '../components/financial/format'

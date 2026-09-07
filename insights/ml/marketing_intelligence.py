@@ -122,7 +122,7 @@ def _int(expr, default: int = 0) -> int:
         return default
 
 
-def _period_start_date(period: str) -> date:
+def _period_start_date(period: str, company: str | None = None) -> date:
     """Resolve a period keyword, or the start of an encoded custom range
     (see `insights.api.ml.utils.parse_custom_range`), to an inclusive start
     ``date``. There is no matching `_period_end_date` here: every query in
@@ -130,7 +130,12 @@ def _period_start_date(period: str) -> date:
     bound beyond "whenever this request runs"), so a custom range's end is
     stored on ``self.to_date`` for display but never reaches a filter --
     matching how MTD/QTD/YTD/TTM already behave today. HR's ``to_date`` is
-    different: see ``hr_intelligence._period_end_date``."""
+    different: see ``hr_intelligence._period_end_date``.
+
+    ``YTD`` resolves to the company's fiscal year start (e.g. April 1 for
+    an Apr-Mar fiscal year, via `financial_intelligence._fiscal_year_for`)
+    -- not the calendar year, matching Financial/Tax/Strategic Finance and
+    the identical fix in `hr_intelligence._period_start_date`."""
     from insights.api.ml.utils import parse_custom_range
 
     custom = parse_custom_range(period)
@@ -143,7 +148,11 @@ def _period_start_date(period: str) -> date:
         quarter_start = ((today.month - 1) // 3) * 3 + 1
         return today.replace(month=quarter_start, day=1)
     if period == "YTD":
-        return today.replace(month=1, day=1)
+        from insights.api.ml.ibis_source import default_company
+        from insights.ml.financial_intelligence import _fiscal_year_for
+
+        fy = _fiscal_year_for(company or default_company() or "")
+        return datetime.strptime(fy["start_date"], "%Y-%m-%d").date()
     # TTM (and any other keyword) -- rolling 12 months
     from frappe.utils import add_months
 
@@ -180,13 +189,13 @@ class MarketingIntelligence:
     def __init__(self, period: str = "YTD"):
         self.model_name = "MarketingIntelligence"
         self.period = period
-        self.from_date = _period_start_date(period)
-        self.to_date = date.today()
         self.company = (
             get_user_default("Company")
             or frappe.db.get_single_value("Global Defaults", "default_company")
         )
         self.company = str(self.company) if self.company else None
+        self.from_date = _period_start_date(period, self.company)
+        self.to_date = date.today()
         self.base_currency = _base_currency(self.company)
 
     # ------------------------------------------------------------------ train
@@ -254,7 +263,7 @@ class MarketingIntelligence:
         """
         if period:
             self.period = period
-            self.from_date = _period_start_date(period)
+            self.from_date = _period_start_date(period, self.company)
 
         from_str = str(self.from_date)
 

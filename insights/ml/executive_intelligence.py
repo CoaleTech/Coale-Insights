@@ -890,6 +890,22 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
 
     return trends
 
+def _friendly_period_label(period: str) -> str:
+    """Human-readable period name for the narrative sentence. The acronyms
+    (MTD/QTD/YTD/TTM) read fine verbatim; the raw `custom:<start>:<end>`
+    encoding (see `_resolve_date_filter`) does not -- format it as a date
+    range instead. `data.period` itself is left untouched by this: the
+    frontend round-trips that raw value into the filter control."""
+    if period.startswith("custom:"):
+        try:
+            start, end = period[len("custom:"):].split(":")
+            start_label = datetime.strptime(start, "%Y-%m-%d").strftime("%d %b %Y")
+            end_label = datetime.strptime(end, "%Y-%m-%d").strftime("%d %b %Y")
+            return f"{start_label} - {end_label}"
+        except ValueError:
+            return period
+    return period
+
 
 def _narrative(kpis: Dict[str, Any], health: Dict[str, Any], period: str) -> str:
     """Template narrative. AI narrative is not wired here (no LLM client
@@ -899,7 +915,7 @@ def _narrative(kpis: Dict[str, Any], health: Dict[str, Any], period: str) -> str
     rag = health.get("overall_rag", "amber")
     parts.append(
         _("Business health for the {0} period is {1}/100 ({2}).").format(
-            period, score, rag.upper()
+            _friendly_period_label(period), score, rag.upper()
         )
     )
 

@@ -4,6 +4,143 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-09-04
+
+### Fixed — Executive dashboard's Custom Range narrative leaked the raw filter encoding
+
+`_narrative` in `insights/ml/executive_intelligence.py` interpolated the `period`
+argument verbatim into the "Business health for the {0} period is..." sentence. For
+the acronym periods (`MTD`/`QTD`/`YTD`/`TTM`) that reads fine, but Custom Range passes
+the internal `custom:<start>:<end>` encoding straight through — the AI Executive
+Summary literally said "Business health for the custom:2026-07-01:2026-08-31 period".
+Added `_friendly_period_label()` to format that encoding as `01 Jul 2026 - 31 Aug
+2026` for the narrative only; `data.period` itself is untouched since the frontend
+round-trips that raw value into the filter control. Verified live via Custom Range
+(01 Jul-31 Aug 2026): narrative now reads correctly, zero console errors.
+
+### Fixed — MoM/YoY growth read -100% for the current calendar month once transaction data ran ahead of it
+
+`calculate_comparisons` in `insights/ml/sales_intelligence.py` anchored its "current
+period" window to `datetime.now()`. The JKM ledger's newest Sales Invoice is dated
+2026-08-07; every day of September before a new invoice posts, `datetime.now()` fell
+inside a truly empty month, so `current_revenue = 0` and both `mom_growth` and
+`yoy_growth` computed `(0 - prior) / prior * 100 = -100.0%` — a false, saturated crash
+signal on the two most-watched KPIs on the merged Revenue & Customers dashboard.
+Anchored "today" to `max(today, latest Sales Invoice posting_date)` instead, a no-op
+once the ledger catches up. Verified live: `mom_growth -8.6%`, `yoy_growth -62.6%`
+(day-aligned Aug 1–7 vs Jul 1–7 vs Aug 1–7 '25) — real numbers, not sentinels.
+
+### Fixed — Strategic Finance crashed instead of loading (`Field` has no `.notlike()`)
+
+`estimate_other_receipts` and `estimate_operating_expenses` in
+`insights/ml/strategic_finance/data.py` called PyPika's `Field.notlike()`, which does
+not exist (only `.like()` is defined) — every executive/strategic-finance forecast
+request raised `AttributeError` and the whole module returned `CANNOT VERIFY -
+blocking error`. Replaced with the codebase's existing negation convention used
+everywhere else in `strategic_finance/*.py`: `~Field.like(pattern)`.
+
+### Fixed — Total Liabilities and Total Equity were reported as large negative numbers
+
+`_gl_account_root_type_total` in `insights/ml/strategic_finance/summary.py` is shared
+by every root-type total in the module. Its non-`apply_abs` branch always computed
+`debit - credit`, correct for debit-normal accounts (Asset, Expense) but the sign
+convention for credit-normal accounts (Liability, Equity) is `credit - debit` — the
+module's own docstrings already said so, but the two call sites never negated the
+result. `calculate_balance_sheet`/`calculate_executive_summary` silently flipped a real
+₹2.99 Cr liability balance to -₹2.99 Cr, zeroing out ROE and Debt-to-Equity via the
+`max(0, …)` floors downstream. Negated both call sites; live-verified `total_assets:
+₹4,508,510.89`, `total_liabilities: ₹29,863,482.88` (positive), `roe`/`debt_to_equity`
+now compute against the correct signed inputs.
+
+### Fixed — YTD meant "since Jan 1" instead of "since the fiscal year start" (HR, Marketing, Executive)
+
+`_period_start_date` in `insights/ml/hr_intelligence.py` and
+`insights/ml/marketing_intelligence.py` resolved the `YTD` keyword against the
+calendar year, while Financial/Tax/Strategic Finance already resolved it against the
+company's fiscal year (JKM Chemtrade: April–March). For any date after 2026-01-01,
+HR and Marketing's "Year to Date" silently covered a different, shorter window than
+every other dashboard's YTD — undercounting new hires, exits, leads and revenue for
+Jan–Mar. Both now share the same `_fiscal_year_for(company)` resolution Financial
+Intelligence already used. Live-verified: HR and Marketing YTD both now resolve to
+`2026-04-01` (fiscal year start), matching Financial/Tax/Executive.
+
+### Verified — Revenue & Customers dashboard re-confirmed correct after the above fixes
+
+Full pass over both tab groups on the live `jkm` site: header KPIs (Total Revenue,
+Customers, AOV, Gross Margin, At Risk, YoY Growth) cross-checked against direct
+backend calls; all 6 Revenue sub-tabs (Overview, Cash vs Credit, Sales Reps, Margins,
+Forecasts, Attribution) and all 6 Customer sub-tabs (Overview, Geography, Actions,
+Cohorts, Patterns, Rankings); the Revenue/Customers tab-group radio toggle; and the
+Rankings drill-down (row click → per-customer invoice detail modal, verified against
+two different customers). No regressions from the MoM/YoY fix above, no new bugs.
+Two apparent discrepancies traced to intentional design, not bugs: Geography's
+"Total 1,243 customers" is the all-time customer roster (its own "Active: 3/6/12
+months" filter, independent of the dashboard's date range), not the header's 593
+12-month-active customers; Margins' revenue figure is tax-exclusive `net_amount`
+(correct for a margin calculation under GST) against the header's tax-inclusive
+`grand_total` — Sales Reps' per-rep breakdown reconciles to the header exactly
+(₹149.49M + ₹23.38M = ₹172.87M), confirming both are honest, not inconsistent.
+
+### Fixed — Quote Conversion % read a flat 0.0% "Critical" alert everywhere, on a site with real submitted quotations
+
+`_scalar_int()` in `insights/ml/customer.py` unwraps an executed Ibis scalar
+aggregate to a Python `int`. `tbl.count().execute()` returns a plain int, but
+`tbl.aggregate(name=count()).execute()` returns a 1-row, 1-column DataFrame —
+`.iloc[0]` on that yields the row (a pandas `Series`), and `int(Series or 0)` raises
+`ValueError: ambiguous truth value`, which the blanket `except Exception: return 0`
+silently downgraded to `0`. `_quotation_conversion` is the only `_scalar_int` caller
+that goes through `.aggregate()` rather than a bare `.count()`, so this one metric —
+surfaced on both the Executive KPI strip and Customer Intelligence's
+`quote_conversion_rate` — was wrong everywhere it appeared. Fixed to unwrap
+positionally (`.iloc[0, 0]` for a 2-D DataFrame, `.iloc[0]` for a bare 1-D Series).
+Live-verified: `quote_conversion_rate` 0.0 → 71.0 (YTD, 184/259) and 68.4 (12m,
+54/79); Executive dashboard KPI card `Critical 0.0%` → `Low 68.4% (↑38.4%)`.
+
+### Fixed — Manufacturing showed a fabricated "0.0% High" completion-rate alert with zero Work Orders
+
+`completion_rate_pct`, `average_efficiency_pct` and `on_time_completion_pct` in
+`insights/ml/manufacturing_intelligence.py` returned `0` instead of `None` when their
+denominator (`total_orders` / planned quantity) was `0` — a site with no Work Orders
+got a real-looking `0.0%` fed straight into `KpiCard`'s severity logic, which flagged
+it `High`, while every sibling metric on the same page (OEE Score, Availability,
+Capacity Utilization) already rendered the correct `-` no-data sentinel for the same
+condition. `production_health` guarded the same way: `None`, not `"needs_improvement"`,
+when `completion_rate` is `None`. Live-verified: Completion Rate and Efficiency now
+show `-`, matching the rest of the page.
+
+### Verified — Marketing & CRM and Machine Learning dashboards render correctly; no fix needed
+
+Both were flagged during an earlier batch pass as apparently broken (Marketing stuck
+on "Preparing CRM data", Machine Learning rendering empty). Re-checked live on a fresh
+worker with cleared caches: Marketing & CRM renders its full funnel/channel/lead-
+conversion breakdown; Machine Learning's `model_health()` synchronously re-trains/
+re-evaluates all 6 models on each request and takes ~20-25s cold, with no loading
+skeleton distinct from its empty state in that window, then renders correctly
+("Model Health 6 of 7 trained" with real per-model rows). Both were transient
+cold-cache/stale-worker artifacts of the same deployment gotcha as the fix above, not
+independent bugs. The Machine Learning loading-skeleton gap remains open (see TODOS.md).
+
+### Fixed — every panel on Risk Intelligence and Procurement Intelligence was missing its section heading
+
+`RiskIntelligence.vue` (18 call sites, all 7 tabs) and `ProcurementIntelligence.vue`
+(19 call sites, all 6 tabs) used `<SectionHeader>` throughout their templates but never
+imported the component — the one import line present in all 27 other dashboard files
+that use it. Vue's runtime resolves an unregistered component tag as a literal unknown
+custom element: the `title`/`hint` props landed as invisible HTML `title`/`hint`
+attributes (hover-tooltip only, absent from `textContent`/`innerText`) instead of
+rendered text, and content passed via `<template #actions>` (icons) silently vanished
+since a native `<template>` element never renders. No console error and no visible
+crash, so this was invisible to the console-error/data-correctness smoke-test pass
+earlier in this batch — both dashboards were marked "no bugs" on numbers and network
+activity alone. Fixed by adding the missing `import SectionHeader from
+'../intelligence/components/SectionHeader.vue'` to both files. Live-verified: every
+tab on both dashboards now renders its real heading text ("Active Risk Alerts", "Risk
+Assessment Matrix", "Key Business Metrics", "Risk Component Breakdown", "Receivables/
+Payables Aging Analysis", "Customer/Supplier Risk Scores", "GST Compliance Status",
+"Detected Anomalies", "Monthly Spend Trend", "Top Suppliers by Spend", "Procurement
+Risk Score", "Supplier Concentration Risk", etc.); no `SECTIONHEADER` tag remains
+anywhere in the rendered DOM on either dashboard, on any tab.
+
 ## [Unreleased] — 2026-08-25
 
 ### Fixed — refresh/action button icons stacked above their label instead of beside it

@@ -878,3 +878,211 @@ this session modified.
 **Effort:** S.
 **Priority:** Done.
 **Depends on:** None.
+
+### [RESOLVED 2026-09-04] SQL→query-builder migration regressions: -100% growth, Strategic Finance crash, inverted liabilities; YTD fiscal-year bug; Revenue & Customers re-confirmed
+
+**What:** A large `frappe.db.sql` → Ibis/PyPika query-builder migration (32 files,
+3671(+)/2669(-)) landed alongside earlier work, and a full backend re-verification
+sweep (all 12 Intelligence dashboards) plus live browser smoke on Revenue & Customers
+found four real regressions and one long-standing cross-dashboard inconsistency:
+1. `sales_intelligence.calculate_comparisons` anchored "current period" to
+   `datetime.now()`; once the ledger's newest Sales Invoice (2026-08-07) fell behind
+   the real calendar month, `mom_growth`/`yoy_growth` computed against a genuinely
+   empty current month and read a false `-100.0%` on both headline KPIs.
+2. `strategic_finance/data.py` called PyPika's `Field.notlike()`, which does not
+   exist — every Strategic Finance/Executive forecast request raised `AttributeError`
+   and surfaced `CANNOT VERIFY - blocking error`.
+3. `strategic_finance/summary.py`'s shared `_gl_account_root_type_total` helper only
+   ever computed `debit - credit` (correct for debit-normal Assets/Expenses), but two
+   call sites used it for credit-normal Liabilities/Equity without negating — Total
+   Liabilities and Total Equity rendered as large negative numbers, and ROE/Debt-to-
+   Equity silently zeroed out via a `max(0, …)` floor downstream.
+4. `hr_intelligence.py`/`marketing_intelligence.py`'s `_period_start_date` resolved
+   `YTD` against the calendar year (`Jan 1`) instead of the company fiscal year
+   (`Apr 1`, per `_fiscal_year_for`) that Financial/Tax/Strategic Finance already
+   used — HR and Marketing "Year to Date" silently covered a shorter window than
+   every other dashboard's YTD for Jan-Mar of any year.
+**Fix:** See `CHANGELOG.md` `[Unreleased] — 2026-09-04` for the exact diffs and
+live-verification numbers for each of the four fixes above.
+**Live-verified — Revenue & Customers full re-confirmation (2026-09-04):** After
+applying all four fixes, drove the actual Vue frontend (not just backend calls)
+against live `jkm` data: header KPIs (Total Revenue ₹172,871,632, Customers 593, AOV
+₹82,320, Gross Margin 20.8%, At Risk 176, YoY -62.6%) match direct backend calls
+exactly; all 6 Revenue sub-tabs and all 6 Customer sub-tabs render real, sane data;
+the Revenue/Customers tab-group radio toggle switches correctly; the Rankings
+drill-down (click a customer row → per-customer invoice modal) verified working
+against two different customers, real invoice numbers/dates/amounts. Churn risk
+distribution is healthy (Low 38.6% / Medium 31.7% / High 15.3% / Critical 14.3% of
+593) — not saturated. Two apparent numeric mismatches traced to intentional scope
+differences, not bugs: Geography's "1,243 customers" is the all-time roster (its own
+independent "Active: 3/6/12 months" filter), vs the header's 593 12-month-active
+customers; Margins' revenue is tax-exclusive `net_amount` (correct for GST-era
+margin math) vs the header's tax-inclusive `grand_total` — Sales Reps' per-rep
+breakdown reconciles to the header exactly (₹149.49M + ₹23.38M = ₹172.87M),
+confirming honest, not inconsistent, reporting. Top-level KPI cards (incl. "At Risk")
+are intentionally non-interactive by design (`KpiCard`'s `clickable` prop is opt-in
+and none of the 6 header cards pass it) — clicking them doing nothing is correct,
+not a bug.
+**Effort:** L (4 backend fixes across 3 files + full live re-verification of one
+merged dashboard).
+**Priority:** Done.
+**Depends on:** None.
+
+### [RESOLVED 2026-09-04] Quote Conversion % frozen at 0% on every dashboard — `_scalar_int` swallowed a Series/DataFrame shape mismatch
+
+**What:** `executive_intelligence`'s "Quote Conversion %" KPI read `0.0%` and was
+flagged `Critical` even on a live site with real submitted quotations — same false-
+alert pattern as the `net_margin` bug above, but this one was a real computation bug,
+not a stale-data artifact. Root cause in `insights/ml/customer.py`'s `_scalar_int()`
+helper (used to unwrap an Ibis scalar aggregate to a Python `int`): `tbl.count()`
+returns a plain int, but `tbl.aggregate(name=count())` returns a 1-row, 1-column
+DataFrame — `.iloc[0]` on that yields the **row** (a pandas `Series`), not the cell,
+and `int(Series or 0)` raises `ValueError: ambiguous truth value`, which the blanket
+`except Exception: return 0` then silently downgraded to `0`. `_quotation_conversion`
+is the only caller that goes through `.aggregate()` rather than a bare `.count()`, so
+every other `_scalar_int` call site was unaffected — this one metric, everywhere it's
+surfaced (Executive KPI, Customer Intelligence `quote_conversion_rate`), was wrong.
+**Fix:** `_scalar_int` now unwraps positionally — `.iloc[0, 0]` when the executed
+result is a 2-D DataFrame (`ndim == 2`), `.iloc[0]` for a bare 1-D Series — instead of
+assuming a Series and letting the ambiguous-truth-value path eat the real value.
+**Deployment gotcha hit while verifying this fix:** the fix alone did not change the
+live dashboard. `insights-worker` (RQ) imports `insights.ml.*` once at process start
+and serves `cached_run`-backed endpoints (Executive, Customer Intelligence) from that
+frozen bytecode; clearing the Redis cache key without restarting the worker just
+recomputes the *same wrong answer* from the *same old code*, which looks like "the
+fix didn't work." Confirmed by restarting `jkm-bench` (which respawns the worker),
+re-clearing `insights_ml_executive_summary:*` / `insights_ml_customer_intelligence:*`,
+and waiting for the background `compute_dashboard` jobs to drain — this is the same
+documented gotcha as the SQL-migration entry above, now hit and confirmed twice.
+**Live-verified:** direct `customer_intelligence` call: `quote_conversion_rate` 0.0 →
+71.0 (YTD, 184/259 converted) and 68.4 (12m, 54/79 converted). Executive dashboard KPI
+card, reloaded fresh in the browser after the worker restart: "Quote Conversion %"
+now shows `Low` severity, `68.4%`, `↑38.4%` — was `Critical`, `0.0%`.
+**Effort:** S (2-line fix; most of the effort was diagnosing the stale-worker
+deployment trap, not the code itself).
+**Priority:** Done.
+**Depends on:** None.
+
+### [RESOLVED 2026-09-04] Three dashboards flagged in the 2026-09-03/04 batch pass — re-verified live after the worker restart above
+
+The batch navigation pass (before the Revenue & Customers deep-dive) flagged three
+other dashboards as suspect. Re-checked live, fresh cache, post worker-restart:
+- **Marketing & CRM Intelligence** — renders correctly: funnel, channels, lead
+  conversion (8.6%), win rate, all real data. Not stuck; the "Preparing CRM data"
+  seen during the batch pass was the same cold-cache/stale-worker window as the
+  Quote Conversion bug above, not an independent frontend bug.
+- **Machine Learning Intelligence** — renders correctly once `model_health()`
+  finishes: "Model Health 6 of 7 trained" with real per-model rows (Sales Forecast
+  RMSE, Demand Forecast reorder counts, etc.). Confirmed genuinely empty for the
+  first 20-25s after navigation/reload (no skeleton distinguishes "computing" from
+  "no data" on this page), then populates once the synchronous 6-model health check
+  completes — a latency/loading-state gap, not a data or rendering bug. Not fixed
+  here (out of the Revenue & Customers scope this session); a real fix would add a
+  loading skeleton to `MachineLearning.vue` distinct from its empty state.
+- **Manufacturing Intelligence** — real bug, fixed: `manufacturing_intelligence.py`'s
+  `completion_rate_pct`/`average_efficiency_pct`/`on_time_completion_pct` returned `0`
+  instead of `None` when their denominator (`total_orders`) was `0`, so a site with
+  zero Work Orders got a fabricated `0.0%` fed into `KpiCard`'s severity logic, which
+  read it as `High` alert. Guarded all three to return `None` on a zero denominator;
+  `production_health` label likewise now `None` (not `"needs_improvement"`) when
+  `completion_rate` is `None`. Live-verified: Completion Rate and Efficiency now show
+  `-` (the shared no-data sentinel), matching how every other zero-denominator metric
+  on this dashboard already rendered.
+**Effort:** S (one real fix; two false positives confirmed, not changed).
+**Priority:** Done.
+**Depends on:** None.
+
+### [RESOLVED 2026-09-04] Every panel heading silently missing on Risk Intelligence and Procurement Intelligence
+
+**What:** Both `RiskIntelligence.vue` and `ProcurementIntelligence.vue` use
+`<SectionHeader>` throughout their templates (18 and 19 call sites respectively,
+covering every tab) but never imported the component in `<script setup>` — the one
+import line all 27 other dashboard files that use `SectionHeader` already have. Vue
+silently renders an unresolved component tag as a literal, unstyled custom element;
+the `title`/`hint` string props became invisible HTML `title`/`hint` DOM attributes
+(browser hover-tooltip only, never present in `textContent`), and `<template #actions>`
+icon content vanished entirely (a native, non-component `<template>` never renders).
+No console error, no visual crash — every panel on both dashboards was simply missing
+its heading, on every tab. This slipped past the earlier browser-smoke batch pass in
+this same session because that pass checked console errors and data correctness, not
+DOM heading presence — both dashboards were marked "no bugs" before this was found.
+**Root cause:** missing `import SectionHeader from
+'../intelligence/components/SectionHeader.vue'` in both files' `<script setup>` block.
+**Fix:** added the one import line to each file, matching the exact pattern already
+used by `CustomerSections.vue`, `RevenueSections.vue`, `InventoryIntelligence.vue`,
+`MachineLearning.vue`, `CustomerDetail.vue` and 22 other files in this codebase.
+**Live-verified:** rebuilt (`yarn build`, clean), then browser-verified every tab on
+both dashboards. Risk Intelligence (7 tabs): Overview → "Active Risk Alerts", "Risk
+Assessment Matrix", "Key Business Metrics", "Risk Component Breakdown"; Credit Risk →
+"Receivables Aging Analysis", "Customer Risk Scores"; Payables Risk → "Payables Aging
+Analysis", "Supplier Risk Scores"; Cash Flow Risk → "Revenue Concentration Analysis",
+"Overdue Days Trend"; Operational Risk → "Inventory Risk by Item Group", "Supplier
+Reliability Analysis"; Compliance Risk → "GST Compliance Status", "Document
+Completeness Audit", "GST / PAN Registration"; Predictive Analytics → "Detected
+Anomalies", "Early Warning System", "Payment Delay Risk Forecast". Procurement
+Intelligence (6 tabs): Overview → "Monthly Spend Trend", "Spend by Category", "Top
+Suppliers by Spend"; Supplier Performance → "Top Performers", "Needs Improvement",
+"All Supplier Scores"; Purchase Analytics → "Purchase Order Status", "Monthly Purchase
+Order Trend", "Pending Purchase Orders"; Price Intelligence → "Recent Price
+Increases", "High Price Variance Items", "Item Price Analysis"; Risk Analysis →
+"Procurement Risk Score", "Supplier Concentration Risk", "Single Source Items",
+"Payment Exposure", "Outstanding by Supplier", "Overdue Invoices"; Forecasts &
+Planning → "3-Month Spend Forecast", "Category-wise 3M Forecast", "Historical Spend
+Pattern". Zero console errors, zero `SECTIONHEADER` literal tags anywhere in the
+rendered DOM, on either dashboard, on any tab.
+**Effort:** S (two one-line import fixes; effort was in discovering a bug with no
+console signal by cross-checking every dashboard file's import list against its own
+template usage).
+**Priority:** Done.
+**Depends on:** None.
+
+### [RESOLVED 2026-09-04] Executive dashboard's Custom Range narrative leaked the raw filter encoding
+
+**What:** `_narrative()` in `insights/ml/executive_intelligence.py` interpolated its
+`period` argument verbatim into "Business health for the {0} period is...". The
+acronym periods (`MTD`/`QTD`/`YTD`/`TTM`) read fine, but selecting Custom Range on the
+Executive dashboard and applying dates passes the internal `custom:<start>:<end>`
+encoding straight through unformatted — the AI Executive Summary literally read
+"Business health for the custom:2026-07-01:2026-08-31 period is 68.6/100 (AMBER)."
+**Fix:** added `_friendly_period_label()`, used only inside `_narrative()`, which
+formats a `custom:` prefix as `01 Jul 2026 - 31 Aug 2026` and passes acronyms through
+unchanged. `data.period` itself (the field the frontend round-trips into the filter
+control, per this module's own documented frontend contract) is untouched.
+**Live-verified:** direct `bench execute` with `period='custom:2026-07-01:2026-08-31'`
+and, after a `jkm-bench` restart to clear the worker's stale bytecode (same class of
+gotcha as the Quote Conversion entry above) and a fresh cache warm, in the actual
+browser: selected Custom Range, set 01 Jul-31 Aug 2026, clicked Refresh — narrative
+now reads "Business health for the 01 Jul 2026 - 31 Aug 2026 period is 68.6/100
+(AMBER)", zero console errors.
+**Effort:** S (one small helper + one call-site edit).
+**Priority:** Done.
+**Depends on:** None.
+
+### [RESOLVED 2026-09-04] Full browser-smoke sweep of all 13 intelligence dashboards — complete
+
+**What:** Closed out the remaining four dashboards from the browser-smoke phase:
+Tax Intelligence (4 tabs: GST Overview, Compliance Health, TDS, Tax Planning, plus its
+3m/6m/12m/FY date-range filter), Inventory Intelligence (7 tabs: Stock Overview,
+Turnover, ABC/XYZ, Itemwise BE, Aging (FIFO), Warehouses & Transfers, Procurement),
+Price Intelligence (single-page by design — no tab bar in `PriceIntelligence.vue`,
+confirmed intentional, not a missing-tabs bug), and ESG Intelligence (honest "Not yet
+available - ESG intelligence is not yet backed by real data" placeholder, zero
+errors, no crash — the known, accepted, out-of-scope gap this file already documents
+elsewhere as `not_implemented`, not a new bug).
+**Result:** all four clean — real computed data on every tab, zero console/page
+errors, zero unresolved custom-element tags, no leaked internal strings (`NaN`,
+`undefined`, `[object Object]`, or raw filter encodings). No new bugs found beyond the
+Custom Range narrative fix above.
+**Note:** the 4 parallel subagents dispatched for this phase all failed identically on
+`[ollama-cloud/minimax-m3] HTTP 429 ... weekly usage limit` (provider quota
+exhaustion, same failure class already hit earlier this session) — worked all four
+dashboards directly instead.
+**Effort:** S (verification only, one fix folded in above).
+**Priority:** Done.
+**Depends on:** None.
+
+**All 13 intelligence dashboards (Executive, Revenue & Customers, Financial/Strategic
+Finance/Budget/Breakeven, Tax, Procurement, Inventory, Price, Manufacturing, Marketing
+& CRM, HR/People, Risk, Machine Learning, ESG) are now browser-verified clean on every
+tab and filter this session, with every numbers-correctness bug found along the way
+fixed and live-verified against real `jkm` data.**

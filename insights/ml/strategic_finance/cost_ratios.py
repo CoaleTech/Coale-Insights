@@ -19,6 +19,8 @@ matching the convention in `summary.py`'s gross margin calculation.
 
 import frappe
 from frappe import _
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import Abs, Coalesce, DateFormat, Sum
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
@@ -43,23 +45,27 @@ def _category_total(company: str, start: str, end: str, keywords: List[str]) -> 
     keyword (case-insensitive substring), for the given period."""
     if not keywords:
         return 0.0
-    conditions = " OR ".join(["acc.name LIKE %s"] * len(keywords))
-    params = [company, start, end] + [f"%{kw}%" for kw in keywords]
-    result = frappe.db.sql(
-        f"""
-        SELECT COALESCE(SUM(ABS(gle.debit - gle.credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Expense'
-            AND gle.company = %s
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.is_cancelled = 0
-            AND ({conditions})
-        """,
-        params,
-        as_dict=True,
-    )[0].amount or 0
-    return float(result)
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+
+    # Build an OR-combined name-LIKE filter for each keyword.
+    combined_filter = acc.name.like(f"%{keywords[0]}%")
+    for kw in keywords[1:]:
+        combined_filter = combined_filter | acc.name.like(f"%{kw}%")
+
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .where(acc.root_type == "Expense")
+        .where(gle.company == company)
+        .where(gle.posting_date.between(start, end))
+        .where(gle.is_cancelled == 0)
+        .where(combined_filter)
+        .run(as_dict=True)
+    )
+    return float(rows[0].amount or 0) if rows else 0.0
 
 
 def _get_fixed_cost(company: str, start: str, end: str, settings) -> float:
@@ -71,74 +77,76 @@ def _get_fixed_cost(company: str, start: str, end: str, settings) -> float:
     centers = [c.strip() for c in str(raw).split("\n") if c.strip()]
     if not centers:
         return 0.0
-    result = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(ABS(gle.debit - gle.credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Expense'
-            AND gle.company = %s
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.is_cancelled = 0
-            AND gle.cost_center IN %s
-        """,
-        (company, start, end, centers),
-        as_dict=True,
-    )[0].amount or 0
-    return float(result)
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .where(acc.root_type == "Expense")
+        .where(gle.company == company)
+        .where(gle.posting_date.between(start, end))
+        .where(gle.is_cancelled == 0)
+        .where(gle.cost_center.isin(centers))
+        .run(as_dict=True)
+    )
+    return float(rows[0].amount or 0) if rows else 0.0
+
+
+def _root_type_sum(company: str, start: str, end: str, root_type: str) -> float:
+    """Sum of GL Entry postings against accounts of a given root_type
+    (Income or Expense) for the period. Mirrors the legacy SQL
+    `COALESCE(SUM(ABS(credit - debit)), 0)` for Income (credit-normal)
+    and `COALESCE(SUM(ABS(debit - credit)), 0)` for Expense (debit-normal)."""
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    expr = (
+        Abs(gle.credit - gle.debit)
+        if root_type == "Income"
+        else Abs(gle.debit - gle.credit)
+    )
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(expr), 0).as_("amount"))
+        .where(acc.root_type == root_type)
+        .where(gle.posting_date.between(start, end))
+        .where(gle.company == company)
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    return float(rows[0].amount or 0) if rows else 0.0
+
+
+def _cogs_total(company: str, start: str, end: str) -> float:
+    """Same shape as `_root_type_sum` for Expense, restricted to COGS
+    accounts (by `account_type = 'Cost of Goods Sold'` or by name match)."""
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    name_filter = acc.name.like("%Cost of Goods%") | acc.name.like("%COGS%")
+    type_filter = acc.account_type == "Cost of Goods Sold"
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .where((type_filter | name_filter) & (acc.root_type == "Expense"))
+        .where(gle.posting_date.between(start, end))
+        .where(gle.company == company)
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    return float(rows[0].amount or 0) if rows else 0.0
 
 
 def _revenue_and_profit(company: str, start: str, end: str) -> tuple:
     """Revenue, gross profit (None if no COGS accounts posted), net profit —
     same GL convention as `summary.py:calculate_executive_summary`."""
-    revenue = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(ABS(credit - debit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Income'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-        """,
-        (start, end, company),
-        as_dict=True,
-    )[0].amount or 0
-
-    expenses = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Expense'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-        """,
-        (start, end, company),
-        as_dict=True,
-    )[0].amount or 0
-
-    cogs = frappe.db.sql(
-        """
-        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE (acc.account_type = 'Cost of Goods Sold'
-               OR acc.name LIKE '%%Cost of Goods%%'
-               OR acc.name LIKE '%%COGS%%')
-            AND acc.root_type = 'Expense'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-        """,
-        (start, end, company),
-        as_dict=True,
-    )[0].amount or 0
-
-    revenue = float(revenue)
-    expenses = float(expenses)
-    cogs = float(cogs)
+    revenue = _root_type_sum(company, start, end, "Income")
+    expenses = _root_type_sum(company, start, end, "Expense")
+    cogs = _cogs_total(company, start, end)
     net_profit = revenue - expenses
     gross_profit = (revenue - cogs) if (cogs > 0 and revenue > 0) else None
     return revenue, gross_profit, net_profit
@@ -369,22 +377,29 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
     import numpy as np
     company = intelligence.company
 
-    rows = frappe.db.sql(
-        """
-        SELECT
-            DATE_FORMAT(gle.posting_date, '%%Y-%%m') as month,
-            COALESCE(SUM(ABS(gle.debit - gle.credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Expense'
-            AND gle.company = %s
-            AND gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 13 MONTH)
-            AND gle.is_cancelled = 0
-        GROUP BY month
-        ORDER BY month ASC
-        """,
-        (company,),
-        as_dict=True,
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    # Anchor on a Python-side date so PyPika emits a literal bound parameter
+    # rather than DATE_SUB(CURDATE(), INTERVAL ...) server-side, which is
+    # not expressible in the query builder. Equivalent semantics.
+    thirteen_months_ago = (datetime.now() - timedelta_weeks(13 * 4 + 1)).strftime('%Y-%m-%d')
+    month_expr = DateFormat(gle.posting_date, "%Y-%m").as_("month")
+
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            month_expr,
+            Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"),
+        )
+        .where(acc.root_type == "Expense")
+        .where(gle.company == company)
+        .where(gle.posting_date >= thirteen_months_ago)
+        .where(gle.is_cancelled == 0)
+        .groupby(month_expr)
+        .orderby(month_expr)
+        .run(as_dict=True)
     )
 
     current_month = datetime.now().strftime('%Y-%m')
@@ -431,3 +446,9 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
         "monthly_change": round(float(slope), 2),
         "note": f"Projected from a linear trend over the last {len(window)} complete months. Not seasonally adjusted.",
     }
+
+
+def timedelta_weeks(weeks: int):
+    """Local helper — equivalent to datetime.timedelta(weeks=...)."""
+    from datetime import timedelta
+    return timedelta(weeks=weeks)

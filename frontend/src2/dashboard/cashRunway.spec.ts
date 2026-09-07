@@ -1,20 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { formatCount } from '../utils/format'
+import { cashRunwayLabel } from '../utils/format'
 
 /**
- * The cash-runway sublabel, as implemented in `FinancialIntelligence.vue`.
+ * The cash-runway sublabel, shared by `FinancialIntelligence.vue`'s "Cash
+ * Position" card and `CashFlowTab.vue`'s "Cash Runway" card.
  *
  * `financial_intelligence.py:272` returns `999` when net burn is zero or
- * negative. That is a flag meaning "not consuming cash", not a measurement, and
- * the card multiplied it by 30 and printed "29970 days runway" -- an 82-year
- * forecast stated as fact, to the day, from monthly averages. This was only
- * visible on screen; every gate passed while it shipped.
+ * negative. That is a flag meaning "not consuming cash", not a measurement.
+ * `CashFlowTab.vue` once multiplied it by 30 and printed "29970 days runway"
+ * -- an 82-year forecast stated as fact, to the day, from monthly averages --
+ * because it computed the conversion inline instead of sharing this function.
+ * Importing the real implementation here (not a local copy) is what makes
+ * this test catch that class of regression in either caller.
  */
-function cashRunwayLabel(months: number | null | undefined): string | undefined {
-	if (months === null || months === undefined || !Number.isFinite(months)) return undefined
-	if (months >= 999) return 'no net cash burn'
-	return `${formatCount(months, { decimals: 1 })} months runway`
-}
 
 describe('cash runway sublabel', () => {
 	it('names the no-burn case instead of forecasting 82 years', () => {

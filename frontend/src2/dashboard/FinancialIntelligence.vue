@@ -316,7 +316,7 @@ import { useRouter } from 'vue-router'
 import { AlertTriangle, Lock } from 'lucide-vue-next'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
 import { scoreSeverity } from '../utils/status'
-import { formatCount } from '../utils/format'
+import { formatCount, cashRunwayLabel as sharedCashRunwayLabel } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
@@ -550,22 +550,11 @@ const summary = computed(() => ({
 }))
 
 /**
- * Runway in the units the server measures it in, and never as a sentinel.
- *
- * `financial_intelligence.py:272` returns `999` when net burn is zero or
- * negative -- a flag for "not consuming cash", not a measurement. This card
- * multiplied it by 30 and rendered "29970 days runway": an 82-year forecast
- * presented as fact, and to the day, from a figure derived from monthly
- * averages. The strategic engine reports the same concept as 49.6 months, so
- * the day conversion also put two different units for one metric on one screen.
+ * Runway in the units the server measures it in, and never as a sentinel --
+ * see `cashRunwayLabel` in `utils/format.ts` for the sentinel contract
+ * (`financial_intelligence.py:272` returns `999` for "not consuming cash").
  */
-const cashRunwayLabel = computed(() => {
-	const months = summary.value.cashRunwayMonths
-	if (months === null || months === undefined || !Number.isFinite(months)) return undefined
-	// The server's "effectively unbounded" flag. Saying so beats inventing a date.
-	if (months >= 999) return 'no net cash burn'
-	return `${formatCount(months, { decimals: 1 })} months runway`
-})
+const cashRunwayLabel = computed(() => sharedCashRunwayLabel(summary.value.cashRunwayMonths))
 
 /** Singular/plural currency label; absent when exposure count is unknown or zero. */
 const forexSublabel = computed(() => {

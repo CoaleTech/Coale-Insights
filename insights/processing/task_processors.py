@@ -3,6 +3,7 @@
 
 import frappe
 from frappe import _
+from frappe.query_builder.functions import Sum
 from typing import Dict, Any, List, Optional
 import json
 import time
@@ -432,7 +433,7 @@ class TaskProcessor:
                 order_by="transaction_date desc",
                 limit=20
             )
-            
+
             return {
                 "customer_info": customer.as_dict(),
                 "sales_invoices": sales_invoices,
@@ -440,42 +441,30 @@ class TaskProcessor:
                 "total_revenue": sum(inv.get("grand_total", 0) for inv in sales_invoices),
                 "outstanding_amount": sum(inv.get("outstanding_amount", 0) for inv in sales_invoices)
             }
-            
+
         except Exception as e:
             frappe.log_error(f"Failed to get customer data: {str(e)}")
             return {}
-    
+
     def _get_available_data_summary(self) -> Dict[str, Any]:
         """Get summary of available data for context.
-        
-        Uses a single UNION ALL query instead of 9 sequential COUNT queries.
+
+        Uses sequential COUNT queries via the ORM so no raw SQL is needed.
         """
-        
+
         try:
             doctypes_to_check = [
                 "Sales Invoice", "Sales Order", "Purchase Order", "Purchase Invoice",
                 "Item", "Customer", "Supplier", "Stock Entry", "Delivery Note"
             ]
-            
-            # Build a single UNION ALL query for all counts
-            union_parts = []
-            for dt in doctypes_to_check:
-                table_name = f"tab{dt}"
-                union_parts.append(
-                    f"SELECT '{dt}' as doctype, COUNT(*) as cnt FROM `{table_name}` WHERE docstatus = 1"
-                )
-            
-            sql = " UNION ALL ".join(union_parts)
-            
-            results = frappe.db.sql(sql, as_dict=True)
-            
+
             summary = {}
-            for row in results:
-                key = row["doctype"].lower().replace(" ", "_")
-                summary[key] = row["cnt"]
-            
+            for dt in doctypes_to_check:
+                key = dt.lower().replace(" ", "_")
+                summary[key] = frappe.db.count(dt, {"docstatus": 1})
+
             return summary
-            
+
         except Exception as e:
             return {}
     
@@ -527,43 +516,51 @@ class TaskProcessor:
             "drop_percentage": drop_percentage,
             "is_significant": drop_percentage > 10
         }
-    
+
     def _process_customer_risk_alert(self, payload: Dict) -> Dict[str, Any]:
         """Process customer risk alerts"""
-        
-        # Get customers with high outstanding amounts
-        high_risk_customers = frappe.db.sql("""
-            SELECT customer, SUM(outstanding_amount) as outstanding
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND outstanding_amount > 0
-            GROUP BY customer
-            HAVING outstanding > %s
-            ORDER BY outstanding DESC
-        """, (payload.get("risk_threshold", 50000),), as_dict=True)
-        
+
+        SI = frappe.qb.DocType("Sales Invoice")
+        threshold = payload.get("risk_threshold", 50000)
+        outstanding_sum = Sum(SI.outstanding_amount).as_("outstanding")
+        high_risk_customers = (
+            frappe.qb.from_(SI)
+            .select(SI.customer, outstanding_sum)
+            .where((SI.docstatus == 1) & (SI.outstanding_amount > 0))
+            .groupby(SI.customer)
+            .having(outstanding_sum > threshold)
+            .orderby(outstanding_sum, order=frappe.qb.desc)
+            .run(as_dict=True)
+        )
+
         return {
             "alert_type": "customer_risk",
             "high_risk_customers": high_risk_customers,
             "total_outstanding": sum(c.get("outstanding", 0) for c in high_risk_customers)
         }
-    
+
     def _get_period_revenue(self, period: str) -> float:
         """Get revenue for specified period"""
-        
+
         if period == "current":
             start_date = frappe.utils.get_first_day_of_week(frappe.utils.today())
             end_date = frappe.utils.today()
         else:  # previous
             start_date = frappe.utils.add_days(frappe.utils.get_first_day_of_week(frappe.utils.today()), -7)
             end_date = frappe.utils.add_days(frappe.utils.get_first_day_of_week(frappe.utils.today()), -1)
-        
-        revenue = frappe.db.sql("""
-            SELECT SUM(grand_total) as revenue
-            FROM `tabSales Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND docstatus = 1
-        """, (start_date, end_date))[0][0] or 0
-        
+
+        SI = frappe.qb.DocType("Sales Invoice")
+        result = (
+            frappe.qb.from_(SI)
+            .select(Sum(SI.grand_total).as_("revenue"))
+            .where(
+                (SI.posting_date.between(start_date, end_date))
+                & (SI.docstatus == 1)
+            )
+            .run(as_dict=True)
+        )
+        revenue = result[0].get("revenue") or 0 if result else 0
+
         return float(revenue)
     
     def _determine_generic_complexity(self, payload: Dict) -> TaskComplexity:

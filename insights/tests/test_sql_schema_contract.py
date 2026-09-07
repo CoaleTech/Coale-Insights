@@ -1,22 +1,12 @@
 # Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-"""Every raw SQL query in the ML layer must still match the live schema.
+"""Guard against raw SQL re-introduction in the ML layer.
 
-The ML layer runs ~250 hand-written aggregate queries against ERPNext tables
-instead of `frappe.qb`. That is a defensible choice -- these are multi-join
-aggregates the ORM cannot express -- but it forfeits the one thing the query
-builder gives you for free: a column that gets renamed or dropped upstream
-fails at *runtime*, inside a background job, as a zero on a dashboard rather
-than an error anyone sees.
-
-This test closes that gap without rewriting a single query. It hands each
-query to the database's own parser via `PREPARE`, which resolves every table
-and column but executes nothing. An ERPNext upgrade that moves a column now
-fails here, loudly, naming the file and line.
-
-It found `Work Order.qty_completed` (correct name: `produced_qty`) and
-`Work Order.qty_to_manufacture` (correct name: `qty`) on its first run.
+The ML and API/ML layers have been migrated to `frappe.qb`. This test
+verifies that no new hand-written SELECT queries are added to the scanned
+directories. Any remaining raw SELECTs must be justified and listed in the
+allowed set below.
 """
 
 import ast
@@ -100,10 +90,18 @@ class TestSqlSchemaContract(unittest.TestCase):
 			except Exception as e:
 				failures.append(f"{rel_path}:{lineno}\n    {str(e).splitlines()[0][:200]}")
 
-		self.assertGreater(checked, 200, "query discovery broke -- expected 200+ SELECTs")
+		# After the QB migration, ml/ and api/ml/ should contain no raw SELECTs.
+		# If a genuine exception requires raw SQL, add its (rel_path, lineno) to
+		# ALLOWED_RAW_SELECTS and document why QB cannot express it.
+		ALLOWED_RAW_SELECTS = []
+		self.assertEqual(
+			checked,
+			len(ALLOWED_RAW_SELECTS),
+			f"Found {checked} raw SELECT(s) in ml/ and api/ml/; expected only the {len(ALLOWED_RAW_SELECTS)} allowed exception(s).",
+		)
 		self.assertEqual(
 			failures,
 			[],
-			f"{len(failures)} of {checked} ML queries no longer match the schema:\n\n"
+			f"{len(failures)} raw query(s) failed schema validation:\n\n"
 			+ "\n\n".join(failures),
 		)

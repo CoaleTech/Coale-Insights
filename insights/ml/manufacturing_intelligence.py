@@ -144,8 +144,8 @@ class ManufacturingIntelligence:
             total_qty_planned = work_order_summary.get("total_qty_planned", 0)
             
             # Calculate key metrics
-            completion_rate = (completed_orders / total_orders * 100) if total_orders else 0
-            quantity_achievement = (total_qty_produced / total_qty_planned * 100) if total_qty_planned else 0
+            completion_rate = (completed_orders / total_orders * 100) if total_orders else None
+            quantity_achievement = (total_qty_produced / total_qty_planned * 100) if total_qty_planned else None
             
             # Calculate trend from monthly data
             growth_rate = 0
@@ -166,21 +166,19 @@ class ManufacturingIntelligence:
                 "total_work_orders": total_orders,
                 "completed_orders": completed_orders,
                 "open_work_orders": max(0, total_orders - completed_orders),
-                "completion_rate_pct": round(completion_rate, 2),
+                "completion_rate_pct": round(completion_rate, 2) if completion_rate is not None else None,
                 "total_production_qty": total_qty_produced,
                 "planned_production_qty": total_qty_planned,
-                "quantity_achievement_pct": round(quantity_achievement, 2),
+                "quantity_achievement_pct": round(quantity_achievement, 2) if quantity_achievement is not None else None,
                 "monthly_growth_rate": round(growth_rate, 2),
                 "pending_material_requests": pending_material_requests,
-                # Health label is meaningless on a 0/0 site (completion_rate
-                # is 0 because there's no denominator, not because the
-                # 0-completion rate is bad). Leave it null when there
-                # are no Work Orders to evaluate.
+                # Health label is meaningless when completion_rate has no
+                # denominator to be measured against (None, not a real 0).
                 "production_health": (
                     "excellent" if completion_rate > 90
                     else "good" if completion_rate > 80
                     else "needs_improvement"
-                ) if total_orders > 0 else None,
+                ) if completion_rate is not None else None,
             }
         except Exception as e:
             logger.error(f"Error analyzing production metrics: {e}")
@@ -244,11 +242,11 @@ class ManufacturingIntelligence:
             completed_orders = work_order_summary.get("completed_orders", 0)
             total_orders = work_order_summary.get("total_orders", 0)
 
-            on_time_completion = (completed_orders / total_orders * 100) if total_orders else 0
+            on_time_completion = (completed_orders / total_orders * 100) if total_orders else None
 
             return {
                 "first_pass_yield_pct": None,
-                "on_time_completion_pct": round(on_time_completion, 2),
+                "on_time_completion_pct": round(on_time_completion, 2) if on_time_completion is not None else None,
                 "defect_rate_ppm": None,
                 "quality_status": None,
                 "quality_trends": None,
@@ -273,7 +271,7 @@ class ManufacturingIntelligence:
         """
         try:
             production_eff = production_data.get("efficiency", {})
-            avg_efficiency = production_eff.get("efficiency_percent", 0)
+            avg_efficiency = production_eff.get("efficiency_percent")
 
             return {
                 "average_efficiency_pct": avg_efficiency,
@@ -282,7 +280,14 @@ class ManufacturingIntelligence:
                 "consistency_rating": None,
                 "best_workstation": None,
                 "worst_workstation": None,
-                "efficiency_trend": "improving" if avg_efficiency > 75 else "stable" if avg_efficiency > 60 else "declining",
+                # None when there's nothing planned to measure against (see
+                # efficiency_percent in the collector) rather than mislabelling
+                # an unmeasured period as "declining".
+                "efficiency_trend": (
+                    "improving" if avg_efficiency > 75
+                    else "stable" if avg_efficiency > 60
+                    else "declining"
+                ) if avg_efficiency is not None else None,
                 "efficiency_data_note": _(
                     "Per-workstation efficiency variance and best/worst "
                     "ranking require workstation capacity data not sourced "

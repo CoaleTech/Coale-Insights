@@ -11,6 +11,9 @@ import frappe
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, TYPE_CHECKING
 
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import Coalesce, Count, Sum
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -35,19 +38,32 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     import numpy as np
     current_cash = get_cash_balance(intelligence)
 
-    # Get historical daily cash flows (last 90 days)
-    historical = frappe.db.sql("""
-        SELECT
-            gle.posting_date as date,
-            SUM(CASE WHEN acc.account_type IN ('Cash', 'Bank') THEN (debit - credit) ELSE 0 END) as net_flow
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-        GROUP BY gle.posting_date
-        ORDER BY gle.posting_date
-    """, (intelligence.company,), as_dict=True)
+    # Get historical daily cash flows (last 90 days). The legacy SQL used
+    # DATE_SUB(CURDATE(), INTERVAL 90 DAY); we resolve that on the Python
+    # side so PyPika can emit the bound parameter directly.
+    ninety_days_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    historical = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            gle.posting_date.as_("date"),
+            Sum(
+                Case()
+                .when(acc.account_type.isin(["Cash", "Bank"]), gle.debit - gle.credit)
+                .else_(0)
+            ).as_("net_flow"),
+        )
+        .where(gle.posting_date >= ninety_days_ago)
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .groupby(gle.posting_date)
+        .orderby(gle.posting_date)
+        .run(as_dict=True)
+    )
 
     # Calculate average daily flow
     if historical:
@@ -59,26 +75,34 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
         std_daily_flow = 0
 
     # Expected receivables (outstanding invoices)
-    expected_inflows = frappe.db.sql("""
-        SELECT
-            COALESCE(SUM(outstanding_amount), 0) as total,
-            COUNT(*) as count
-        FROM `tabSales Invoice`
-        WHERE company = %s
-            AND docstatus = 1
-            AND outstanding_amount > 0
-    """, (intelligence.company,), as_dict=True)[0]
+    si = DocType("Sales Invoice")
+    expected_inflows_rows = (
+        frappe.qb.from_(si)
+        .select(
+            Coalesce(Sum(si.outstanding_amount), 0).as_("total"),
+            Count("*").as_("count"),
+        )
+        .where(si.company == intelligence.company)
+        .where(si.docstatus == 1)
+        .where(si.outstanding_amount > 0)
+        .run(as_dict=True)
+    )
+    expected_inflows = expected_inflows_rows[0] if expected_inflows_rows else {"total": 0, "count": 0}
 
     # Expected payables (outstanding bills)
-    expected_outflows = frappe.db.sql("""
-        SELECT
-            COALESCE(SUM(outstanding_amount), 0) as total,
-            COUNT(*) as count
-        FROM `tabPurchase Invoice`
-        WHERE company = %s
-            AND docstatus = 1
-            AND outstanding_amount > 0
-    """, (intelligence.company,), as_dict=True)[0]
+    pi = DocType("Purchase Invoice")
+    expected_outflows_rows = (
+        frappe.qb.from_(pi)
+        .select(
+            Coalesce(Sum(pi.outstanding_amount), 0).as_("total"),
+            Count("*").as_("count"),
+        )
+        .where(pi.company == intelligence.company)
+        .where(pi.docstatus == 1)
+        .where(pi.outstanding_amount > 0)
+        .run(as_dict=True)
+    )
+    expected_outflows = expected_outflows_rows[0] if expected_outflows_rows else {"total": 0, "count": 0}
 
     # Generate 90-day forecast
     forecast_days = 90

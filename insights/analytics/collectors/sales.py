@@ -4,6 +4,8 @@
 """Sales Data Collector - Sales summaries, top customers, conversion rates"""
 
 import frappe
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Avg, Count, DateFormat, Sum
 from frappe.utils import flt
 from typing import Dict, Any, List
 
@@ -26,100 +28,129 @@ class SalesDataCollector(BaseCollector):
 
     def _get_sales_summary(self) -> Dict[str, Any]:
         """Get overall sales summary"""
-        result = frappe.db.sql("""
-            SELECT
-                COUNT(*) as total_orders,
-                SUM(grand_total) as total_revenue,
-                SUM(net_total) as net_revenue,
-                AVG(grand_total) as avg_order_value
-            FROM `tabSales Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-        """, (self.from_date, self.to_date, self.company), as_dict=True)
-
-        return result[0] if result else {}
+        si = DocType("Sales Invoice")
+        q = (
+            frappe.qb.from_(si)
+            .select(
+                Count("*").as_("total_orders"),
+                Sum(si.grand_total).as_("total_revenue"),
+                Sum(si.net_total).as_("net_revenue"),
+                Avg(si.grand_total).as_("avg_order_value"),
+            )
+            .where(si.posting_date.between(self.from_date, self.to_date))
+            .where(si.company == self.company)
+            .where(si.docstatus == 1)
+        )
+        rows = q.run(as_dict=True)
+        return rows[0] if rows else {}
 
     def _get_top_customers(self, limit: int = 10) -> List[Dict]:
         """Get top customers by revenue"""
-        return frappe.db.sql("""
-            SELECT
-                customer,
-                customer_name,
-                SUM(grand_total) as total_revenue,
-                COUNT(*) as order_count
-            FROM `tabSales Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-            GROUP BY customer, customer_name
-            ORDER BY total_revenue DESC
-            LIMIT %s
-        """, (self.from_date, self.to_date, self.company, limit), as_dict=True)
+        si = DocType("Sales Invoice")
+        total_revenue = Sum(si.grand_total).as_("total_revenue")
+        q = (
+            frappe.qb.from_(si)
+            .select(
+                si.customer,
+                si.customer_name,
+                total_revenue,
+                Count("*").as_("order_count"),
+            )
+            .where(si.posting_date.between(self.from_date, self.to_date))
+            .where(si.company == self.company)
+            .where(si.docstatus == 1)
+            .groupby(si.customer, si.customer_name)
+            .orderby(total_revenue, order=frappe.qb.desc)
+            .limit(limit)
+        )
+        return q.run(as_dict=True)
 
     def _get_top_items(self, limit: int = 10) -> List[Dict]:
         """Get top selling items"""
-        return frappe.db.sql("""
-            SELECT
+        si = DocType("Sales Invoice")
+        sii = DocType("Sales Invoice Item")
+        total_revenue = Sum(sii.amount).as_("total_revenue")
+        q = (
+            frappe.qb.from_(sii)
+            .join(si)
+            .on(sii.parent == si.name)
+            .select(
                 sii.item_code,
                 sii.item_name,
-                SUM(sii.qty) as total_qty,
-                SUM(sii.amount) as total_revenue
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.posting_date BETWEEN %s AND %s
-            AND si.company = %s
-            AND si.docstatus = 1
-            GROUP BY sii.item_code, sii.item_name
-            ORDER BY total_revenue DESC
-            LIMIT %s
-        """, (self.from_date, self.to_date, self.company, limit), as_dict=True)
+                Sum(sii.qty).as_("total_qty"),
+                total_revenue,
+            )
+            .where(si.posting_date.between(self.from_date, self.to_date))
+            .where(si.company == self.company)
+            .where(si.docstatus == 1)
+            .groupby(sii.item_code, sii.item_name)
+            .orderby(total_revenue, order=frappe.qb.desc)
+            .limit(limit)
+        )
+        return q.run(as_dict=True)
 
     def _get_sales_by_territory(self) -> List[Dict]:
         """Get sales by territory"""
-        return frappe.db.sql("""
-            SELECT
-                territory,
-                SUM(grand_total) as total_revenue,
-                COUNT(*) as order_count
-            FROM `tabSales Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-            AND territory IS NOT NULL
-            GROUP BY territory
-            ORDER BY total_revenue DESC
-        """, (self.from_date, self.to_date, self.company), as_dict=True)
+        si = DocType("Sales Invoice")
+        total_revenue = Sum(si.grand_total).as_("total_revenue")
+        q = (
+            frappe.qb.from_(si)
+            .select(
+                si.territory,
+                total_revenue,
+                Count("*").as_("order_count"),
+            )
+            .where(si.posting_date.between(self.from_date, self.to_date))
+            .where(si.company == self.company)
+            .where(si.docstatus == 1)
+            .where(si.territory.isnotnull())
+            .groupby(si.territory)
+            .orderby(total_revenue, order=frappe.qb.desc)
+        )
+        return q.run(as_dict=True)
 
     def _get_monthly_trend(self) -> List[Dict]:
         """Get monthly sales trend"""
-        return frappe.db.sql("""
-            SELECT
-                DATE_FORMAT(posting_date, '%%Y-%%m') as month,
-                SUM(grand_total) as revenue,
-                COUNT(*) as orders
-            FROM `tabSales Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-            GROUP BY month
-            ORDER BY month
-        """, (self.from_date, self.to_date, self.company), as_dict=True)
+        si = DocType("Sales Invoice")
+        month = DateFormat(si.posting_date, "%Y-%m").as_("month")
+        q = (
+            frappe.qb.from_(si)
+            .select(
+                month,
+                Sum(si.grand_total).as_("revenue"),
+                Count("*").as_("orders"),
+            )
+            .where(si.posting_date.between(self.from_date, self.to_date))
+            .where(si.company == self.company)
+            .where(si.docstatus == 1)
+            .groupby(month)
+            .orderby(month)
+        )
+        return q.run(as_dict=True)
 
     def _get_conversion_rate(self) -> Dict[str, Any]:
         """Get quotation to order conversion rate"""
-        quotations = frappe.db.count("Quotation", {
-            "transaction_date": ["between", [self.from_date, self.to_date]],
-            "company": self.company,
-            "docstatus": 1
-        })
+        qoutation = DocType("Quotation")
+        base_filters = (
+            (qoutation.transaction_date.between(self.from_date, self.to_date))
+            & (qoutation.company == self.company)
+            & (qoutation.docstatus == 1)
+        )
 
-        converted = frappe.db.count("Quotation", {
-            "transaction_date": ["between", [self.from_date, self.to_date]],
-            "company": self.company,
-            "docstatus": 1,
-            "status": "Ordered"
-        })
+        q = (
+            frappe.qb.from_(qoutation)
+            .select(Count("*").as_("c"))
+            .where(base_filters)
+        )
+        quotations = q.run(as_dict=True)[0].c or 0
+
+        q = (
+            frappe.qb.from_(qoutation)
+            .select(Count("*").as_("c"))
+            .where(base_filters)
+            .where(qoutation.status == "Ordered")
+        )
+        converted = q.run(as_dict=True)[0].c or 0
 
         rate = (converted / quotations * 100) if quotations else 0
 
@@ -131,12 +162,13 @@ class SalesDataCollector(BaseCollector):
 
     def _get_aov(self) -> float:
         """Get average order value"""
-        result = frappe.db.sql("""
-            SELECT AVG(grand_total) as aov
-            FROM `tabSales Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-        """, (self.from_date, self.to_date, self.company), as_dict=True)
-
-        return flt(result[0].get("aov")) if result else 0
+        si = DocType("Sales Invoice")
+        q = (
+            frappe.qb.from_(si)
+            .select(Avg(si.grand_total).as_("aov"))
+            .where(si.posting_date.between(self.from_date, self.to_date))
+            .where(si.company == self.company)
+            .where(si.docstatus == 1)
+        )
+        rows = q.run(as_dict=True)
+        return flt(rows[0].get("aov")) if rows else 0

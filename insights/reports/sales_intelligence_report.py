@@ -1,68 +1,81 @@
 # Copyright (c) 2026, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-"""Sales Intelligence Report -- pure SQL, no pandas/numpy/ibis.
+"""Sales Intelligence Report -- pure ``frappe.qb`` aggregations, no pandas/numpy/ibis.
 
 This replaces the ibis-backed `insights.ml.sales_intelligence` module. Every
-aggregation is pushed to MariaDB via `frappe.db.sql`; Python only formats the
-small result sets into the dict shape the Revenue dashboard already consumes.
+aggregation is pushed to MariaDB via the PyPika ``frappe.qb`` query builder;
+Python only formats the small result sets into the dict shape the Revenue
+dashboard already consumes.
 """
 
 from __future__ import annotations
-
 from datetime import date, datetime, timedelta
 from typing import Any
 
 import frappe
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import Coalesce, Count, DateFormat, Max, Min, NullIf, Sum
+
+
 
 from insights.api.ml.utils import parse_date_filter
 
 
-def _date_filter_sql(date_filter: str, column: str = "posting_date") -> tuple[str, dict]:
-    """Return (SQL predicate, params) for the standard date filter.
+# ---------------------------------------------------------------------------
+# Filter helpers -- return (PyPika criterion, params) instead of SQL fragments.
+# Keeping them isolated lets every query below share identical semantics with
+# the original ``frappe.db.sql`` implementation.
+# ---------------------------------------------------------------------------
 
-    The predicate is empty when no lower bound applies, otherwise
-    ``AND column >= %(start_date)s``. The caller is responsible for the
-    leading ``WHERE``/``AND`` context.
+
+def _date_filter(date_filter: str, column=None):
+    """Return (criterion, params) for ``column >= start_date``.
+
+    ``column`` may be a string column name (resolved against the caller's
+    DocType) or a PyPika field object. Returns ``(None, {})`` when no lower
+    bound applies.
     """
     start, _ = parse_date_filter(date_filter)
     if start is None:
-        return "", {}
-    return f"AND `{column}` >= %(start_date)s", {"start_date": start.date()}
+        return None, {}
+    field = column if column is not None else DocType("Sales Invoice").posting_date
+    return field >= start.date(), {"start_date": start.date()}
 
 
-def _company_sql(company: str | None) -> tuple[str, dict]:
+def _company_filter(company: str | None, table=None):
+    """Return (criterion, params) for an optional ``company = ...`` filter."""
     if not company:
-        return "", {}
-    return "AND company = %(company)s", {"company": company}
+        return None, {}
+    field = (table.company if table is not None else DocType("Sales Invoice").company)
+    return field == company, {"company": company}
 
 
-def _base_params(date_filter: str, company: str | None) -> dict:
-    params: dict = {}
-    _, p = _date_filter_sql(date_filter)
-    params.update(p)
-    _, p = _company_sql(company)
-    params.update(p)
-    return params
+def _apply_common(q, date_filter: str, company: str | None, *, date_table=None, company_table=None):
+    """Apply the standard docstatus / is_return / date / company filters."""
+    table = date_table or company_table or DocType("Sales Invoice")
+    q = q.where(table.docstatus == 1).where(table.is_return == 0)
+    crit, params = _date_filter(date_filter, table.posting_date)
+    if crit is not None:
+        q = q.where(crit)
+    crit, params_c = _company_filter(company, company_table or table)
+    if crit is not None:
+        q = q.where(crit)
+    return q, {**params, **params_c}
 
 
 def _headline(date_filter: str, company: str | None) -> dict[str, Any]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
-    row = frappe.db.sql(
-        f"""
-        SELECT
-            COALESCE(SUM(grand_total), 0) AS total_revenue,
-            COUNT(*) AS total_transactions,
-            COUNT(DISTINCT customer) AS unique_customers
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-        {company_sql}
-        {date_sql}
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
-    )[0]
+    si = DocType("Sales Invoice")
+    q = (
+        frappe.qb.from_(si)
+        .select(
+            Coalesce(Sum(si.grand_total), 0).as_("total_revenue"),
+            Count("*").as_("total_transactions"),
+            Count(si.customer).distinct().as_("unique_customers"),
+        )
+    )
+    q, _ = _apply_common(q, date_filter, company)
+    row = q.run(as_dict=True)[0]
     total_revenue = float(row.total_revenue or 0)
     total_transactions = int(row.total_transactions or 0)
     unique_customers = int(row.unique_customers or 0)
@@ -75,26 +88,28 @@ def _headline(date_filter: str, company: str | None) -> dict[str, Any]:
 
 
 def _daily_sales(date_filter: str, company: str | None) -> list[dict[str, Any]]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
+    si = DocType("Sales Invoice")
     daily_cutoff = (datetime.now() - timedelta(days=30)).date()
-    rows = frappe.db.sql(
-        f"""
-        SELECT
-            posting_date,
-            COALESCE(SUM(grand_total), 0) AS revenue,
-            COUNT(*) AS transactions
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            AND posting_date >= %(daily_cutoff)s
-            {company_sql}
-            {date_sql}
-        GROUP BY posting_date
-        ORDER BY posting_date
-        """,
-        {"daily_cutoff": daily_cutoff, **_base_params(date_filter, company)},
-        as_dict=True,
+    q = (
+        frappe.qb.from_(si)
+        .select(
+            si.posting_date,
+            Coalesce(Sum(si.grand_total), 0).as_("revenue"),
+            Count("*").as_("transactions"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .where(si.posting_date >= daily_cutoff)
+        .groupby(si.posting_date)
+        .orderby(si.posting_date)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        q = q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        q = q.where(crit)
+    rows = q.run(as_dict=True)
     return [
         {
             "date": str(r.posting_date),
@@ -106,26 +121,29 @@ def _daily_sales(date_filter: str, company: str | None) -> list[dict[str, Any]]:
 
 
 def _weekly_sales(date_filter: str, company: str | None) -> list[dict[str, Any]]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
+    si = DocType("Sales Invoice")
     weekly_cutoff = (datetime.now() - timedelta(weeks=12)).date()
-    rows = frappe.db.sql(
-        f"""
-        SELECT
-            DATE_FORMAT(posting_date, '%%x-W%%v') AS year_week,
-            COALESCE(SUM(grand_total), 0) AS revenue,
-            COUNT(*) AS transactions
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            AND posting_date >= %(weekly_cutoff)s
-            {company_sql}
-            {date_sql}
-        GROUP BY year_week
-        ORDER BY year_week
-        """,
-        {"weekly_cutoff": weekly_cutoff, **_base_params(date_filter, company)},
-        as_dict=True,
+    year_week = DateFormat(si.posting_date, "%x-W%v").as_("year_week")
+    q = (
+        frappe.qb.from_(si)
+        .select(
+            year_week,
+            Coalesce(Sum(si.grand_total), 0).as_("revenue"),
+            Count("*").as_("transactions"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .where(si.posting_date >= weekly_cutoff)
+        .groupby(year_week)
+        .orderby(year_week)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        q = q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        q = q.where(crit)
+    rows = q.run(as_dict=True)
     return [
         {
             "year_week": r.year_week,
@@ -137,25 +155,28 @@ def _weekly_sales(date_filter: str, company: str | None) -> list[dict[str, Any]]
 
 
 def _monthly_sales(date_filter: str, company: str | None) -> list[dict[str, Any]]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
-    rows = frappe.db.sql(
-        f"""
-        SELECT
-            DATE_FORMAT(posting_date, '%%Y-%%m') AS period,
-            COALESCE(SUM(grand_total), 0) AS revenue,
-            COUNT(*) AS transactions,
-            COUNT(DISTINCT customer) AS unique_customers
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            {company_sql}
-            {date_sql}
-        GROUP BY period
-        ORDER BY period
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    si = DocType("Sales Invoice")
+    period = DateFormat(si.posting_date, "%Y-%m").as_("period")
+    q = (
+        frappe.qb.from_(si)
+        .select(
+            period,
+            Coalesce(Sum(si.grand_total), 0).as_("revenue"),
+            Count("*").as_("transactions"),
+            Count(si.customer).distinct().as_("unique_customers"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .groupby(period)
+        .orderby(period)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        q = q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        q = q.where(crit)
+    rows = q.run(as_dict=True)
     return [
         {
             "period": r.period,
@@ -168,25 +189,27 @@ def _monthly_sales(date_filter: str, company: str | None) -> list[dict[str, Any]
 
 
 def _avg_days_between_orders(date_filter: str, company: str | None) -> float:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
-    rows = frappe.db.sql(
-        f"""
-        SELECT
-            customer,
-            MIN(posting_date) AS first_sale,
-            MAX(posting_date) AS last_sale,
-            COUNT(*) AS order_count
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            {company_sql}
-            {date_sql}
-        GROUP BY customer
-        HAVING order_count > 1
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    si = DocType("Sales Invoice")
+    q = (
+        frappe.qb.from_(si)
+        .select(
+            si.customer,
+            Min(si.posting_date).as_("first_sale"),
+            Max(si.posting_date).as_("last_sale"),
+            Count("*").as_("order_count"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .groupby(si.customer)
+        .having(Count("*") > 1)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        q = q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        q = q.where(crit)
+    rows = q.run(as_dict=True)
     total_days = 0
     total_orders_minus_1 = 0
     for r in rows:
@@ -208,44 +231,77 @@ def calculate_revenue_metrics(date_filter: str = "12m", company: str | None = No
 
 
 def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
-    overall = frappe.db.sql(
-        f"""
-        SELECT
-            COALESCE(SUM(grand_total), 0) AS total,
-            COALESCE(SUM(CASE WHEN outstanding_amount = 0 THEN grand_total ELSE 0 END), 0) AS cash_total,
-            COALESCE(SUM(CASE WHEN outstanding_amount != 0 THEN grand_total ELSE 0 END), 0) AS credit_total
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            {company_sql}
-            {date_sql}
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
-    )[0]
+    si = DocType("Sales Invoice")
+    base = (
+        frappe.qb.from_(si)
+        .select(
+            Coalesce(Sum(si.grand_total), 0).as_("total"),
+            Coalesce(
+                Sum(
+                    Case()
+                    .when(si.outstanding_amount == 0, si.grand_total)
+                    .else_(0)
+                ),
+                0,
+            ).as_("cash_total"),
+            Coalesce(
+                Sum(
+                    Case()
+                    .when(si.outstanding_amount != 0, si.grand_total)
+                    .else_(0)
+                ),
+                0,
+            ).as_("credit_total"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+    )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        base = base.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        base = base.where(crit)
+    overall = base.run(as_dict=True)[0]
     total = float(overall.total or 0)
     cash_total = float(overall.cash_total or 0)
     credit_total = float(overall.credit_total or 0)
 
     daily_cutoff = (datetime.now() - timedelta(days=30)).date()
-    daily_rows = frappe.db.sql(
-        f"""
-        SELECT
-            posting_date AS sale_date,
-            COALESCE(SUM(CASE WHEN outstanding_amount = 0 THEN grand_total ELSE 0 END), 0) AS Cash,
-            COALESCE(SUM(CASE WHEN outstanding_amount != 0 THEN grand_total ELSE 0 END), 0) AS Credit
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            AND posting_date >= %(daily_cutoff)s
-            {company_sql}
-            {date_sql}
-        GROUP BY posting_date
-        ORDER BY posting_date
-        """,
-        {"daily_cutoff": daily_cutoff, **_base_params(date_filter, company)},
-        as_dict=True,
+    daily_q = (
+        frappe.qb.from_(si)
+        .select(
+            si.posting_date.as_("sale_date"),
+            Coalesce(
+                Sum(
+                    Case()
+                    .when(si.outstanding_amount == 0, si.grand_total)
+                    .else_(0)
+                ),
+                0,
+            ).as_("Cash"),
+            Coalesce(
+                Sum(
+                    Case()
+                    .when(si.outstanding_amount != 0, si.grand_total)
+                    .else_(0)
+                ),
+                0,
+            ).as_("Credit"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .where(si.posting_date >= daily_cutoff)
+        .groupby(si.posting_date)
+        .orderby(si.posting_date)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        daily_q = daily_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        daily_q = daily_q.where(crit)
+    daily_rows = daily_q.run(as_dict=True)
     daily_mix = []
     for r in daily_rows:
         cash = float(r.Cash or 0)
@@ -261,22 +317,40 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
             }
         )
 
-    monthly_rows = frappe.db.sql(
-        f"""
-        SELECT
-            DATE_FORMAT(posting_date, '%%Y-%%m') AS period,
-            COALESCE(SUM(CASE WHEN outstanding_amount = 0 THEN grand_total ELSE 0 END), 0) AS Cash,
-            COALESCE(SUM(CASE WHEN outstanding_amount != 0 THEN grand_total ELSE 0 END), 0) AS Credit
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            {company_sql}
-            {date_sql}
-        GROUP BY period
-        ORDER BY period
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    period_m = DateFormat(si.posting_date, "%Y-%m").as_("period")
+    monthly_q = (
+        frappe.qb.from_(si)
+        .select(
+            period_m,
+            Coalesce(
+                Sum(
+                    Case()
+                    .when(si.outstanding_amount == 0, si.grand_total)
+                    .else_(0)
+                ),
+                0,
+            ).as_("Cash"),
+            Coalesce(
+                Sum(
+                    Case()
+                    .when(si.outstanding_amount != 0, si.grand_total)
+                    .else_(0)
+                ),
+                0,
+            ).as_("Credit"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .groupby(period_m)
+        .orderby(period_m)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        monthly_q = monthly_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        monthly_q = monthly_q.where(crit)
+    monthly_rows = monthly_q.run(as_dict=True)
     monthly_mix = []
     for r in monthly_rows:
         cash = float(r.Cash or 0)
@@ -309,27 +383,33 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
 
 
 def analyze_sales_reps(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
-    rows = frappe.db.sql(
-        f"""
-        SELECT
-            si.owner AS sales_person,
-            COALESCE(u.full_name, si.owner) AS full_name,
-            COALESCE(SUM(si.grand_total), 0) AS total_revenue,
-            COUNT(DISTINCT si.name) AS total_orders,
-            COUNT(DISTINCT si.customer) AS unique_customers
-        FROM `tabSales Invoice` si
-        LEFT JOIN `tabUser` u ON u.name = si.owner
-        WHERE si.docstatus = 1
-            {company_sql}
-            {date_sql}
-        GROUP BY si.owner, u.full_name
-        ORDER BY total_revenue DESC
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    si = DocType("Sales Invoice")
+    u = DocType("User")
+    q = (
+        frappe.qb.from_(si)
+        .left_join(u)
+        .on(u.name == si.owner)
+        .select(
+            si.owner.as_("sales_person"),
+            Coalesce(u.full_name, si.owner).as_("full_name"),
+            Coalesce(Sum(si.grand_total), 0).as_("total_revenue"),
+            Count(si.name).distinct().as_("total_orders"),
+            Count(si.customer).distinct().as_("unique_customers"),
+        )
+        .where(si.docstatus == 1)
+        .groupby(si.owner, u.full_name)
+        .orderby(Count(si.name).distinct(), order=frappe.qb.desc)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        q = q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        q = q.where(crit)
+    rows = q.run(as_dict=True)
+    # Preserve original ordering: by total_revenue DESC (use Python sort since
+    # the qb aggregate-in-orderby is verbose; data volume is small).
+    rows.sort(key=lambda r: float(r.total_revenue or 0), reverse=True)
     reps = []
     for idx, r in enumerate(rows, start=1):
         total_rev = float(r.total_revenue or 0)
@@ -358,8 +438,7 @@ def analyze_sales_reps(date_filter: str = "12m", company: str | None = None) -> 
 
 
 def calculate_comparisons(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
+    si = DocType("Sales Invoice")
     today = date.today()
     current_month_start = today.replace(day=1)
     last_month_final = current_month_start - timedelta(days=1)
@@ -372,19 +451,19 @@ def calculate_comparisons(date_filter: str = "12m", company: str | None = None) 
     last_year_end = last_year_start.replace(day=min(today.day, 28))
 
     def _slice(start_d: date, end_d: date) -> dict[str, Any]:
-        row = frappe.db.sql(
-            f"""
-            SELECT
-                COALESCE(SUM(grand_total), 0) AS revenue,
-                COUNT(*) AS transactions
-            FROM `tabSales Invoice`
-            WHERE docstatus = 1 AND is_return = 0
-                AND posting_date BETWEEN %(start_d)s AND %(end_d)s
-                {company_sql}
-            """,
-            {"start_d": start_d, "end_d": end_d, **_company_filter_params(company)},
-            as_dict=True,
-        )[0]
+        q = (
+            frappe.qb.from_(si)
+            .select(
+                Coalesce(Sum(si.grand_total), 0).as_("revenue"),
+                Count("*").as_("transactions"),
+            )
+            .where(si.docstatus == 1)
+            .where(si.is_return == 0)
+            .where(si.posting_date.between(start_d, end_d))
+        )
+        if company:
+            q = q.where(si.company == company)
+        row = q.run(as_dict=True)[0]
         return {
             "revenue": float(row.revenue or 0),
             "transactions": int(row.transactions or 0),
@@ -404,21 +483,25 @@ def calculate_comparisons(date_filter: str = "12m", company: str | None = None) 
     def _pct(now, prev):
         return round((now - prev) / prev * 100, 1) if prev > 0 else 0
 
-    monthly_rows = frappe.db.sql(
-        f"""
-        SELECT
-            DATE_FORMAT(posting_date, '%%Y-%%m') AS period,
-            COALESCE(SUM(grand_total), 0) AS revenue
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            {company_sql}
-            {date_sql}
-        GROUP BY period
-        ORDER BY period
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    period_m = DateFormat(si.posting_date, "%Y-%m").as_("period")
+    monthly_q = (
+        frappe.qb.from_(si)
+        .select(
+            period_m,
+            Coalesce(Sum(si.grand_total), 0).as_("revenue"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .groupby(period_m)
+        .orderby(period_m)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        monthly_q = monthly_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        monthly_q = monthly_q.where(crit)
+    monthly_rows = monthly_q.run(as_dict=True)
     monthly_trend = []
     for i, r in enumerate(monthly_rows):
         prev = float(monthly_rows[i - 1].revenue or 0) if i > 0 else 0
@@ -459,31 +542,30 @@ def calculate_comparisons(date_filter: str = "12m", company: str | None = None) 
     }
 
 
-def _company_filter_params(company: str | None) -> dict:
-    _, p = _company_sql(company)
-    return p
-
-
 def analyze_by_dimensions(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
-    rows = frappe.db.sql(
-        f"""
-        SELECT
-            COALESCE(NULLIF(customer_group, ''), 'Uncategorized') AS customer_group,
-            COALESCE(NULLIF(territory, ''), 'Unassigned') AS territory,
-            COALESCE(SUM(grand_total), 0) AS revenue,
-            COUNT(*) AS transactions,
-            COUNT(DISTINCT customer) AS unique_customers
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            {company_sql}
-            {date_sql}
-        GROUP BY customer_group, territory
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    si = DocType("Sales Invoice")
+    customer_group = Coalesce(NullIf(si.customer_group, ""), "Uncategorized").as_("customer_group")
+    territory = Coalesce(NullIf(si.territory, ""), "Unassigned").as_("territory")
+    rows_q = (
+        frappe.qb.from_(si)
+        .select(
+            customer_group,
+            territory,
+            Coalesce(Sum(si.grand_total), 0).as_("revenue"),
+            Count("*").as_("transactions"),
+            Count(si.customer).distinct().as_("unique_customers"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .groupby(si.customer_group, si.territory)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        rows_q = rows_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        rows_q = rows_q.where(crit)
+    rows = rows_q.run(as_dict=True)
     by_segment_map: dict[str, dict[str, Any]] = {}
     by_territory_map: dict[str, dict[str, Any]] = {}
     total_revenue = 0.0
@@ -504,18 +586,6 @@ def analyze_by_dimensions(date_filter: str = "12m", company: str | None = None) 
         by_territory_map[terr]["transactions"] += txns
         by_territory_map[terr]["customers"] = max(by_territory_map[terr]["customers"], uniq)
 
-    def _to_list(m):
-        return [
-            {
-                "customer_group" if "customer_group" in k else "territory": k,
-                "revenue": round(v["revenue"], 2),
-                "transactions": v["transactions"],
-                "customers": v["customers"],
-                "pct": round(v["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0,
-            }
-            for k, v in sorted(m.items(), key=lambda x: x[1]["revenue"], reverse=True)
-        ]
-
     by_segment = [
         {"customer_group": k, "revenue": round(v["revenue"], 2), "transactions": v["transactions"], "customers": v["customers"], "pct": round(v["revenue"] / total_revenue * 100, 1) if total_revenue > 0 else 0}
         for k, v in sorted(by_segment_map.items(), key=lambda x: x[1]["revenue"], reverse=True)
@@ -525,31 +595,39 @@ def analyze_by_dimensions(date_filter: str = "12m", company: str | None = None) 
         for k, v in sorted(by_territory_map.items(), key=lambda x: x[1]["revenue"], reverse=True)
     ]
 
-    pg_rows = frappe.db.sql(
-        f"""
-        SELECT
+    sii = DocType("Sales Invoice Item")
+    revenue_expr = Coalesce(
+        Sum(
+            Case()
+            .when(si.base_net_total == 0, sii.base_net_amount)
+            .else_(sii.base_net_amount / si.base_net_total * si.base_grand_total)
+        ),
+        0,
+    ).as_("revenue")
+    pg_q = (
+        frappe.qb.from_(si)
+        .inner_join(sii)
+        .on(sii.parent == si.name)
+        .select(
             sii.item_group,
-            COALESCE(SUM(
-                CASE
-                    WHEN si.base_net_total = 0 THEN sii.base_net_amount
-                    ELSE sii.base_net_amount / si.base_net_total * si.base_grand_total
-                END
-            ), 0) AS revenue,
-            COALESCE(SUM(sii.qty), 0) AS qty_sold,
-            COUNT(DISTINCT si.name) AS transactions
-        FROM `tabSales Invoice` si
-        INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-        WHERE si.docstatus = 1 AND si.is_return = 0
-            AND sii.item_group IS NOT NULL AND sii.item_group != ''
-            {company_sql}
-            {date_sql}
-        GROUP BY sii.item_group
-        ORDER BY revenue DESC
-        LIMIT 20
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+            revenue_expr,
+            Coalesce(Sum(sii.qty), 0).as_("qty_sold"),
+            Count(si.name).distinct().as_("transactions"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .where(sii.item_group.notnull())
+        .where(sii.item_group != "")
+        .orderby(revenue_expr, order=frappe.qb.desc)
+        .limit(20)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        pg_q = pg_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        pg_q = pg_q.where(crit)
+    pg_rows = pg_q.run(as_dict=True)
     pg_total = sum(float(r.revenue or 0) for r in pg_rows)
     by_product_group = [
         {
@@ -571,46 +649,55 @@ def analyze_by_dimensions(date_filter: str = "12m", company: str | None = None) 
 
 
 def analyze_margins(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
-    date_sql, _ = _date_filter_sql(date_filter)
-    company_sql, _ = _company_sql(company)
-    overall = frappe.db.sql(
-        f"""
-        SELECT
-            COALESCE(SUM(sii.net_amount), 0) AS total_revenue,
-            COALESCE(SUM(sii.net_amount - sii.qty * COALESCE(sii.incoming_rate, 0)), 0) AS total_profit
-        FROM `tabSales Invoice` si
-        INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-        WHERE si.docstatus = 1 AND si.is_return = 0
-            {company_sql}
-            {date_sql}
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
-    )[0]
+    si = DocType("Sales Invoice")
+    sii = DocType("Sales Invoice Item")
+    profit_expr = sii.net_amount - sii.qty * Coalesce(sii.incoming_rate, 0)
+    overall_q = (
+        frappe.qb.from_(si)
+        .inner_join(sii)
+        .on(sii.parent == si.name)
+        .select(
+            Coalesce(Sum(sii.net_amount), 0).as_("total_revenue"),
+            Coalesce(Sum(profit_expr), 0).as_("total_profit"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+    )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        overall_q = overall_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        overall_q = overall_q.where(crit)
+    overall = overall_q.run(as_dict=True)[0]
     total_revenue = float(overall.total_revenue or 0)
     total_profit = float(overall.total_profit or 0)
     overall_margin = round(total_profit / total_revenue * 100, 1) if total_revenue > 0 else 0
 
-    pg_rows = frappe.db.sql(
-        f"""
-        SELECT
+    pg_q = (
+        frappe.qb.from_(si)
+        .inner_join(sii)
+        .on(sii.parent == si.name)
+        .select(
             sii.item_group,
-            COALESCE(SUM(sii.net_amount), 0) AS revenue,
-            COALESCE(SUM(sii.net_amount - sii.qty * COALESCE(sii.incoming_rate, 0)), 0) AS gross_profit,
-            COALESCE(SUM(sii.qty), 0) AS qty_sold,
-            COUNT(DISTINCT sii.item_code) AS unique_items
-        FROM `tabSales Invoice` si
-        INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-        WHERE si.docstatus = 1 AND si.is_return = 0
-            AND sii.item_group IS NOT NULL
-            {company_sql}
-            {date_sql}
-        GROUP BY sii.item_group
-        ORDER BY revenue DESC
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+            Coalesce(Sum(sii.net_amount), 0).as_("revenue"),
+            Coalesce(Sum(profit_expr), 0).as_("gross_profit"),
+            Coalesce(Sum(sii.qty), 0).as_("qty_sold"),
+            Count(sii.item_code).distinct().as_("unique_items"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .where(sii.item_group.notnull())
+        .groupby(sii.item_group)
+        .orderby(Coalesce(Sum(sii.net_amount), 0), order=frappe.qb.desc)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        pg_q = pg_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        pg_q = pg_q.where(crit)
+    pg_rows = pg_q.run(as_dict=True)
     by_product_group = []
     for r in pg_rows:
         rev = float(r.revenue or 0)
@@ -626,28 +713,32 @@ def analyze_margins(date_filter: str = "12m", company: str | None = None) -> dic
             }
         )
 
-    item_rows = frappe.db.sql(
-        f"""
-        SELECT
+    item_q = (
+        frappe.qb.from_(si)
+        .inner_join(sii)
+        .on(sii.parent == si.name)
+        .select(
             sii.item_code,
             sii.item_name,
             sii.item_group,
-            COALESCE(SUM(sii.net_amount), 0) AS revenue,
-            COALESCE(SUM(sii.net_amount - sii.qty * COALESCE(sii.incoming_rate, 0)), 0) AS gross_profit,
-            COALESCE(SUM(sii.qty), 0) AS qty_sold
-        FROM `tabSales Invoice` si
-        INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-        WHERE si.docstatus = 1 AND si.is_return = 0
-            AND sii.item_code IS NOT NULL
-            {company_sql}
-            {date_sql}
-        GROUP BY sii.item_code, sii.item_name, sii.item_group
-        ORDER BY revenue DESC
-        LIMIT 500
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+            Coalesce(Sum(sii.net_amount), 0).as_("revenue"),
+            Coalesce(Sum(profit_expr), 0).as_("gross_profit"),
+            Coalesce(Sum(sii.qty), 0).as_("qty_sold"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .where(sii.item_code.notnull())
+        .groupby(sii.item_code, sii.item_name, sii.item_group)
+        .orderby(Coalesce(Sum(sii.net_amount), 0), order=frappe.qb.desc)
+        .limit(500)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        item_q = item_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        item_q = item_q.where(crit)
+    item_rows = item_q.run(as_dict=True)
     top_margin_items = []
     low_margin_items = []
     if item_rows:
@@ -676,23 +767,28 @@ def analyze_margins(date_filter: str = "12m", company: str | None = None) -> dic
         significant_pos = [s for s in significant if s["revenue"] > 0]
         low_margin_items = sorted(significant_pos, key=lambda x: x["margin_pct"])[:10]
 
-    trend_rows = frappe.db.sql(
-        f"""
-        SELECT
-            DATE_FORMAT(si.posting_date, '%%Y-%%m') AS period,
-            COALESCE(SUM(sii.net_amount), 0) AS revenue,
-            COALESCE(SUM(sii.net_amount - sii.qty * COALESCE(sii.incoming_rate, 0)), 0) AS gross_profit
-        FROM `tabSales Invoice` si
-        INNER JOIN `tabSales Invoice Item` sii ON sii.parent = si.name
-        WHERE si.docstatus = 1 AND si.is_return = 0
-            {company_sql}
-            {date_sql}
-        GROUP BY period
-        ORDER BY period
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    period_t = DateFormat(si.posting_date, "%Y-%m").as_("period")
+    trend_q = (
+        frappe.qb.from_(si)
+        .inner_join(sii)
+        .on(sii.parent == si.name)
+        .select(
+            period_t,
+            Coalesce(Sum(sii.net_amount), 0).as_("revenue"),
+            Coalesce(Sum(profit_expr), 0).as_("gross_profit"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .groupby(period_t)
+        .orderby(period_t)
     )
+    crit, _ = _date_filter(date_filter, si.posting_date)
+    if crit is not None:
+        trend_q = trend_q.where(crit)
+    crit, _ = _company_filter(company, si)
+    if crit is not None:
+        trend_q = trend_q.where(crit)
+    trend_rows = trend_q.run(as_dict=True)
     margin_trend = [
         {
             "period": r.period,
@@ -716,27 +812,30 @@ def analyze_margins(date_filter: str = "12m", company: str | None = None) -> dic
 
 
 def analyze_fulfillment(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
-    date_sql, _ = _date_filter_sql(date_filter, "transaction_date")
-    company_sql, _ = _company_sql(company)
-    status_rows = frappe.db.sql(
-        f"""
-        SELECT
-            CASE
-                WHEN per_delivered >= 100 THEN 'Fulfilled'
-                WHEN per_delivered > 0 THEN 'Partial'
-                ELSE 'Pending'
-            END AS status,
-            COUNT(*) AS count,
-            COALESCE(SUM(grand_total), 0) AS value
-        FROM `tabSales Order`
-        WHERE docstatus = 1
-            {company_sql}
-            {date_sql}
-        GROUP BY status
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
+    so = DocType("Sales Order")
+    status_expr = (
+        Case()
+        .when(so.per_delivered >= 100, "Fulfilled")
+        .when(so.per_delivered > 0, "Partial")
+        .else_("Pending")
+    ).as_("status")
+    status_q = (
+        frappe.qb.from_(so)
+        .select(
+            status_expr,
+            Count("*").as_("count"),
+            Coalesce(Sum(so.grand_total), 0).as_("value"),
+        )
+        .where(so.docstatus == 1)
+        .groupby(status_expr)
     )
+    crit, _ = _date_filter(date_filter, so.transaction_date)
+    if crit is not None:
+        status_q = status_q.where(crit)
+    crit, _ = _company_filter(company, so)
+    if crit is not None:
+        status_q = status_q.where(crit)
+    status_rows = status_q.run(as_dict=True)
     total_orders = 0
     fulfilled = 0
     partial = 0
@@ -754,44 +853,50 @@ def analyze_fulfillment(date_filter: str = "12m", company: str | None = None) ->
             pending = cnt
     fulfillment_rate = round(fulfilled / total_orders * 100, 1) if total_orders > 0 else 0
 
-    backlog = frappe.db.sql(
-        f"""
-        SELECT COALESCE(SUM(grand_total * (1 - per_delivered / 100)), 0) AS backlog_value
-        FROM `tabSales Order`
-        WHERE docstatus = 1 AND per_delivered < 100
-            {company_sql}
-            {date_sql}
-        """,
-        _base_params(date_filter, company),
-        as_dict=True,
-    )[0]
+    backlog_q = (
+        frappe.qb.from_(so)
+        .select(
+            Coalesce(Sum(so.grand_total * (1 - so.per_delivered / 100)), 0).as_("backlog_value")
+        )
+        .where(so.docstatus == 1)
+        .where(so.per_delivered < 100)
+    )
+    crit, _ = _date_filter(date_filter, so.transaction_date)
+    if crit is not None:
+        backlog_q = backlog_q.where(crit)
+    crit, _ = _company_filter(company, so)
+    if crit is not None:
+        backlog_q = backlog_q.where(crit)
+    backlog = backlog_q.run(as_dict=True)[0]
     backlog_value = float(backlog.backlog_value or 0)
 
-    si_company_sql, si_params = _company_sql(company)
-    receivables = frappe.db.sql(
-        f"""
-        SELECT COALESCE(SUM(outstanding_amount), 0) AS total
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            {si_company_sql}
-        """,
-        si_params,
-        as_dict=True,
-    )[0]
+    si = DocType("Sales Invoice")
+    recv_q = (
+        frappe.qb.from_(si)
+        .select(
+            Coalesce(Sum(si.outstanding_amount), 0).as_("total"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+    )
+    if company:
+        recv_q = recv_q.where(si.company == company)
+    receivables = recv_q.run(as_dict=True)[0]
     total_receivables = float(receivables.total or 0)
 
     cutoff_90 = (datetime.now() - timedelta(days=90)).date()
-    last_90 = frappe.db.sql(
-        f"""
-        SELECT COALESCE(SUM(grand_total), 0) AS total
-        FROM `tabSales Invoice`
-        WHERE docstatus = 1 AND is_return = 0
-            AND posting_date >= %(cutoff_90)s
-            {si_company_sql}
-        """,
-        {"cutoff_90": cutoff_90, **si_params},
-        as_dict=True,
-    )[0]
+    last90_q = (
+        frappe.qb.from_(si)
+        .select(
+            Coalesce(Sum(si.grand_total), 0).as_("total"),
+        )
+        .where(si.docstatus == 1)
+        .where(si.is_return == 0)
+        .where(si.posting_date >= cutoff_90)
+    )
+    if company:
+        last90_q = last90_q.where(si.company == company)
+    last_90 = last90_q.run(as_dict=True)[0]
     last_90_total = float(last_90.total or 0)
     avg_daily_sales = last_90_total / 90 if last_90_total > 0 else 0
     dso = round(total_receivables / avg_daily_sales, 1) if avg_daily_sales > 0 else 0

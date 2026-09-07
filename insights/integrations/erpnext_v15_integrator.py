@@ -3,6 +3,8 @@
 
 import frappe
 from frappe import _
+from frappe.query_builder import Case
+from frappe.query_builder.functions import Avg, Count, DateFormat, Sum
 from typing import Dict, Any, List, Optional
 import json
 from datetime import datetime, timedelta
@@ -328,57 +330,68 @@ class ERPNextV15Integrator:
                     except Exception as e:
                         frappe.log_error(f"Failed to get {module} data: {str(e)}")
                         dashboard_data[module] = {"error": str(e)}
-            
+
             return {
                 "modules": dashboard_data,
                 "summary": self._generate_cross_module_summary(dashboard_data),
                 "generated_at": datetime.now().isoformat()
             }
-            
+
         except Exception as e:
             frappe.log_error(f"Comprehensive dashboard failed: {str(e)}")
             raise
-    
-    # Private helper methods for data retrieval
-    
+
     def _get_revenue_analysis(self, company: str, from_date: str, to_date: str) -> Dict[str, Any]:
         """Get detailed revenue analysis"""
-        
+
+        SI = frappe.qb.DocType("Sales Invoice")
+
         # Current period revenue
-        current_revenue = frappe.db.sql("""
-            SELECT SUM(grand_total) as total_revenue,
-                   AVG(grand_total) as avg_invoice_value,
-                   COUNT(*) as invoice_count
-            FROM `tabSales Invoice`
-            WHERE company = %s 
-            AND posting_date BETWEEN %s AND %s
-            AND docstatus = 1
-        """, (company, from_date, to_date), as_dict=True)[0]
-        
+        current_revenue = (
+            frappe.qb.from_(SI)
+            .select(
+                Sum(SI.grand_total).as_("total_revenue"),
+                Avg(SI.grand_total).as_("avg_invoice_value"),
+                Count("*").as_("invoice_count"),
+            )
+            .where(
+                (SI.company == company)
+                & SI.posting_date.between(from_date, to_date)
+                & (SI.docstatus == 1)
+            )
+            .run(as_dict=True)[0]
+        )
+
         # Previous period comparison
         prev_from = frappe.utils.add_days(from_date, -30)
         prev_to = frappe.utils.add_days(to_date, -30)
-        
-        previous_revenue = frappe.db.sql("""
-            SELECT SUM(grand_total) as total_revenue
-            FROM `tabSales Invoice`
-            WHERE company = %s 
-            AND posting_date BETWEEN %s AND %s
-            AND docstatus = 1
-        """, (company, prev_from, prev_to), as_dict=True)[0]
-        
+
+        previous_revenue = (
+            frappe.qb.from_(SI)
+            .select(Sum(SI.grand_total).as_("total_revenue"))
+            .where(
+                (SI.company == company)
+                & SI.posting_date.between(prev_from, prev_to)
+                & (SI.docstatus == 1)
+            )
+            .run(as_dict=True)[0]
+        )
+
         # Monthly trend
-        monthly_trend = frappe.db.sql("""
-            SELECT DATE_FORMAT(posting_date, '%Y-%m') as month,
-                   SUM(grand_total) as revenue
-            FROM `tabSales Invoice`
-            WHERE company = %s 
-            AND posting_date >= %s
-            AND docstatus = 1
-            GROUP BY DATE_FORMAT(posting_date, '%Y-%m')
-            ORDER BY month
-        """, (company, frappe.utils.add_months(from_date, -6)), as_dict=True)
-        
+        month_expr = DateFormat(SI.posting_date, "%Y-%m").as_("month")
+        monthly_trend = (
+            frappe.qb.from_(SI)
+            .select(month_expr, Sum(SI.grand_total).as_("revenue"))
+            .where(
+                (SI.company == company)
+                & (SI.posting_date >= frappe.utils.add_months(from_date, -6))
+                & (SI.docstatus == 1)
+            )
+            .groupby(month_expr)
+            .orderby(month_expr)
+            .run(as_dict=True)
+        )
+
         return {
             "current_period": current_revenue,
             "previous_period": previous_revenue,
@@ -388,80 +401,106 @@ class ERPNextV15Integrator:
                 previous_revenue.get("total_revenue", 0)
             )
         }
-    
+
     def _get_cash_flow_analysis(self, company: str, from_date: str, to_date: str) -> Dict[str, Any]:
         """Get cash flow analysis"""
-        
+
+        PE = frappe.qb.DocType("Payment Entry")
+
         # Incoming cash (payments received)
-        incoming_cash = frappe.db.sql("""
-            SELECT SUM(paid_amount) as total_received,
-                   COUNT(*) as payment_count
-            FROM `tabPayment Entry`
-            WHERE company = %s
-            AND posting_date BETWEEN %s AND %s
-            AND payment_type = 'Receive'
-            AND docstatus = 1
-        """, (company, from_date, to_date), as_dict=True)[0]
-        
+        incoming_cash = (
+            frappe.qb.from_(PE)
+            .select(
+                Sum(PE.paid_amount).as_("total_received"),
+                Count("*").as_("payment_count"),
+            )
+            .where(
+                (PE.company == company)
+                & PE.posting_date.between(from_date, to_date)
+                & (PE.payment_type == "Receive")
+                & (PE.docstatus == 1)
+            )
+            .run(as_dict=True)[0]
+        )
+
         # Outgoing cash (payments made)
-        outgoing_cash = frappe.db.sql("""
-            SELECT SUM(paid_amount) as total_paid,
-                   COUNT(*) as payment_count
-            FROM `tabPayment Entry`
-            WHERE company = %s
-            AND posting_date BETWEEN %s AND %s
-            AND payment_type = 'Pay'
-            AND docstatus = 1
-        """, (company, from_date, to_date), as_dict=True)[0]
-        
+        outgoing_cash = (
+            frappe.qb.from_(PE)
+            .select(
+                Sum(PE.paid_amount).as_("total_paid"),
+                Count("*").as_("payment_count"),
+            )
+            .where(
+                (PE.company == company)
+                & PE.posting_date.between(from_date, to_date)
+                & (PE.payment_type == "Pay")
+                & (PE.docstatus == 1)
+            )
+            .run(as_dict=True)[0]
+        )
+
         # Cash flow by week
-        weekly_cash_flow = frappe.db.sql("""
-            SELECT WEEK(posting_date) as week_num,
-                   SUM(CASE WHEN payment_type = 'Receive' THEN paid_amount ELSE 0 END) as inflow,
-                   SUM(CASE WHEN payment_type = 'Pay' THEN paid_amount ELSE 0 END) as outflow
-            FROM `tabPayment Entry`
-            WHERE company = %s
-            AND posting_date BETWEEN %s AND %s
-            AND docstatus = 1
-            GROUP BY WEEK(posting_date)
-            ORDER BY week_num
-        """, (company, from_date, to_date), as_dict=True)
-        
+        week_expr = DateFormat(PE.posting_date, "%u").as_("week_num")
+        inflow_expr = Sum(Case().when(PE.payment_type == "Receive", PE.paid_amount).else_(0)).as_("inflow")
+        outflow_expr = Sum(Case().when(PE.payment_type == "Pay", PE.paid_amount).else_(0)).as_("outflow")
+        weekly_cash_flow = (
+            frappe.qb.from_(PE)
+            .select(week_expr, inflow_expr, outflow_expr)
+            .where(
+                (PE.company == company)
+                & PE.posting_date.between(from_date, to_date)
+                & (PE.docstatus == 1)
+            )
+            .groupby(week_expr)
+            .orderby(week_expr)
+            .run(as_dict=True)
+        )
+
         return {
             "incoming": incoming_cash,
             "outgoing": outgoing_cash,
             "net_cash_flow": (incoming_cash.get("total_received", 0) - outgoing_cash.get("total_paid", 0)),
             "weekly_trend": weekly_cash_flow
         }
-    
+
     def _get_profitability_analysis(self, company: str, from_date: str, to_date: str) -> Dict[str, Any]:
         """Get profitability analysis"""
-        
+
+        SI = frappe.qb.DocType("Sales Invoice")
+        PI = frappe.qb.DocType("Purchase Invoice")
+
         # Gross profit calculation
-        profit_data = frappe.db.sql("""
-            SELECT 
-                SUM(si.grand_total) as total_revenue,
-                SUM(si.total_taxes_and_charges) as total_taxes,
-                SUM(si.net_total) as net_revenue
-            FROM `tabSales Invoice` si
-            WHERE si.company = %s
-            AND si.posting_date BETWEEN %s AND %s
-            AND si.docstatus = 1
-        """, (company, from_date, to_date), as_dict=True)[0]
-        
+        profit_data = (
+            frappe.qb.from_(SI)
+            .select(
+                Sum(SI.grand_total).as_("total_revenue"),
+                Sum(SI.total_taxes_and_charges).as_("total_taxes"),
+                Sum(SI.net_total).as_("net_revenue"),
+            )
+            .where(
+                (SI.company == company)
+                & SI.posting_date.between(from_date, to_date)
+                & (SI.docstatus == 1)
+            )
+            .run(as_dict=True)[0]
+        )
+
         # Cost calculation (simplified)
-        cost_data = frappe.db.sql("""
-            SELECT SUM(pi.grand_total) as total_costs
-            FROM `tabPurchase Invoice` pi
-            WHERE pi.company = %s
-            AND pi.posting_date BETWEEN %s AND %s
-            AND pi.docstatus = 1
-        """, (company, from_date, to_date), as_dict=True)[0]
-        
+        cost_data = (
+            frappe.qb.from_(PI)
+            .select(Sum(PI.grand_total).as_("total_costs"))
+            .where(
+                (PI.company == company)
+                & PI.posting_date.between(from_date, to_date)
+                & (PI.docstatus == 1)
+            )
+            .run(as_dict=True)[0]
+        )
+
         total_revenue = profit_data.get("total_revenue", 0)
         total_costs = cost_data.get("total_costs", 0)
         gross_profit = total_revenue - total_costs
-        
+
         return {
             "revenue": total_revenue,
             "costs": total_costs,

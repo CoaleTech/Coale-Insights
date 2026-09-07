@@ -263,14 +263,13 @@ class ProductRecommendations:
         codes = {p["item1"] for p in pairs} | {p["item2"] for p in pairs}
         if not codes:
             return {}
-        rows = frappe.db.sql(
-            """
-            SELECT name, item_name
-            FROM `tabItem`
-            WHERE name IN %(codes)s AND disabled = 0
-            """,
-            {"codes": tuple(codes)},
-            as_dict=True,
+        Item = frappe.qb.DocType("Item")
+        rows = (
+            frappe.qb.from_(Item)
+            .select(Item.name, Item.item_name)
+            .where(Item.name.isin(tuple(codes)))
+            .where(Item.disabled == 0)
+            .run(as_dict=True)
         )
         return {r["name"]: (r.get("item_name") or r["name"]) for r in rows}
 
@@ -511,15 +510,16 @@ class ProductRecommendations:
         purchased item, and we cap the input at 10 purchased items
         to match the original code's behaviour.
         """
-        purchased = frappe.db.sql(
-            """
-            SELECT DISTINCT sii.item_code
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.customer = %(customer)s AND si.docstatus = 1
-            """,
-            {"customer": customer_id},
-            as_dict=True,
+        SII = frappe.qb.DocType("Sales Invoice Item")
+        SI = frappe.qb.DocType("Sales Invoice")
+        purchased = (
+            frappe.qb.from_(SII)
+            .join(SI)
+            .on(SII.parent == SI.name)
+            .select(SII.item_code)
+            .distinct()
+            .where((SI.customer == customer_id) & (SI.docstatus == 1))
+            .run(as_dict=True)
         )
         purchased_set = {r["item_code"] for r in purchased if r.get("item_code")}
         if not purchased_set:

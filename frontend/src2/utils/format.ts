@@ -114,6 +114,20 @@ export function formatCount(value: number | null | undefined, options: CountOpti
 }
 
 /**
+ * Cash-runway sublabel. `financial_intelligence.py` returns `999` months when
+ * net burn is zero or negative -- a flag for "not consuming cash", not a
+ * measurement. Naming that beats inventing an 82-year forecast to the day: a
+ * caller that multiplied this by 30 and labelled it "days" once rendered
+ * "29970 days runway" as fact. Single source of truth so every caller that
+ * surfaces `runway_months` gets the same sentinel handling for free.
+ */
+export function cashRunwayLabel(months: number | null | undefined): string | undefined {
+	if (months === null || months === undefined || !Number.isFinite(months)) return undefined
+	if (months >= 999) return 'no net cash burn'
+	return `${formatCount(months, { decimals: 1 })} months runway`
+}
+
+/**
  * Percentages already expressed on a 0-100 scale, which is how every endpoint
  * on this surface returns them.
  */

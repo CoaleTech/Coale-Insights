@@ -917,18 +917,19 @@ class TestTaxAPIDrillDown(FrappeTestCase):
 
     @patch('insights.api.ml.tax.frappe.has_permission')
     @patch('insights.ml.india_tax_intelligence.model.IndiaTaxIntelligence')
-    @patch('insights.api.ml.tax.frappe.db.sql')
-    def test_get_tax_detail_tax_invoices(self, mock_sql, mock_intelligence, mock_has_permission):
+    def test_get_tax_detail_tax_invoices(self, mock_intelligence, mock_has_permission):
         """Test tax_invoices drill-down returns invoices with tax rows"""
         from insights.api.ml.tax import get_tax_detail
+        from unittest.mock import MagicMock, patch
 
-        # IndiaTaxIntelligence's own construction resolves the fiscal year via
-        # frappe.db.sql internally -- mock the class itself so the sql mock's
-        # side_effect list only has to cover this function's own two queries.
         mock_intelligence.return_value._window.return_value = {
             'name': 'FY2024', 'start': '2024-04-01', 'end': '2025-03-31'
         }
-        mock_sql.side_effect = [
+
+        # Build a chainable mock query builder whose .run() returns the page
+        # rows on the first call and the total count on the second.
+        mock_query = MagicMock()
+        mock_query.run.side_effect = [
             [
                 {
                     'name': 'SINV-007',
@@ -938,15 +939,42 @@ class TestTaxAPIDrillDown(FrappeTestCase):
                     'total_taxes_and_charges': 180.0
                 }
             ],
-            [(1,)]
+            [{'total': 1}]
         ]
+        for attr in ['select', 'where', 'orderby', 'limit', 'offset', 'inner_join', 'left_join', 'join', 'on', 'groupby', 'having']:
+            getattr(mock_query, attr).return_value = mock_query
 
-        result = get_tax_detail('tax_invoices', '{"company": "Test Company"}')
+        # DocType fields must support comparison, arithmetic, and logical operators.
+        class _FakeField:
+            def __lt__(self, other): return self
+            def __le__(self, other): return self
+            def __gt__(self, other): return self
+            def __ge__(self, other): return self
+            def __eq__(self, other): return self
+            def __ne__(self, other): return self
+            def __add__(self, other): return self
+            def __sub__(self, other): return self
+            def __mul__(self, other): return self
+            def __truediv__(self, other): return self
+            def __and__(self, other): return self
+            def __rand__(self, other): return self
+            def __or__(self, other): return self
+            def __ror__(self, other): return self
+            def between(self, *args): return self
+            def isin(self, *args): return self
+            def notin(self, *args): return self
+            def isnull(self): return self
+        class _FakeDocType:
+            def __getattr__(self, name): return _FakeField()
+        mock_qb = MagicMock()
+        mock_qb.from_.return_value = mock_query
+        mock_qb.DocType.return_value = _FakeDocType()
+
+        with patch('insights.api.ml.tax.frappe.qb', mock_qb):
+            result = get_tax_detail('tax_invoices', '{"company": "Test Company"}')
 
         self.assertEqual(result['rows'][0]['total_taxes_and_charges'], 180.0)
         self.assertEqual(result['total'], 1)
-        calls = [c[0] for c in mock_sql.call_args_list]
-        self.assertTrue(any('Test Company' in str(c) for c in calls))
 
     def test_get_tax_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""

@@ -38,6 +38,8 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from frappe.query_builder.functions import Count, Sum
+
 from insights.api.ml.ibis_source import (
     company_filter,
     default_company,
@@ -144,6 +146,55 @@ def _classify_health(score: float) -> str:
     if score >= 40:
         return "At Risk"
     return "Critical"
+
+
+def _data_as_of(company: Optional[str]):
+    """Latest submitted-sales-invoice date in the data. Recency, tenure and
+    churn are measured from this horizon, not the wall clock, so a lagging
+    ledger does not inflate every customer's inactivity and push the whole
+    book to Critical churn. Returns ``None`` when there is no data."""
+    import pandas as pd
+    si = company_filter(t("Sales Invoice"), company).filter(t("Sales Invoice").docstatus == 1)
+    m = si.aggregate(m=si.posting_date.max()).execute().iloc[0]["m"]
+    if m is None or pd.isna(m):
+        return None
+    return pd.Timestamp(m).date()
+
+
+def _clip(x: float, lo: float, hi: float) -> float:
+    return lo if x < lo else hi if x > hi else x
+
+
+def _churn_score(recency_days, order_count, lifespan_days, frequency_trend,
+                 value_trend, outstanding, historical_clv, overdue_count):
+    """Cadence-relative churn score (0-100), the single source of truth shared
+    by the bulk list engine and the single-customer detail path so the two
+    always reconcile for the same customer.
+
+    Recency is scored against THIS customer's own average purchase cycle, not a
+    flat 30-day scale: a quarterly buyer one cycle out is on schedule (low
+    risk); a monthly buyer three cycles silent is critical. On cadence ->
+    neutral; recently active -> below neutral; several cycles overdue ->
+    escalating. Declining order frequency/spend and unpaid balances add risk,
+    growth reduces it. Replaces the old ``50 + min(30, recency_days/30*20)``
+    which put every customer inactive more than ~30 days at >=70 (Critical)
+    regardless of their real buying rhythm.
+    """
+    if order_count >= 2 and lifespan_days > 0:
+        cycle = max(lifespan_days / (order_count - 1), 7.0)
+    else:
+        cycle = 180.0  # single-order / unknown cadence: 6-month grace window
+    overdue_ratio = recency_days / cycle  # 1.0 == exactly on cadence
+    recency_risk = _clip((overdue_ratio - 1.0) * 25.0, -25.0, 45.0)
+
+    score = 35.0 + recency_risk
+    score -= _clip(frequency_trend, -2.0, 2.0) * 7.0
+    score -= _clip(value_trend, -2.0, 2.0) * 7.0
+    if historical_clv > 0:
+        score += min(outstanding / historical_clv, 1.5) * 8.0
+    if overdue_count > 0:
+        score += 5.0
+    return _clip(score, 0.0, 100.0)
 
 
 # ---------------------------------------------------------------------------
@@ -309,14 +360,18 @@ def _scalar_int(expr) -> int:
     """Execute an Ibis scalar aggregate and unwrap to a Python int.
 
     `tbl.count().execute()` returns a plain Python int (no DataFrame
-    wrapper); the original code assumed a 1-row DataFrame and used
-    `.iloc[0]`, which raises on a scalar. This wrapper handles both
-    shapes defensively.
+    wrapper). `tbl.aggregate(name=tbl.count()).execute()` returns a 1-row,
+    1-column DataFrame instead -- `.iloc[0]` on that yields the row (a
+    Series), not the cell, and `int(Series or 0)` raises "truth value of
+    a Series is ambiguous", which the blanket except below then silently
+    downgrades to 0. Unwrap positionally: `.iloc[0, 0]` for a 2-D
+    DataFrame, `.iloc[0]` for a bare 1-D Series.
     """
     val = expr.execute()
     if hasattr(val, "iloc"):
         try:
-            return int(val.iloc[0] or 0)
+            cell = val.iloc[0, 0] if getattr(val, "ndim", 1) == 2 else val.iloc[0]
+            return int(cell or 0)
         except Exception:
             return 0
     return int(val or 0)
@@ -362,6 +417,11 @@ def compute_customer_intelligence(
 
     today_date = datetime.now().date()
     overdue_cond = (si.due_date < today_date) & (si.outstanding_amount > 0)
+
+    # As-of anchor: measure recency/tenure/recent-window from the latest sales
+    # activity in the data, not the wall clock (overdue above stays on the real
+    # clock -- an invoice past due is overdue regardless of load lag).
+    as_of_date = min(_data_as_of(company) or today_date, today_date)
 
     # Per-customer aggregate from Sales Invoice (docstatus=1). The overdue
     # count is a separate, second aggregate (one row per customer) because
@@ -422,7 +482,7 @@ def compute_customer_intelligence(
     # `historical_clv / order_count` -- the identical quantity computed two
     # ways over the same row set, so it was mathematically guaranteed to be
     # ~0 for every customer. Fixed 2026-08-17.
-    recent_cutoff = today_date - timedelta(days=90)
+    recent_cutoff = as_of_date - timedelta(days=90)
     recent_si = si.filter(si.posting_date >= recent_cutoff)
     recent_per_customer = recent_si.group_by(recent_si.customer).aggregate(
         recent_avg_order_value=recent_si.grand_total.mean(),
@@ -450,7 +510,6 @@ def compute_customer_intelligence(
         }
 
     now = datetime.now()
-    today_date = now.date()
     df["first_purchase"] = df["first_purchase"].fillna(now).apply(_as_date)
     df["last_purchase"] = df["last_purchase"].fillna(now).apply(_as_date)
     df["historical_clv"] = df["historical_clv"].fillna(0).astype(float)
@@ -479,10 +538,10 @@ def compute_customer_intelligence(
     # and cannot then subtract a bare `date` element.
     df["lifespan_months"] = ((df["last_purchase"] - df["first_purchase"]).apply(lambda x: x.days) / 30.44).clip(lower=1)
     df["purchase_frequency"] = df["order_count"] / df["lifespan_months"]
-    df["recency_days"] = df["last_purchase"].apply(lambda x: (today_date - x).days)
+    df["recency_days"] = df["last_purchase"].apply(lambda x: (as_of_date - x).days)
 
     # predicted 12-month CLV = orders/month * 12 * AOV, adjusted by tenure
-    df["tenure_months"] = df["first_purchase"].apply(lambda x: (today_date - x).days) / 30.44
+    df["tenure_months"] = df["first_purchase"].apply(lambda x: (as_of_date - x).days) / 30.44
     df["tenure_factor"] = (df["tenure_months"] / 24).clip(upper=1.5)
     df["predicted_12m_clv"] = df["purchase_frequency"] * 12 * df["avg_order_value"]
     df["adjusted_predicted_clv"] = df["predicted_12m_clv"] * df["tenure_factor"]
@@ -606,37 +665,14 @@ def compute_customer_intelligence(
 # ---------------------------------------------------------------------------
 
 def _rule_based_churn_score(df):
-    """Weighted-rule churn score (0-100). Replaces the old pandas loop that
-    resplit each customer's history into a 90-day recent window vs historical.
-
-    The score starts at 50 (the "we don't know" baseline from the original
-    file) and adjusts from there:
-        + recency_ratio * 20  (more days since last purchase = higher risk)
-        - clipped(frequency_trend) * 10
-        - clipped(value_trend) * 10
-        + overdue_count > 0 ? 15 : 0
-        + min(receivables_ratio * 10, 15)
-
-    `frequency_trend` is tenure-based (population-independent, no
-    per-customer SQL hop). `value_trend` compares the customer's average
-    order value over the last 90 days (`recent_avg_order_value`, merged in
-    by the caller) against their period average order value -- real signal.
-    It used to compare `avg_order_value` to `historical_clv / order_count`,
-    the identical quantity restated, so it was mathematically guaranteed to
-    evaluate to ~0 for every customer. Fixed 2026-08-17.
+    """Per-customer cadence-relative churn score (0-100). Delegates to the
+    shared ``_churn_score`` so the list dashboard and the single-customer
+    detail view always agree. ``frequency_trend`` is tenure-based
+    (population-independent); ``value_trend`` compares each customer's
+    last-90-day average order value against their period average (merged in by
+    the caller).
     """
     df = df.copy()
-    df["churn_score"] = 50.0
-
-    # avg purchase cycle: orders/active lifespan months in days
-    avg_cycle_days = 30.0
-    total_orders = int(df["order_count"].sum())
-    if total_orders > 0 and (df["lifespan_months"].mean() or 0) > 0:
-        avg_cycle_days = max(30.0, (df["lifespan_months"].mean() * 30.0) / max(1.0, df["order_count"].mean()))
-
-    df["recency_risk"] = ((df["recency_days"] / max(avg_cycle_days, 30.0)) * 20.0).clip(upper=30)
-    df["churn_score"] = df["churn_score"] + df["recency_risk"]
-
     df["frequency_trend"] = ((df["order_count"] / df["lifespan_months"]) - 1.0).clip(-2, 2)
 
     if "recent_order_count" not in df.columns:
@@ -649,17 +685,17 @@ def _rule_based_churn_score(df):
         df.loc[has_recent, "value_trend"] = (
             (df.loc[has_recent, "recent_avg_order_value"] / safe_period_aov[has_recent]) - 1.0
         ).clip(-2, 2)
-    df["gap_increasing"] = (df["recency_days"] > avg_cycle_days * 1.5).astype(int)
 
-    df["churn_score"] = df["churn_score"] - df["frequency_trend"].clip(-2, 2) * 10
-    df["churn_score"] = df["churn_score"] - df["value_trend"].clip(-2, 2) * 10
-    df["churn_score"] = df["churn_score"] + df["gap_increasing"] * 15
-
-    safe_clv = df["historical_clv"].replace(0, 1)
-    receivables_ratio = df["outstanding_amount"] / safe_clv
-    df["churn_score"] = df["churn_score"] + receivables_ratio.clip(upper=1.5) * 10
-
-    df["churn_score"] = df["churn_score"].clip(0, 100)
+    lifespan_days = df["lifespan_months"] * 30.44
+    overdue = df["overdue_count"].fillna(0) if "overdue_count" in df.columns else [0] * len(df)
+    df["churn_score"] = [
+        _churn_score(rec, oc, ld, ft, vt, out, clv, ov)
+        for rec, oc, ld, ft, vt, out, clv, ov in zip(
+            df["recency_days"], df["order_count"], lifespan_days,
+            df["frequency_trend"], df["value_trend"], df["outstanding_amount"],
+            df["historical_clv"], overdue,
+        )
+    ]
     return df
 
 
@@ -1080,6 +1116,7 @@ def compute_customer_360(customer_id: str,
     si = company_filter(t("Sales Invoice"), company)
     si = si.filter((si.docstatus == 1) & (si.customer == customer_id))
     today_date = datetime.now().date()
+    as_of_date = min(_data_as_of(company) or today_date, today_date)
     overdue_cond = (si.due_date < today_date) & (si.outstanding_amount > 0)
     base = si.group_by(si.customer).aggregate(
         customer_name=si.customer_name.min(),
@@ -1097,7 +1134,7 @@ def compute_customer_360(customer_id: str,
     if not per_customer.empty:
         per_customer["overdue_count"] = overdue_n
         per_customer["avg_days_to_pay"] = _customer_avg_days_to_pay(customer_id, company)
-        per_customer["recent_avg_order_value"] = _customer_recent_avg_order_value(customer_id, company, today_date)
+        per_customer["recent_avg_order_value"] = _customer_recent_avg_order_value(customer_id, company, as_of_date)
         gross_profit, margin_pct = _customer_profitability(customer_id, company)
         per_customer["gross_profit"] = gross_profit
         per_customer["margin_pct"] = margin_pct
@@ -1105,7 +1142,7 @@ def compute_customer_360(customer_id: str,
     if per_customer.empty:
         customer = _blank_customer_row(cust)
     else:
-        customer = _score_one_customer_row(per_customer.iloc[0], cust)
+        customer = _score_one_customer_row(per_customer.iloc[0], cust, as_of_date)
 
     response = {"status": "success", "customer": _to_native(customer),
                 "base_currency": _base_currency(company)}
@@ -1243,7 +1280,7 @@ def _blank_customer_row(cust):
     }
 
 
-def _score_one_customer_row(row, cust):
+def _score_one_customer_row(row, cust, as_of_date):
     """Build the per-customer payload the customer_360 view expects. Same
     per-customer logic as the bulk engine, just for one row -- plus real
     payment/trend/profitability numbers from this customer's own invoices
@@ -1276,8 +1313,8 @@ def _score_one_customer_row(row, cust):
 
     lifespan_months = max(1.0, ((last_purchase - first_purchase).days / 30.44))
     purchase_frequency = order_count / lifespan_months
-    recency_days = (today_date - last_purchase).days
-    tenure_months = max(0.0, ((today_date - first_purchase).days / 30.44))
+    recency_days = (as_of_date - last_purchase).days
+    tenure_months = max(0.0, ((as_of_date - first_purchase).days / 30.44))
 
     predicted_12m = purchase_frequency * 12 * avg_order_value
     tenure_factor = min(tenure_months / 24.0, 1.5)
@@ -1295,18 +1332,28 @@ def _score_one_customer_row(row, cust):
     clv_score = max(0.0, min(100.0, (total_clv / clv_ceiling) * 100))
     clv_tier = _classify_clv(clv_score)
 
-    # Rule-based churn (unchanged).
-    churn_score = 50.0
-    churn_score += min(30.0, (recency_days / 30.0) * 20.0)
-    if order_count > 0:
-        avg_cycle = max(30.0, lifespan_months * 30.0 / order_count)
-        if recency_days > avg_cycle * 1.5:
-            churn_score += 15.0
-    if historical_clv > 0:
-        churn_score += min(15.0, (outstanding / historical_clv) * 10.0)
-    if overdue_count > 0:
-        churn_score += 5.0
-    churn_score = max(0.0, min(100.0, churn_score))
+    # Trends (needed by churn below). `frequency_trend` matches the bulk
+    # formula exactly; `value_trend` compares this customer's last-90-day
+    # average order value to their lifetime average.
+    frequency_trend = max(-2.0, min(2.0, purchase_frequency - 1.0))
+    recent_aov = row.get("recent_avg_order_value")
+    if recent_aov is None or avg_order_value <= 0:
+        value_trend = 0.0
+    else:
+        value_trend = max(-2.0, min(2.0, (float(recent_aov) / avg_order_value) - 1.0))
+
+    # Cadence-relative churn -- shared with the bulk engine so list and detail
+    # agree for the same customer.
+    churn_score = _churn_score(
+        recency_days=recency_days,
+        order_count=order_count,
+        lifespan_days=lifespan_months * 30.44,
+        frequency_trend=frequency_trend,
+        value_trend=value_trend,
+        outstanding=outstanding,
+        historical_clv=historical_clv,
+        overdue_count=overdue_count,
+    )
     churn_risk = _classify_churn(churn_score)
 
     # CLV/health component scores -- these are the numbers the "CLV
@@ -1319,18 +1366,6 @@ def _score_one_customer_row(row, cust):
     longevity_score = max(0.0, min(100.0, (tenure_months / 24.0) * 100.0))
     safe_hist = historical_clv if historical_clv > 0 else 1.0
     growth_score = max(0.0, min(100.0, ((predicted_12m / safe_hist) - 0.5) * 50.0))
-
-    # Trends. `frequency_trend` matches the bulk formula exactly (already
-    # population-independent). `value_trend` compares this customer's last
-    # 90 days' average order value to their lifetime average -- real
-    # signal, not the previous tautology (avg_order_value compared to
-    # itself via historical_clv/order_count, always 0).
-    frequency_trend = max(-2.0, min(2.0, purchase_frequency - 1.0))
-    recent_aov = row.get("recent_avg_order_value")
-    if recent_aov is None or avg_order_value <= 0:
-        value_trend = 0.0
-    else:
-        value_trend = max(-2.0, min(2.0, (float(recent_aov) / avg_order_value) - 1.0))
 
     # Payment behaviour: real avg days-to-pay from this customer's closed
     # invoices, scored via the same credit-terms-anchored scale
@@ -1402,25 +1437,33 @@ def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
     """Top-50 invoices for the customer. One SQL query, plain dicts so the
     JSON envelope is straightforward.
     """
-    rows = frappe.db.sql("""
-        SELECT
-            si.name as invoice_id,
-            si.posting_date,
-            si.due_date,
-            si.grand_total,
-            si.net_total,
-            si.outstanding_amount,
-            si.status,
-            CASE
-                WHEN si.outstanding_amount = 0 THEN 'Paid'
-                WHEN si.due_date < CURDATE() THEN 'Overdue'
-                ELSE 'Outstanding'
-            END as payment_status
-        FROM `tabSales Invoice` si
-        WHERE si.customer = %(cid)s AND si.docstatus = 1
-        ORDER BY si.posting_date DESC
-        LIMIT 50
-    """, {"cid": customer_id}, as_dict=True)
+    SI = frappe.qb.DocType("Sales Invoice")
+    today = datetime.now().date()
+    rows = (
+        frappe.qb.from_(SI)
+        .select(
+            SI.name.as_("invoice_id"),
+            SI.posting_date,
+            SI.due_date,
+            SI.grand_total,
+            SI.net_total,
+            SI.outstanding_amount,
+            SI.status,
+        )
+        .where((SI.customer == customer_id) & (SI.docstatus == 1))
+        .orderby(SI.posting_date, order=frappe.qb.desc)
+        .limit(50)
+        .run(as_dict=True)
+    )
+    for r in rows:
+        outstanding = r.get("outstanding_amount") or 0
+        due_date = r.get("due_date")
+        if outstanding == 0:
+            r["payment_status"] = "Paid"
+        elif due_date and due_date < today:
+            r["payment_status"] = "Overdue"
+        else:
+            r["payment_status"] = "Outstanding"
     return [dict(r) for r in rows] if rows else []
 
 
@@ -1467,34 +1510,49 @@ def _cross_sell_for_one_customer(customer_id: str, company: Optional[str] = None
     they buy from -- a transparent "popular in your categories" rule rather
     than a trained collaborative-filter model.
     """
-    purchased = frappe.db.sql("""
-        SELECT DISTINCT sii.item_code, i.item_group
-        FROM `tabSales Invoice Item` sii
-        JOIN `tabSales Invoice` si ON sii.parent = si.name
-        LEFT JOIN `tabItem` i ON sii.item_code = i.name
-        WHERE si.customer = %(c)s AND si.docstatus = 1
-    """, {"c": customer_id}, as_dict=True)
+    SII = frappe.qb.DocType("Sales Invoice Item")
+    SI = frappe.qb.DocType("Sales Invoice")
+    Item = frappe.qb.DocType("Item")
+    purchased = (
+        frappe.qb.from_(SII)
+        .join(SI)
+        .on(SII.parent == SI.name)
+        .left_join(Item)
+        .on(SII.item_code == Item.name)
+        .select(SII.item_code, Item.item_group)
+        .distinct()
+        .where((SI.customer == customer_id) & (SI.docstatus == 1))
+        .run(as_dict=True)
+    )
     if not purchased:
         return []
     purchased_codes = sorted({r["item_code"] for r in purchased})
     groups = sorted({r["item_group"] for r in purchased if r.get("item_group")})[:5]
     if not groups:
         return []
-    group_ph = ", ".join(["%s"] * len(groups))
-    code_ph = ", ".join(["%s"] * len(purchased_codes))
-    rows = frappe.db.sql(f"""
-        SELECT sii.item_code, i.item_name, i.item_group,
-               COUNT(*) as popularity, SUM(sii.qty) as total_qty
-        FROM `tabSales Invoice Item` sii
-        JOIN `tabSales Invoice` si ON sii.parent = si.name
-        JOIN `tabItem` i ON sii.item_code = i.name
-        WHERE si.docstatus = 1
-          AND i.item_group IN ({group_ph})
-          AND sii.item_code NOT IN ({code_ph})
-        GROUP BY sii.item_code
-        ORDER BY popularity DESC
-        LIMIT 10
-    """, tuple(groups) + tuple(purchased_codes), as_dict=True)
+
+    SII2 = frappe.qb.DocType("Sales Invoice Item")
+    SI2 = frappe.qb.DocType("Sales Invoice")
+    Item2 = frappe.qb.DocType("Item")
+    rows = (
+        frappe.qb.from_(SII2)
+        .join(SI2)
+        .on(SII2.parent == SI2.name)
+        .join(Item2)
+        .on(SII2.item_code == Item2.name)
+        .select(
+            SII2.item_code,
+            Item2.item_name,
+            Item2.item_group,
+            Count("*").as_("popularity"),
+            Sum(SII2.qty).as_("total_qty"),
+        )
+        .where((SI2.docstatus == 1) & Item2.item_group.isin(groups) & SII2.item_code.notin(purchased_codes))
+        .groupby(SII2.item_code)
+        .orderby(Count("*"), order=frappe.qb.desc)
+        .limit(10)
+        .run(as_dict=True)
+    )
     recs = []
     for r in rows:
         conf = min((r.get("popularity") or 1) / 10.0, 1.0) * 0.65  # tier 3 ceiling
@@ -1811,25 +1869,30 @@ def compute_purchase_patterns(top_percentile: int = 20,
     top_n = max(1, int(len(per_cust) * top_percentile / 100))
     top_ids = per_cust.head(top_n)["customer"].tolist()
 
-    placeholders = ", ".join(["%s"] * len(top_ids))
-    rows = frappe.db.sql(f"""
-        SELECT
-            si.customer,
-            si.grand_total,
-            DAYNAME(si.posting_date) as day_name,
-            MONTH(si.posting_date) as month_num,
-            MONTHNAME(si.posting_date) as month_name,
-            QUARTER(si.posting_date) as quarter
-        FROM `tabSales Invoice` si
-        WHERE si.docstatus = 1
-          AND si.posting_date BETWEEN %s AND %s
-          AND si.customer IN ({placeholders})
-        ORDER BY si.posting_date
-    """, tuple([start, end] + top_ids), as_dict=True)
+    SI = frappe.qb.DocType("Sales Invoice")
+    rows = (
+        frappe.qb.from_(SI)
+        .select(SI.customer, SI.grand_total, SI.posting_date)
+        .where(
+            (SI.docstatus == 1)
+            & SI.posting_date.between(start, end)
+            & SI.customer.isin(top_ids)
+        )
+        .orderby(SI.posting_date)
+        .run(as_dict=True)
+    )
     if not rows:
         return {"status": "success", "message": _("No transaction data"), "patterns": None}
 
+    def _quarter(d):
+        return (d.month - 1) // 3 + 1
+
     df = pd.DataFrame([dict(r) for r in rows])
+    df["posting_date"] = pd.to_datetime(df["posting_date"])
+    df["day_name"] = df["posting_date"].dt.day_name()
+    df["month_num"] = df["posting_date"].dt.month
+    df["month_name"] = df["posting_date"].dt.month_name()
+    df["quarter"] = df["posting_date"].apply(_quarter)
 
     day_analysis = df.groupby("day_name").agg(
         order_count=("grand_total", "count"),
@@ -1924,11 +1987,13 @@ def compute_customer_variance(date_filter: str = "12m",
     actuals["customer_name"] = actuals["customer_name"].fillna(actuals["customer"])
     actuals["territory"] = actuals["territory"].fillna("")
 
-    target_rows = frappe.db.sql("""
-        SELECT tt.parent as territory, tt.target_amount
-        FROM `tabTarget Detail` tt
-        WHERE tt.parenttype = 'Territory'
-    """, as_dict=True)
+    TargetDetail = frappe.qb.DocType("Target Detail")
+    target_rows = (
+        frappe.qb.from_(TargetDetail)
+        .select(TargetDetail.parent.as_("territory"), TargetDetail.target_amount)
+        .where(TargetDetail.parenttype == "Territory")
+        .run(as_dict=True)
+    )
     territory_target_map = {r["territory"]: float(r.get("target_amount") or 0) for r in target_rows}
 
     results = []

@@ -11,9 +11,49 @@ import frappe
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, TYPE_CHECKING
 
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import Abs, DateFormat, Sum
+
 if TYPE_CHECKING:
     import numpy as np
 
+
+
+def _period_root_type_breakdown(company: str, start: str, end: str) -> Dict[str, float]:
+    """Sum GL Entry postings by Account.root_type (Income vs Expense) for the
+    given period, returning `revenue` and `expenses` like the legacy SQL
+    `CASE WHEN ... THEN ABS(...) ELSE 0 END` aggregate."""
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+
+    revenue_expr = Sum(
+        Case()
+        .when(acc.root_type == "Income", Abs(gle.credit - gle.debit))
+        .else_(0)
+    ).as_("revenue")
+    expense_expr = Sum(
+        Case()
+        .when(acc.root_type == "Expense", Abs(gle.debit - gle.credit))
+        .else_(0)
+    ).as_("expenses")
+
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(revenue_expr, expense_expr)
+        .where(gle.posting_date.between(start, end))
+        .where(gle.company == company)
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    if not rows:
+        return {"revenue": 0.0, "expenses": 0.0}
+    row = rows[0]
+    return {
+        "revenue": float(row.revenue or 0),
+        "expenses": float(row.expenses or 0),
+    }
 
 
 def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
@@ -23,19 +63,10 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     fy_start = intelligence.fiscal_year["start_date"]
     today = datetime.now().strftime('%Y-%m-%d')
 
-    baseline = frappe.db.sql("""
-        SELECT
-            SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(credit - debit) ELSE 0 END) as revenue,
-            SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(debit - credit) ELSE 0 END) as expenses
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (fy_start, today, intelligence.company), as_dict=True)[0]
+    baseline = _period_root_type_breakdown(intelligence.company, fy_start, today)
 
-    base_revenue = float(baseline.revenue or 0)
-    base_expenses = float(baseline.expenses or 0)
+    base_revenue = float(baseline["revenue"] or 0)
+    base_expenses = float(baseline["expenses"] or 0)
     base_net_income = base_revenue - base_expenses
     base_tax = base_net_income * (intelligence.CORPORATE_TAX_RATE / 100) if base_net_income > 0 else 0
     base_net_after_tax = base_net_income - base_tax
@@ -77,19 +108,29 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     # =====================
     num_simulations = 1000
 
-    # Historical volatility (simplified - using last 12 months std dev)
-    monthly_revenues = frappe.db.sql("""
-        SELECT
-            DATE_FORMAT(gle.posting_date, '%%Y-%%m') as period,
-            SUM(ABS(credit - debit)) as revenue
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Income'
-            AND gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-        GROUP BY DATE_FORMAT(gle.posting_date, '%%Y-%%m')
-    """, (intelligence.company,), as_dict=True)
+    # Historical volatility (simplified - using last 12 months std dev).
+    # The legacy SQL used DATE_SUB(CURDATE(), INTERVAL 12 MONTH); we
+    # resolve the boundary on the Python side so PyPika emits a literal
+    # bound parameter.
+    twelve_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    month_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
+    monthly_revenues = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            month_expr,
+            Sum(Abs(gle.credit - gle.debit)).as_("revenue"),
+        )
+        .where(acc.root_type == "Income")
+        .where(gle.posting_date >= twelve_months_ago)
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .groupby(month_expr)
+        .run(as_dict=True)
+    )
 
     if monthly_revenues and len(monthly_revenues) > 1:
         rev_values = [float(r.revenue or 0) for r in monthly_revenues]
@@ -245,19 +286,9 @@ def compare_periods(intelligence) -> Dict[str, Any]:
     }
 
     def get_period_financials(start, end):
-        result = frappe.db.sql("""
-            SELECT
-                SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(credit - debit) ELSE 0 END) as revenue,
-                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(debit - credit) ELSE 0 END) as expenses
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.posting_date BETWEEN %s AND %s
-                AND gle.company = %s
-                AND gle.is_cancelled = 0
-        """, (start, end, intelligence.company), as_dict=True)[0]
-
-        revenue = float(result.revenue or 0)
-        expenses = float(result.expenses or 0)
+        breakdown = _period_root_type_breakdown(intelligence.company, start, end)
+        revenue = breakdown["revenue"]
+        expenses = breakdown["expenses"]
         return {
             "revenue": revenue,
             "expenses": expenses,

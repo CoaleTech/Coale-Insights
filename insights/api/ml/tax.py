@@ -11,6 +11,7 @@ by a background job per period; the slices below compute per call.
 
 import frappe
 from frappe import _
+from frappe.query_builder.functions import Coalesce, Count
 from typing import Any, Dict
 
 from insights.api.response import success, error
@@ -118,9 +119,8 @@ def get_tax_detail(metric: str, filters: str) -> dict:
     Kept on the same dotted path (`insights.api.ml.tax.get_tax_detail`)
     because the Tax Intelligence dashboard's drill-down opens this URL
     directly. The handler reads Sales Invoice rows in the period of the
-    dashboard view, optionally filtered to a single HSN code. This uses
-    `frappe.db.sql` with bound parameters — the values come from the
-    dashboard, not user-supplied SQL.
+    dashboard view, optionally filtered to a single HSN code. Built with
+    `frappe.qb`; values are bound parameters, not interpolated SQL.
     """
     f = frappe.parse_json(filters) or {}
     page = int(f.pop("page", 1))
@@ -133,48 +133,44 @@ def get_tax_detail(metric: str, filters: str) -> dict:
     if metric == "tax_invoices":
         frappe.has_permission("Sales Invoice", throw=True)
 
-        # Built as bound parameters rather than escaped interpolation so the
-        # query carries no formatting at all.
-        conditions = ["si.docstatus = 1", "si.total_taxes_and_charges > 0"]
-        params: Dict[str, Any] = {}
-        if company:
-            conditions.append("si.company = %(company)s")
-            params["company"] = company
-
-        # Scoped to the same window the dashboard is showing.
         from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
         win = IndiaTaxIntelligence(period=period)._window()
-        conditions.append("si.posting_date BETWEEN %(start_date)s AND %(end_date)s")
-        params["start_date"] = str(win.get("start"))
-        params["end_date"] = str(win.get("end"))
-        if hsn_code:
-            conditions.append(
-                "EXISTS (SELECT 1 FROM `tabSales Invoice Item` sii "
-                "WHERE sii.parent = si.name AND sii.gst_hsn_code = %(hsn_code)s)"
+
+        SI = frappe.qb.DocType("Sales Invoice")
+        SII = frappe.qb.DocType("Sales Invoice Item")
+        query = (
+            frappe.qb.from_(SI)
+            .select(
+                SI.name,
+                SI.customer,
+                SI.posting_date,
+                SI.grand_total,
+                SI.total_taxes_and_charges,
             )
-            params["hsn_code"] = hsn_code
-
-        where = " AND ".join(conditions)
-
-        # `where` joins only the literal fragments appended above; every
-        # value is a bound parameter in `params`, so nothing caller-
-        # supplied reaches the SQL text.
-        rows = frappe.db.sql(
-            f"""
-            SELECT si.name, si.customer, si.posting_date, si.grand_total,
-                   si.total_taxes_and_charges
-            FROM `tabSales Invoice` si
-            WHERE {where}
-            ORDER BY si.posting_date DESC, si.name DESC
-            LIMIT %(page_size)s OFFSET %(start)s
-            """,
-            {**params, "page_size": page_size, "start": start},
-            as_dict=True,
+            .where(
+                (SI.docstatus == 1)
+                & (SI.total_taxes_and_charges > 0)
+                & (SI.posting_date.between(win.get("start"), win.get("end")))
+            )
         )
-        total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabSales Invoice` si WHERE {where}",
-            params,
-        )[0][0]
+        if company:
+            query = query.where(SI.company == company)
+        if hsn_code:
+            hsn_subquery = (
+                frappe.qb.from_(SII)
+                .select(SII.parent)
+                .where((SII.parent == SI.name) & (SII.gst_hsn_code == hsn_code))
+            )
+            query = query.where(SI.name.isin(hsn_subquery))
+
+        rows = (
+            query.orderby(SI.posting_date, order=frappe.qb.desc)
+            .orderby(SI.name, order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = query.select(Count("*").as_("total")).run(as_dict=True)[0].get("total", 0)
 
         return {
             "columns": [
@@ -193,43 +189,38 @@ def get_tax_detail(metric: str, filters: str) -> dict:
 
     if metric == "irn_missing":
         frappe.has_permission("Sales Invoice", throw=True)
-        # Mirrors `get_einvoice_status`'s `needs_irn & (~has_irn)` filter exactly
-        # (insights/ml/india_tax_intelligence/data.py) so the drill-down list
-        # count matches the KPI card it opens from.
         needs_irn_categories = [
             "Registered Regular", "Registered Composition",
             "SEZ supply with payment of tax", "SEZ supply without payment of tax",
             "Deemed Export", "Overseas", "SEZ",
         ]
-        conditions = [
-            "si.docstatus = 1",
-            "si.gst_category IN %(needs_irn)s",
-            "(si.irn IS NULL OR si.irn = '')",
-        ]
-        params: Dict[str, Any] = {"needs_irn": needs_irn_categories}
-        if company:
-            conditions.append("si.company = %(company)s")
-            params["company"] = company
+
         from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
         win = IndiaTaxIntelligence(period=period)._window()
-        conditions.append("si.posting_date BETWEEN %(start_date)s AND %(end_date)s")
-        params["start_date"] = str(win.get("start"))
-        params["end_date"] = str(win.get("end"))
-        where = " AND ".join(conditions)
-        rows = frappe.db.sql(
-            f"""
-            SELECT si.name, si.customer, si.posting_date, si.gst_category, si.grand_total
-            FROM `tabSales Invoice` si
-            WHERE {where}
-            ORDER BY si.posting_date DESC, si.name DESC
-            LIMIT %(page_size)s OFFSET %(start)s
-            """,
-            {**params, "page_size": page_size, "start": start},
-            as_dict=True,
+
+        SI = frappe.qb.DocType("Sales Invoice")
+        query = (
+            frappe.qb.from_(SI)
+            .select(SI.name, SI.customer, SI.posting_date, SI.gst_category, SI.grand_total)
+            .where(
+                (SI.docstatus == 1)
+                & SI.gst_category.isin(needs_irn_categories)
+                & ((SI.irn.isnull()) | (SI.irn == ""))
+                & SI.posting_date.between(win.get("start"), win.get("end"))
+            )
         )
-        total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabSales Invoice` si WHERE {where}", params
-        )[0][0]
+        if company:
+            query = query.where(SI.company == company)
+
+        rows = (
+            query.orderby(SI.posting_date, order=frappe.qb.desc)
+            .orderby(SI.name, order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = query.select(Count("*").as_("total")).run(as_dict=True)[0].get("total", 0)
+
         return {
             "columns": [
                 {"label": _("Invoice"), "fieldname": "name", "fieldtype": "Link",
@@ -246,32 +237,32 @@ def get_tax_detail(metric: str, filters: str) -> dict:
 
     if metric == "ewaybill_pending":
         frappe.has_permission("Sales Invoice", throw=True)
-        # Mirrors `get_ewaybill_status`'s `e_waybill_status == "Pending"` bucket.
-        conditions = ["si.docstatus = 1", "si.e_waybill_status = 'Pending'"]
-        params = {}
-        if company:
-            conditions.append("si.company = %(company)s")
-            params["company"] = company
+
         from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
         win = IndiaTaxIntelligence(period=period)._window()
-        conditions.append("si.posting_date BETWEEN %(start_date)s AND %(end_date)s")
-        params["start_date"] = str(win.get("start"))
-        params["end_date"] = str(win.get("end"))
-        where = " AND ".join(conditions)
-        rows = frappe.db.sql(
-            f"""
-            SELECT si.name, si.customer, si.posting_date, si.grand_total
-            FROM `tabSales Invoice` si
-            WHERE {where}
-            ORDER BY si.posting_date DESC, si.name DESC
-            LIMIT %(page_size)s OFFSET %(start)s
-            """,
-            {**params, "page_size": page_size, "start": start},
-            as_dict=True,
+
+        SI = frappe.qb.DocType("Sales Invoice")
+        query = (
+            frappe.qb.from_(SI)
+            .select(SI.name, SI.customer, SI.posting_date, SI.grand_total)
+            .where(
+                (SI.docstatus == 1)
+                & (SI.e_waybill_status == "Pending")
+                & SI.posting_date.between(win.get("start"), win.get("end"))
+            )
         )
-        total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabSales Invoice` si WHERE {where}", params
-        )[0][0]
+        if company:
+            query = query.where(SI.company == company)
+
+        rows = (
+            query.orderby(SI.posting_date, order=frappe.qb.desc)
+            .orderby(SI.name, order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = query.select(Count("*").as_("total")).run(as_dict=True)[0].get("total", 0)
+
         return {
             "columns": [
                 {"label": _("Invoice"), "fieldname": "name", "fieldtype": "Link",
@@ -287,29 +278,33 @@ def get_tax_detail(metric: str, filters: str) -> dict:
 
     if metric == "reconciliation_unactioned":
         frappe.has_permission("GST Inward Supply", throw=True)
-        # Mirrors `get_reconciliation_score`'s `unactioned_count`: rows whose
-        # `action` is still the "No Action" default (fill_null included).
-        conditions = ["(gis.action IS NULL OR gis.action = 'No Action')"]
-        params = {}
-        if company:
-            conditions.append("gis.company = %(company)s")
-            params["company"] = company
-        where = " AND ".join(conditions)
-        rows = frappe.db.sql(
-            f"""
-            SELECT gis.name, gis.supplier_name, gis.supplier_gstin, gis.bill_no,
-                   gis.bill_date, gis.taxable_value, gis.match_status
-            FROM `tabGST Inward Supply` gis
-            WHERE {where}
-            ORDER BY gis.bill_date DESC, gis.name DESC
-            LIMIT %(page_size)s OFFSET %(start)s
-            """,
-            {**params, "page_size": page_size, "start": start},
-            as_dict=True,
+
+        GIS = frappe.qb.DocType("GST Inward Supply")
+        query = (
+            frappe.qb.from_(GIS)
+            .select(
+                GIS.name,
+                GIS.supplier_name,
+                GIS.supplier_gstin,
+                GIS.bill_no,
+                GIS.bill_date,
+                GIS.taxable_value,
+                GIS.match_status,
+            )
+            .where((GIS.action.isnull()) | (GIS.action == "No Action"))
         )
-        total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabGST Inward Supply` gis WHERE {where}", params
-        )[0][0]
+        if company:
+            query = query.where(GIS.company == company)
+
+        rows = (
+            query.orderby(GIS.bill_date, order=frappe.qb.desc)
+            .orderby(GIS.name, order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = query.select(Count("*").as_("total")).run(as_dict=True)[0].get("total", 0)
+
         return {
             "columns": [
                 {"label": _("Supplier"), "fieldname": "supplier_name", "fieldtype": "Data"},
@@ -325,33 +320,39 @@ def get_tax_detail(metric: str, filters: str) -> dict:
 
     if metric == "itc_at_risk":
         frappe.has_permission("GST Inward Supply", throw=True)
-        # Mirrors `get_itc_health`'s Sec 16(2)(aa) `at_risk_supplier_unfiled`
-        # bucket (insights/ml/india_tax_intelligence/data.py): inward supply
-        # rows where the supplier has not filed GSTR-1, so the credit is not
-        # yet supported by GSTR-2B and is exposed on reversal.
-        conditions = ["(gis.gstr_1_filled IS NULL OR gis.gstr_1_filled = 0)"]
-        params = {}
-        if company:
-            conditions.append("gis.company = %(company)s")
-            params["company"] = company
-        where = " AND ".join(conditions)
-        rows = frappe.db.sql(
-            f"""
-            SELECT gis.name, gis.supplier_name, gis.supplier_gstin, gis.bill_no,
-                   gis.bill_date, gis.taxable_value,
-                   (COALESCE(gis.igst, 0) + COALESCE(gis.cgst, 0)
-                    + COALESCE(gis.sgst, 0) + COALESCE(gis.cess, 0)) AS at_risk_tax
-            FROM `tabGST Inward Supply` gis
-            WHERE {where}
-            ORDER BY gis.bill_date DESC, gis.name DESC
-            LIMIT %(page_size)s OFFSET %(start)s
-            """,
-            {**params, "page_size": page_size, "start": start},
-            as_dict=True,
+
+        GIS = frappe.qb.DocType("GST Inward Supply")
+        at_risk_tax = (
+            Coalesce(GIS.igst, 0)
+            + Coalesce(GIS.cgst, 0)
+            + Coalesce(GIS.sgst, 0)
+            + Coalesce(GIS.cess, 0)
+        ).as_("at_risk_tax")
+        query = (
+            frappe.qb.from_(GIS)
+            .select(
+                GIS.name,
+                GIS.supplier_name,
+                GIS.supplier_gstin,
+                GIS.bill_no,
+                GIS.bill_date,
+                GIS.taxable_value,
+                at_risk_tax,
+            )
+            .where((GIS.gstr_1_filled.isnull()) | (GIS.gstr_1_filled == 0))
         )
-        total = frappe.db.sql(
-            f"SELECT COUNT(*) FROM `tabGST Inward Supply` gis WHERE {where}", params
-        )[0][0]
+        if company:
+            query = query.where(GIS.company == company)
+
+        rows = (
+            query.orderby(GIS.bill_date, order=frappe.qb.desc)
+            .orderby(GIS.name, order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = query.select(Count("*").as_("total")).run(as_dict=True)[0].get("total", 0)
+
         return {
             "columns": [
                 {"label": _("Supplier"), "fieldname": "supplier_name", "fieldtype": "Data"},

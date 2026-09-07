@@ -35,22 +35,21 @@ def _fiscal_year_for(company: str) -> dict[str, str]:
     """Return {name, start_date, end_date} for the fiscal year that contains
     today (calendar fallback if the company has no Fiscal Year record)."""
     today = datetime.now().date()
-    row = frappe.db.sql(
-        """
-        SELECT name, year_start_date, year_end_date
-        FROM `tabFiscal Year`
-        WHERE %s BETWEEN year_start_date AND year_end_date
-        ORDER BY year_start_date DESC
-        LIMIT 1
-        """,
-        (today,),
-        as_dict=True,
+    FiscalYear = frappe.qb.DocType("Fiscal Year")
+    rows = (
+        frappe.qb.from_(FiscalYear)
+        .select(FiscalYear.name, FiscalYear.year_start_date, FiscalYear.year_end_date)
+        .where((today >= FiscalYear.year_start_date) & (today <= FiscalYear.year_end_date))
+        .orderby(FiscalYear.year_start_date, order=frappe.qb.desc)
+        .limit(1)
+        .run(as_dict=True)
     )
-    if row:
+    if rows:
+        row = rows[0]
         return {
-            "name": row[0].name,
-            "start_date": str(row[0].year_start_date),
-            "end_date": str(row[0].year_end_date),
+            "name": row.name,
+            "start_date": str(row.year_start_date),
+            "end_date": str(row.year_end_date),
         }
     return {
         "name": str(today.year),
@@ -707,20 +706,21 @@ class FinancialIntelligence:
         currencies = {r["currency"] for r in fx_receivables} | {p["currency"] for p in fx_payables}
         current_rates: dict[str, float] = {}
         for cur in currencies:
-            row = frappe.db.sql(
-                """
-                SELECT exchange_rate
-                FROM `tabCurrency Exchange`
-                WHERE from_currency = %s AND to_currency = %s
-                  AND date <= %s
-                ORDER BY date DESC
-                LIMIT 1
-                """,
-                (cur, base, datetime.now().date()),
-                as_dict=True,
+            CurrencyExchange = frappe.qb.DocType("Currency Exchange")
+            rows = (
+                frappe.qb.from_(CurrencyExchange)
+                .select(CurrencyExchange.exchange_rate)
+                .where(
+                    (CurrencyExchange.from_currency == cur)
+                    & (CurrencyExchange.to_currency == base)
+                    & (CurrencyExchange.date <= datetime.now().date())
+                )
+                .orderby(CurrencyExchange.date, order=frappe.qb.desc)
+                .limit(1)
+                .run(as_dict=True)
             )
-            if row and row[0].exchange_rate is not None:
-                current_rates[cur] = float(row[0].exchange_rate)
+            if rows and rows[0].exchange_rate is not None:
+                current_rates[cur] = float(rows[0].exchange_rate)
 
         total_rec_foreign = 0.0
         total_rec_base = 0.0

@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import frappe
+from frappe.query_builder.functions import Count
 import redis
 import json
 import hashlib
@@ -212,12 +213,16 @@ class CacheManager:
                 )
                 
                 if existing:
-                    frappe.db.sql("""
-                        UPDATE `tabInsights Cache`
-                        SET cache_value = %s, expires_at = %s, metadata = %s,
-                            access_count = access_count + 1
-                        WHERE name = %s
-                    """, (cache_value, expires_at, metadata_json, existing))
+                    InsightsCache = frappe.qb.DocType("Insights Cache")
+                    (
+                        frappe.qb.update(InsightsCache)
+                        .set(InsightsCache.cache_value, cache_value)
+                        .set(InsightsCache.expires_at, expires_at)
+                        .set(InsightsCache.metadata, metadata_json)
+                        .set(InsightsCache.access_count, InsightsCache.access_count + 1)
+                        .where(InsightsCache.name == existing)
+                        .run()
+                    )
                 else:
                     cache_doc = frappe.get_doc({
                         "doctype": self.db_cache_table,
@@ -302,16 +307,18 @@ class CacheManager:
             
             stats["levels"]["warm"] = {"active_entries": warm_count}
             stats["levels"]["cold"] = {"active_entries": cold_count}
-            
+
             # Most accessed items
-            popular_items = frappe.db.sql("""
-                SELECT cache_key, cache_level, access_count 
-                FROM `tabInsights Cache` 
-                WHERE expires_at > NOW() 
-                ORDER BY access_count DESC 
-                LIMIT 10
-            """, as_dict=True)
-            
+            InsightsCache = frappe.qb.DocType("Insights Cache")
+            popular_items = (
+                frappe.qb.from_(InsightsCache)
+                .select(InsightsCache.cache_key, InsightsCache.cache_level, InsightsCache.access_count)
+                .where(InsightsCache.expires_at > frappe.utils.now())
+                .orderby(InsightsCache.access_count, order=frappe.qb.desc)
+                .limit(10)
+                .run(as_dict=True)
+            )
+
             stats["popular_items"] = popular_items
             
         except Exception as e:

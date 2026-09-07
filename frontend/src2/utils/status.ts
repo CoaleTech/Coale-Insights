@@ -301,7 +301,7 @@ export function deltaGlyph(value: number | null | undefined): string {
   return value > 0 ? '\u2191' : '\u2193'
 }
 
-function normaliseSeverity(input: Severity | string | null | undefined): Severity {
+export function normaliseSeverity(input: Severity | string | null | undefined): Severity {
   const s = (input ?? '').toString().trim().toLowerCase()
   if (s === 'critical' || s === 'high' || s === 'medium' || s === 'low') return s
   // Common server spellings seen across the intelligence APIs.

@@ -5,11 +5,7 @@
 			<KpiCard label="Current Cash" :amount="data.total_cash" :currency="currency" />
 			<KpiCard label="Monthly Inflow" :amount="data.avg_monthly_inflow" :currency="currency" />
 			<KpiCard label="Monthly Outflow" :amount="data.avg_monthly_outflow" :currency="currency" />
-			<KpiCard
-				label="Cash Runway"
-				:value="data.runway_months == null ? undefined : Math.round(data.runway_months * 30)"
-				unit=" days"
-			/>
+			<KpiCard label="Cash Runway" :value="cashRunwayLabel(data.runway_months)" />
 		</div>
 
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -61,10 +57,11 @@
 import { computed } from 'vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
+import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
 import { deltaInk } from '../../utils/status'
 import { themeColor } from '../../utils/chartTheme'
 import { formatPeriod } from './format'
-import { formatMoney as formatCurrency } from '../../utils/format'
+import { formatMoney as formatCurrency, cashRunwayLabel } from '../../utils/format'
 import type { CashFlowData } from './types'
 
 const props = defineProps<{

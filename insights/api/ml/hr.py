@@ -22,6 +22,7 @@ from typing import Any, Dict
 
 import frappe
 from frappe import _
+from frappe.query_builder.functions import Count
 
 from insights.api.ml.utils import cached_run, run
 
@@ -206,33 +207,38 @@ def get_hr_detail(metric: str, filters: str) -> dict:
             # Engine default: trailing 12 months.
             to_date = date.today().isoformat()
             from_date = add_months(to_date, -12)
-        rows = frappe.db.sql(
-            """
-            SELECT name, employee_name, department, designation,
-                   employment_type, date_of_joining, status, relieving_date
-            FROM `tabEmployee`
-            WHERE docstatus < 2
-              AND (
-                relieving_date BETWEEN %s AND %s
-                OR (status = 'Left' AND relieving_date IS NULL)
-              )
-            ORDER BY relieving_date DESC, name ASC
-            LIMIT %s OFFSET %s
-            """,
-            (from_date, to_date, page_size, start),
-            as_dict=True,
+        Employee = frappe.qb.DocType("Employee")
+        condition = (
+            (Employee.docstatus < 2)
+            & (
+                (Employee.relieving_date.between(from_date, to_date))
+                | ((Employee.status == "Left") & Employee.relieving_date.isnull())
+            )
         )
-        total = frappe.db.sql(
-            """
-            SELECT COUNT(*) c FROM `tabEmployee`
-            WHERE docstatus < 2
-              AND (
-                relieving_date BETWEEN %s AND %s
-                OR (status = 'Left' AND relieving_date IS NULL)
-              )
-            """,
-            (from_date, to_date),
-            as_dict=True,
+        rows = (
+            frappe.qb.from_(Employee)
+            .select(
+                Employee.name,
+                Employee.employee_name,
+                Employee.department,
+                Employee.designation,
+                Employee.employment_type,
+                Employee.date_of_joining,
+                Employee.status,
+                Employee.relieving_date,
+            )
+            .where(condition)
+            .orderby(Employee.relieving_date, order=frappe.qb.desc)
+            .orderby(Employee.name)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = (
+            frappe.qb.from_(Employee)
+            .select(Count("*").as_("c"))
+            .where(condition)
+            .run(as_dict=True)
         )[0]["c"]
         return {
             "columns": [

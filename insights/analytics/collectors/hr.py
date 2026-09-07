@@ -7,7 +7,25 @@ import frappe
 from frappe.utils import flt, cint
 from typing import Dict, Any, List
 
+from pypika.terms import CustomFunction
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import (
+    Avg,
+    Coalesce,
+    Count,
+    CurDate,
+    DateDiff,
+    Round,
+    Sum,
+)
+
 from insights.analytics.collectors.base import BaseCollector
+
+
+# MariaDB/MySQL `TIME()` extractor — used to compare a datetime column to a
+# wall-clock time string (late-arrival cutoff). PyPika has no built-in for
+# this, so we wire it through `CustomFunction`.
+_Time = CustomFunction("TIME", ["value"])
 
 
 class HRDataCollector(BaseCollector):
@@ -47,24 +65,32 @@ class HRDataCollector(BaseCollector):
                     "company": self.company
                 })
 
+            Employee = DocType("Employee")
+
             # Department breakdown
-            dept_breakdown = frappe.db.sql("""
-                SELECT department, COUNT(*) as count
-                FROM `tabEmployee`
-                WHERE status = 'Active' AND company = %s
-                AND department IS NOT NULL AND department != ''
-                GROUP BY department
-                ORDER BY count DESC
-            """, (self.company,), as_dict=True)
+            dept_breakdown = (
+                frappe.qb.from_(Employee)
+                .select(Employee.department, Count("*").as_("count"))
+                .where(Employee.status == "Active")
+                .where(Employee.company == self.company)
+                .where(Employee.department.notnull())
+                .where(Employee.department != "")
+                .groupby(Employee.department)
+                .orderby("count", order=frappe.qb.desc)
+                .run(as_dict=True)
+            )
 
             # Employment type breakdown
-            emp_type_breakdown = frappe.db.sql("""
-                SELECT employment_type, COUNT(*) as count
-                FROM `tabEmployee`
-                WHERE status = 'Active' AND company = %s
-                AND employment_type IS NOT NULL AND employment_type != ''
-                GROUP BY employment_type
-            """, (self.company,), as_dict=True)
+            emp_type_breakdown = (
+                frappe.qb.from_(Employee)
+                .select(Employee.employment_type, Count("*").as_("count"))
+                .where(Employee.status == "Active")
+                .where(Employee.company == self.company)
+                .where(Employee.employment_type.notnull())
+                .where(Employee.employment_type != "")
+                .groupby(Employee.employment_type)
+                .run(as_dict=True)
+            )
 
             return {
                 "total_active": current_employees,
@@ -94,28 +120,37 @@ class HRDataCollector(BaseCollector):
 
             attrition_rate = (exits / total_employees * 100) if total_employees else 0
 
+            Employee = DocType("Employee")
+
             # Voluntary vs involuntary exits
-            voluntary_exits = frappe.db.sql("""
-                SELECT COUNT(*) as count FROM `tabEmployee`
-                WHERE relieving_date BETWEEN %s AND %s
-                AND company = %s
-                AND (resignation_letter_date IS NOT NULL OR resignation_letter_date != '')
-            """, (self.from_date, self.to_date, self.company), as_dict=True)
+            voluntary_exits = (
+                frappe.qb.from_(Employee)
+                .select(Count("*").as_("count"))
+                .where(Employee.relieving_date.between(self.from_date, self.to_date))
+                .where(Employee.company == self.company)
+                # Original SQL uses `IS NOT NULL OR != ''`. `!= ''` already
+                # excludes NULL in MySQL/MariaDB, so the same effective
+                # predicate collapses to `!= ''`.
+                .where(Employee.resignation_letter_date != "")
+                .run(as_dict=True)
+            )
 
             voluntary_count = voluntary_exits[0]["count"] if voluntary_exits else 0
             involuntary_count = exits - voluntary_count
 
             # Exit reasons breakdown
-            exit_reasons = frappe.db.sql("""
-                SELECT
-                    COALESCE(reason_for_leaving, 'Unknown') as reason,
-                    COUNT(*) as count
-                FROM `tabEmployee`
-                WHERE relieving_date BETWEEN %s AND %s
-                AND company = %s
-                GROUP BY reason_for_leaving
-                ORDER BY count DESC
-            """, (self.from_date, self.to_date, self.company), as_dict=True)
+            exit_reasons = (
+                frappe.qb.from_(Employee)
+                .select(
+                    Coalesce(Employee.reason_for_leaving, "Unknown").as_("reason"),
+                    Count("*").as_("count"),
+                )
+                .where(Employee.relieving_date.between(self.from_date, self.to_date))
+                .where(Employee.company == self.company)
+                .groupby(Employee.reason_for_leaving)
+                .orderby("count", order=frappe.qb.desc)
+                .run(as_dict=True)
+            )
 
             return {
                 "attrition_rate": round(attrition_rate, 2),
@@ -132,37 +167,50 @@ class HRDataCollector(BaseCollector):
     def _get_payroll_analytics(self) -> Dict[str, Any]:
         """Get payroll cost analytics"""
         try:
+            SalarySlip = DocType("Salary Slip")
+
             # Get payroll data from Salary Slip
-            payroll_data = frappe.db.sql("""
-                SELECT
-                    SUM(gross_pay) as total_gross_pay,
-                    SUM(total_deduction) as total_deductions,
-                    SUM(net_pay) as total_net_pay,
-                    AVG(gross_pay) as avg_gross_pay,
-                    COUNT(DISTINCT employee) as employees_paid
-                FROM `tabSalary Slip`
-                WHERE start_date <= %s AND end_date >= %s
-                AND company = %s
-                AND docstatus = 1
-            """, (self.to_date, self.from_date, self.company), as_dict=True)
+            payroll_data = (
+                frappe.qb.from_(SalarySlip)
+                .select(
+                    Coalesce(Sum(SalarySlip.gross_pay), 0).as_("total_gross_pay"),
+                    Coalesce(Sum(SalarySlip.total_deduction), 0).as_("total_deductions"),
+                    Coalesce(Sum(SalarySlip.net_pay), 0).as_("total_net_pay"),
+                    Coalesce(Avg(SalarySlip.gross_pay), 0).as_("avg_gross_pay"),
+                    Count(SalarySlip.employee).distinct().as_("employees_paid"),
+                )
+                .where(SalarySlip.start_date <= self.to_date)
+                .where(SalarySlip.end_date >= self.from_date)
+                .where(SalarySlip.company == self.company)
+                .where(SalarySlip.docstatus == 1)
+                .run(as_dict=True)
+            )
 
             data = payroll_data[0] if payroll_data else {}
 
+            Employee = DocType("Employee")
+
             # Department-wise payroll cost
-            dept_payroll = frappe.db.sql("""
-                SELECT
-                    e.department,
-                    SUM(ss.gross_pay) as total_cost,
-                    AVG(ss.gross_pay) as avg_cost,
-                    COUNT(DISTINCT ss.employee) as employee_count
-                FROM `tabSalary Slip` ss
-                JOIN `tabEmployee` e ON ss.employee = e.name
-                WHERE ss.start_date <= %s AND ss.end_date >= %s
-                AND ss.company = %s AND ss.docstatus = 1
-                AND e.department IS NOT NULL AND e.department != ''
-                GROUP BY e.department
-                ORDER BY total_cost DESC
-            """, (self.to_date, self.from_date, self.company), as_dict=True)
+            dept_payroll = (
+                frappe.qb.from_(SalarySlip)
+                .join(Employee)
+                .on(SalarySlip.employee == Employee.name)
+                .select(
+                    Employee.department,
+                    Coalesce(Sum(SalarySlip.gross_pay), 0).as_("total_cost"),
+                    Coalesce(Avg(SalarySlip.gross_pay), 0).as_("avg_cost"),
+                    Count(SalarySlip.employee).distinct().as_("employee_count"),
+                )
+                .where(SalarySlip.start_date <= self.to_date)
+                .where(SalarySlip.end_date >= self.from_date)
+                .where(SalarySlip.company == self.company)
+                .where(SalarySlip.docstatus == 1)
+                .where(Employee.department.notnull())
+                .where(Employee.department != "")
+                .groupby(Employee.department)
+                .orderby("total_cost", order=frappe.qb.desc)
+                .run(as_dict=True)
+            )
 
             return {
                 "total_gross_pay": flt(data.get("total_gross_pay", 0)),
@@ -206,16 +254,22 @@ class HRDataCollector(BaseCollector):
 
             attendance_rate = (present_count / total_attendance * 100) if total_attendance else 0
 
+            EmployeeCheckin = DocType("Employee Checkin")
+            Employee = DocType("Employee")
+
             # Late arrivals from Employee Checkin
-            late_arrivals = frappe.db.sql("""
-                SELECT COUNT(*) as count
-                FROM `tabEmployee Checkin` ec
-                INNER JOIN `tabEmployee` e ON e.name = ec.employee
-                WHERE ec.time >= %s AND ec.time <= %s
-                AND e.company = %s
-                AND ec.log_type = 'IN'
-                AND TIME(ec.time) > '09:30:00'
-            """, (self.from_date, self.to_date, self.company), as_dict=True)
+            late_arrivals = (
+                frappe.qb.from_(EmployeeCheckin)
+                .inner_join(Employee)
+                .on(Employee.name == EmployeeCheckin.employee)
+                .select(Count("*").as_("count"))
+                .where(EmployeeCheckin.time >= self.from_date)
+                .where(EmployeeCheckin.time <= self.to_date)
+                .where(Employee.company == self.company)
+                .where(EmployeeCheckin.log_type == "IN")
+                .where(_Time(EmployeeCheckin.time) > "09:30:00")
+                .run(as_dict=True)
+            )
 
             late_count = late_arrivals[0]["count"] if late_arrivals else 0
 
@@ -234,33 +288,41 @@ class HRDataCollector(BaseCollector):
     def _get_leave_analytics(self) -> Dict[str, Any]:
         """Get leave utilization and patterns"""
         try:
+            LeaveApplication = DocType("Leave Application")
+
             # Leave applications summary
-            total_leaves = frappe.db.sql("""
-                SELECT
-                    COUNT(*) as total_applications,
-                    SUM(total_leave_days) as total_days,
-                    AVG(total_leave_days) as avg_days_per_application
-                FROM `tabLeave Application`
-                WHERE from_date >= %s AND to_date <= %s
-                AND company = %s
-                AND status = 'Approved'
-            """, (self.from_date, self.to_date, self.company), as_dict=True)
+            total_leaves = (
+                frappe.qb.from_(LeaveApplication)
+                .select(
+                    Count("*").as_("total_applications"),
+                    Coalesce(Sum(LeaveApplication.total_leave_days), 0).as_("total_days"),
+                    Coalesce(Avg(LeaveApplication.total_leave_days), 0).as_("avg_days_per_application"),
+                )
+                .where(LeaveApplication.from_date >= self.from_date)
+                .where(LeaveApplication.to_date <= self.to_date)
+                .where(LeaveApplication.company == self.company)
+                .where(LeaveApplication.status == "Approved")
+                .run(as_dict=True)
+            )
 
             leave_data = total_leaves[0] if total_leaves else {}
 
             # Leave type breakdown
-            leave_types = frappe.db.sql("""
-                SELECT
-                    leave_type,
-                    COUNT(*) as applications,
-                    SUM(total_leave_days) as total_days
-                FROM `tabLeave Application`
-                WHERE from_date >= %s AND to_date <= %s
-                AND company = %s
-                AND status = 'Approved'
-                GROUP BY leave_type
-                ORDER BY total_days DESC
-            """, (self.from_date, self.to_date, self.company), as_dict=True)
+            leave_types = (
+                frappe.qb.from_(LeaveApplication)
+                .select(
+                    LeaveApplication.leave_type,
+                    Count("*").as_("applications"),
+                    Coalesce(Sum(LeaveApplication.total_leave_days), 0).as_("total_days"),
+                )
+                .where(LeaveApplication.from_date >= self.from_date)
+                .where(LeaveApplication.to_date <= self.to_date)
+                .where(LeaveApplication.company == self.company)
+                .where(LeaveApplication.status == "Approved")
+                .groupby(LeaveApplication.leave_type)
+                .orderby("total_days", order=frappe.qb.desc)
+                .run(as_dict=True)
+            )
 
             return {
                 "total_applications": cint(leave_data.get("total_applications", 0)),
@@ -278,15 +340,29 @@ class HRDataCollector(BaseCollector):
         try:
             # Job openings and applications (if Job Applicant doctype exists)
             if frappe.db.exists("DocType", "Job Applicant"):
-                applications = frappe.db.sql("""
-                    SELECT
-                        COUNT(*) as total_applications,
-                        SUM(CASE WHEN status = 'Accepted' THEN 1 ELSE 0 END) as accepted,
-                        SUM(CASE WHEN status = 'Rejected' THEN 1 ELSE 0 END) as rejected,
-                        SUM(CASE WHEN status = 'Open' THEN 1 ELSE 0 END) as pending
-                    FROM `tabJob Applicant`
-                    WHERE creation BETWEEN %s AND %s
-                """, (self.from_date, self.to_date), as_dict=True)
+                JobApplicant = DocType("Job Applicant")
+
+                accepted_expr = Sum(
+                    Case().when(JobApplicant.status == "Accepted", 1).else_(0)
+                ).as_("accepted")
+                rejected_expr = Sum(
+                    Case().when(JobApplicant.status == "Rejected", 1).else_(0)
+                ).as_("rejected")
+                pending_expr = Sum(
+                    Case().when(JobApplicant.status == "Open", 1).else_(0)
+                ).as_("pending")
+
+                applications = (
+                    frappe.qb.from_(JobApplicant)
+                    .select(
+                        Count("*").as_("total_applications"),
+                        accepted_expr,
+                        rejected_expr,
+                        pending_expr,
+                    )
+                    .where(JobApplicant.creation.between(self.from_date, self.to_date))
+                    .run(as_dict=True)
+                )
 
                 app_data = applications[0] if applications else {}
 
@@ -309,15 +385,20 @@ class HRDataCollector(BaseCollector):
         try:
             # Performance appraisal summary (if Appraisal doctype exists)
             if frappe.db.exists("DocType", "Appraisal"):
-                appraisals = frappe.db.sql("""
-                    SELECT
-                        COUNT(*) as total_appraisals,
-                        AVG(total_score) as avg_score
-                    FROM `tabAppraisal`
-                    WHERE start_date >= %s AND end_date <= %s
-                    AND company = %s
-                    AND status = 'Completed'
-                """, (self.from_date, self.to_date, self.company), as_dict=True)
+                Appraisal = DocType("Appraisal")
+
+                appraisals = (
+                    frappe.qb.from_(Appraisal)
+                    .select(
+                        Count("*").as_("total_appraisals"),
+                        Coalesce(Avg(Appraisal.total_score), 0).as_("avg_score"),
+                    )
+                    .where(Appraisal.start_date >= self.from_date)
+                    .where(Appraisal.end_date <= self.to_date)
+                    .where(Appraisal.company == self.company)
+                    .where(Appraisal.status == "Completed")
+                    .run(as_dict=True)
+                )
 
                 appraisal_data = appraisals[0] if appraisals else {}
 
@@ -339,21 +420,28 @@ class HRDataCollector(BaseCollector):
             current_headcount = frappe.db.count("Employee",
                 filters={"status": "Active", "company": self.company})
 
+            Employee = DocType("Employee")
+
             # Department capacity analysis
-            dept_analysis = frappe.db.sql("""
-                SELECT
-                    department,
-                    COUNT(*) as current_count,
-                    ROUND(AVG(CASE
-                        WHEN DATEDIFF(CURDATE(), date_of_joining) < 1095 THEN 1 -- Less than 3 years
-                        ELSE 0
-                    END) * 100, 2) as junior_percentage
-                FROM `tabEmployee`
-                WHERE status = 'Active' AND company = %s
-                AND department IS NOT NULL AND department != ''
-                GROUP BY department
-                ORDER BY current_count DESC
-            """, (self.company,), as_dict=True)
+            junior_flag = Case().when(
+                DateDiff(CurDate(), Employee.date_of_joining) < 1095, 1
+            ).else_(0)
+
+            dept_analysis = (
+                frappe.qb.from_(Employee)
+                .select(
+                    Employee.department,
+                    Count("*").as_("current_count"),
+                    Round(Avg(junior_flag) * 100, 2).as_("junior_percentage"),
+                )
+                .where(Employee.status == "Active")
+                .where(Employee.company == self.company)
+                .where(Employee.department.notnull())
+                .where(Employee.department != "")
+                .groupby(Employee.department)
+                .orderby("current_count", order=frappe.qb.desc)
+                .run(as_dict=True)
+            )
 
             return {
                 "current_headcount": current_headcount,
@@ -368,16 +456,19 @@ class HRDataCollector(BaseCollector):
     def _get_diversity_metrics(self) -> Dict[str, Any]:
         """Get workforce diversity metrics"""
         try:
+            Employee = DocType("Employee")
+
             # Gender distribution
-            gender_dist = frappe.db.sql("""
-                SELECT
-                    gender,
-                    COUNT(*) as count
-                FROM `tabEmployee`
-                WHERE status = 'Active' AND company = %s
-                AND gender IS NOT NULL AND gender != ''
-                GROUP BY gender
-            """, (self.company,), as_dict=True)
+            gender_dist = (
+                frappe.qb.from_(Employee)
+                .select(Employee.gender, Count("*").as_("count"))
+                .where(Employee.status == "Active")
+                .where(Employee.company == self.company)
+                .where(Employee.gender.notnull())
+                .where(Employee.gender != "")
+                .groupby(Employee.gender)
+                .run(as_dict=True)
+            )
 
             return {
                 "gender_distribution": gender_dist

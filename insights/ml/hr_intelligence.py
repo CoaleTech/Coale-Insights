@@ -66,9 +66,17 @@ def _scalar(expr, default: float = 0.0):
         return default
 
 
-def _period_start_date(period: str) -> date:
+def _period_start_date(period: str, company: str | None = None) -> date:
     """Resolve a period keyword, or the start of an encoded custom range
-    (see `insights.api.ml.utils.parse_custom_range`), to a ``date``."""
+    (see `insights.api.ml.utils.parse_custom_range`), to a ``date``. ``YTD``
+    resolves to the company's fiscal year start (e.g. April 1 for an
+    Apr-Mar fiscal year, via `financial_intelligence._fiscal_year_for`) --
+    not the calendar year. Every other "YTD" consumer in this codebase
+    (Financial/Tax/Strategic Finance) already means fiscal year; this one
+    silently meant calendar year until fixed, which is why HR's own YTD
+    figures and every Executive KPI routed through `_resolve_date_filter`
+    understated the window whenever the fiscal year starts before Jan 1
+    of the current calendar year (e.g. an Apr-Mar fiscal year in Q1)."""
     from insights.api.ml.utils import parse_custom_range
 
     custom = parse_custom_range(period)
@@ -81,7 +89,11 @@ def _period_start_date(period: str) -> date:
         quarter_start = ((today.month - 1) // 3) * 3 + 1
         return today.replace(month=quarter_start, day=1)
     if period == "YTD":
-        return today.replace(month=1, day=1)
+        from insights.api.ml.ibis_source import default_company
+        from insights.ml.financial_intelligence import _fiscal_year_for
+
+        fy = _fiscal_year_for(company or default_company() or "")
+        return datetime.strptime(fy["start_date"], "%Y-%m-%d").date()
     # TTM
     end = today
     return add_months(end.strftime("%Y-%m-%d"), -12) if isinstance(end, date) else add_months(str(end), -12)
@@ -155,13 +167,13 @@ class HRIntelligence:
     def __init__(self, period: str = "YTD"):
         self.model_name = "HRIntelligence"
         self.period = period
-        self.from_date = _period_start_date(period)
-        self.to_date = _period_end_date(period)
         self.company = (
             get_user_default("Company")
             or frappe.db.get_single_value("Global Defaults", "default_company")
         )
         self.company = str(self.company) if self.company else None
+        self.from_date = _period_start_date(period, self.company)
+        self.to_date = _period_end_date(period)
         self.base_currency = _base_currency(self.company)
 
     # ------------------------------------------------------------------ train

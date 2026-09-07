@@ -9,35 +9,68 @@ import frappe
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
+from frappe.query_builder import DocType
+from frappe.query_builder.functions import Abs, Coalesce, Sum
+
 from .data import get_cash_balance, get_monthly_financial_trends
+
+
+def _gl_account_root_type_total(
+    company: str,
+    root_type: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    extra_account_filter=None,
+    apply_abs: bool = True,
+) -> float:
+    """Sum GL Entry postings against accounts of the given root_type.
+
+    `extra_account_filter` is an optional PyPika criterion applied to the
+    Account table (e.g. for COGS or interest matches). When `apply_abs` is
+    True, the result is `ABS(debit - credit)`, matching the legacy raw-SQL
+    convention; otherwise the raw signed sum is returned.
+    """
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+
+    expr = Abs(gle.debit - gle.credit) if apply_abs else (gle.debit - gle.credit)
+    query = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(expr), 0).as_("amount"))
+        .where(acc.root_type == root_type)
+        .where(gle.company == company)
+        .where(gle.is_cancelled == 0)
+    )
+    if start_date and end_date:
+        query = query.where(gle.posting_date.between(start_date, end_date))
+    elif start_date:
+        query = query.where(gle.posting_date >= start_date)
+    elif end_date:
+        query = query.where(gle.posting_date <= end_date)
+    if extra_account_filter is not None:
+        query = query.where(extra_account_filter)
+
+    rows = query.run(as_dict=True)
+    return float(rows[0].amount or 0) if rows else 0.0
 
 
 def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     """Calculate executive-level KPIs and trends"""
     fy_start = intelligence.fiscal_year["start_date"]
     today = datetime.now().strftime('%Y-%m-%d')
+    company = intelligence.company
 
     # YTD Revenue
-    ytd_revenue = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(credit - debit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Income'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
+    ytd_revenue = _gl_account_root_type_total(
+        company=company, root_type="Income", start_date=fy_start, end_date=today
+    )
 
     # YTD Expenses
-    ytd_expenses = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Expense'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
+    ytd_expenses = _gl_account_root_type_total(
+        company=company, root_type="Expense", start_date=fy_start, end_date=today
+    )
 
     # YTD Net Income
     ytd_net_income = ytd_revenue - ytd_expenses
@@ -51,44 +84,46 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     # add-back: this CoA carries no income-tax / provision-for-tax account
     # distinct from indirect taxes (customs duty, GST) that are real
     # operating costs.
-    ytd_interest_expense = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Expense'
-            AND acc.name LIKE '%%Interest%%'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
+    acc = DocType("Account")
+    ytd_interest_expense = _gl_account_root_type_total(
+        company=company,
+        root_type="Expense",
+        start_date=fy_start,
+        end_date=today,
+        extra_account_filter=acc.name.like("%Interest%"),
+    )
 
-    ytd_depreciation = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.account_type = 'Depreciation'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
+    gle = DocType("GL Entry")
+    dep_rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"))
+        .where(acc.account_type == "Depreciation")
+        .where(gle.posting_date.between(fy_start, today))
+        .where(gle.company == company)
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    ytd_depreciation = float(dep_rows[0].amount or 0) if dep_rows else 0.0
 
     ytd_ebit = ytd_net_income + ytd_interest_expense
     ytd_ebitda = ytd_ebit + ytd_depreciation
     ebitda_margin = (ytd_ebitda / ytd_revenue * 100) if ytd_revenue > 0 else None
 
     # YTD Cost of Goods Sold (COGS) for Gross Margin calculation
-    ytd_cogs = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(debit - credit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE (acc.account_type = 'Cost of Goods Sold'
-               OR acc.name LIKE '%%Cost of Goods%%'
-               OR acc.name LIKE '%%COGS%%')
-            AND acc.root_type = 'Expense'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (fy_start, today, intelligence.company), as_dict=True)[0].amount or 0
+    cogs_filter = (
+        (acc.account_type == "Cost of Goods Sold")
+        | acc.name.like("%Cost of Goods%")
+        | acc.name.like("%COGS%")
+    ) & (acc.root_type == "Expense")
+    ytd_cogs = _gl_account_root_type_total(
+        company=company,
+        root_type="Expense",
+        start_date=fy_start,
+        end_date=today,
+        extra_account_filter=cogs_filter,
+    )
 
     # Gross Margin = (Revenue - COGS) / Revenue * 100
     # When COGS is zero or no COGS accounts post entries, both figures are absent —
@@ -104,15 +139,9 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     prior_fy_start = (datetime.strptime(fy_start, '%Y-%m-%d') - timedelta(days=365)).strftime('%Y-%m-%d')
     prior_today = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
 
-    prior_revenue = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(credit - debit)), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Income'
-            AND gle.posting_date BETWEEN %s AND %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (prior_fy_start, prior_today, intelligence.company), as_dict=True)[0].amount or 0
+    prior_revenue = _gl_account_root_type_total(
+        company=company, root_type="Income", start_date=prior_fy_start, end_date=prior_today
+    )
 
     # Return None when the YoY comparison is not meaningful:
     #   - prior_revenue == 0: division undefined, currently returns 0 which reads as "flat"
@@ -129,15 +158,10 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
 
     # Monthly Burn Rate (average of last 3 months expenses)
     three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
-    monthly_expenses = frappe.db.sql("""
-        SELECT COALESCE(SUM(ABS(debit - credit)), 0) / 3 as avg_monthly
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Expense'
-            AND gle.posting_date >= %s
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (three_months_ago, intelligence.company), as_dict=True)[0].avg_monthly or 0
+    monthly_expenses_total = _gl_account_root_type_total(
+        company=company, root_type="Expense", start_date=three_months_ago
+    )
+    monthly_expenses = monthly_expenses_total / 3 if monthly_expenses_total else 0
 
     # Cash Runway
     cash_runway_months = (cash_balance / monthly_expenses) if monthly_expenses > 0 else 999
@@ -155,36 +179,21 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     # liabilities/equity (which sums gross activity on each row rather
     # than the actual balance; on `jkm` the liability total was inflated
     # ~31x to ~94 Cr when the real leaf-account balance is ~3 Cr).
-    total_assets = frappe.db.sql("""
-        SELECT COALESCE(SUM(debit - credit), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Asset'
-            AND acc.is_group = 0
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (intelligence.company,), as_dict=True)[0].amount or 0
+    total_assets = _gl_account_root_type_total(
+        company=company, root_type="Asset", extra_account_filter=acc.is_group == 0, apply_abs=False
+    )
 
-    # Total Liabilities (credit-normal balance: credit - debit).
-    total_liabilities = frappe.db.sql("""
-        SELECT COALESCE(SUM(credit - debit), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Liability'
-            AND acc.is_group = 0
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (intelligence.company,), as_dict=True)[0].amount or 0
+    # Total Liabilities (credit-normal balance: credit - debit). The shared
+    # helper's non-abs branch always computes debit - credit (correct for
+    # debit-normal Assets); negate it here for this credit-normal root type.
+    total_liabilities = -_gl_account_root_type_total(
+        company=company, root_type="Liability", extra_account_filter=acc.is_group == 0, apply_abs=False
+    )
 
     # Equity (credit-normal balance, same shape as liabilities).
-    total_equity = frappe.db.sql("""
-        SELECT COALESCE(SUM(credit - debit), 0) as amount
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.root_type = 'Equity'
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (intelligence.company,), as_dict=True)[0].amount or 0
+    total_equity = -_gl_account_root_type_total(
+        company=company, root_type="Equity", apply_abs=False
+    )
 
     # ROE and ROA. Use max(0, balance) so a contra-balance (negative
     # liabilities/equity) reads as zero rather than a negative ratio --
@@ -327,23 +336,19 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
     # Boost for revenue growth
     if revenue_growth is not None:
         if revenue_growth >= 20:
-            efficiency_score = min(100, efficiency_score + 15)
-        elif revenue_growth >= 10:
             efficiency_score = min(100, efficiency_score + 10)
         elif revenue_growth < 0:
             efficiency_score = max(0, efficiency_score - 10)
 
     efficiency_status = "Excellent" if efficiency_score >= 80 else "Good" if efficiency_score >= 60 else "Fair" if efficiency_score >= 40 else "Poor"
 
+    overall_score = round((liquidity_score + profitability_score + efficiency_score) / 3, 1)
+
     return {
-        "liquidity": round(liquidity_score),
-        "liquidity_status": liquidity_status,
-        "profitability": round(profitability_score),
-        "profitability_status": profitability_status,
-        "efficiency": round(efficiency_score),
-        "efficiency_status": efficiency_status,
-        "overall": round((liquidity_score + profitability_score + efficiency_score) / 3),
-        "overall_status": "Excellent" if (liquidity_score + profitability_score + efficiency_score) / 3 >= 80 else "Good" if (liquidity_score + profitability_score + efficiency_score) / 3 >= 60 else "Fair"
+        "overall_score": overall_score,
+        "liquidity": {"score": liquidity_score, "status": liquidity_status},
+        "profitability": {"score": profitability_score, "status": profitability_status},
+        "efficiency": {"score": efficiency_score, "status": efficiency_status},
     }
 
 
@@ -354,100 +359,95 @@ def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: floa
     """Generate actionable executive insights based on financial metrics"""
     insights = []
 
-    # Revenue performance insight — skip entirely when growth is not measurable
-    if revenue_growth is not None:
-        if revenue_growth > 15:
-            insights.append({
-                "type": "success",
-                "title": "Strong Revenue Growth",
-                "description": f"Revenue is growing at {revenue_growth:.1f}% YoY, outpacing industry averages. Consider reinvesting in growth initiatives."
-            })
-        elif revenue_growth > 0:
-            insights.append({
-                "type": "info",
-                "title": "Moderate Revenue Growth",
-                "description": f"Revenue growth of {revenue_growth:.1f}% YoY is positive but below optimal targets. Review sales strategies for acceleration."
-            })
-        else:
-            insights.append({
-                "type": "danger",
-                "title": "Revenue Declining",
-                "description": f"Revenue has declined {abs(revenue_growth):.1f}% YoY. Immediate attention needed on sales pipeline and market positioning."
-            })
-
-    # Profitability insight
-    if net_margin >= 15:
+    # Revenue insights
+    if revenue_growth is not None and revenue_growth > 20:
         insights.append({
-            "type": "success",
-            "title": "Excellent Profit Margins",
-            "description": f"Net margin of {net_margin:.1f}% demonstrates strong operational efficiency and pricing power."
+            "type": "positive",
+            "category": "revenue",
+            "title": "Strong Revenue Growth",
+            "description": f"Revenue grew {revenue_growth:.1f}% year-over-year",
+            "recommendation": "Scale operations to capture growth momentum",
+            "priority": "high"
         })
-    elif net_margin >= 5:
+    elif revenue_growth is not None and revenue_growth < -10:
         insights.append({
-            "type": "info",
-            "title": "Healthy Profit Margins",
-            "description": f"Net margin of {net_margin:.1f}% is acceptable. Look for cost optimization opportunities to improve profitability."
-        })
-    elif net_margin > 0:
-        insights.append({
-            "type": "warning",
-            "title": "Thin Profit Margins",
-            "description": f"Net margin of {net_margin:.1f}% is below target. Review expense structure and pricing strategy."
-        })
-    else:
-        insights.append({
-            "type": "danger",
-            "title": "Operating at Loss",
-            "description": f"Negative net margin of {net_margin:.1f}%. Urgent cost reduction and revenue improvement measures needed."
+            "type": "negative",
+            "category": "revenue",
+            "title": "Declining Revenue",
+            "description": f"Revenue declined {abs(revenue_growth):.1f}% year-over-year",
+            "recommendation": "Investigate root causes and develop recovery plan",
+            "priority": "high"
         })
 
-    # Cash runway insight
+    # Profitability insights
+    if net_margin < 0:
+        insights.append({
+            "type": "negative",
+            "category": "profitability",
+            "title": "Operating at a Loss",
+            "description": f"Net margin is {net_margin:.1f}%",
+            "recommendation": "Review cost structure and pricing strategy urgently",
+            "priority": "high"
+        })
+    elif net_margin > 15:
+        insights.append({
+            "type": "positive",
+            "category": "profitability",
+            "title": "Strong Profitability",
+            "description": f"Net margin is {net_margin:.1f}%",
+            "recommendation": "Reinvest profits for sustainable growth",
+            "priority": "medium"
+        })
+
+    # Cash runway insights
     if cash_runway_months < 3:
         insights.append({
-            "type": "danger",
+            "type": "negative",
+            "category": "liquidity",
             "title": "Critical Cash Position",
-            "description": f"Only {cash_runway_months:.1f} months of cash runway remaining. Immediate action required on cash conservation or funding."
+            "description": f"Only {cash_runway_months:.1f} months of cash runway",
+            "recommendation": "Secure additional funding or accelerate collections immediately",
+            "priority": "high"
         })
     elif cash_runway_months < 6:
         insights.append({
             "type": "warning",
+            "category": "liquidity",
             "title": "Limited Cash Runway",
-            "description": f"{cash_runway_months:.1f} months of cash runway. Begin planning for additional funding or cost reductions."
+            "description": f"Cash runway is {cash_runway_months:.1f} months",
+            "recommendation": "Monitor cash flow closely and plan for contingencies",
+            "priority": "medium"
         })
-    elif cash_runway_months >= 12:
+    elif cash_runway_months > 12:
         insights.append({
-            "type": "success",
+            "type": "positive",
+            "category": "liquidity",
             "title": "Strong Cash Position",
-            "description": f"{cash_runway_months:.1f}+ months of runway provides flexibility for strategic investments."
+            "description": f"Cash runway exceeds {cash_runway_months:.0f} months",
+            "recommendation": "Consider strategic investments or expansion",
+            "priority": "low"
         })
 
-    # Leverage insight
+    # Debt insights
     if debt_to_equity > 2:
         insights.append({
-            "type": "warning",
-            "title": "High Leverage",
-            "description": f"Debt-to-equity ratio of {debt_to_equity:.2f} indicates high leverage. Consider debt reduction strategies."
-        })
-    elif debt_to_equity < 0.3:
-        insights.append({
-            "type": "info",
-            "title": "Conservative Capital Structure",
-            "description": f"Low debt-to-equity of {debt_to_equity:.2f} may indicate opportunity for strategic debt financing."
+            "type": "negative",
+            "category": "leverage",
+            "title": "High Debt Levels",
+            "description": f"Debt-to-equity ratio is {debt_to_equity:.2f}",
+            "recommendation": "Focus on debt reduction to improve financial stability",
+            "priority": "high"
         })
 
-    # Overall health insight
-    overall_score = health_scores.get('overall', 0)
-    if overall_score >= 75:
-        insights.append({
-            "type": "success",
-            "title": "Excellent Financial Health",
-            "description": f"Overall financial health score of {overall_score}/100 indicates a strong position for growth."
-        })
-    elif overall_score < 50:
+    # ROE insights
+    if roe < 5:
         insights.append({
             "type": "warning",
-            "title": "Financial Health Needs Attention",
-            "description": f"Overall score of {overall_score}/100 suggests focus needed on improving key financial metrics."
+            "category": "efficiency",
+            "title": "Low Return on Equity",
+            "description": f"ROE is {roe:.1f}%",
+            "recommendation": "Improve operational efficiency and profit margins",
+            "priority": "medium"
         })
 
     return insights[:5]  # Limit to top 5 insights

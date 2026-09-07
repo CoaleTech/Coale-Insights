@@ -46,9 +46,9 @@ def execute():
         except Exception as e:
             # If the table is already gone, just delete the DocType record
             try:
-                frappe.db.sql(f"DELETE FROM `tabDocType` WHERE name = %s", dt)
-                frappe.db.sql(f"DELETE FROM `tabDocField` WHERE parent = %s", dt)
-                frappe.db.sql(f"DELETE FROM `tabDocPerm` WHERE parent = %s", dt)
+                frappe.db.delete("DocType", {"name": dt})
+                frappe.db.delete("DocField", {"parent": dt})
+                frappe.db.delete("DocPerm", {"parent": dt})
                 frappe.db.commit()
             except Exception:
                 pass

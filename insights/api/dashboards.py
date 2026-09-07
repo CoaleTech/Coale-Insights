@@ -1,4 +1,5 @@
 import frappe
+from frappe.query_builder.functions import Count
 
 from insights.decorators import insights_whitelist, validate_type
 
@@ -32,17 +33,17 @@ def get_dashboards(search_term=None, limit=50):
 
     dashboard_names = [d.name for d in dashboards]
 
-    # Batch fetch view counts — single SQL instead of N queries
+    # Batch fetch view counts — single query instead of N queries
     view_counts = {}
     if dashboard_names:
-        view_count_rows = frappe.db.sql("""
-            SELECT reference_name, COUNT(*) as cnt
-            FROM `tabView Log`
-            WHERE reference_doctype = 'Insights Dashboard v3'
-            AND reference_name IN ({placeholders})
-            GROUP BY reference_name
-        """.format(placeholders=", ".join(["%s"] * len(dashboard_names))),
-            tuple(dashboard_names), as_dict=True
+        ViewLog = frappe.qb.DocType("View Log")
+        view_count_rows = (
+            frappe.qb.from_(ViewLog)
+            .select(ViewLog.reference_name, Count("*").as_("cnt"))
+            .where(ViewLog.reference_doctype == "Insights Dashboard v3")
+            .where(ViewLog.reference_name.isin(dashboard_names))
+            .groupby(ViewLog.reference_name)
+            .run(as_dict=True)
         )
         for row in view_count_rows:
             view_counts[row.reference_name] = row.cnt

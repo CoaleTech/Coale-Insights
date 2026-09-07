@@ -7,7 +7,7 @@
 -->
 <script setup lang="ts">
 defineOptions({ name: 'CustomerSections' })
-import { Badge, Button, Select, Tooltip } from 'frappe-ui'
+import { Badge, Button, FormControl, Select, Tooltip } from 'frappe-ui'
 import { apiCall, readFrappeError } from '../helpers/api'
 import {
   Search, Filter, Star, ChevronRight, MapPin, Target, Activity,
@@ -219,7 +219,6 @@ async function loadBottomRankings() {
 
 // ── Watchers ───────────────────────────────────────────────────────────────
 watch(activeCutoff, () => loadCustomerCounts())
-
 watch(() => props.activeTab, (tab) => {
   if (tab === 'cust-patterns') loadPurchasePatterns()
   if (tab === 'cust-rankings') loadRankings()
@@ -362,14 +361,16 @@ onMounted(() => {
   <!-- ═══ Customers (list) ═══ -->
   <div v-if="activeTab === 'cust-list'" class="space-y-4">
     <div class="flex flex-wrap gap-4 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
-      <div class="relative flex-1 min-w-[200px]">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-gray-5" aria-hidden="true" />
-        <input
-          v-model="customerFilter" type="text"
+      <div class="flex-1 min-w-[200px]">
+        <FormControl
+          v-model="customerFilter" type="text" :debounce="300"
           placeholder="Search by name, ID, or territory..."
           aria-label="Search customers"
-          class="w-full pl-10 pr-4 py-2 border border-outline-gray-2 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 text-ink-gray-8"
-        />
+        >
+          <template #prefix>
+            <Search class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
+          </template>
+        </FormControl>
       </div>
       <div class="flex items-center gap-2">
         <Filter class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />

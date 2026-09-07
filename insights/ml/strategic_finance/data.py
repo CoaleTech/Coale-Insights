@@ -10,6 +10,8 @@ All _get_*() methods, _format_currency(), and sanitize_for_json().
 import frappe
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import Abs, Coalesce, Count, DateFormat, Sum
 
 if TYPE_CHECKING:
     import numpy as np
@@ -48,19 +50,22 @@ def format_currency(intelligence, value: float) -> str:
 def get_current_fiscal_year(intelligence) -> Dict[str, Any]:
     """Get current fiscal year for the company"""
     today = datetime.now().date()
-    fy = frappe.db.sql("""
-        SELECT name, year_start_date, year_end_date
-        FROM `tabFiscal Year`
-        WHERE %s BETWEEN year_start_date AND year_end_date
-        ORDER BY year_start_date DESC
-        LIMIT 1
-    """, (today,), as_dict=True)
+    FiscalYear = DocType("Fiscal Year")
+    rows = (
+        frappe.qb.from_(FiscalYear)
+        .select(FiscalYear.name, FiscalYear.year_start_date, FiscalYear.year_end_date)
+        .where((today >= FiscalYear.year_start_date) & (today <= FiscalYear.year_end_date))
+        .orderby(FiscalYear.year_start_date, order=frappe.qb.desc)
+        .limit(1)
+        .run(as_dict=True)
+    )
 
-    if fy:
+    if rows:
+        fy = rows[0]
         return {
-            "name": fy[0].name,
-            "start_date": str(fy[0].year_start_date),
-            "end_date": str(fy[0].year_end_date)
+            "name": fy.name,
+            "start_date": str(fy.year_start_date),
+            "end_date": str(fy.year_end_date)
         }
 
     # Default to calendar year if no fiscal year found
@@ -73,33 +78,62 @@ def get_current_fiscal_year(intelligence) -> Dict[str, Any]:
 
 def get_cash_balance(intelligence) -> float:
     """Get current cash and bank balance"""
-    cash = frappe.db.sql("""
-        SELECT COALESCE(SUM(debit - credit), 0) as balance
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.account_type IN ('Cash', 'Bank')
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (intelligence.company,), as_dict=True)[0].balance or 0
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("balance"))
+        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    cash = float(rows[0].balance or 0) if rows else 0.0
     return cash
 
 
 def get_monthly_financial_trends(intelligence) -> List[Dict]:
     """Get monthly revenue/expense trends for last 12 months"""
-    trends = frappe.db.sql("""
-        SELECT
-            DATE_FORMAT(gle.posting_date, '%%Y-%%m') as period,
-            SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(credit - debit) ELSE 0 END) as revenue,
-            SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(debit - credit) ELSE 0 END) as expenses
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-            AND acc.root_type IN ('Income', 'Expense')
-        GROUP BY DATE_FORMAT(gle.posting_date, '%%Y-%%m')
-        ORDER BY period
-    """, (intelligence.company,), as_dict=True)
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+
+    # Anchor on a Python-side date so PyPika emits a literal bound parameter
+    # rather than CURDATE()/DATE_SUB() server-side functions which the query
+    # builder does not natively express. Equivalent semantics: last 12 months
+    # of data through `today` (inclusive).
+    twelve_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+
+    period_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
+    revenue_expr = (
+        Sum(
+            Case()
+            .when(acc.root_type == "Income", Abs(gle.credit - gle.debit))
+            .else_(0)
+        ).as_("revenue")
+    )
+    expense_expr = (
+        Sum(
+            Case()
+            .when(acc.root_type == "Expense", Abs(gle.debit - gle.credit))
+            .else_(0)
+        ).as_("expenses")
+    )
+
+    trends = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(period_expr, revenue_expr, expense_expr)
+        .where(gle.posting_date >= twelve_months_ago)
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .where(acc.root_type.isin(["Income", "Expense"]))
+        .groupby(period_expr)
+        .orderby(period_expr)
+        .run(as_dict=True)
+    )
 
     result = []
     for t in trends:
@@ -120,34 +154,54 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
     fy_start = intelligence.fiscal_year["start_date"]
     today = datetime.now().strftime('%Y-%m-%d')
 
-    # Get expense accounts with their totals
-    expenses = frappe.db.sql("""
-        SELECT
-            acc.account_name as category,
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+
+    # Get expense accounts with their totals. The legacy SQL used a LEFT JOIN
+    # with the period filter inside the JOIN clause (so accounts without
+    # postings still show). With PyPika the equivalent is a subquery
+    # over filtered GLE joined to Account.
+    gle_period = (
+        frappe.qb.from_(gle)
+        .select(
+            gle.account.as_("account"),
+            Coalesce(Sum(Abs(gle.debit - gle.credit)), 0).as_("amount"),
+        )
+        .where(gle.is_cancelled == 0)
+        .where(gle.posting_date.between(fy_start, today))
+        .groupby(gle.account)
+    )
+
+    raw_expenses = (
+        frappe.qb.from_(acc)
+        .left_join(gle_period)
+        .on(gle_period.account == acc.name)
+        .select(
+            acc.account_name.as_("category"),
             acc.parent_account,
-            COALESCE(SUM(ABS(gle.debit - gle.credit)), 0) as amount
-        FROM `tabAccount` acc
-        LEFT JOIN `tabGL Entry` gle ON gle.account = acc.name
-            AND gle.is_cancelled = 0
-            AND gle.posting_date BETWEEN %s AND %s
-        WHERE acc.root_type = 'Expense'
-            AND acc.is_group = 0
-            AND acc.company = %s
-        GROUP BY acc.name
-        HAVING amount > 0
-        ORDER BY amount DESC
-        LIMIT 10
-    """, (fy_start, today, intelligence.company), as_dict=True)
+            Coalesce(gle_period.amount, 0).as_("amount"),
+        )
+        .where(acc.root_type == "Expense")
+        .where(acc.is_group == 0)
+        .where(acc.company == intelligence.company)
+        .orderby(Coalesce(gle_period.amount, 0), order=frappe.qb.desc)
+        .limit(50)
+        .run(as_dict=True)
+    )
+
+    # brittle in MariaDB (`Unknown column ... in 'HAVING'`). Filter in
+    # Python, then take the top 10 -- the legacy semantics.
+    expenses = [e for e in raw_expenses if (e.get("amount") or 0) > 0][:10]
 
     # Calculate total and percentages
-    total = sum(e.get('amount', 0) for e in expenses)
+    total = sum(float(e.get('amount') or 0) for e in expenses)
 
     result = []
     for exp in expenses:
-        amount = float(exp.get('amount', 0))
+        amount = float(exp.get('amount') or 0)
         pct = round((amount / total * 100), 1) if total > 0 else 0
         result.append({
-            "category": exp.get('category', 'Unknown'),
+            "category": exp.get('category') or 'Unknown',
             "amount": amount,
             "percentage": pct
         })
@@ -157,25 +211,31 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
 
 def get_historical_cash_transactions(intelligence, start_date: datetime, end_date: datetime) -> Dict[str, Dict]:
     """Get categorized historical cash transactions by week"""
-    transactions = frappe.db.sql("""
-        SELECT
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+
+    transactions = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
             gle.posting_date,
             gle.account,
             acc.account_type,
             acc.root_type,
             acc.parent_account,
-            (gle.debit - gle.credit) as amount,
+            (gle.debit - gle.credit).as_("amount"),
             gle.voucher_type,
             gle.voucher_no,
-            gle.against
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.company = %s
-            AND gle.posting_date BETWEEN %s AND %s
-            AND acc.account_type IN ('Cash', 'Bank')
-            AND gle.is_cancelled = 0
-        ORDER BY gle.posting_date
-    """, (intelligence.company, start_date, end_date), as_dict=True)
+            gle.against,
+        )
+        .where(gle.company == intelligence.company)
+        .where(gle.posting_date.between(start_date, end_date))
+        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .where(gle.is_cancelled == 0)
+        .orderby(gle.posting_date)
+        .run(as_dict=True)
+    )
 
     weeks_data = {}
 
@@ -228,19 +288,17 @@ def get_historical_cash_transactions(intelligence, start_date: datetime, end_dat
 
 def get_ar_collections_by_week(intelligence, start_date: datetime, end_date: datetime) -> Dict[str, Dict]:
     """Get expected AR collections by week based on due dates"""
-    receivables = frappe.db.sql("""
-        SELECT
-            si.name,
-            si.due_date,
-            si.outstanding_amount,
-            si.customer
-        FROM `tabSales Invoice` si
-        WHERE si.company = %s
-            AND si.docstatus = 1
-            AND si.outstanding_amount > 0
-            AND si.due_date BETWEEN %s AND %s
-        ORDER BY si.due_date
-    """, (intelligence.company, start_date, end_date), as_dict=True)
+    si = DocType("Sales Invoice")
+    receivables = (
+        frappe.qb.from_(si)
+        .select(si.name, si.due_date, si.outstanding_amount, si.customer)
+        .where(si.company == intelligence.company)
+        .where(si.docstatus == 1)
+        .where(si.outstanding_amount > 0)
+        .where(si.due_date.between(start_date, end_date))
+        .orderby(si.due_date)
+        .run(as_dict=True)
+    )
 
     weeks = {}
 
@@ -262,14 +320,16 @@ def get_ar_collections_by_week(intelligence, start_date: datetime, end_date: dat
         weeks[week_key]['invoices'].append(inv.name)
 
     # Also add overdue receivables to week 0 (current week)
-    overdue = frappe.db.sql("""
-        SELECT COALESCE(SUM(outstanding_amount), 0) as total
-        FROM `tabSales Invoice`
-        WHERE company = %s
-            AND docstatus = 1
-            AND outstanding_amount > 0
-            AND due_date < %s
-    """, (intelligence.company, start_date), as_dict=True)[0].total or 0
+    overdue_rows = (
+        frappe.qb.from_(si)
+        .select(Coalesce(Sum(si.outstanding_amount), 0).as_("total"))
+        .where(si.company == intelligence.company)
+        .where(si.docstatus == 1)
+        .where(si.outstanding_amount > 0)
+        .where(si.due_date < start_date)
+        .run(as_dict=True)
+    )
+    overdue = float(overdue_rows[0].total or 0) if overdue_rows else 0.0
 
     # Distribute overdue across first 4 weeks (assume gradual collection)
     if overdue > 0:
@@ -292,19 +352,17 @@ def get_ar_collections_by_week(intelligence, start_date: datetime, end_date: dat
 
 def get_ap_payments_by_week(intelligence, start_date: datetime, end_date: datetime) -> Dict[str, Dict]:
     """Get expected AP payments by week based on due dates"""
-    payables = frappe.db.sql("""
-        SELECT
-            pi.name,
-            pi.due_date,
-            pi.outstanding_amount,
-            pi.supplier
-        FROM `tabPurchase Invoice` pi
-        WHERE pi.company = %s
-            AND pi.docstatus = 1
-            AND pi.outstanding_amount > 0
-            AND pi.due_date BETWEEN %s AND %s
-        ORDER BY pi.due_date
-    """, (intelligence.company, start_date, end_date), as_dict=True)
+    pi = DocType("Purchase Invoice")
+    payables = (
+        frappe.qb.from_(pi)
+        .select(pi.name, pi.due_date, pi.outstanding_amount, pi.supplier)
+        .where(pi.company == intelligence.company)
+        .where(pi.docstatus == 1)
+        .where(pi.outstanding_amount > 0)
+        .where(pi.due_date.between(start_date, end_date))
+        .orderby(pi.due_date)
+        .run(as_dict=True)
+    )
 
     weeks = {}
 
@@ -384,42 +442,52 @@ def estimate_other_receipts(intelligence, week_start: datetime) -> float:
     # Get average weekly other receipts from last 12 weeks
     twelve_weeks_ago = (datetime.now() - timedelta(weeks=12)).strftime('%Y-%m-%d')
 
-    other_receipts = frappe.db.sql("""
-        SELECT COALESCE(SUM(gle.debit - gle.credit), 0) / 12 as weekly_avg
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.company = %s
-            AND gle.posting_date >= %s
-            AND acc.account_type IN ('Cash', 'Bank')
-            AND gle.is_cancelled = 0
-            AND (gle.debit - gle.credit) > 0
-            AND gle.voucher_type NOT IN ('Sales Invoice', 'Payment Entry')
-    """, (intelligence.company, twelve_weeks_ago), as_dict=True)[0].weekly_avg or 0
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select((Coalesce(Sum(gle.debit - gle.credit), 0) / 12).as_("weekly_avg"))
+        .where(gle.company == intelligence.company)
+        .where(gle.posting_date >= twelve_weeks_ago)
+        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .where(gle.is_cancelled == 0)
+        .where((gle.debit - gle.credit) > 0)
+        .where(gle.voucher_type.notin(["Sales Invoice", "Payment Entry"]))
+        .run(as_dict=True)
+    )
+    other_receipts = float(rows[0].weekly_avg or 0) if rows else 0.0
 
-    return float(other_receipts)
+    return other_receipts
 
 
 def estimate_operating_expenses(intelligence, week_start: datetime) -> float:
     """Estimate operating expenses based on historical average"""
     twelve_weeks_ago = (datetime.now() - timedelta(weeks=12)).strftime('%Y-%m-%d')
 
-    operating_exp = frappe.db.sql("""
-        SELECT COALESCE(ABS(SUM(gle.debit - gle.credit)), 0) / 12 as weekly_avg
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.company = %s
-            AND gle.posting_date >= %s
-            AND acc.account_type IN ('Cash', 'Bank')
-            AND gle.is_cancelled = 0
-            AND (gle.debit - gle.credit) < 0
-            AND gle.voucher_type NOT IN ('Purchase Invoice', 'Payment Entry')
-            AND gle.against NOT LIKE '%%Salary%%'
-            AND gle.against NOT LIKE '%%Payroll%%'
-            AND gle.against NOT LIKE '%%Tax%%'
-            AND gle.against NOT LIKE '%%VAT%%'
-    """, (intelligence.company, twelve_weeks_ago), as_dict=True)[0].weekly_avg or 0
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select((Coalesce(Abs(Sum(gle.debit - gle.credit)), 0) / 12).as_("weekly_avg"))
+        .where(gle.company == intelligence.company)
+        .where(gle.posting_date >= twelve_weeks_ago)
+        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .where(gle.is_cancelled == 0)
+        .where((gle.debit - gle.credit) < 0)
+        .where(gle.voucher_type.notin(["Purchase Invoice", "Payment Entry"]))
+        .where(~gle.against.like("%Salary%"))
+        .where(~gle.against.like("%Payroll%"))
+        .where(~gle.against.like("%Tax%"))
+        .where(~gle.against.like("%VAT%"))
+        .run(as_dict=True)
+    )
+    operating_exp = float(rows[0].weekly_avg or 0) if rows else 0.0
 
-    return abs(float(operating_exp))
+    return abs(operating_exp)
 
 
 def get_scheduled_taxes(intelligence, week_start, week_end) -> float:
@@ -520,4 +588,3 @@ def get_week_label(intelligence, week_start: datetime, week_num: int) -> str:
         return "Next Week"
     else:
         return week_start.strftime('%b %d')
-

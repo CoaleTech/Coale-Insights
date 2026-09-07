@@ -409,7 +409,25 @@ def calculate_comparisons(
     growth" whenever the 12m date filter was selected. The MoM slice
     is inside the window and the filter is still applied to it.
     """
+    # Base set (submitted, non-return, company-scoped) reused for both
+    # slices below and for anchoring the "current" period.
+    base = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+
+    # Anchor "current" to the latest month that actually has sales, not the
+    # calendar month. A no-op when the ledger is current (max posting date is
+    # in this month); when data lags -- e.g. the last invoice is weeks old --
+    # it stops the still-empty calendar month from reporting -100% MoM/YoY
+    # growth against a fully-populated prior month.
+    import pandas as pd
     today = datetime.now().date()
+    max_posting = base.aggregate(m=base.posting_date.max()).execute().iloc[0]["m"]
+    if max_posting is not None and not pd.isna(max_posting):
+        anchor = pd.Timestamp(max_posting).date()
+        if anchor < today:
+            today = anchor
+
     current_month_start = today.replace(day=1)
     last_month_final_day = current_month_start - timedelta(days=1)
     last_month_start = last_month_final_day.replace(day=1)
@@ -422,20 +440,15 @@ def calculate_comparisons(
 
     # MoM slice: subject to the user's date filter (both endpoints
     # live inside the window).
-    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
-        t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    si = base
     start, _ = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
 
-    # YoY slice: filter from the Sales Invoice table directly, skipping
-    # the user's `date_filter` (which would push the cutoff past the
-    # YoY window's start). Date filter is still respected for the
+    # YoY slice: skips the user's `date_filter` (which would push the cutoff
+    # past the YoY window's start). Date filter is still respected for the
     # day-of-month comparison to stay apples-to-apples.
-    si_yoy = company_filter(t("Sales Invoice"), company or default_company()).filter(
-        t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    si_yoy = base
 
     def _slice(si_base, start_d, end_d):
         si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))

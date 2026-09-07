@@ -24,6 +24,8 @@ if TYPE_CHECKING:
 
 import logging
 
+from frappe.query_builder.functions import Abs, Coalesce, Count, Sum
+
 logger = logging.getLogger(__name__)
 
 class BudgetVarianceIntelligence:
@@ -215,16 +217,19 @@ class BudgetVarianceIntelligence:
         """Get account-wise budget variance analysis"""
         try:
             # Get all accounts with budget allocations
-            budget_accounts = frappe.db.sql("""
-                SELECT DISTINCT account
-                FROM `tabBudget Account`
-                WHERE parent IN (
-                    SELECT name FROM `tabBudget`
-                    WHERE company = %s 
-                    AND fiscal_year = %s
-                    AND docstatus = 1
-                )
-            """, (self.company, self.fiscal_year), as_dict=True)
+            Budget = frappe.qb.DocType("Budget")
+            BudgetAccount = frappe.qb.DocType("Budget Account")
+            budget_accounts = (
+                frappe.qb.from_(BudgetAccount)
+                .join(Budget)
+                .on(BudgetAccount.parent == Budget.name)
+                .select(BudgetAccount.account)
+                .distinct()
+                .where(Budget.company == self.company)
+                .where(Budget.fiscal_year == self.fiscal_year)
+                .where(Budget.docstatus == 1)
+                .run(as_dict=True)
+            )
 
             account_variances = []
 
@@ -525,20 +530,25 @@ class BudgetVarianceIntelligence:
     def _fetch_budget_data(self) -> list[dict[str, Any]]:
         """Fetch budget data for the fiscal year"""
         try:
-            return frappe.db.sql("""
-                SELECT 
-                    b.name as budget_name,
-                    b.cost_center,
-                    ba.account,
-                    ba.budget_amount,
-                    b.monthly_distribution
-                FROM `tabBudget` b
-                JOIN `tabBudget Account` ba ON ba.parent = b.name
-                WHERE b.company = %s 
-                AND b.fiscal_year = %s
-                AND b.docstatus = 1
-                ORDER BY ba.budget_amount DESC
-            """, (self.company, self.fiscal_year), as_dict=True)
+            Budget = frappe.qb.DocType("Budget")
+            BudgetAccount = frappe.qb.DocType("Budget Account")
+            return (
+                frappe.qb.from_(Budget)
+                .join(BudgetAccount)
+                .on(BudgetAccount.parent == Budget.name)
+                .select(
+                    Budget.name.as_("budget_name"),
+                    Budget.cost_center,
+                    BudgetAccount.account,
+                    BudgetAccount.budget_amount,
+                    Budget.monthly_distribution,
+                )
+                .where(Budget.company == self.company)
+                .where(Budget.fiscal_year == self.fiscal_year)
+                .where(Budget.docstatus == 1)
+                .orderby(BudgetAccount.budget_amount, order=frappe.qb.desc)
+                .run(as_dict=True)
+            )
 
         except Exception as e:
             logger.error(f"Error fetching budget data: {e}")
@@ -547,21 +557,28 @@ class BudgetVarianceIntelligence:
     def _fetch_actual_data(self) -> list[dict[str, Any]]:
         """Fetch actual expense data for comparison"""
         try:
-            return frappe.db.sql("""
-                SELECT 
-                    gle.account,
-                    gle.cost_center,
-                    SUM(gle.debit - gle.credit) as actual_amount
-                FROM `tabGL Entry` gle
-                JOIN `tabAccount` acc ON acc.name = gle.account
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.is_cancelled = 0
-                AND acc.account_type IN ('Expense Account', 'Income Account')
-                GROUP BY gle.account, gle.cost_center
-                HAVING SUM(gle.debit - gle.credit) != 0
-                ORDER BY SUM(ABS(gle.debit - gle.credit)) DESC
-            """, (self.company, self.fy_start_date, self.fy_end_date), as_dict=True)
+            GLEntry = frappe.qb.DocType("GL Entry")
+            Account = frappe.qb.DocType("Account")
+            net_amount = Sum(GLEntry.debit - GLEntry.credit)
+            abs_amount = Sum(Abs(GLEntry.debit - GLEntry.credit))
+            return (
+                frappe.qb.from_(GLEntry)
+                .join(Account)
+                .on(Account.name == GLEntry.account)
+                .select(
+                    GLEntry.account,
+                    GLEntry.cost_center,
+                    net_amount.as_("actual_amount"),
+                )
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
+                .where(GLEntry.is_cancelled == 0)
+                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
+                .groupby(GLEntry.account, GLEntry.cost_center)
+                .having(net_amount != 0)
+                .orderby(abs_amount, order=frappe.qb.desc)
+                .run(as_dict=True)
+            )
 
         except Exception as e:
             logger.error(f"Error fetching actual data: {e}")
@@ -696,18 +713,19 @@ class BudgetVarianceIntelligence:
             if not cost_center:
                 return 0
 
-            cost_center_names = [cost_center]
-
-            result = frappe.db.sql("""
-                SELECT SUM(ba.budget_amount) as total_budget
-                FROM `tabBudget` b
-                JOIN `tabBudget Account` ba ON ba.parent = b.name
-                WHERE b.company = %s 
-                AND b.fiscal_year = %s
-                AND b.cost_center IN ({})
-                AND b.docstatus = 1
-            """.format(','.join(['%s'] * len(cost_center_names))),
-            [self.company, self.fiscal_year] + cost_center_names)
+            Budget = frappe.qb.DocType("Budget")
+            BudgetAccount = frappe.qb.DocType("Budget Account")
+            result = (
+                frappe.qb.from_(Budget)
+                .join(BudgetAccount)
+                .on(BudgetAccount.parent == Budget.name)
+                .select(Coalesce(Sum(BudgetAccount.budget_amount), 0).as_("total_budget"))
+                .where(Budget.company == self.company)
+                .where(Budget.fiscal_year == self.fiscal_year)
+                .where(Budget.cost_center == cost_center)
+                .where(Budget.docstatus == 1)
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -723,19 +741,20 @@ class BudgetVarianceIntelligence:
             if not cost_center:
                 return 0
 
-            cost_center_names = [cost_center]
-
-            result = frappe.db.sql("""
-                SELECT SUM(gle.debit - gle.credit) as total_actual
-                FROM `tabGL Entry` gle
-                JOIN `tabAccount` acc ON acc.name = gle.account
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.cost_center IN ({})
-                AND gle.is_cancelled = 0
-                AND acc.account_type IN ('Expense Account', 'Income Account')
-            """.format(','.join(['%s'] * len(cost_center_names))),
-            [self.company, self.fy_start_date, self.fy_end_date] + cost_center_names)
+            GLEntry = frappe.qb.DocType("GL Entry")
+            Account = frappe.qb.DocType("Account")
+            result = (
+                frappe.qb.from_(GLEntry)
+                .join(Account)
+                .on(Account.name == GLEntry.account)
+                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total_actual"))
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
+                .where(GLEntry.cost_center == cost_center)
+                .where(GLEntry.is_cancelled == 0)
+                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -783,25 +802,27 @@ class BudgetVarianceIntelligence:
             if not cost_center:
                 return []
 
-            cost_center_names = [cost_center]
-
-            # Get account-wise data for department
-            account_data = frappe.db.sql("""
-                SELECT 
-                    gle.account,
-                    SUM(gle.debit - gle.credit) as actual_amount,
-                    acc.account_type
-                FROM `tabGL Entry` gle
-                JOIN `tabAccount` acc ON acc.name = gle.account
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.cost_center IN ({})
-                AND gle.is_cancelled = 0
-                GROUP BY gle.account
-                ORDER BY ABS(SUM(gle.debit - gle.credit)) DESC
-                LIMIT 5
-            """.format(','.join(['%s'] * len(cost_center_names))),
-            [self.company, self.fy_start_date, self.fy_end_date] + cost_center_names, as_dict=True)
+            GLEntry = frappe.qb.DocType("GL Entry")
+            Account = frappe.qb.DocType("Account")
+            abs_total = Abs(Sum(GLEntry.debit - GLEntry.credit))
+            account_data = (
+                frappe.qb.from_(GLEntry)
+                .join(Account)
+                .on(Account.name == GLEntry.account)
+                .select(
+                    GLEntry.account,
+                    Sum(GLEntry.debit - GLEntry.credit).as_("actual_amount"),
+                    Account.account_type,
+                )
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
+                .where(GLEntry.cost_center == cost_center)
+                .where(GLEntry.is_cancelled == 0)
+                .groupby(GLEntry.account)
+                .orderby(abs_total, order=frappe.qb.desc)
+                .limit(5)
+                .run(as_dict=True)
+            )
 
             return account_data
 
@@ -812,15 +833,19 @@ class BudgetVarianceIntelligence:
     def _get_account_budget(self, account: str) -> float:
         """Get budget amount for specific account"""
         try:
-            result = frappe.db.sql("""
-                SELECT SUM(ba.budget_amount) as total_budget
-                FROM `tabBudget` b
-                JOIN `tabBudget Account` ba ON ba.parent = b.name
-                WHERE b.company = %s 
-                AND b.fiscal_year = %s
-                AND ba.account = %s
-                AND b.docstatus = 1
-            """, (self.company, self.fiscal_year, account))
+            Budget = frappe.qb.DocType("Budget")
+            BudgetAccount = frappe.qb.DocType("Budget Account")
+            result = (
+                frappe.qb.from_(Budget)
+                .join(BudgetAccount)
+                .on(BudgetAccount.parent == Budget.name)
+                .select(Coalesce(Sum(BudgetAccount.budget_amount), 0).as_("total_budget"))
+                .where(Budget.company == self.company)
+                .where(Budget.fiscal_year == self.fiscal_year)
+                .where(BudgetAccount.account == account)
+                .where(Budget.docstatus == 1)
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -831,14 +856,16 @@ class BudgetVarianceIntelligence:
     def _get_account_actual(self, account: str) -> float:
         """Get actual amount for specific account"""
         try:
-            result = frappe.db.sql("""
-                SELECT SUM(gle.debit - gle.credit) as total_actual
-                FROM `tabGL Entry` gle
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.account = %s
-                AND gle.is_cancelled = 0
-            """, (self.company, self.fy_start_date, self.fy_end_date, account))
+            GLEntry = frappe.qb.DocType("GL Entry")
+            result = (
+                frappe.qb.from_(GLEntry)
+                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total_actual"))
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
+                .where(GLEntry.account == account)
+                .where(GLEntry.is_cancelled == 0)
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -860,14 +887,16 @@ class BudgetVarianceIntelligence:
                 )
 
                 # Get actual for the month
-                result = frappe.db.sql("""
-                    SELECT SUM(gle.debit - gle.credit) as monthly_actual
-                    FROM `tabGL Entry` gle
-                    WHERE gle.company = %s
-                    AND gle.posting_date BETWEEN %s AND %s
-                    AND gle.account = %s
-                    AND gle.is_cancelled = 0
-                """, (self.company, month_start, month_end))
+                GLEntry = frappe.qb.DocType("GL Entry")
+                result = (
+                    frappe.qb.from_(GLEntry)
+                    .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("monthly_actual"))
+                    .where(GLEntry.company == self.company)
+                    .where(GLEntry.posting_date.between(month_start, month_end))
+                    .where(GLEntry.account == account)
+                    .where(GLEntry.is_cancelled == 0)
+                    .run()
+                )
 
                 monthly_actual = result[0][0] if result and result[0][0] else 0
 
@@ -1213,15 +1242,16 @@ class BudgetVarianceIntelligence:
             account_names = [acc.name for acc in cash_accounts]
 
             # Calculate cash flow for the period
-            result = frappe.db.sql("""
-                SELECT SUM(gle.debit - gle.credit) as net_cash_flow
-                FROM `tabGL Entry` gle
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.account IN ({})
-                AND gle.is_cancelled = 0
-            """.format(','.join(['%s'] * len(account_names))),
-            [self.company, self.fy_start_date, self.fy_end_date] + account_names)
+            GLEntry = frappe.qb.DocType("GL Entry")
+            result = (
+                frappe.qb.from_(GLEntry)
+                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("net_cash_flow"))
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
+                .where(GLEntry.account.isin(account_names))
+                .where(GLEntry.is_cancelled == 0)
+                .run()
+            )
 
             actual_cash_flow = result[0][0] if result and result[0][0] else 0
 
@@ -1401,16 +1431,22 @@ class BudgetVarianceIntelligence:
     def _get_revenue_budget(self) -> float:
         """Get total revenue budget"""
         try:
-            result = frappe.db.sql("""
-                SELECT SUM(ba.budget_amount) as revenue_budget
-                FROM `tabBudget` b
-                JOIN `tabBudget Account` ba ON ba.parent = b.name
-                JOIN `tabAccount` acc ON acc.name = ba.account
-                WHERE b.company = %s 
-                AND b.fiscal_year = %s
-                AND acc.root_type = 'Income'
-                AND b.docstatus = 1
-            """, (self.company, self.fiscal_year))
+            Budget = frappe.qb.DocType("Budget")
+            BudgetAccount = frappe.qb.DocType("Budget Account")
+            Account = frappe.qb.DocType("Account")
+            result = (
+                frappe.qb.from_(Budget)
+                .join(BudgetAccount)
+                .on(BudgetAccount.parent == Budget.name)
+                .join(Account)
+                .on(Account.name == BudgetAccount.account)
+                .select(Coalesce(Sum(BudgetAccount.budget_amount), 0).as_("revenue_budget"))
+                .where(Budget.company == self.company)
+                .where(Budget.fiscal_year == self.fiscal_year)
+                .where(Account.root_type == "Income")
+                .where(Budget.docstatus == 1)
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -1460,15 +1496,19 @@ class BudgetVarianceIntelligence:
     def _get_ytd_actual_amount(self, end_date) -> float:
         """Get year-to-date actual amount"""
         try:
-            result = frappe.db.sql("""
-                SELECT SUM(gle.debit - gle.credit) as ytd_actual
-                FROM `tabGL Entry` gle
-                JOIN `tabAccount` acc ON acc.name = gle.account
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.is_cancelled = 0
-                AND acc.account_type IN ('Expense Account', 'Income Account')
-            """, (self.company, self.fy_start_date, end_date))
+            GLEntry = frappe.qb.DocType("GL Entry")
+            Account = frappe.qb.DocType("Account")
+            result = (
+                frappe.qb.from_(GLEntry)
+                .join(Account)
+                .on(Account.name == GLEntry.account)
+                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("ytd_actual"))
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(self.fy_start_date, end_date))
+                .where(GLEntry.is_cancelled == 0)
+                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -1497,19 +1537,20 @@ class BudgetVarianceIntelligence:
             if not cost_center:
                 return 0
 
-            cost_center_names = [cost_center]
-
-            result = frappe.db.sql("""
-                SELECT SUM(gle.debit - gle.credit) as period_actual
-                FROM `tabGL Entry` gle
-                JOIN `tabAccount` acc ON acc.name = gle.account
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.cost_center IN ({})
-                AND gle.is_cancelled = 0
-                AND acc.account_type IN ('Expense Account', 'Income Account')
-            """.format(','.join(['%s'] * len(cost_center_names))),
-            [self.company, start_date, end_date] + cost_center_names)
+            GLEntry = frappe.qb.DocType("GL Entry")
+            Account = frappe.qb.DocType("Account")
+            result = (
+                frappe.qb.from_(GLEntry)
+                .join(Account)
+                .on(Account.name == GLEntry.account)
+                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("period_actual"))
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(start_date, end_date))
+                .where(GLEntry.cost_center == cost_center)
+                .where(GLEntry.is_cancelled == 0)
+                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -1562,15 +1603,19 @@ class BudgetVarianceIntelligence:
     def _get_monthly_actual_amount(self, start_date, end_date) -> float:
         """Get actual amount for month"""
         try:
-            result = frappe.db.sql("""
-                SELECT SUM(gle.debit - gle.credit) as monthly_actual
-                FROM `tabGL Entry` gle
-                JOIN `tabAccount` acc ON acc.name = gle.account
-                WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND gle.is_cancelled = 0
-                AND acc.account_type IN ('Expense Account', 'Income Account')
-            """, (self.company, start_date, end_date))
+            GLEntry = frappe.qb.DocType("GL Entry")
+            Account = frappe.qb.DocType("Account")
+            result = (
+                frappe.qb.from_(GLEntry)
+                .join(Account)
+                .on(Account.name == GLEntry.account)
+                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("monthly_actual"))
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(start_date, end_date))
+                .where(GLEntry.is_cancelled == 0)
+                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
+                .run()
+            )
 
             return result[0][0] if result and result[0][0] else 0
 
@@ -1668,14 +1713,18 @@ class BudgetVarianceIntelligence:
                 "account_type": ["in", ["Income Account", "Expense Account"]]
             })
 
-            budgeted_accounts = frappe.db.sql("""
-                SELECT COUNT(DISTINCT ba.account) 
-                FROM `tabBudget Account` ba
-                JOIN `tabBudget` b ON b.name = ba.parent
-                WHERE b.company = %s 
-                AND b.fiscal_year = %s
-                AND b.docstatus = 1
-            """, (self.company, self.fiscal_year))
+            Budget = frappe.qb.DocType("Budget")
+            BudgetAccount = frappe.qb.DocType("Budget Account")
+            budgeted_accounts = (
+                frappe.qb.from_(BudgetAccount)
+                .join(Budget)
+                .on(Budget.name == BudgetAccount.parent)
+                .select(Count(BudgetAccount.account).distinct())
+                .where(Budget.company == self.company)
+                .where(Budget.fiscal_year == self.fiscal_year)
+                .where(Budget.docstatus == 1)
+                .run()
+            )
 
             budgeted_count = budgeted_accounts[0][0] if budgeted_accounts else 0
             completeness = (budgeted_count / total_accounts * 100) if total_accounts > 0 else 0
@@ -1694,15 +1743,17 @@ class BudgetVarianceIntelligence:
         """Assess budget preparation timeliness"""
         try:
             # Check when budgets were created relative to fiscal year start
-            budget_creation_dates = frappe.db.sql("""
-                SELECT creation
-                FROM `tabBudget`
-                WHERE company = %s 
-                AND fiscal_year = %s
-                AND docstatus = 1
-                ORDER BY creation
-                LIMIT 1
-            """, (self.company, self.fiscal_year))
+            Budget = frappe.qb.DocType("Budget")
+            budget_creation_dates = (
+                frappe.qb.from_(Budget)
+                .select(Budget.creation)
+                .where(Budget.company == self.company)
+                .where(Budget.fiscal_year == self.fiscal_year)
+                .where(Budget.docstatus == 1)
+                .orderby(Budget.creation)
+                .limit(1)
+                .run()
+            )
 
             if budget_creation_dates:
                 creation_date = budget_creation_dates[0][0]

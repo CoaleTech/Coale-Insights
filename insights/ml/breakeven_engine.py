@@ -22,6 +22,8 @@ from datetime import datetime
 from typing import Any
 
 import frappe
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import Coalesce, Count, DateFormat, Sum
 
 
 class BreakevenEngine:
@@ -57,35 +59,33 @@ class BreakevenEngine:
             return self._fiscal_dates
 
         if self.fiscal_year:
-            fy = frappe.db.sql(
-                """
-                SELECT year_start_date, year_end_date
-                FROM `tabFiscal Year`
-                WHERE name = %s
-                LIMIT 1
-                """,
-                (self.fiscal_year,),
-                as_dict=True,
+            FiscalYear = DocType("Fiscal Year")
+            fy = (
+                frappe.qb.from_(FiscalYear)
+                .select(FiscalYear.year_start_date, FiscalYear.year_end_date)
+                .where(FiscalYear.name == self.fiscal_year)
+                .limit(1)
+                .run(as_dict=True)
             )
             if fy:
                 self._fiscal_dates = (str(fy[0].year_start_date), str(fy[0].year_end_date))
                 return self._fiscal_dates
 
         today = datetime.now().date()
-        fy = frappe.db.sql(
-            """
-            SELECT year_start_date, year_end_date
-            FROM `tabFiscal Year`
-            WHERE %s BETWEEN year_start_date AND year_end_date
-            ORDER BY year_start_date DESC
-            LIMIT 1
-            """,
-            (today,),
-            as_dict=True,
+        FiscalYear = DocType("Fiscal Year")
+        fy = (
+            frappe.qb.from_(FiscalYear)
+            .select(FiscalYear.year_start_date, FiscalYear.year_end_date)
+            .where(FiscalYear.year_start_date <= today)
+            .where(FiscalYear.year_end_date >= today)
+            .orderby(FiscalYear.year_start_date, order=frappe.qb.desc)
+            .limit(1)
+            .run(as_dict=True)
         )
         if fy:
             self._fiscal_dates = (str(fy[0].year_start_date), str(fy[0].year_end_date))
             return self._fiscal_dates
+
 
         start = today.replace(month=1, day=1)
         end = today.replace(month=12, day=31)
@@ -101,17 +101,15 @@ class BreakevenEngine:
             self._fixed_costs_result = 0.0
             return 0.0
 
-        costs = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(debit - credit), 0) as total
-            FROM `tabGL Entry`
-            WHERE company = %s
-                AND posting_date BETWEEN %s AND %s
-                AND cost_center IN %s
-                AND is_cancelled = 0
-            """,
-            (self.company, start, end, self.fixed_cost_centers),
-            as_dict=True,
+        GLEntry = DocType("GL Entry")
+        costs = (
+            frappe.qb.from_(GLEntry)
+            .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total"))
+            .where(GLEntry.company == self.company)
+            .where(GLEntry.posting_date.between(start, end))
+            .where(GLEntry.cost_center.isin(self.fixed_cost_centers))
+            .where(GLEntry.is_cancelled == 0)
+            .run(as_dict=True)
         )
         self._fixed_costs_result = round(float(costs[0].total or 0), 2)
         return self._fixed_costs_result
@@ -121,17 +119,15 @@ class BreakevenEngine:
         if not self.variable_cost_centers:
             return 0.0
 
-        costs = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(debit - credit), 0) as total
-            FROM `tabGL Entry`
-            WHERE company = %s
-                AND posting_date BETWEEN %s AND %s
-                AND cost_center IN %s
-                AND is_cancelled = 0
-            """,
-            (self.company, start, end, self.variable_cost_centers),
-            as_dict=True,
+        GLEntry = DocType("GL Entry")
+        costs = (
+            frappe.qb.from_(GLEntry)
+            .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total"))
+            .where(GLEntry.company == self.company)
+            .where(GLEntry.posting_date.between(start, end))
+            .where(GLEntry.cost_center.isin(self.variable_cost_centers))
+            .where(GLEntry.is_cancelled == 0)
+            .run(as_dict=True)
         )
         return round(float(costs[0].total or 0), 2)
 
@@ -156,25 +152,22 @@ class BreakevenEngine:
         start, end = self._get_fiscal_dates()
         total_fixed = self._get_fixed_costs(start, end)
 
-        group_filter = ""
-        if item_group:
-            group_filter = " AND item.item_group = %s"
-
-        items = frappe.db.sql(
-            f"""
-            SELECT
-                item.name as item_code,
+        item = DocType("Item")
+        items_q = (
+            frappe.qb.from_(item)
+            .select(
+                item.name.as_("item_code"),
                 item.item_name,
-                item.item_group
-            FROM `tabItem` item
-            WHERE item.disabled = 0
-                AND (item.is_sales_item = 1 OR item.is_stock_item = 1)
-                {group_filter}
-            ORDER BY item.name
-            """,
-            (item_group,) if item_group else (),
-            as_dict=True,
+                item.item_group,
+            )
+            .where(item.disabled == 0)
+            .where((item.is_sales_item == 1) | (item.is_stock_item == 1))
+            .orderby(item.name)
         )
+        if item_group:
+            items_q = items_q.where(item.item_group == item_group)
+        items = items_q.run(as_dict=True)
+
 
         # Real selling price = weighted-avg rate from Sales Invoice Items for the
         # period. Item.standard_rate / Item Price are 0 / unpopulated on many
@@ -184,21 +177,22 @@ class BreakevenEngine:
         # per-item break-even view. Only fall back to Item.standard_rate when
         # no period sales exist; we don't want to silently mix a stale master
         # price into a real cost basis.
-        sales_prices = frappe.db.sql(
-            """
-            SELECT
-                sii.item_code,
-                SUM(sii.net_amount) as period_revenue,
-                SUM(sii.qty) as period_qty
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.docstatus = 1
-                AND si.company = %s
-                AND si.posting_date BETWEEN %s AND %s
-            GROUP BY sii.item_code
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        SalesInvoiceItem = DocType("Sales Invoice Item")
+        SalesInvoice = DocType("Sales Invoice")
+        sales_prices = (
+            frappe.qb.from_(SalesInvoiceItem)
+            .join(SalesInvoice)
+            .on(SalesInvoiceItem.parent == SalesInvoice.name)
+            .select(
+                SalesInvoiceItem.item_code,
+                Sum(SalesInvoiceItem.net_amount).as_("period_revenue"),
+                Sum(SalesInvoiceItem.qty).as_("period_qty"),
+            )
+            .where(SalesInvoice.docstatus == 1)
+            .where(SalesInvoice.company == self.company)
+            .where(SalesInvoice.posting_date.between(start, end))
+            .groupby(SalesInvoiceItem.item_code)
+            .run(as_dict=True)
         )
         sales_price_map = {}
         for sp in sales_prices:
@@ -206,58 +200,56 @@ class BreakevenEngine:
             qty = float(sp.period_qty or 0)
             # net_amount / qty -- handles discount-inclusive pricing correctly
             # (qty is in the same UOM as net_amount, so the ratio is unit price)
-            sales_price_map[sp.item_code] = (revenue / qty) if qty > 0 else 0.0
-
-        # Real variable cost = current Bin valuation_rate (real cost basis
-        # maintained by Stock Ledger). Falls back to the most recent
-        # Stock Ledger Entry.incoming_rate when the item isn't currently in
-        # stock, and finally to Item.valuation_rate for items with neither.
-        costs = frappe.db.sql(
-            """
-            SELECT
-                b.item_code,
-                COALESCE(b.valuation_rate,
-                    (SELECT sle.incoming_rate FROM `tabStock Ledger Entry` sle
-                     WHERE sle.item_code = b.item_code
-                       AND sle.docstatus = 1
-                       AND sle.incoming_rate > 0
-                     ORDER BY sle.posting_date DESC, sle.creation DESC LIMIT 1),
-                    0
-                ) as variable_cost
-            FROM `tabBin` b
-            """,
-            as_dict=True,
+        Bin = DocType("Bin")
+        SLE = DocType("Stock Ledger Entry")
+        # Subquery: most recent positive incoming_rate per item, to fall back
+        # to when Bin has no valuation_rate for the item.
+        latest_sle = (
+            frappe.qb.from_(SLE)
+            .select(SLE.incoming_rate)
+            .where(SLE.item_code == Bin.item_code)
+            .where(SLE.docstatus == 1)
+            .where(SLE.incoming_rate > 0)
+            .orderby(SLE.posting_date, order=frappe.qb.desc)
+            .orderby(SLE.creation, order=frappe.qb.desc)
+            .limit(1)
+        )
+        costs = (
+            frappe.qb.from_(Bin)
+            .select(
+                Bin.item_code,
+                Coalesce(Bin.valuation_rate, latest_sle, 0).as_("variable_cost"),
+            )
+            .run(as_dict=True)
         )
         bin_cost_map = {c.item_code: float(c.variable_cost or 0) for c in costs}
 
-        sales = frappe.db.sql(
-            """
-            SELECT
-                sii.item_code,
-                COALESCE(SUM(sii.qty), 0) as total_qty,
-                COALESCE(SUM(sii.net_amount), 0) as total_revenue
-            FROM `tabSales Invoice Item` sii
-            JOIN `tabSales Invoice` si ON sii.parent = si.name
-            WHERE si.docstatus = 1
-                AND si.company = %s
-                AND si.posting_date BETWEEN %s AND %s
-            GROUP BY sii.item_code
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        sales = (
+            frappe.qb.from_(SalesInvoiceItem)
+            .join(SalesInvoice)
+            .on(SalesInvoiceItem.parent == SalesInvoice.name)
+            .select(
+                SalesInvoiceItem.item_code,
+                Coalesce(Sum(SalesInvoiceItem.qty), 0).as_("total_qty"),
+                Coalesce(Sum(SalesInvoiceItem.net_amount), 0).as_("total_revenue"),
+            )
+            .where(SalesInvoice.docstatus == 1)
+            .where(SalesInvoice.company == self.company)
+            .where(SalesInvoice.posting_date.between(start, end))
+            .groupby(SalesInvoiceItem.item_code)
+            .run(as_dict=True)
         )
         sales_map = {s.item_code: s for s in sales}
 
-        master_prices = frappe.db.sql(
-            """
-            SELECT
-                item.name as item_code,
-                COALESCE(item.standard_rate, 0) as master_selling_price,
-                COALESCE(item.valuation_rate, 0) as master_variable_cost
-            FROM `tabItem` item
-            WHERE item.disabled = 0
-            """,
-            as_dict=True,
+        master_prices = (
+            frappe.qb.from_(item)
+            .select(
+                item.name.as_("item_code"),
+                Coalesce(item.standard_rate, 0).as_("master_selling_price"),
+                Coalesce(item.valuation_rate, 0).as_("master_variable_cost"),
+            )
+            .where(item.disabled == 0)
+            .run(as_dict=True)
         )
         master_map = {m.item_code: m for m in master_prices}
 
@@ -322,35 +314,34 @@ class BreakevenEngine:
         start, end = self._get_fiscal_dates()
 
         # Payroll by department
-        payroll = frappe.db.sql(
-            """
-            SELECT
-                COALESCE(department, 'Unassigned') as department,
-                COALESCE(SUM(net_pay), 0) as total_payroll
-            FROM `tabSalary Slip`
-            WHERE docstatus = 1
-                AND company = %s
-                AND posting_date BETWEEN %s AND %s
-            GROUP BY department
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        SalarySlip = DocType("Salary Slip")
+        payroll = (
+            frappe.qb.from_(SalarySlip)
+            .select(
+                Coalesce(SalarySlip.department, "Unassigned").as_("department"),
+                Coalesce(Sum(SalarySlip.net_pay), 0).as_("total_payroll"),
+            )
+            .where(SalarySlip.docstatus == 1)
+            .where(SalarySlip.company == self.company)
+            .where(SalarySlip.posting_date.between(start, end))
+            .groupby(SalarySlip.department)
+            .run(as_dict=True)
         )
 
+
         # Average contribution per order
-        order_stats = frappe.db.sql(
-            """
-            SELECT
-                COALESCE(SUM(grand_total), 0) as total_revenue,
-                COALESCE(SUM(total_taxes_and_charges), 0) as total_tax,
-                COUNT(*) as order_count
-            FROM `tabSales Order`
-            WHERE docstatus = 1
-                AND company = %s
-                AND transaction_date BETWEEN %s AND %s
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        SalesOrder = DocType("Sales Order")
+        order_stats = (
+            frappe.qb.from_(SalesOrder)
+            .select(
+                Coalesce(Sum(SalesOrder.grand_total), 0).as_("total_revenue"),
+                Coalesce(Sum(SalesOrder.total_taxes_and_charges), 0).as_("total_tax"),
+                Count("*").as_("order_count"),
+            )
+            .where(SalesOrder.docstatus == 1)
+            .where(SalesOrder.company == self.company)
+            .where(SalesOrder.transaction_date.between(start, end))
+            .run(as_dict=True)
         )[0]
 
         total_revenue = float(order_stats.total_revenue or 0)
@@ -358,19 +349,20 @@ class BreakevenEngine:
         order_count = int(order_stats.order_count or 0)
 
         # Estimate variable cost as a % of revenue (from COGS / Revenue ratio)
-        cogs = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(debit - credit), 0) as cogs
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND acc.account_type = 'Cost of Goods Sold'
-                AND gle.is_cancelled = 0
-            """,
-            (self.company, start, end),
-            as_dict=True,
-        )[0].cogs or 0
+        GLEntry = DocType("GL Entry")
+        Account = DocType("Account")
+        cogs_row = (
+            frappe.qb.from_(GLEntry)
+            .join(Account)
+            .on(GLEntry.account == Account.name)
+            .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("cogs"))
+            .where(GLEntry.company == self.company)
+            .where(GLEntry.posting_date.between(start, end))
+            .where(Account.account_type == "Cost of Goods Sold")
+            .where(GLEntry.is_cancelled == 0)
+            .run(as_dict=True)
+        )[0]
+        cogs = cogs_row.cogs or 0
 
         cogs = float(cogs)
         net_revenue = total_revenue - total_tax
@@ -378,21 +370,22 @@ class BreakevenEngine:
         avg_contribution_per_order = round((net_revenue / order_count) * (1 - variable_cost_ratio), 2) if order_count > 0 else 0.0
 
         # Actual orders per department (proxy: count by department of creator)
-        dept_orders = frappe.db.sql(
-            """
-            SELECT
-                COALESCE(e.department, 'Unassigned') as department,
-                COUNT(DISTINCT so.name) as order_count
-            FROM `tabSales Order` so
-            LEFT JOIN `tabEmployee` e ON e.user_id = so.owner
-            WHERE so.docstatus = 1
-                AND so.company = %s
-                AND so.transaction_date BETWEEN %s AND %s
-            GROUP BY e.department
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        Employee = DocType("Employee")
+        dept_orders = (
+            frappe.qb.from_(SalesOrder)
+            .left_join(Employee)
+            .on(Employee.user_id == SalesOrder.owner)
+            .select(
+                Coalesce(Employee.department, "Unassigned").as_("department"),
+                Count(SalesOrder.name).distinct().as_("order_count"),
+            )
+            .where(SalesOrder.docstatus == 1)
+            .where(SalesOrder.company == self.company)
+            .where(SalesOrder.transaction_date.between(start, end))
+            .groupby(Employee.department)
+            .run(as_dict=True)
         )
+
 
         payroll_map = {p.department: float(p.total_payroll or 0) for p in payroll}
         orders_map = {d.department: int(d.order_count or 0) for d in dept_orders}
@@ -431,22 +424,33 @@ class BreakevenEngine:
         """Cash flow break-even using Payment Entry data."""
         start, end = self._get_fiscal_dates()
 
-        monthly = frappe.db.sql(
-            """
-            SELECT
-                DATE_FORMAT(posting_date, '%%Y-%%m') as month,
-                COALESCE(SUM(CASE WHEN payment_type = 'Receive' THEN paid_amount ELSE 0 END), 0) as cash_in,
-                COALESCE(SUM(CASE WHEN payment_type = 'Pay' THEN paid_amount ELSE 0 END), 0) as cash_out
-            FROM `tabPayment Entry`
-            WHERE docstatus = 1
-                AND company = %s
-                AND posting_date BETWEEN %s AND %s
-            GROUP BY month
-            ORDER BY month
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        PaymentEntry = DocType("Payment Entry")
+        month_expr = DateFormat(PaymentEntry.posting_date, "%Y-%m").as_("month")
+        cash_in_expr = Sum(
+            Case()
+            .when(PaymentEntry.payment_type == "Receive", PaymentEntry.paid_amount)
+            .else_(0)
+        ).as_("cash_in")
+        cash_out_expr = Sum(
+            Case()
+            .when(PaymentEntry.payment_type == "Pay", PaymentEntry.paid_amount)
+            .else_(0)
+        ).as_("cash_out")
+        monthly = (
+            frappe.qb.from_(PaymentEntry)
+            .select(
+                month_expr,
+                Coalesce(cash_in_expr, 0),
+                Coalesce(cash_out_expr, 0),
+            )
+            .where(PaymentEntry.docstatus == 1)
+            .where(PaymentEntry.company == self.company)
+            .where(PaymentEntry.posting_date.between(start, end))
+            .groupby(month_expr)
+            .orderby(month_expr)
+            .run(as_dict=True)
         )
+
 
         cumulative_in = 0.0
         cumulative_out = 0.0
@@ -489,67 +493,62 @@ class BreakevenEngine:
     def calculate_roce(self) -> dict[str, Any]:
         """Return on Capital Employed from GL data."""
         start, end = self._get_fiscal_dates()
+        GLEntry = DocType("GL Entry")
+        Account = DocType("Account")
 
         # EBIT = Income - Operating Expenses
-        income = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(credit - debit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND acc.root_type = 'Income'
-                AND gle.is_cancelled = 0
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        income = (
+            frappe.qb.from_(GLEntry)
+            .join(Account)
+            .on(GLEntry.account == Account.name)
+            .select(Coalesce(Sum(GLEntry.credit - GLEntry.debit), 0).as_("amount"))
+            .where(GLEntry.company == self.company)
+            .where(GLEntry.posting_date.between(start, end))
+            .where(Account.root_type == "Income")
+            .where(GLEntry.is_cancelled == 0)
+            .run(as_dict=True)
         )[0].amount or 0
 
-        expenses = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(debit - credit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.company = %s
-                AND gle.posting_date BETWEEN %s AND %s
-                AND acc.root_type = 'Expense'
-                AND acc.account_type NOT IN ('Tax', 'Interest')
-                AND gle.is_cancelled = 0
-            """,
-            (self.company, start, end),
-            as_dict=True,
+
+        expenses = (
+            frappe.qb.from_(GLEntry)
+            .join(Account)
+            .on(GLEntry.account == Account.name)
+            .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("amount"))
+            .where(GLEntry.company == self.company)
+            .where(GLEntry.posting_date.between(start, end))
+            .where(Account.root_type == "Expense")
+            .where(Account.account_type.notin(["Tax", "Interest"]))
+            .where(GLEntry.is_cancelled == 0)
+            .run(as_dict=True)
         )[0].amount or 0
 
         ebit = float(income) - float(expenses)
 
-        # Capital Employed = Total Assets - Current Liabilities
-        total_assets = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(debit - credit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.company = %s
-                AND acc.root_type = 'Asset'
-                AND acc.is_group = 0
-                AND gle.is_cancelled = 0
-            """,
-            (self.company,),
-            as_dict=True,
-        )[0].amount or 0
 
-        current_liabilities = frappe.db.sql(
-            """
-            SELECT COALESCE(SUM(credit - debit), 0) as amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.company = %s
-                AND acc.root_type = 'Liability'
-                AND acc.is_group = 0
-                AND acc.account_type IN ('Payable', 'Tax', 'Stock Liability')
-                AND gle.is_cancelled = 0
-            """,
-            (self.company,),
-            as_dict=True,
+        # Capital Employed = Total Assets - Current Liabilities
+        total_assets = (
+            frappe.qb.from_(GLEntry)
+            .join(Account)
+            .on(GLEntry.account == Account.name)
+            .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("amount"))
+            .where(GLEntry.company == self.company)
+            .where(Account.root_type == "Asset")
+            .where(Account.is_group == 0)
+            .where(GLEntry.is_cancelled == 0)
+            .run(as_dict=True)
+        )[0].amount or 0
+        current_liabilities = (
+            frappe.qb.from_(GLEntry)
+            .join(Account)
+            .on(GLEntry.account == Account.name)
+            .select(Coalesce(Sum(GLEntry.credit - GLEntry.debit), 0).as_("amount"))
+            .where(GLEntry.company == self.company)
+            .where(Account.root_type == "Liability")
+            .where(Account.is_group == 0)
+            .where(Account.account_type.isin(["Payable", "Tax", "Stock Liability"]))
+            .where(GLEntry.is_cancelled == 0)
+            .run(as_dict=True)
         )[0].amount or 0
 
         capital_employed = float(total_assets) - float(current_liabilities)
@@ -576,22 +575,25 @@ class BreakevenEngine:
     def calculate_irr(self) -> dict[str, Any]:
         """Internal Rate of Return on monthly net cash flows."""
         start, end = self._get_fiscal_dates()
+        PaymentEntry = DocType("Payment Entry")
 
-        monthly = frappe.db.sql(
-            """
-            SELECT
-                DATE_FORMAT(posting_date, '%%Y-%%m') as month,
-                COALESCE(SUM(CASE WHEN payment_type = 'Receive' THEN paid_amount ELSE -paid_amount END), 0) as net_cash
-            FROM `tabPayment Entry`
-            WHERE docstatus = 1
-                AND company = %s
-                AND posting_date BETWEEN %s AND %s
-            GROUP BY month
-            ORDER BY month
-            """,
-            (self.company, start, end),
-            as_dict=True,
+        month_expr = DateFormat(PaymentEntry.posting_date, "%Y-%m").as_("month")
+        net_cash_expr = Sum(
+            Case()
+            .when(PaymentEntry.payment_type == "Receive", PaymentEntry.paid_amount)
+            .else_(-PaymentEntry.paid_amount)
+        ).as_("net_cash")
+        monthly = (
+            frappe.qb.from_(PaymentEntry)
+            .select(month_expr, Coalesce(net_cash_expr, 0))
+            .where(PaymentEntry.docstatus == 1)
+            .where(PaymentEntry.company == self.company)
+            .where(PaymentEntry.posting_date.between(start, end))
+            .groupby(month_expr)
+            .orderby(month_expr)
+            .run(as_dict=True)
         )
+
 
         cash_flows = [float(row.net_cash or 0) for row in monthly]
         return self._irr_from_flows(cash_flows)
@@ -601,17 +603,23 @@ class BreakevenEngine:
         item_data = self.calculate_item_breakeven()
 
         # Lead conversion rate
-        lead_stats = frappe.db.sql(
-            """
-            SELECT
-                COUNT(*) as total_leads,
-                SUM(CASE WHEN status IN ('Converted', 'Opportunity', 'Quotation') THEN 1 ELSE 0 END) as converted
-            FROM `tabLead`
-            WHERE company = %s OR %s = ''
-            """,
-            (self.company, self.company),
-            as_dict=True,
-        )[0]
+        Lead = DocType("Lead")
+        converted_expr = Sum(
+            Case()
+            .when(Lead.status.isin(["Converted", "Opportunity", "Quotation"]), 1)
+            .else_(0)
+        ).as_("converted")
+        lead_q = (
+            frappe.qb.from_(Lead)
+            .select(Count("*").as_("total_leads"), converted_expr)
+        )
+        # Original SQL was `WHERE company = %s OR %s = ''`; mirror that by
+        # skipping the filter entirely when the company is falsy, since the
+        # OR-empty side is just a back-compat fallback for benches with no
+        # company on Lead.
+        if self.company:
+            lead_q = lead_q.where(Lead.company == self.company)
+        lead_stats = lead_q.run(as_dict=True)[0]
 
         total_leads = int(lead_stats.total_leads or 0)
         converted = int(lead_stats.converted or 0)

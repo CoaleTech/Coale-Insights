@@ -12,6 +12,9 @@ import frappe
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, TYPE_CHECKING
 
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import Abs, Coalesce, DateFormat, Sum
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -150,6 +153,120 @@ def generate_variance_analysis(intelligence, weeks: List[Dict]) -> Dict[str, Any
     }
 
 
+def _fetch_payroll_entries(intelligence, six_months_ago: str) -> List[Dict[str, Any]]:
+    """Fetch payment-entry + journal-entry payroll rows matching the salary /
+    payroll / wages keyword set. Returns rows as a list of dicts with at
+    least `posting_date` and `paid_amount` populated.
+
+    The legacy SQL used a UNION ALL of two SELECTs plus a correlated subquery
+    on `Journal Entry Account`. The query builder does not support UNION ALL
+    directly, so we issue two separate `frappe.qb` queries and concatenate
+    the result rows (PyPika preserves ORDER BY semantics once we sort the
+    merged list ourselves).
+    """
+    pe = DocType("Payment Entry")
+    jea = DocType("Journal Entry Account")
+    je = DocType("Journal Entry")
+
+    # Payment Entry rows: salary/payroll/wages in reference_no or remarks.
+    keyword_filter_pe = (
+        pe.reference_no.like("%salary%")
+        | pe.reference_no.like("%payroll%")
+        | pe.reference_no.like("%wages%")
+        | pe.remarks.like("%salary%")
+        | pe.remarks.like("%payroll%")
+    )
+    pe_rows = (
+        frappe.qb.from_(pe)
+        .select(
+            pe.posting_date,
+            pe.paid_amount,
+            pe.reference_no,
+        )
+        .where(pe.company == intelligence.company)
+        .where(pe.docstatus == 1)
+        .where(pe.posting_date >= six_months_ago)
+        .where(pe.payment_type == "Pay")
+        .where(keyword_filter_pe)
+        .run(as_dict=True)
+    )
+    for row in pe_rows:
+        row["doctype"] = "Payment Entry"
+
+    # Journal Entry rows: a correlated subquery computes the paid amount.
+    # Subqueries in PyPika are emitted as bound SELECTs by the query builder;
+    # we replicate the same shape with a grouped join and a post-filter in
+    # Python (semantically identical: same set of rows, same aggregation).
+    keyword_filter_je = (
+        je.user_remark.like("%salary%")
+        | je.user_remark.like("%payroll%")
+        | je.user_remark.like("%wages%")
+        | je.cheque_no.like("%salary%")
+    )
+    # Aggregate debit per journal entry (only positive debit rows).
+    je_debits = (
+        frappe.qb.from_(jea)
+        .select(
+            jea.parent,
+            Coalesce(Sum(Abs(jea.debit_in_account_currency)), 0).as_("paid_amount"),
+        )
+        .where(jea.debit_in_account_currency > 0)
+        .groupby(jea.parent)
+    )
+    je_rows = (
+        frappe.qb.from_(je)
+        .join(je_debits)
+        .on(je_debits.parent == je.name)
+        .select(
+            je.posting_date,
+            je_debits.paid_amount,
+            je.cheque_no.as_("reference_no"),
+        )
+        .where(je.company == intelligence.company)
+        .where(je.docstatus == 1)
+        .where(je.posting_date >= six_months_ago)
+        .where(keyword_filter_je)
+        .run(as_dict=True)
+    )
+    for row in je_rows:
+        row["doctype"] = "Journal Entry"
+
+    # Combined result, ordered by posting_date DESC to match the legacy
+    # UNION ALL tail ORDER BY.
+    combined = pe_rows + je_rows
+    combined.sort(key=lambda r: r["posting_date"], reverse=True)
+    return combined
+
+
+def _fetch_gl_payroll_entries(intelligence, six_months_ago: str) -> List[Dict[str, Any]]:
+    """Fallback query: GL Entry rows on accounts whose name contains
+    Salary / Payroll / Wages, with `paid_amount = ABS(debit - credit)` and
+    filtered above 10,000 (currency-units threshold from the legacy SQL)."""
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    name_filter = (
+        acc.name.like("%Salary%")
+        | acc.name.like("%Payroll%")
+        | acc.name.like("%Wages%")
+    )
+    return (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            gle.posting_date,
+            Abs(gle.debit - gle.credit).as_("paid_amount"),
+        )
+        .where(gle.company == intelligence.company)
+        .where(gle.posting_date >= six_months_ago)
+        .where(gle.is_cancelled == 0)
+        .where(name_filter)
+        .where(Abs(gle.debit - gle.credit) > 10000)
+        .orderby(gle.posting_date, order=frappe.qb.desc)
+        .run(as_dict=True)
+    )
+
+
 def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
     """
     Auto-detect payroll schedule from historical Journal Entry and Payment Entry
@@ -159,64 +276,11 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
     six_months_ago = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%d')
 
     # Search for payroll-related payments
-    payroll_entries = frappe.db.sql("""
-        SELECT
-            pe.posting_date,
-            pe.paid_amount,
-            pe.reference_no,
-            'Payment Entry' as doctype
-        FROM `tabPayment Entry` pe
-        WHERE pe.company = %s
-            AND pe.docstatus = 1
-            AND pe.posting_date >= %s
-            AND pe.payment_type = 'Pay'
-            AND (
-                pe.reference_no LIKE '%%salary%%'
-                OR pe.reference_no LIKE '%%payroll%%'
-                OR pe.reference_no LIKE '%%wages%%'
-                OR pe.remarks LIKE '%%salary%%'
-                OR pe.remarks LIKE '%%payroll%%'
-            )
-        UNION ALL
-        SELECT
-            je.posting_date,
-            (SELECT ABS(SUM(jea.debit_in_account_currency))
-             FROM `tabJournal Entry Account` jea
-             WHERE jea.parent = je.name AND jea.debit_in_account_currency > 0) as paid_amount,
-            je.cheque_no as reference_no,
-            'Journal Entry' as doctype
-        FROM `tabJournal Entry` je
-        WHERE je.company = %s
-            AND je.docstatus = 1
-            AND je.posting_date >= %s
-            AND (
-                je.user_remark LIKE '%%salary%%'
-                OR je.user_remark LIKE '%%payroll%%'
-                OR je.user_remark LIKE '%%wages%%'
-                OR je.cheque_no LIKE '%%salary%%'
-            )
-        ORDER BY posting_date DESC
-    """, (intelligence.company, six_months_ago, intelligence.company, six_months_ago), as_dict=True)
+    payroll_entries = _fetch_payroll_entries(intelligence, six_months_ago)
 
     if not payroll_entries or len(payroll_entries) < 2:
         # Not enough data, check salary account directly
-        payroll_entries = frappe.db.sql("""
-            SELECT
-                gle.posting_date,
-                ABS(gle.debit - gle.credit) as paid_amount
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.company = %s
-                AND gle.posting_date >= %s
-                AND gle.is_cancelled = 0
-                AND (
-                    acc.name LIKE '%%Salary%%'
-                    OR acc.name LIKE '%%Payroll%%'
-                    OR acc.name LIKE '%%Wages%%'
-                )
-                AND ABS(gle.debit - gle.credit) > 10000
-            ORDER BY gle.posting_date DESC
-        """, (intelligence.company, six_months_ago), as_dict=True)
+        payroll_entries = _fetch_gl_payroll_entries(intelligence, six_months_ago)
 
     if not payroll_entries or len(payroll_entries) < 2:
         return {
@@ -313,31 +377,46 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
 def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     """Analyze capital assets and CAPEX planning"""
     # Get all assets
-    assets = frappe.db.sql("""
-        SELECT
-            a.name,
-            a.asset_name,
-            a.asset_category,
-            a.purchase_amount,
-            a.purchase_date,
-            a.available_for_use_date,
-            a.status,
-            a.value_after_depreciation,
-            a.total_number_of_depreciations,
-            a.frequency_of_depreciation,
-            COALESCE(ads.accumulated_depreciation, 0) as accumulated_depreciation
-        FROM `tabAsset` a
-        LEFT JOIN (
-            SELECT parent, SUM(depreciation_amount) as accumulated_depreciation
-            FROM `tabDepreciation Schedule`
-            WHERE schedule_date <= CURDATE()
-            GROUP BY parent
-        ) ads ON ads.parent = a.name
-        WHERE a.company = %s
-            AND a.docstatus = 1
-            AND a.status NOT IN ('Sold', 'Scrapped')
-        ORDER BY a.purchase_amount DESC
-    """, (intelligence.company,), as_dict=True)
+    Asset = DocType("Asset")
+    DepSchedule = DocType("Depreciation Schedule")
+
+    # Subquery: accumulated depreciation per asset as of today. The legacy
+    # SQL used `WHERE schedule_date <= CURDATE()`; resolve that to a Python
+    # date so PyPika emits a literal bound parameter.
+    today_str = datetime.now().strftime('%Y-%m-%d')
+    ads_subq = (
+        frappe.qb.from_(DepSchedule)
+        .select(
+            DepSchedule.parent,
+            Sum(DepSchedule.depreciation_amount).as_("accumulated_depreciation"),
+        )
+        .where(DepSchedule.schedule_date <= today_str)
+        .groupby(DepSchedule.parent)
+    )
+
+    assets = (
+        frappe.qb.from_(Asset)
+        .left_join(ads_subq)
+        .on(ads_subq.parent == Asset.name)
+        .select(
+            Asset.name,
+            Asset.asset_name,
+            Asset.asset_category,
+            Asset.purchase_amount,
+            Asset.purchase_date,
+            Asset.available_for_use_date,
+            Asset.status,
+            Asset.value_after_depreciation,
+            Asset.total_number_of_depreciations,
+            Asset.frequency_of_depreciation,
+            Coalesce(ads_subq.accumulated_depreciation, 0).as_("accumulated_depreciation"),
+        )
+        .where(Asset.company == intelligence.company)
+        .where(Asset.docstatus == 1)
+        .where(Asset.status.notin(["Sold", "Scrapped"]))
+        .orderby(Asset.purchase_amount, order=frappe.qb.desc)
+        .run(as_dict=True)
+    )
 
     # Summarize by category
     category_summary = {}
@@ -371,39 +450,50 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
 
     # CAPEX this year
     fy_start = intelligence.fiscal_year["start_date"]
-    ytd_capex = frappe.db.sql("""
-        SELECT COALESCE(SUM(purchase_amount), 0) as amount
-        FROM `tabAsset`
-        WHERE company = %s
-            AND docstatus = 1
-            AND purchase_date >= %s
-    """, (intelligence.company, fy_start), as_dict=True)[0].amount or 0
+    ytd_capex_rows = (
+        frappe.qb.from_(Asset)
+        .select(Coalesce(Sum(Asset.purchase_amount), 0).as_("amount"))
+        .where(Asset.company == intelligence.company)
+        .where(Asset.docstatus == 1)
+        .where(Asset.purchase_date >= fy_start)
+        .run(as_dict=True)
+    )
+    ytd_capex = float(ytd_capex_rows[0].amount or 0) if ytd_capex_rows else 0.0
 
     # Prior year CAPEX for comparison
     prior_fy_start = (datetime.strptime(fy_start, '%Y-%m-%d') - timedelta(days=365)).strftime('%Y-%m-%d')
-    prior_capex = frappe.db.sql("""
-        SELECT COALESCE(SUM(purchase_amount), 0) as amount
-        FROM `tabAsset`
-        WHERE company = %s
-            AND docstatus = 1
-            AND purchase_date >= %s
-            AND purchase_date < %s
-    """, (intelligence.company, prior_fy_start, fy_start), as_dict=True)[0].amount or 0
+    prior_capex_rows = (
+        frappe.qb.from_(Asset)
+        .select(Coalesce(Sum(Asset.purchase_amount), 0).as_("amount"))
+        .where(Asset.company == intelligence.company)
+        .where(Asset.docstatus == 1)
+        .where(Asset.purchase_date >= prior_fy_start)
+        .where(Asset.purchase_date < fy_start)
+        .run(as_dict=True)
+    )
+    prior_capex = float(prior_capex_rows[0].amount or 0) if prior_capex_rows else 0.0
 
-    # Upcoming depreciation (next 12 months)
-    upcoming_depreciation = frappe.db.sql("""
-        SELECT
-            DATE_FORMAT(schedule_date, '%%Y-%%m') as period,
-            SUM(depreciation_amount) as amount
-        FROM `tabDepreciation Schedule` ads
-        JOIN `tabAsset` a ON ads.parent = a.name
-        WHERE a.company = %s
-            AND a.docstatus = 1
-            AND a.status NOT IN ('Sold', 'Scrapped')
-            AND ads.schedule_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 12 MONTH)
-        GROUP BY DATE_FORMAT(schedule_date, '%%Y-%%m')
-        ORDER BY period
-    """, (intelligence.company,), as_dict=True)
+    # Upcoming depreciation (next 12 months). Legacy SQL bounded with
+    # `BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 12 MONTH)`;
+    # resolve to literal dates.
+    twelve_months_ahead = (datetime.now() + timedelta(days=365)).strftime('%Y-%m-%d')
+    period_expr = DateFormat(DepSchedule.schedule_date, "%Y-%m").as_("period")
+    upcoming_depreciation = (
+        frappe.qb.from_(DepSchedule)
+        .join(Asset)
+        .on(DepSchedule.parent == Asset.name)
+        .select(
+            period_expr,
+            Sum(DepSchedule.depreciation_amount).as_("amount"),
+        )
+        .where(Asset.company == intelligence.company)
+        .where(Asset.docstatus == 1)
+        .where(Asset.status.notin(["Sold", "Scrapped"]))
+        .where(DepSchedule.schedule_date.between(today_str, twelve_months_ahead))
+        .groupby(period_expr)
+        .orderby(period_expr)
+        .run(as_dict=True)
+    )
 
     return {
         "total_gross_assets": total_gross,
@@ -431,32 +521,63 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
 
 def analyze_working_capital(intelligence) -> Dict[str, Any]:
     """Analyze working capital metrics and trends"""
-    # Current Assets (Cash, Receivables, Inventory)
-    current_assets = frappe.db.sql("""
-        SELECT
-            COALESCE(SUM(CASE WHEN acc.account_type IN ('Cash', 'Bank') THEN (debit - credit) ELSE 0 END), 0) as cash,
-            COALESCE(SUM(CASE WHEN acc.account_type = 'Receivable' THEN (debit - credit) ELSE 0 END), 0) as receivables,
-            COALESCE(SUM(CASE WHEN acc.account_type = 'Stock' THEN (debit - credit) ELSE 0 END), 0) as inventory
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (intelligence.company,), as_dict=True)[0]
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
 
-    cash = float(current_assets.cash or 0)
-    receivables = float(current_assets.receivables or 0)
-    inventory = float(current_assets.inventory or 0)
+    # Current Assets (Cash, Receivables, Inventory)
+    cash_expr = Coalesce(
+        Sum(
+            Case()
+            .when(acc.account_type.isin(["Cash", "Bank"]), gle.debit - gle.credit)
+            .else_(0)
+        ),
+        0,
+    ).as_("cash")
+    receivables_expr = Coalesce(
+        Sum(
+            Case()
+            .when(acc.account_type == "Receivable", gle.debit - gle.credit)
+            .else_(0)
+        ),
+        0,
+    ).as_("receivables")
+    inventory_expr = Coalesce(
+        Sum(
+            Case()
+            .when(acc.account_type == "Stock", gle.debit - gle.credit)
+            .else_(0)
+        ),
+        0,
+    ).as_("inventory")
+
+    current_assets_rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(cash_expr, receivables_expr, inventory_expr)
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    current_assets = current_assets_rows[0] if current_assets_rows else {}
+
+    cash = float(current_assets.get("cash") or 0)
+    receivables = float(current_assets.get("receivables") or 0)
+    inventory = float(current_assets.get("inventory") or 0)
     total_current_assets = cash + receivables + inventory
 
     # Current Liabilities (Payables, Short-term debt)
-    current_liabilities = frappe.db.sql("""
-        SELECT COALESCE(SUM(credit - debit), 0) as payables
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE acc.account_type = 'Payable'
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-    """, (intelligence.company,), as_dict=True)[0].payables or 0
+    current_liabilities_rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Coalesce(Sum(gle.credit - gle.debit), 0).as_("payables"))
+        .where(acc.account_type == "Payable")
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    current_liabilities = float(current_liabilities_rows[0].payables or 0) if current_liabilities_rows else 0.0
 
     total_current_liabilities = abs(float(current_liabilities))
 
@@ -472,22 +593,29 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
 
     # DSO, DPO, DIO calculations
     # Average daily revenue (last 90 days)
-    avg_daily_revenue = frappe.db.sql("""
-        SELECT COALESCE(SUM(grand_total), 0) / 90 as daily_avg
-        FROM `tabSales Invoice`
-        WHERE company = %s
-            AND docstatus = 1
-            AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-    """, (intelligence.company,), as_dict=True)[0].daily_avg or 1
+    ninety_days_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+    si = DocType("Sales Invoice")
+    avg_daily_revenue_rows = (
+        frappe.qb.from_(si)
+        .select((Coalesce(Sum(si.grand_total), 0) / 90).as_("daily_avg"))
+        .where(si.company == intelligence.company)
+        .where(si.docstatus == 1)
+        .where(si.posting_date >= ninety_days_ago)
+        .run(as_dict=True)
+    )
+    avg_daily_revenue = float(avg_daily_revenue_rows[0].daily_avg or 1) if avg_daily_revenue_rows else 1.0
 
     # Average daily COGS
-    avg_daily_cogs = frappe.db.sql("""
-        SELECT COALESCE(SUM(grand_total), 0) / 90 as daily_avg
-        FROM `tabPurchase Invoice`
-        WHERE company = %s
-            AND docstatus = 1
-            AND posting_date >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
-    """, (intelligence.company,), as_dict=True)[0].daily_avg or 1
+    pi = DocType("Purchase Invoice")
+    avg_daily_cogs_rows = (
+        frappe.qb.from_(pi)
+        .select((Coalesce(Sum(pi.grand_total), 0) / 90).as_("daily_avg"))
+        .where(pi.company == intelligence.company)
+        .where(pi.docstatus == 1)
+        .where(pi.posting_date >= ninety_days_ago)
+        .run(as_dict=True)
+    )
+    avg_daily_cogs = float(avg_daily_cogs_rows[0].daily_avg or 1) if avg_daily_cogs_rows else 1.0
 
     # Calculate with caps for reasonable values
     dso = min(receivables / float(avg_daily_revenue), 365) if avg_daily_revenue > 0 else 0
@@ -497,21 +625,34 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     ccc = max(min(ccc, 365), -365)  # Cap CCC to reasonable range
 
     # Monthly working capital trends
-    wc_trends = frappe.db.sql("""
-        SELECT
-            DATE_FORMAT(gle.posting_date, '%%Y-%%m') as period,
-            SUM(CASE WHEN acc.account_type IN ('Cash', 'Bank', 'Receivable', 'Stock')
-                THEN (debit - credit) ELSE 0 END) as current_assets,
-            SUM(CASE WHEN acc.account_type = 'Payable'
-                THEN (credit - debit) ELSE 0 END) as current_liabilities
-        FROM `tabGL Entry` gle
-        JOIN `tabAccount` acc ON gle.account = acc.name
-        WHERE gle.posting_date >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
-            AND gle.company = %s
-            AND gle.is_cancelled = 0
-        GROUP BY DATE_FORMAT(gle.posting_date, '%%Y-%%m')
-        ORDER BY period
-    """, (intelligence.company,), as_dict=True)
+    twelve_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    period_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
+    ca_trend_expr = Sum(
+        Case()
+        .when(
+            acc.account_type.isin(["Cash", "Bank", "Receivable", "Stock"]),
+            gle.debit - gle.credit,
+        )
+        .else_(0)
+    ).as_("current_assets")
+    cl_trend_expr = Sum(
+        Case()
+        .when(acc.account_type == "Payable", gle.credit - gle.debit)
+        .else_(0)
+    ).as_("current_liabilities")
+
+    wc_trends = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(period_expr, ca_trend_expr, cl_trend_expr)
+        .where(gle.posting_date >= twelve_months_ago)
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .groupby(period_expr)
+        .orderby(period_expr)
+        .run(as_dict=True)
+    )
 
     trends = []
     for t in wc_trends:
@@ -562,20 +703,48 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
     # end) and this walk runs oldest-to-newest. Recomputed fresh every call,
     # never cached, so a mid-quarter repayment shows up the same day.
     prev_loan_balance = None
+
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+
     for q in reversed(quarters):
-        # Revenue and expenses for the quarter
-        financials = frappe.db.sql("""
-            SELECT
-                SUM(CASE WHEN acc.root_type = 'Income' THEN ABS(credit - debit) ELSE 0 END) as revenue,
-                SUM(CASE WHEN acc.root_type = 'Expense' THEN ABS(debit - credit) ELSE 0 END) as expenses,
-                SUM(CASE WHEN acc.account_type = 'Depreciation' THEN ABS(debit - credit) ELSE 0 END) as depreciation,
-                SUM(CASE WHEN acc.root_type = 'Expense' AND acc.name LIKE '%%Interest%%' THEN ABS(debit - credit) ELSE 0 END) as interest_expense
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.posting_date BETWEEN %s AND %s
-                AND gle.company = %s
-                AND gle.is_cancelled = 0
-        """, (q["start"], q["end"], intelligence.company), as_dict=True)[0]
+        # Revenue and expenses for the quarter. Four separate CASE-aggregated
+        # sums in a single SELECT.
+        revenue_q = Sum(
+            Case()
+            .when(acc.root_type == "Income", Abs(gle.credit - gle.debit))
+            .else_(0)
+        ).as_("revenue")
+        expenses_q = Sum(
+            Case()
+            .when(acc.root_type == "Expense", Abs(gle.debit - gle.credit))
+            .else_(0)
+        ).as_("expenses")
+        depreciation_q = Sum(
+            Case()
+            .when(acc.account_type == "Depreciation", Abs(gle.debit - gle.credit))
+            .else_(0)
+        ).as_("depreciation")
+        interest_q = Sum(
+            Case()
+            .when(
+                (acc.root_type == "Expense") & acc.name.like("%Interest%"),
+                Abs(gle.debit - gle.credit),
+            )
+            .else_(0)
+        ).as_("interest_expense")
+
+        financials_rows = (
+            frappe.qb.from_(gle)
+            .join(acc)
+            .on(gle.account == acc.name)
+            .select(revenue_q, expenses_q, depreciation_q, interest_q)
+            .where(gle.posting_date.between(q["start"], q["end"]))
+            .where(gle.company == intelligence.company)
+            .where(gle.is_cancelled == 0)
+            .run(as_dict=True)
+        )
+        financials = financials_rows[0] if financials_rows else {}
 
         # Get cumulative balance sheet items as of quarter end. Current-asset
         # and current-liability buckets mirror `analyze_working_capital`
@@ -585,38 +754,86 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         # this CoA tags no account_type for borrowings at all (Secured
         # Loans, Unsecured Loans, Bank Overdraft all carry account_type ''),
         # only the account name identifies them.
-        balance_sheet = frappe.db.sql("""
-            SELECT
-                SUM(CASE WHEN acc.root_type = 'Asset' THEN (debit - credit) ELSE 0 END) as assets,
-                SUM(CASE WHEN acc.root_type = 'Liability' THEN (credit - debit) ELSE 0 END) as liabilities,
-                SUM(CASE WHEN acc.root_type = 'Equity' THEN (credit - debit) ELSE 0 END) as equity,
-                SUM(CASE WHEN acc.account_type IN ('Cash', 'Bank') THEN (debit - credit) ELSE 0 END) as cash,
-                SUM(CASE WHEN acc.account_type = 'Receivable' THEN (debit - credit) ELSE 0 END) as receivables,
-                SUM(CASE WHEN acc.account_type = 'Stock' THEN (debit - credit) ELSE 0 END) as inventory,
-                SUM(CASE WHEN acc.account_type = 'Payable' THEN (credit - debit) ELSE 0 END) as payables,
-                SUM(CASE WHEN acc.root_type = 'Liability' AND (acc.name LIKE '%%Loan%%' OR acc.name LIKE '%%Overdraft%%')
-                    THEN (credit - debit) ELSE 0 END) as loan_balance
-            FROM `tabGL Entry` gle
-            JOIN `tabAccount` acc ON gle.account = acc.name
-            WHERE gle.posting_date <= %s
-                AND gle.company = %s
-                AND gle.is_cancelled = 0
-        """, (q["end"], intelligence.company), as_dict=True)[0]
+        assets_expr = Sum(
+            Case()
+            .when(acc.root_type == "Asset", gle.debit - gle.credit)
+            .else_(0)
+        ).as_("assets")
+        liabilities_expr = Sum(
+            Case()
+            .when(acc.root_type == "Liability", gle.credit - gle.debit)
+            .else_(0)
+        ).as_("liabilities")
+        equity_expr = Sum(
+            Case()
+            .when(acc.root_type == "Equity", gle.credit - gle.debit)
+            .else_(0)
+        ).as_("equity")
+        cash_bs = Sum(
+            Case()
+            .when(acc.account_type.isin(["Cash", "Bank"]), gle.debit - gle.credit)
+            .else_(0)
+        ).as_("cash")
+        receivables_bs = Sum(
+            Case()
+            .when(acc.account_type == "Receivable", gle.debit - gle.credit)
+            .else_(0)
+        ).as_("receivables")
+        inventory_bs = Sum(
+            Case()
+            .when(acc.account_type == "Stock", gle.debit - gle.credit)
+            .else_(0)
+        ).as_("inventory")
+        payables_bs = Sum(
+            Case()
+            .when(acc.account_type == "Payable", gle.credit - gle.debit)
+            .else_(0)
+        ).as_("payables")
+        loan_balance_expr = Sum(
+            Case()
+            .when(
+                (acc.root_type == "Liability")
+                & (acc.name.like("%Loan%") | acc.name.like("%Overdraft%")),
+                gle.credit - gle.debit,
+            )
+            .else_(0)
+        ).as_("loan_balance")
 
-        revenue = float(financials.revenue or 0)
-        expenses = float(financials.expenses or 0)
-        depreciation = float(financials.depreciation or 0)
-        interest_expense = float(financials.interest_expense or 0)
-        assets = abs(float(balance_sheet.assets or 0))
-        liabilities = abs(float(balance_sheet.liabilities or 0))
-        equity = abs(float(balance_sheet.equity or 0))
+        balance_sheet_rows = (
+            frappe.qb.from_(gle)
+            .join(acc)
+            .on(gle.account == acc.name)
+            .select(
+                assets_expr,
+                liabilities_expr,
+                equity_expr,
+                cash_bs,
+                receivables_bs,
+                inventory_bs,
+                payables_bs,
+                loan_balance_expr,
+            )
+            .where(gle.posting_date <= q["end"])
+            .where(gle.company == intelligence.company)
+            .where(gle.is_cancelled == 0)
+            .run(as_dict=True)
+        )
+        balance_sheet = balance_sheet_rows[0] if balance_sheet_rows else {}
+
+        revenue = float(financials.get("revenue") or 0)
+        expenses = float(financials.get("expenses") or 0)
+        depreciation = float(financials.get("depreciation") or 0)
+        interest_expense = float(financials.get("interest_expense") or 0)
+        assets = abs(float(balance_sheet.get("assets") or 0))
+        liabilities = abs(float(balance_sheet.get("liabilities") or 0))
+        equity = abs(float(balance_sheet.get("equity") or 0))
         net_income = revenue - expenses
 
-        current_assets = float(balance_sheet.cash or 0) + float(balance_sheet.receivables or 0) + float(balance_sheet.inventory or 0)
-        current_liabilities = abs(float(balance_sheet.payables or 0))
+        current_assets = float(balance_sheet.get("cash") or 0) + float(balance_sheet.get("receivables") or 0) + float(balance_sheet.get("inventory") or 0)
+        current_liabilities = abs(float(balance_sheet.get("payables") or 0))
         working_capital = current_assets - current_liabilities
 
-        loan_balance = abs(float(balance_sheet.loan_balance or 0))
+        loan_balance = abs(float(balance_sheet.get("loan_balance") or 0))
         # Only a *reduction* counts as debt service; a rise in balance is
         # financing inflow (new borrowing), not an outflow DSCR should penalise.
         principal_repaid = max(0.0, prev_loan_balance - loan_balance) if prev_loan_balance is not None else 0.0

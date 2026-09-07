@@ -1,9 +1,10 @@
 import frappe
 from frappe import _
+from frappe.query_builder.functions import Count
 
 from insights.decorators import insights_whitelist
 from insights.utils import DocShare
-from insights.api.response import success, error
+from insights.api.response import success
 
 
 @insights_whitelist()
@@ -29,17 +30,17 @@ def get_workbooks(search_term=None, limit=100):
 
     workbook_names = [workbook["name"] for workbook in workbooks]
 
-    # Batch fetch view counts — single SQL with GROUP BY instead of Python filtering
+    # Batch fetch view counts — single query with GROUP BY instead of Python filtering
     view_counts = {}
     if workbook_names:
-        view_count_rows = frappe.db.sql("""
-            SELECT reference_name, COUNT(*) as cnt
-            FROM `tabView Log`
-            WHERE reference_doctype = 'Insights Workbook'
-            AND reference_name IN ({placeholders})
-            GROUP BY reference_name
-        """.format(placeholders=", ".join(["%s"] * len(workbook_names))),
-            tuple(workbook_names), as_dict=True
+        ViewLog = frappe.qb.DocType("View Log")
+        view_count_rows = (
+            frappe.qb.from_(ViewLog)
+            .select(ViewLog.reference_name, Count("*").as_("cnt"))
+            .where(ViewLog.reference_doctype == "Insights Workbook")
+            .where(ViewLog.reference_name.isin(workbook_names))
+            .groupby(ViewLog.reference_name)
+            .run(as_dict=True)
         )
         for row in view_count_rows:
             view_counts[row.reference_name] = row.cnt

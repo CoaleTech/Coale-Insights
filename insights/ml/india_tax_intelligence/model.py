@@ -40,37 +40,34 @@ def _fiscal_year_for(company: str | None) -> Dict[str, Any]:
     legacy code did the same calendar fallback.
     """
     today = _today_date()
+    FiscalYear = frappe.qb.DocType("Fiscal Year")
+    FiscalYearCompany = frappe.qb.DocType("Fiscal Year Company")
     if company:
-        row = frappe.db.sql(
-            """
-            SELECT fy.name, fy.year_start_date, fy.year_end_date
-            FROM `tabFiscal Year` fy
-            LEFT JOIN `tabFiscal Year Company` fyc ON fyc.parent = fy.name
-            WHERE fy.disabled = 0
-              AND %(today)s BETWEEN fy.year_start_date AND fy.year_end_date
-              AND (fyc.company = %(company)s OR fyc.company IS NULL)
-            ORDER BY fy.year_start_date DESC
-            LIMIT 1
-            """,
-            {"today": today, "company": company},
-            as_dict=True,
+        rows = (
+            frappe.qb.from_(FiscalYear)
+            .left_join(FiscalYearCompany)
+            .on(FiscalYearCompany.parent == FiscalYear.name)
+            .select(FiscalYear.name, FiscalYear.year_start_date, FiscalYear.year_end_date)
+            .where(FiscalYear.disabled == 0)
+            .where((today >= FiscalYear.year_start_date) & (today <= FiscalYear.year_end_date))
+            .where((FiscalYearCompany.company == company) | FiscalYearCompany.company.isnull())
+            .orderby(FiscalYear.year_start_date, order=frappe.qb.desc)
+            .limit(1)
+            .run(as_dict=True)
         )
-        if row:
-            return row[0]
-    row = frappe.db.sql(
-        """
-        SELECT name, year_start_date, year_end_date
-        FROM `tabFiscal Year`
-        WHERE disabled = 0
-          AND %(today)s BETWEEN year_start_date AND year_end_date
-        ORDER BY year_start_date DESC
-        LIMIT 1
-        """,
-        {"today": today},
-        as_dict=True,
+        if rows:
+            return rows[0]
+    rows = (
+        frappe.qb.from_(FiscalYear)
+        .select(FiscalYear.name, FiscalYear.year_start_date, FiscalYear.year_end_date)
+        .where(FiscalYear.disabled == 0)
+        .where((today >= FiscalYear.year_start_date) & (today <= FiscalYear.year_end_date))
+        .orderby(FiscalYear.year_start_date, order=frappe.qb.desc)
+        .limit(1)
+        .run(as_dict=True)
     )
-    if row:
-        return row[0]
+    if rows:
+        return rows[0]
     return {
         "name": str(today.year),
         "year_start_date": date(today.year, 1, 1),

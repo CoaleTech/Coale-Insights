@@ -1,13 +1,31 @@
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-"""Procurement Data Collector - Supplier spend, performance, pending orders"""
+"""Procurement Data Collector - Supplier spend, performance, pending orders
+
+All aggregations are pushed to MariaDB via the ``frappe.qb`` query builder;
+Python only formats the small result sets into the dict shape callers already
+expect. See ``insights.reports.sales_intelligence_report`` for the canonical
+``Case``/``DateFormat``/``Coalesce`` pattern that this module mirrors.
+"""
+
+from typing import Any, Dict, List
 
 import frappe
-from frappe.utils import flt
-from typing import Dict, Any, List
+from frappe.query_builder import Case, DocType
+from frappe.query_builder.functions import (
+    Avg,
+    Count,
+    DateFormat,
+    Min,
+    Round,
+    Sum,
+)
 
 from insights.analytics.collectors.base import BaseCollector
+
+# Statuses that mean "no longer actionable" for pending Purchase Orders.
+_CLOSED_PO_STATUSES = ("Completed", "Closed", "Cancelled")
 
 
 class ProcurementDataCollector(BaseCollector):
@@ -20,118 +38,178 @@ class ProcurementDataCollector(BaseCollector):
             "top_items": self._get_top_items(),
             "monthly_trend": self._get_monthly_trend(),
             "supplier_performance": self._get_supplier_performance(),
-            "pending_orders": self._get_pending_orders()
+            "pending_orders": self._get_pending_orders(),
         }
 
+    # ------------------------------------------------------------------
+    # Summary
+    # ------------------------------------------------------------------
     def _get_procurement_summary(self) -> Dict[str, Any]:
         """Get procurement summary"""
-        result = frappe.db.sql("""
-            SELECT
-                COUNT(*) as total_orders,
-                SUM(grand_total) as total_spend,
-                AVG(grand_total) as avg_order_value
-            FROM `tabPurchase Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-        """, (self.from_date, self.to_date, self.company), as_dict=True)
+        pi = DocType("Purchase Invoice")
+        q = (
+            frappe.qb.from_(pi)
+            .select(
+                Count("*").as_("total_orders"),
+                Sum(pi.grand_total).as_("total_spend"),
+                Avg(pi.grand_total).as_("avg_order_value"),
+            )
+            .where(pi.posting_date.between(self.from_date, self.to_date))
+            .where(pi.company == self.company)
+            .where(pi.docstatus == 1)
+        )
+        rows = q.run(as_dict=True)
+        return rows[0] if rows else {}
 
-        return result[0] if result else {}
-
+    # ------------------------------------------------------------------
+    # Top suppliers
+    # ------------------------------------------------------------------
     def _get_top_suppliers(self, limit: int = 10) -> List[Dict]:
         """Get top suppliers by spend"""
-        return frappe.db.sql("""
-            SELECT
-                supplier,
-                supplier_name,
-                SUM(grand_total) as total_spend,
-                COUNT(*) as order_count
-            FROM `tabPurchase Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-            GROUP BY supplier, supplier_name
-            ORDER BY total_spend DESC
-            LIMIT %s
-        """, (self.from_date, self.to_date, self.company, limit), as_dict=True)
+        pi = DocType("Purchase Invoice")
+        total_spend = Sum(pi.grand_total).as_("total_spend")
+        q = (
+            frappe.qb.from_(pi)
+            .select(
+                pi.supplier,
+                pi.supplier_name,
+                total_spend,
+                Count("*").as_("order_count"),
+            )
+            .where(pi.posting_date.between(self.from_date, self.to_date))
+            .where(pi.company == self.company)
+            .where(pi.docstatus == 1)
+            .groupby(pi.supplier, pi.supplier_name)
+            .orderby(total_spend, order=frappe.qb.desc)
+            .limit(limit)
+        )
+        return q.run(as_dict=True)
 
+    # ------------------------------------------------------------------
+    # Top items
+    # ------------------------------------------------------------------
     def _get_top_items(self, limit: int = 10) -> List[Dict]:
         """Get top purchased items"""
-        return frappe.db.sql("""
-            SELECT
+        pii = DocType("Purchase Invoice Item")
+        pi = DocType("Purchase Invoice")
+        total_spend = Sum(pii.amount).as_("total_spend")
+        q = (
+            frappe.qb.from_(pii)
+            .join(pi)
+            .on(pii.parent == pi.name)
+            .select(
                 pii.item_code,
                 pii.item_name,
-                SUM(pii.qty) as total_qty,
-                SUM(pii.amount) as total_spend
-            FROM `tabPurchase Invoice Item` pii
-            JOIN `tabPurchase Invoice` pi ON pii.parent = pi.name
-            WHERE pi.posting_date BETWEEN %s AND %s
-            AND pi.company = %s
-            AND pi.docstatus = 1
-            GROUP BY pii.item_code, pii.item_name
-            ORDER BY total_spend DESC
-            LIMIT %s
-        """, (self.from_date, self.to_date, self.company, limit), as_dict=True)
+                Sum(pii.qty).as_("total_qty"),
+                total_spend,
+            )
+            .where(pi.posting_date.between(self.from_date, self.to_date))
+            .where(pi.company == self.company)
+            .where(pi.docstatus == 1)
+            .groupby(pii.item_code, pii.item_name)
+            .orderby(total_spend, order=frappe.qb.desc)
+            .limit(limit)
+        )
+        return q.run(as_dict=True)
 
+    # ------------------------------------------------------------------
+    # Monthly trend
+    # ------------------------------------------------------------------
     def _get_monthly_trend(self) -> List[Dict]:
         """Get monthly procurement trend"""
-        return frappe.db.sql("""
-            SELECT
-                DATE_FORMAT(posting_date, '%%Y-%%m') as month,
-                SUM(grand_total) as spend,
-                COUNT(*) as orders
-            FROM `tabPurchase Invoice`
-            WHERE posting_date BETWEEN %s AND %s
-            AND company = %s
-            AND docstatus = 1
-            GROUP BY month
-            ORDER BY month
-        """, (self.from_date, self.to_date, self.company), as_dict=True)
+        pi = DocType("Purchase Invoice")
+        month_expr = DateFormat(pi.posting_date, "%Y-%m").as_("month")
+        q = (
+            frappe.qb.from_(pi)
+            .select(
+                month_expr,
+                Sum(pi.grand_total).as_("spend"),
+                Count("*").as_("orders"),
+            )
+            .where(pi.posting_date.between(self.from_date, self.to_date))
+            .where(pi.company == self.company)
+            .where(pi.docstatus == 1)
+            .groupby(month_expr)
+            .orderby(month_expr)
+        )
+        return q.run(as_dict=True)
 
+    # ------------------------------------------------------------------
+    # Supplier performance (on-time delivery)
+    # ------------------------------------------------------------------
     def _get_supplier_performance(self) -> List[Dict]:
-        """Get supplier delivery performance"""
-        # Purchase Receipt has no parent-level purchase_order column; the PO link
-        # lives on Purchase Receipt Item. Resolve each receipt to the earliest
-        # required-by date among its linked POs, then aggregate at receipt grain.
-        return frappe.db.sql("""
-            SELECT
+        """Get supplier delivery performance.
+
+        Purchase Receipt has no parent-level ``purchase_order`` column; the PO
+        link lives on Purchase Receipt Item. Resolve each receipt to the
+        earliest required-by date among its linked POs, then aggregate at
+        receipt grain.
+        """
+        pr = DocType("Purchase Receipt")
+        pri = DocType("Purchase Receipt Item")
+        po = DocType("Purchase Order")
+
+        # Subquery: one row per receipt, with the earliest PO schedule_date.
+        receipt_subq = (
+            frappe.qb.from_(pr)
+            .join(pri)
+            .on(pri.parent == pr.name)
+            .join(po)
+            .on(pri.purchase_order == po.name)
+            .select(
+                pr.name.as_("name"),
+                pr.supplier.as_("supplier"),
+                pr.supplier_name.as_("supplier_name"),
+                pr.posting_date.as_("posting_date"),
+                # MIN(po.schedule_date) is mapped to MariaDB via PyPika's Min.
+                # We use a field reference and aggregate it with the explicit
+                # ``MIN`` function on the joined PO table.
+                Min(po.schedule_date).as_("schedule_date"),
+            )
+            .where(pr.posting_date.between(self.from_date, self.to_date))
+            .where(pr.company == self.company)
+            .where(pr.docstatus == 1)
+            .where(pri.purchase_order.notnull())
+            .where(pri.purchase_order != "")
+            .groupby(pr.name, pr.supplier, pr.supplier_name, pr.posting_date)
+        )
+        # Alias the subquery so outer FROM can reference its columns.
+        r = receipt_subq.as_("r")
+
+        on_time_flag = Case().when(r.posting_date <= r.schedule_date, 1).else_(0)
+
+        on_time_pct = Round(Sum(on_time_flag) / Count("*") * 100, 2).as_("on_time_percent")
+        q = (
+            frappe.qb.from_(r)
+            .select(
                 r.supplier,
                 r.supplier_name,
-                COUNT(*) as total_receipts,
-                SUM(CASE WHEN r.posting_date <= r.schedule_date THEN 1 ELSE 0 END) as on_time,
-                ROUND(SUM(CASE WHEN r.posting_date <= r.schedule_date THEN 1 ELSE 0 END) / COUNT(*) * 100, 2) as on_time_percent
-            FROM (
-                SELECT
-                    pr.name,
-                    pr.supplier,
-                    pr.supplier_name,
-                    pr.posting_date,
-                    MIN(po.schedule_date) as schedule_date
-                FROM `tabPurchase Receipt` pr
-                JOIN `tabPurchase Receipt Item` pri ON pri.parent = pr.name
-                JOIN `tabPurchase Order` po ON pri.purchase_order = po.name
-                WHERE pr.posting_date BETWEEN %s AND %s
-                AND pr.company = %s
-                AND pr.docstatus = 1
-                AND pri.purchase_order IS NOT NULL AND pri.purchase_order != ''
-                GROUP BY pr.name, pr.supplier, pr.supplier_name, pr.posting_date
-            ) r
-            GROUP BY r.supplier, r.supplier_name
-            HAVING total_receipts >= 3
-            ORDER BY on_time_percent DESC
-            LIMIT 10
-        """, (self.from_date, self.to_date, self.company), as_dict=True)
+                Count("*").as_("total_receipts"),
+                Sum(on_time_flag).as_("on_time"),
+                on_time_pct,
+            )
+            .groupby(r.supplier, r.supplier_name)
+            .having(Count("*") >= 3)
+            .orderby(on_time_pct, order=frappe.qb.desc)
+            .limit(10)
+        )
+        return q.run(as_dict=True)
 
+    # ------------------------------------------------------------------
+    # Pending orders
+    # ------------------------------------------------------------------
     def _get_pending_orders(self) -> Dict[str, Any]:
         """Get pending purchase orders"""
-        result = frappe.db.sql("""
-            SELECT
-                COUNT(*) as count,
-                SUM(grand_total) as total_value
-            FROM `tabPurchase Order`
-            WHERE company = %s
-            AND docstatus = 1
-            AND status NOT IN ('Completed', 'Closed', 'Cancelled')
-        """, (self.company,), as_dict=True)
-
-        return result[0] if result else {}
+        po = DocType("Purchase Order")
+        q = (
+            frappe.qb.from_(po)
+            .select(
+                Count("*").as_("count"),
+                Sum(po.grand_total).as_("total_value"),
+            )
+            .where(po.company == self.company)
+            .where(po.docstatus == 1)
+            .where(po.status.notin(_CLOSED_PO_STATUSES))
+        )
+        rows = q.run(as_dict=True)
+        return rows[0] if rows else {}

@@ -690,12 +690,15 @@ def get_crm_detail(metric: str, filters: str) -> dict:
             ignore_permissions=False,
         )
         if rows:
-            source_by_name = dict(
-                frappe.db.sql(
-                    "SELECT name, source FROM `tabLead` WHERE name IN %(names)s",
-                    {"names": [r["name"] for r in rows]},
-                )
+            Lead = frappe.qb.DocType("Lead")
+            names = [r["name"] for r in rows]
+            source_rows = (
+                frappe.qb.from_(Lead)
+                .select(Lead.name, Lead.source)
+                .where(Lead.name.isin(names))
+                .run(as_dict=False)
             )
+            source_by_name = dict(source_rows)
             for r in rows:
                 r["source"] = source_by_name.get(r["name"]) or ""
         return {
