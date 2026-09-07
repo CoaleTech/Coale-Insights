@@ -6,6 +6,22 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Fixed — Forecasts tab labelled the current month "Actual" over forecast cells
+
+The dimensional forecast tables (Sales by Product Group / Territory) labelled
+each period column Actual/Forecast from a client-side date comparison —
+`isPeriodForecast(period)` returned `period > currentYYYY-MM`, i.e. strictly
+*after* the current month. But the backend forecasts the current, incomplete
+month too (`horizon_months=3` covers Sep/Oct/Nov 26 as of Sep 26), and the
+data *cells* shade from the backend `is_forecast` flag. So the Sep 26 column
+header read "Actual" while every cell under it was shaded as a forecast.
+
+`buildTransposedDimData` now returns the set of forecast periods straight from
+the rows' `is_forecast` flag, and both table headers read from it — the single
+source the cells already use. Deleted the dead `isPeriodForecast` date-math
+helper. Live-verified on jkm: Sep 25–Aug 26 Actual, Sep–Nov 26 Forecast,
+headers and cells agree. Zero console errors.
+
 ### Fixed — "Why quotes are lost" showed ~280 count-1 noise slices
 
 `get_quotation_analytics` in `insights/ml/sales_source_analytics.py` built its

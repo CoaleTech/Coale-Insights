@@ -244,12 +244,14 @@ interface DimRow {
 function buildTransposedDimData(
   rawData: DimItem[],
   keyField: 'product_group' | 'territory',
-): { periods: string[]; rows: DimRow[] } {
-  if (!rawData.length) return { periods: [], rows: [] }
+): { periods: string[]; rows: DimRow[]; forecastPeriods: Set<string> } {
+  if (!rawData.length) return { periods: [], rows: [], forecastPeriods: new Set() }
+  const forecastPeriods = new Set<string>()
   const periodsSet = new Set<string>()
   const groupsMap = new Map<string, Map<string, { revenue: number; transactions: number; is_forecast: boolean }>>()
   rawData.forEach(item => {
     periodsSet.add(item.period)
+    if (item.is_forecast) forecastPeriods.add(item.period)
     const key = item[keyField] ?? 'Unknown'
     if (!groupsMap.has(key)) groupsMap.set(key, new Map())
     groupsMap.get(key)!.set(item.period, {
@@ -279,7 +281,7 @@ function buildTransposedDimData(
     rows.push(row)
   })
   rows.sort((a, b) => b.total_revenue - a.total_revenue)
-  return { periods, rows }
+  return { periods, rows, forecastPeriods }
 }
 
 const transposedProductGroupData = computed(() =>
@@ -466,11 +468,6 @@ function formatPeriod(period: string): string {
   const [year, month] = period.split('-')
   const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   return `${monthNames[parseInt(month) - 1]} ${year.slice(2)}`
-}
-function isPeriodForecast(period: string): boolean {
-  const now = new Date()
-  const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  return period > currentPeriod
 }
 
 // ── Attribution chart configs ─────────────────────────────────────────────
@@ -1062,9 +1059,9 @@ onMounted(() => {
             <tr>
               <th scope="col" class="px-4 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[180px] text-ink-gray-7">Product Group</th>
               <th v-for="period in transposedProductGroupData.periods" :key="period" scope="col"
-                :class="['px-3 py-2 text-right min-w-[90px]', isPeriodForecast(period) ? 'bg-surface-gray-2 text-ink-gray-7' : 'text-ink-gray-7']">
+                :class="['px-3 py-2 text-right min-w-[90px]', transposedProductGroupData.forecastPeriods.has(period) ? 'bg-surface-gray-2 text-ink-gray-7' : 'text-ink-gray-7']">
                 <div>{{ formatPeriod(period) }}</div>
-                <div class="text-xs font-normal text-ink-gray-6">{{ isPeriodForecast(period) ? 'Forecast' : 'Actual' }}</div>
+                <div class="text-xs font-normal text-ink-gray-6">{{ transposedProductGroupData.forecastPeriods.has(period) ? 'Forecast' : 'Actual' }}</div>
               </th>
               <th scope="col" class="px-4 py-2 text-right bg-surface-gray-2 min-w-[100px] text-ink-gray-7">Total</th>
             </tr>
@@ -1113,9 +1110,9 @@ onMounted(() => {
             <tr>
               <th scope="col" class="px-4 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[180px] text-ink-gray-7">Territory</th>
               <th v-for="period in transposedTerritoryData.periods" :key="period" scope="col"
-                :class="['px-3 py-2 text-right min-w-[90px]', isPeriodForecast(period) ? 'bg-surface-gray-2 text-ink-gray-7' : 'text-ink-gray-7']">
+                :class="['px-3 py-2 text-right min-w-[90px]', transposedTerritoryData.forecastPeriods.has(period) ? 'bg-surface-gray-2 text-ink-gray-7' : 'text-ink-gray-7']">
                 <div>{{ formatPeriod(period) }}</div>
-                <div class="text-xs font-normal text-ink-gray-6">{{ isPeriodForecast(period) ? 'Forecast' : 'Actual' }}</div>
+                <div class="text-xs font-normal text-ink-gray-6">{{ transposedTerritoryData.forecastPeriods.has(period) ? 'Forecast' : 'Actual' }}</div>
               </th>
               <th scope="col" class="px-4 py-2 text-right bg-surface-gray-2 min-w-[100px] text-ink-gray-7">Total</th>
             </tr>
