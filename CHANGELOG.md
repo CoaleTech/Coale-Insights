@@ -6,6 +6,22 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Fixed — "Why quotes are lost" showed ~280 count-1 noise slices
+
+`get_quotation_analytics` in `insights/ml/sales_source_analytics.py` built its
+lost-reasons breakdown by grouping on `Quotation.order_lost_reason` — a
+free-text header field where reps type multi-line memos ("acetic purchase
+85\nnot sure about with billing..."). On the JKM ledger 287 lost quotes filled
+it and 282 of those values are distinct, so the donut rendered a slice per note,
+almost every one `count: 1` — unreadable.
+
+Switched the aggregate to the structured `Quotation Lost Reason Detail` child
+table (each row links to a controlled `Quotation Lost Reason` master), counting
+each reason once per distinct quotation it appears on. This resolves to a clean
+17-reason distribution led by Price (93 in the trailing 12m), Transport (33),
+Sample (22), GST (11). Output shape is unchanged (`order_lost_reason` + `count`),
+so the frontend was untouched. Live-verified on jkm; zero console errors.
+
 ### Changed — Redesigned the Attribution tab
 
 The Attribution tab hid its most useful data. Source attribution rendered only

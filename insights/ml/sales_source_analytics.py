@@ -137,15 +137,24 @@ def get_quotation_analytics(period_start: str, period_end: str) -> Dict[str, Any
     won = int(overall["won"] or 0)
     total_lost = int(overall["lost_all"] or 0)
 
-    # Lost reasons: still per-reason for the bar chart. Quotations
-    # with NULL/empty reason are excluded from the *breakdown* but
-    # counted in `total_lost` above.
-    lost = base.filter(base.status == ibis.literal("Lost"))
-    lost = lost.filter(lost.order_lost_reason.notnull())
-    lost = lost.filter(lost.order_lost_reason != ibis.literal(""))
+    # Lost reasons come from the structured `Quotation Lost Reason Detail`
+    # child table (each row links to a controlled `Quotation Lost Reason`
+    # master), NOT the free-text `order_lost_reason` header field. That
+    # header field is a per-quote note -- on this site 287 lost quotes filled
+    # it and 282 of those values are distinct -- so grouping on it produced
+    # ~280 count-1 slices of unusable noise (multi-line rep memos like
+    # "acetic purchase 85\nnot sure about with billing..."). The child table
+    # resolves to a clean 17-reason distribution led by Price (339),
+    # Transport (76), Sample (41). A quote may carry several reasons, so each
+    # reason is counted once per distinct quotation it appears on.
+    lost_names = base.filter(base.status == ibis.literal("Lost")).select(name=q.name)
+    lrd = t("Quotation Lost Reason Detail")
     lost_reasons_df = (
-        lost.group_by(lost.order_lost_reason)
-        .aggregate(count=lost.count())
+        lrd.inner_join(lost_names, lrd.parent == lost_names.name)
+        .filter(lrd.lost_reason.notnull())
+        .filter(lrd.lost_reason != ibis.literal(""))
+        .group_by(lrd.lost_reason)
+        .aggregate(count=lrd.parent.nunique())
         .order_by(ibis.desc("count"))
         .execute()
     )
@@ -153,7 +162,7 @@ def get_quotation_analytics(period_start: str, period_end: str) -> Dict[str, Any
     for _, r in lost_reasons_df.iterrows():
         lost_reasons.append(
             {
-                "order_lost_reason": str(r["order_lost_reason"]),
+                "order_lost_reason": str(r["lost_reason"]),
                 "count": int(r["count"]),
             }
         )
