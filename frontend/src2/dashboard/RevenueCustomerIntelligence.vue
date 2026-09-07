@@ -65,10 +65,10 @@ const TAB_DEFS: TabDef[] = [
   { id: 'cust-overview',   label: 'Customer Overview',     group: 'customers' },
   { id: 'cust-list',       label: 'Customers',     group: 'customers' },
   { id: 'cust-geography',  label: 'Geography',     group: 'customers' },
-  { id: 'cust-actions',    label: 'Actions',       group: 'customers' },
   { id: 'cust-cohorts',    label: 'Cohorts',       group: 'customers' },
   { id: 'cust-patterns',   label: 'Patterns',     group: 'customers' },
   { id: 'cust-rankings',   label: 'Rankings',      group: 'customers' },
+  { id: 'cust-actions',    label: 'Actions',       group: 'customers' },
 ] as const
 
 /**

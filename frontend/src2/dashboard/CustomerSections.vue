@@ -89,6 +89,24 @@ type RankSortKey = 'revenue' | 'gross_profit' | 'margin_pct' | 'months_active' |
 interface GeoPoint { name: string; value: number }
 interface UnmappedTerritory { territory: string; value: number }
 interface DayOfWeekDataRow { order_count: number }
+interface ActionRec {
+  action: string
+  priority: string
+  description: string
+  suggestion: string
+}
+interface ActionItem {
+  customer_id: string
+  customer_name?: string
+  clv_tier?: string
+  health_status?: string
+  churn_risk?: string
+  historical_clv?: number
+  predicted_12m_clv?: number
+  outstanding_amount?: number
+  recency_days?: number
+  recommendations: ActionRec[]
+}
 
 // ── Recommendation tier labels ─────────────────────────────────────────────
 const REC_TIER_LABELS: Record<number, string> = {
@@ -233,7 +251,75 @@ const mapCoveragePct = computed(() => {
 })
 const paretoAnalysis = computed(() => (props.data.pareto_analysis ?? {}) as Record<string, unknown>)
 const cohortAnalysis = computed(() => (props.data.cohort_analysis ?? {}) as Record<string, unknown>)
-const nextActions = computed(() => (props.data.next_best_actions ?? []) as unknown[])
+const nextActions = computed(() => (props.data.next_best_actions ?? []) as ActionItem[])
+
+// ── Actions (next best actions) ────────────────────────────────────────────
+// Each action leads with the real ledger figure at stake, not just advice:
+// churn/re-engagement risk the booked revenue (`historical_clv`), payment
+// follow-up the `outstanding_amount`, upsell/nurture the predicted 12-month
+// forward value. All quantification, filtering and sorting is client-side.
+type MoneyField = 'historical_clv' | 'outstanding_amount' | 'predicted_12m_clv'
+const ACTION_MONEY: Record<string, { label: string; field: MoneyField }> = {
+  CHURN_PREVENTION:     { label: 'Revenue at risk',     field: 'historical_clv' },
+  RE_ENGAGEMENT:        { label: 'Revenue at risk',     field: 'historical_clv' },
+  PAYMENT_FOLLOW_UP:    { label: 'Outstanding',         field: 'outstanding_amount' },
+  UPSELL_OPPORTUNITY:   { label: '12-mo forward value', field: 'predicted_12m_clv' },
+  NEW_CUSTOMER_NURTURE: { label: '12-mo forward value', field: 'predicted_12m_clv' },
+}
+const actionTypeOptions = [
+  { value: '', label: 'All action types' },
+  { value: 'CHURN_PREVENTION', label: 'Churn prevention' },
+  { value: 'RE_ENGAGEMENT', label: 'Re-engagement' },
+  { value: 'PAYMENT_FOLLOW_UP', label: 'Payment follow-up' },
+  { value: 'UPSELL_OPPORTUNITY', label: 'Upsell opportunity' },
+  { value: 'NEW_CUSTOMER_NURTURE', label: 'New customer nurture' },
+]
+const actionPriorityOptions = [
+  { value: '', label: 'All priorities' },
+  { value: 'High', label: 'High priority' },
+  { value: 'Medium', label: 'Medium priority' },
+]
+const actionType = ref('')
+const actionPriority = ref('')
+
+function recImpact(item: ActionItem, rec: ActionRec): number {
+  const m = ACTION_MONEY[rec.action]
+  return m ? Number(item[m.field] ?? 0) : 0
+}
+function recImpactLabel(rec: ActionRec): string {
+  return ACTION_MONEY[rec.action]?.label ?? ''
+}
+// Largest single ledger figure at stake for the customer. Uses max, not sum,
+// so two recs pointing at the same field (churn + re-engagement) don't
+// double-count the one revenue relationship.
+function atStake(item: ActionItem): number {
+  return item.recommendations.reduce((mx, r) => Math.max(mx, recImpact(item, r)), 0)
+}
+function hasHighPriority(item: ActionItem): boolean {
+  return item.recommendations.some(r => r.priority === 'High')
+}
+const filteredActions = computed<ActionItem[]>(() => {
+  let list = nextActions.value
+  if (actionType.value) list = list.filter(a => a.recommendations.some(r => r.action === actionType.value))
+  if (actionPriority.value) list = list.filter(a => a.recommendations.some(r => r.priority === actionPriority.value))
+  // High-priority customers first, then biggest money at stake.
+  return [...list].sort((a, b) =>
+    (Number(hasHighPriority(b)) - Number(hasHighPriority(a))) || (atStake(b) - atStake(a)))
+})
+// Impact summary — one action item is one customer, so these sums never
+// double-count a customer across its own recommendations.
+const actionsSummary = computed(() => {
+  let revenueAtRisk = 0, outstanding = 0, upside = 0, high = 0
+  for (const a of nextActions.value) {
+    const kinds = new Set(a.recommendations.map(r => r.action))
+    if (kinds.has('CHURN_PREVENTION') || kinds.has('RE_ENGAGEMENT')) revenueAtRisk += Number(a.historical_clv ?? 0)
+    if (kinds.has('PAYMENT_FOLLOW_UP')) outstanding += Number(a.outstanding_amount ?? 0)
+    if (kinds.has('UPSELL_OPPORTUNITY') || kinds.has('NEW_CUSTOMER_NURTURE')) upside += Number(a.predicted_12m_clv ?? 0)
+    if (hasHighPriority(a)) high++
+  }
+  return { revenueAtRisk, outstanding, upside, high, total: nextActions.value.length }
+})
+function clearActionFilters() { actionType.value = ''; actionPriority.value = '' }
 // `totalCrossSellRecommendations`, `crossSellData`, `loadCrossSellData`,
 // `revenueSplit`/`loadRevenueSplit` and `variance`/`loadVariance` were removed:
 // all were computed or fetched but never rendered. The revenue-split and
@@ -597,35 +683,75 @@ onMounted(() => {
   </div>
 
   <!-- ═══ Actions ═══ -->
-  <div v-if="activeTab === 'cust-actions'" class="space-y-4">
-    <div class="flex items-center justify-between">
-      <SectionHeader variant="caption" title="Next Best Actions" :level="3" />
-      <span class="text-sm text-ink-gray-6">{{ nextActions.length }} action items</span>
+  <div v-if="activeTab === 'cust-actions'" class="space-y-6">
+    <!-- Impact summary: money at stake, not just a count -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <KpiCard label="Revenue at risk" :amount="actionsSummary.revenueAtRisk" :currency="baseCurrency"
+        sublabel="churn + re-engagement" :severity="actionsSummary.revenueAtRisk > 0 ? 'high' : undefined" />
+      <KpiCard label="Outstanding to collect" :amount="actionsSummary.outstanding" :currency="baseCurrency"
+        sublabel="payment follow-ups" :severity="actionsSummary.outstanding > 0 ? 'medium' : undefined" />
+      <KpiCard label="Upsell + nurture upside" :amount="actionsSummary.upside" :currency="baseCurrency"
+        sublabel="predicted 12-mo value" />
+      <KpiCard label="Customers flagged" :value="actionsSummary.total"
+        :sublabel="`${actionsSummary.high} high priority`" />
     </div>
-    <div class="space-y-3">
-      <div v-for="action in nextActions.slice(0, 30)" :key="(action as Record<string, unknown>).customer_id as string"
-        class="p-4 bg-surface-white rounded-lg border border-outline-gray-1">
-        <div class="flex items-start justify-between mb-3">
-          <div>
-            <h4 class="font-semibold text-ink-gray-9">{{ (action as Record<string, unknown>).customer_name }}</h4>
-            <div class="flex items-center gap-2 mt-1">
-              <Badge theme="gray" variant="subtle" :label="((action as Record<string, unknown>).clv_tier as string) || '-'" size="sm" />
-              <Badge v-bind="severityBadge(churnSeverity((action as Record<string, unknown>).churn_risk as string))"
-                :label="((action as Record<string, unknown>).churn_risk as string) + ' Risk'" size="sm" />
+
+    <!-- Filters -->
+    <div class="flex flex-wrap items-center gap-3 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
+      <Filter class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
+      <Select v-model="actionType" :options="actionTypeOptions" aria-label="Filter by action type" class="text-sm" />
+      <Select v-model="actionPriority" :options="actionPriorityOptions" aria-label="Filter by priority" class="text-sm" />
+      <Button variant="outline" label="Clear filters" @click="clearActionFilters" />
+      <span class="ml-auto text-sm text-ink-gray-6">{{ filteredActions.length }} of {{ nextActions.length }} customers</span>
+    </div>
+
+    <!-- Empty state -->
+    <div v-if="!filteredActions.length" class="p-10 text-center bg-surface-white rounded-lg border border-outline-gray-1">
+      <Target class="w-8 h-8 mx-auto text-ink-gray-4" aria-hidden="true" />
+      <p class="mt-3 text-sm text-ink-gray-6">No action items match the current filters.</p>
+    </div>
+
+    <!-- Action cards, biggest money at stake first -->
+    <div v-else class="space-y-3">
+      <div v-for="item in filteredActions.slice(0, 50)" :key="item.customer_id"
+        class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
+        <!-- Header: customer, tier/risk/health, money at stake, drill-in -->
+        <button type="button"
+          class="w-full flex items-center justify-between gap-4 px-4 py-3 text-left hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
+          @click="viewCustomerDetail(item.customer_id)">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <h4 class="font-semibold text-ink-gray-9 truncate">{{ item.customer_name }}</h4>
+              <Badge v-if="hasHighPriority(item)" theme="red" variant="subtle" label="High priority" size="sm" />
+            </div>
+            <div class="flex flex-wrap items-center gap-2 mt-1">
+              <Badge theme="gray" variant="subtle" :label="item.clv_tier || '-'" size="sm" />
+              <Badge v-bind="severityBadge(churnSeverity(item.churn_risk))" :label="(item.churn_risk || '-') + ' risk'" size="sm" />
+              <Badge v-bind="severityBadge(healthSeverity(item.health_status))" :label="item.health_status || '-'" size="sm" />
             </div>
           </div>
-          <Badge v-bind="severityBadge(healthSeverity((action as Record<string, unknown>).health_status as string))"
-            :label="((action as Record<string, unknown>).health_status as string) || '-'" size="sm" />
-        </div>
-        <div class="-mx-4 mt-3 divide-y divide-outline-gray-1 border-t border-outline-gray-1">
-          <div v-for="rec in ((action as Record<string, unknown>).recommendations as Record<string, unknown>[])" :key="rec.action as string"
-            class="px-4 py-3">
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-sm font-semibold text-ink-gray-8">{{ actionLabel(rec.action as string) }}</span>
-              <Badge v-bind="severityBadge(prioritySeverity(rec.priority as string))" :label="(rec.priority as string) + ' Priority'" size="sm" />
+          <div class="flex items-center gap-3 shrink-0">
+            <div class="text-right">
+              <div class="text-xs text-ink-gray-5">At stake</div>
+              <div class="font-semibold tnum text-ink-gray-9">{{ money(atStake(item)) }}</div>
+            </div>
+            <ChevronRight class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
+          </div>
+        </button>
+        <!-- Recommendations, each with its own money figure -->
+        <div class="divide-y divide-outline-gray-1 border-t border-outline-gray-1">
+          <div v-for="rec in item.recommendations" :key="rec.action" class="px-4 py-3">
+            <div class="flex items-center justify-between gap-3 mb-1">
+              <span class="text-sm font-semibold text-ink-gray-8">{{ actionLabel(rec.action) }}</span>
+              <div class="flex items-center gap-2 shrink-0">
+                <span v-if="recImpact(item, rec) > 0" class="text-sm tnum text-ink-gray-6">
+                  {{ recImpactLabel(rec) }}: <span class="font-medium text-ink-gray-9">{{ money(recImpact(item, rec)) }}</span>
+                </span>
+                <Badge v-bind="severityBadge(prioritySeverity(rec.priority))" :label="rec.priority" size="sm" />
+              </div>
             </div>
             <p class="text-sm text-ink-gray-7">{{ rec.description }}</p>
-            <p class="mt-1 text-sm text-ink-gray-7">{{ rec.suggestion }}</p>
+            <p class="mt-1 text-sm text-ink-gray-6">{{ rec.suggestion }}</p>
           </div>
         </div>
       </div>

@@ -6,6 +6,45 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Changed — Actions tab moved last and redesigned to lead with money at stake
+
+`Actions` is now the last tab in the Customers group (was fourth, between
+Geography and Cohorts). It is the "what do I do now" tab, so it belongs after
+the analytical tabs that justify the action, not in the middle of them.
+
+The tab was a flat list of up to 30 customers, each card a name + three status
+badges + a stack of recommendation lines whose only quantities were numbers
+baked into the advice text ("Outstanding balance: 31,020"). Nothing was
+aggregated, sortable, or filterable, and the reader could not tell a
+₹24M-at-risk customer from a ₹3K one without reading every line.
+
+Redesigned to lead with the real ledger figure at stake:
+
+- **Impact summary band** (four KpiCards): total revenue at risk (booked revenue
+  of customers flagged for churn or re-engagement), outstanding to collect
+  (payment follow-ups), upsell + nurture upside (predicted 12-month forward
+  value), and customers flagged with a high-priority count. Each sum dedups by
+  customer, so a customer with two recommendations is counted once.
+- **Per-customer "At stake"** figure on every card — the largest single ledger
+  amount that customer puts at stake — with the list sorted high-priority first,
+  then by that amount, so the biggest money surfaces at the top.
+- **Per-recommendation money**: each recommendation now shows its own figure and
+  what it represents (churn/re-engagement → "Revenue at risk", payment →
+  "Outstanding", upsell/nurture → "12-mo forward value").
+- **Filters**: action-type and priority selects; the card header is a button
+  that drills into the customer's detail page.
+
+Backend `_next_best_actions` now carries the real per-customer figures
+(`historical_clv`, `predicted_12m_clv`, `outstanding_amount`, `recency_days`)
+on each action item instead of only embedding them in advice strings. All
+quantification, filtering and sorting is client-side over that payload.
+
+Live-verified on the JKM ledger (100 flagged customers): revenue at risk
+₹56,237,905, outstanding ₹14,875,213, upsell + nurture upside ₹61,635,303;
+at-stake column sorts biggest-first (₹23.9M top); action-type filter narrows
+upsell → 5, payment → 23 with the correct money labels; card click drills into
+`/customer/<id>`. Zero console errors.
+
 ### Changed — Rankings tab is now one unified, filterable, sortable scorecard
 
 The Customers → Rankings tab used to be a Top/Bottom toggle over eight separate

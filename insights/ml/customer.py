@@ -1063,6 +1063,13 @@ def _next_best_actions(df):
                 "clv_tier": tier,
                 "health_status": health,
                 "churn_risk": churn,
+                # Real ledger figures at stake, so the frontend leads with money:
+                # churn/re-engagement risk the booked revenue, payment follow-up
+                # the outstanding balance, upsell/nurture the predicted forward CLV.
+                "historical_clv": float(c.get("historical_clv") or 0),
+                "predicted_12m_clv": float(c.get("predicted_12m_clv") or 0),
+                "outstanding_amount": outstanding,
+                "recency_days": recency,
                 "recommendations": recs,
             })
 
