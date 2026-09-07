@@ -474,25 +474,59 @@ function isPeriodForecast(period: string): boolean {
 }
 
 // ── Attribution chart configs ─────────────────────────────────────────────
+// Per-source rows enriched with revenue share, margin %, and avg/order — all
+// derived from the {source, revenue, gross_profit, order_count} payload, no
+// extra backend call.
+const attributionRows = computed(() => {
+  const rows = sourceAttribution.value
+  const total = rows.reduce((s, r) => s + ((r.revenue as number) || 0), 0)
+  return rows.map((r) => {
+    const rev = (r.revenue as number) || 0
+    const gp = (r.gross_profit as number) || 0
+    const orders = (r.order_count as number) || 0
+    return {
+      source: r.source as string,
+      revenue: rev,
+      share: total > 0 ? (rev / total) * 100 : 0,
+      gross_profit: gp,
+      margin_pct: rev > 0 ? (gp / rev) * 100 : 0,
+      order_count: orders,
+      aov: orders > 0 ? rev / orders : 0,
+    }
+  })
+})
+const attributionSummary = computed(() => {
+  const rows = attributionRows.value
+  if (!rows.length) return null
+  const total = rows.reduce((s, r) => s + r.revenue, 0)
+  const unattributed = rows.find(r => r.source === 'Unattributed')?.revenue ?? 0
+  const attributed = total - unattributed
+  const named = rows.filter(r => r.source !== 'Unattributed')
+  const top = named[0] ?? null
+  return {
+    attributedRevenue: attributed,
+    attributedPct: total > 0 ? (attributed / total) * 100 : 0,
+    sourceCount: named.length,
+    topSource: top ? top.source : NO_VALUE,
+    topSourceRevenue: top ? top.revenue : 0,
+  }
+})
 const attributionConfig = computed(() => {
-  const d = sourceAttribution.value.slice(0, 10)
+  const d = attributionRows.value.slice(0, 10)
   if (!d.length) return null
-  const palette = chartPalette(3)
+  const palette = chartPalette(2)
   return {
     data: d.map(x => ({
-      source: x.source as string,
-      Revenue: x.revenue as number,
-      Profit: x.gross_profit as number,
-      Orders: x.order_count as number,
+      source: x.source,
+      Revenue: x.revenue,
+      Profit: x.gross_profit,
     })),
     title: '',
     xAxis: { key: 'source', type: 'category' as const },
     yAxis: { title: 'Amount' },
-    y2Axis: { title: 'Orders' },
     series: [
       { name: 'Revenue', type: 'bar' as const, color: palette[0] },
       { name: 'Profit', type: 'bar' as const, color: palette[1] },
-      { name: 'Orders', type: 'bar' as const, color: palette[2], axis: 'y2' as const },
     ],
   }
 })
@@ -1122,54 +1156,88 @@ onMounted(() => {
 
   <!-- ═══ Attribution ═══ -->
   <div v-if="activeTab === 'rev-sources'" class="space-y-6">
+    <!-- Summary band -->
+    <div v-if="attributionSummary" class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <KpiCard label="Attributed Revenue" :value="money(attributionSummary.attributedRevenue)"
+        :sublabel="`${pct(attributionSummary.attributedPct)} of total revenue`" />
+      <KpiCard label="Lead Sources" :value="num(attributionSummary.sourceCount)" sublabel="excludes unattributed" />
+      <KpiCard label="Top Source" :value="attributionSummary.topSource"
+        :sublabel="money(attributionSummary.topSourceRevenue)" />
+      <KpiCard label="Quote Conversion" :percent="quotationAnalytics ? (quotationAnalytics.conversion_rate as number) : null"
+        sublabel="quotes won / total" />
+    </div>
+
+    <!-- Revenue by lead source: chart + visible table -->
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-      <SectionHeader variant="caption" title="Source Attribution" :level="3" />
+      <SectionHeader variant="caption" title="Revenue by Lead Source"
+        hint="Revenue and gross profit attributed through the lead → invoice chain" :level="3" />
       <div v-if="attributionConfig" class="mt-4 h-56 sm:h-72 lg:h-80">
         <IntelligenceChart :config="attributionConfig" class="h-56 sm:h-72 lg:h-80" />
       </div>
-      <table v-if="attributionConfig" class="sr-only">
-        <caption>Source attribution: revenue, gross profit, and order count by channel</caption>
-        <thead><tr><th scope="col">Source</th><th scope="col">Revenue</th><th scope="col">Gross Profit</th><th scope="col">Orders</th></tr></thead>
-        <tbody>
-          <tr v-for="row in sourceAttribution.slice(0, 10)" :key="row.source as string">
-            <th scope="row">{{ row.source }}</th>
-            <td>{{ money(row.revenue as number) }}</td>
-            <td>{{ money(row.gross_profit as number) }}</td>
-            <td>{{ num(row.order_count as number) }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-if="attributionRows.length" class="mt-6 overflow-x-auto">
+        <table class="w-full text-sm">
+          <caption class="sr-only">Revenue, share, gross profit, margin, orders and average order value by lead source</caption>
+          <thead class="bg-surface-gray-1">
+            <tr>
+              <th scope="col" class="px-4 py-2 text-left text-ink-gray-7">Source</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Revenue</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Share</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Gross Profit</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Margin %</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Orders</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Avg / Order</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in attributionRows" :key="row.source"
+              class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
+              :class="row.source === 'Unattributed' ? 'text-ink-gray-5 italic' : ''">
+              <td class="px-4 py-2 text-left font-medium text-ink-gray-8">{{ row.source }}</td>
+              <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money(row.revenue) }}</td>
+              <td class="px-4 py-2 text-right text-ink-gray-6">{{ pct(row.share) }}</td>
+              <td class="px-4 py-2 text-right text-ink-gray-7">{{ money(row.gross_profit) }}</td>
+              <td class="px-4 py-2 text-right">
+                <Badge v-bind="severityBadge(scoreSeverity(row.margin_pct, { good: 30, warn: 15 }))" :label="pct(row.margin_pct)" size="sm" />
+              </td>
+              <td class="px-4 py-2 text-right text-ink-gray-7">{{ num(row.order_count) }}</td>
+              <td class="px-4 py-2 text-right text-ink-gray-7">{{ row.order_count > 0 ? money(row.aov) : NO_VALUE }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div v-else class="mt-4 text-center py-8 text-ink-gray-6">
         <Target class="w-8 h-8 mx-auto mb-2 opacity-40" aria-hidden="true" />
         <p>No source attribution data available</p>
       </div>
     </div>
 
-    <div v-if="sourceAttribution.length" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-      <KpiCard v-for="src in sourceAttribution.slice(0, 8)" :key="src.source as string"
-        :label="src.source as string" :value="(src.order_count as number) > 0 ? money((src.revenue as number) / (src.order_count as number)) : NO_VALUE" sublabel="per order" />
-    </div>
-
+    <!-- Quotation funnel -->
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-      <SectionHeader variant="caption" title="Quotation Funnel" :level="3" />
-      <div v-if="quotationAnalytics" class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <SectionHeader variant="caption" title="Quotation Funnel"
+        hint="Quote-to-order conversion and why deals are lost" :level="3" />
+      <div v-if="quotationAnalytics" class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         <KpiCard label="Total Quotes" :value="num(quotationAnalytics.total as number)" />
         <KpiCard label="Won" :value="num(quotationAnalytics.won as number)" />
+        <KpiCard label="Pending" :value="num(quotationAnalytics.pending as number)" />
         <KpiCard label="Lost" :value="num(quotationAnalytics.lost as number)" severity="high" />
+        <KpiCard label="Conversion" :percent="quotationAnalytics.conversion_rate as number" />
       </div>
-      <div v-if="lostReasonsConfig" class="h-48 sm:h-56 lg:h-64">
-        <IntelligenceChart kind="donut" :config="lostReasonsConfig" class="h-48 sm:h-56 lg:h-64" />
+      <div v-if="lostReasonsConfig">
+        <SectionHeader variant="caption" title="Why quotes are lost" :level="4" />
+        <div class="mt-2 h-48 sm:h-56 lg:h-64">
+          <IntelligenceChart kind="donut" :config="lostReasonsConfig" class="h-48 sm:h-56 lg:h-64" />
+        </div>
+        <table class="sr-only">
+          <caption>Quotation lost reasons by count</caption>
+          <thead><tr><th scope="col">Reason</th><th scope="col">Count</th></tr></thead>
+          <tbody>
+            <tr v-for="r in (quotationAnalytics?.lost_reasons as Record<string, unknown>[])" :key="r.order_lost_reason as string">
+              <th scope="row">{{ r.order_lost_reason }}</th>
+              <td>{{ r.count }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
-      <table v-if="lostReasonsConfig" class="sr-only">
-        <caption>Quotation lost reasons by count</caption>
-        <thead><tr><th scope="col">Reason</th><th scope="col">Count</th></tr></thead>
-        <tbody>
-          <tr v-for="r in (quotationAnalytics?.lost_reasons as Record<string, unknown>[])" :key="r.order_lost_reason as string">
-            <th scope="row">{{ r.order_lost_reason }}</th>
-            <td>{{ r.count }}</td>
-          </tr>
-        </tbody>
-      </table>
       <div v-else-if="quotationAnalytics" class="text-center py-8 text-ink-gray-6">
         <p>No lost reason data available</p>
       </div>

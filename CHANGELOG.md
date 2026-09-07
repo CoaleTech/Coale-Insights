@@ -6,6 +6,31 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Changed — Redesigned the Attribution tab
+
+The Attribution tab hid its most useful data. Source attribution rendered only
+as a three-bar chart (Revenue/Profit/Orders on a confusing dual axis) with the
+actual numbers in a screen-reader-only table; the quotation funnel computed
+`conversion_rate` and `pending` but never displayed them; a cramped grid of
+"per order" KpiCards duplicated one slice of the data.
+
+Rebuilt it from the same payload — no new backend call:
+- **Summary band**: Attributed Revenue (with % of total), Lead Sources, Top
+  Source, and Quote Conversion. This surfaces the attribution *gap* directly —
+  on the JKM ledger 99.0% of revenue is Unattributed (a sparse lead→invoice
+  chain), which the old chart quietly buried.
+- **Visible source table**: Source · Revenue · Share · Gross Profit · Margin %
+  (severity badge) · Orders · Avg/Order, derived client-side from the existing
+  `{revenue, gross_profit, order_count}` rows. Unattributed is de-emphasized.
+- **Simplified chart**: dropped the Orders-on-second-axis bar; Revenue and Gross
+  Profit now share one currency axis.
+- **Fuller quotation funnel**: Total / Won / Pending / Lost / Conversion KPIs
+  (Pending and Conversion were previously computed but hidden), lost-reasons
+  donut under its own subheading.
+
+Live-verified on jkm: IndiaMart top named source ₹1,307,350 / 6.1% margin;
+quotation conversion and pending render. Zero console errors.
+
 ### Added — Gross Profit and Margin % columns on the Sales Reps leaderboard
 
 The Sales Rep Leaderboard showed each rep's allocated Revenue but no margin, so
