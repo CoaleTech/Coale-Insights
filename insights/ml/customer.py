@@ -1989,7 +1989,7 @@ def compute_purchase_patterns(top_percentile: int = 20,
     SI = frappe.qb.DocType("Sales Invoice")
     rows = (
         frappe.qb.from_(SI)
-        .select(SI.customer, SI.grand_total, SI.posting_date)
+        .select(SI.name, SI.customer, SI.grand_total, SI.posting_date)
         .where(
             (SI.docstatus == 1)
             & SI.posting_date.between(start, end)
@@ -2011,21 +2011,45 @@ def compute_purchase_patterns(top_percentile: int = 20,
     df["month_name"] = df["posting_date"].dt.month_name()
     df["quarter"] = df["posting_date"].apply(_quarter)
 
+    # Per-invoice gross profit (line-level, same formula as _rank_customers),
+    # bucketed alongside revenue so each pattern view shows margin, not just top line.
+    sii = t("Sales Invoice Item")
+    si_for_profit = t("Sales Invoice")
+    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    if company:
+        profit_lines = profit_lines.filter(si_for_profit.company == company)
+    profit_lines = profit_lines.filter(
+        (si_for_profit.docstatus == 1)
+        & si_for_profit.posting_date.between(start, end)
+        & si_for_profit.customer.isin(top_ids)
+    )
+    profit_per_inv = (
+        profit_lines.group_by(si_for_profit.name)
+        .aggregate(gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum())
+        .execute()
+    )
+    gp_map = dict(zip(profit_per_inv["name"], profit_per_inv["gross_profit"])) if not profit_per_inv.empty else {}
+    df["gross_profit"] = df["name"].map(gp_map).fillna(0).astype(float)
+
     day_analysis = df.groupby("day_name").agg(
         order_count=("grand_total", "count"),
         total_revenue=("grand_total", "sum"),
         avg_order_value=("grand_total", "mean"),
+        gross_profit=("gross_profit", "sum"),
     ).reindex(_DAY_ORDER).fillna(0).reset_index()
     day_analysis["total_revenue"] = day_analysis["total_revenue"].round(2)
     day_analysis["avg_order_value"] = day_analysis["avg_order_value"].round(2)
+    day_analysis["gross_profit"] = day_analysis["gross_profit"].round(2)
 
     month_analysis = df.groupby("month_name").agg(
         order_count=("grand_total", "count"),
         total_revenue=("grand_total", "sum"),
         avg_order_value=("grand_total", "mean"),
+        gross_profit=("gross_profit", "sum"),
     ).reindex(_MONTH_ORDER).fillna(0).reset_index()
     month_analysis["total_revenue"] = month_analysis["total_revenue"].round(2)
     month_analysis["avg_order_value"] = month_analysis["avg_order_value"].round(2)
+    month_analysis["gross_profit"] = month_analysis["gross_profit"].round(2)
 
     quarter_analysis = df.groupby("quarter").agg(
         order_count=("grand_total", "count"),

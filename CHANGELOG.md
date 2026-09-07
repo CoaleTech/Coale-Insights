@@ -6,6 +6,21 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Added — Gross Profit column on the Patterns tab
+
+The Customers → Patterns tab showed Orders, Revenue and Avg Order per day-of-week
+and per-month, but no margin, so a high-revenue day could hide thin profit. Added
+a **Gross Profit** column (after Revenue) to both the Day of Week and Monthly
+tables.
+
+`compute_purchase_patterns` now also aggregates line-level gross profit per
+invoice — the same `net_amount - qty * incoming_rate` formula used by the Rankings
+scorecard — and buckets it into the day/month rows alongside revenue.
+
+Live-verified on the JKM ledger (top 20% by CLV): Monday revenue ₹34,164,932 /
+gross profit ₹5,427,908; January revenue ₹10,786,318 / gross profit ₹1,523,596.
+Zero console errors.
+
 ### Changed — Actions tab moved last and redesigned to lead with money at stake
 
 `Actions` is now the last tab in the Customers group (was fourth, between

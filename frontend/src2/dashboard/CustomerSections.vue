@@ -854,6 +854,7 @@ onMounted(() => {
                 <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Day</th>
                 <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Orders</th>
                 <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Revenue</th>
+                <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Gross Profit</th>
                 <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Avg Order</th>
                 <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Activity</th>
               </tr>
@@ -867,6 +868,7 @@ onMounted(() => {
                 </td>
                 <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ formatNumber(day.order_count as number) }}</td>
                 <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ money(day.total_revenue as number) }}</td>
+                <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ money(day.gross_profit as number) }}</td>
                 <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ money(day.avg_order_value as number) }}</td>
                 <td class="px-4 py-2">
                   <div class="w-full bg-surface-gray-2 rounded-full h-2" role="img" :aria-label="'Activity bar: ' + day.day_name">
@@ -889,6 +891,7 @@ onMounted(() => {
                 <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Month</th>
                 <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Orders</th>
                 <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Revenue</th>
+                <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Gross Profit</th>
                 <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Avg Order</th>
               </tr>
             </thead>
@@ -901,6 +904,7 @@ onMounted(() => {
                 </td>
                 <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ formatNumber(month.order_count as number) }}</td>
                 <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ money(month.total_revenue as number) }}</td>
+                <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ money(month.gross_profit as number) }}</td>
                 <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ money(month.avg_order_value as number) }}</td>
               </tr>
             </tbody>
