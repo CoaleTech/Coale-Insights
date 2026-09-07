@@ -133,6 +133,51 @@ def calculate_revenue_metrics(
         for _, r in monthly_df.iterrows()
     ]
 
+    # Line-level cost of sales and gross profit per period, mirroring
+    # analyze_margins: cost = sum(qty * incoming_rate), GP = sum(net_amount) - cost.
+    # net_amount is pre-tax, so gross margin % is on net sales -- the convention
+    # used across the Margins tab and rankings -- not on the tax-inclusive
+    # grand_total shown in the Revenue row.
+    sii = t("Sales Invoice Item")
+    line_cost = (sii.qty * sii.incoming_rate.fill_null(0)).sum()
+    line_profit = sii.net_amount.sum() - line_cost
+
+    def _merge_gp(series: list[dict[str, Any]], gp_map: dict[str, tuple[float, float]], key: str) -> None:
+        for row in series:
+            cost, gp = gp_map.get(row[key], (0.0, 0.0))
+            row["cost_of_sales"] = round(cost, 2)
+            row["gross_profit"] = round(gp, 2)
+
+    base_daily = si_daily.inner_join(sii, sii.parent == si_daily.name)
+    gp_daily = {
+        str(r["posting_date"]): (float(r["cost"] or 0), float(r["gross_profit"] or 0))
+        for _, r in base_daily.group_by(base_daily.posting_date)
+        .aggregate(cost=line_cost, gross_profit=line_profit)
+        .execute()
+        .iterrows()
+    }
+    _merge_gp(daily_sales, gp_daily, "date")
+
+    base_weekly = si_weekly.inner_join(sii, sii.parent == si_weekly.name)
+    gp_weekly = {
+        r["year_week"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
+        for _, r in base_weekly.group_by(base_weekly.year_week)
+        .aggregate(cost=line_cost, gross_profit=line_profit)
+        .execute()
+        .iterrows()
+    }
+    _merge_gp(weekly_sales, gp_weekly, "year_week")
+
+    base_monthly = si_monthly.inner_join(sii, sii.parent == si_monthly.name)
+    gp_monthly = {
+        r["period"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
+        for _, r in base_monthly.group_by(base_monthly.period)
+        .aggregate(cost=line_cost, gross_profit=line_profit)
+        .execute()
+        .iterrows()
+    }
+    _merge_gp(monthly_sales, gp_monthly, "period")
+
     # Average days between orders per customer -- a small per-customer
     # aggregate. We compute the span = max(posting_date) - min(posting_date)
     # and the order count; the answer is mean(span) / mean(orders - 1)

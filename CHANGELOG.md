@@ -6,6 +6,23 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Added — Cost of Sales, Gross Margin and Gross Margin % rows on the Revenue Overview tables
+
+The Monthly Summary, Weekly Performance and Daily Sales Detail tables showed
+only Revenue / Orders / Customers. Added three rows to each: **Cost of Sales**
+(line-level `sum(qty * incoming_rate)`), **Gross Margin** amount
+(`sum(net_amount) - cost`) and **Gross Margin %** (GP / net sales). Backend
+`calculate_revenue_metrics` now emits `cost_of_sales`/`gross_profit` per period
+for all three series, joining Sales Invoice Item and mirroring the formula used
+by the Margins tab and rankings. Margin % is on net (pre-tax) sales, the same
+basis as everywhere else in the app — not the tax-inclusive `grand_total` in the
+Revenue row. A shared `grossProfitRows()` frontend helper builds the three rows
+with per-period totals; the tables now render percent cells via `pct()`.
+Live-verified on jkm: Weekly/Monthly rows populate with real values (e.g.
+monthly GP ₹2.16M for 2026-08); periods whose lines carry no `incoming_rate`
+show as 100% margin, the same costing gap the Margins tab already surfaces.
+Zero console errors.
+
 ### Changed — Redesigned the Forecasts tab to lead with a plain-language summary
 
 The tab opened with an "ML Forecast Training" panel and a "Sales Forecast (Next

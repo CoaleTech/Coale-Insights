@@ -418,8 +418,52 @@ const transposedDailyCashRatio = computed(() => {
   return { dates, rows }
 })
 
+/**
+ * Cost of Sales, Gross Margin (amount) and Gross Margin % rows shared by the
+ * Weekly / Monthly / Daily tables. Margin % is GP / net sales (GP + cost), the
+ * same net-sales basis the Margins tab uses -- not the tax-inclusive Revenue
+ * row above it, which is grand_total.
+ */
+function grossProfitRows<T extends { cost_of_sales?: number; gross_profit?: number }>(
+  items: T[],
+  keyOf: (i: T) => string,
+): TransposedRow[] {
+  const cost = (i: T) => i.cost_of_sales ?? 0
+  const gp = (i: T) => i.gross_profit ?? 0
+  const totalCost = items.reduce((s, i) => s + cost(i), 0)
+  const totalGp = items.reduce((s, i) => s + gp(i), 0)
+  const totalNet = totalGp + totalCost
+  return [
+    {
+      metric: 'Cost of Sales',
+      values: items.reduce((acc, i) => { acc[keyOf(i)] = cost(i); return acc }, {} as Record<string, number>),
+      total: totalCost,
+      colorClass: 'text-ink-gray-7',
+      isCurrency: true,
+    },
+    {
+      metric: 'Gross Margin',
+      values: items.reduce((acc, i) => { acc[keyOf(i)] = gp(i); return acc }, {} as Record<string, number>),
+      total: totalGp,
+      colorClass: 'text-ink-gray-8',
+      isCurrency: true,
+    },
+    {
+      metric: 'Gross Margin %',
+      values: items.reduce((acc, i) => {
+        const net = gp(i) + cost(i)
+        acc[keyOf(i)] = net > 0 ? (gp(i) / net) * 100 : 0
+        return acc
+      }, {} as Record<string, number>),
+      total: totalNet > 0 ? (totalGp / totalNet) * 100 : 0,
+      colorClass: 'text-ink-gray-8',
+      isPercent: true,
+    },
+  ]
+}
+
 // ── Weekly performance transposed table ───────────────────────────────────
-interface WeeklySalesItem { year_week: string; revenue?: number; transactions?: number }
+interface WeeklySalesItem { year_week: string; revenue?: number; transactions?: number; cost_of_sales?: number; gross_profit?: number }
 const transposedWeeklyPerformance = computed(() => {
   const weeklyData = (revenueMetrics.value.weekly_sales as WeeklySalesItem[]) || []
   if (!weeklyData.length) return { weeks: [] as { label: string }[], rows: [] as TransposedRow[] }
@@ -452,11 +496,12 @@ const transposedWeeklyPerformance = computed(() => {
       isCurrency: true,
     },
   ]
+  rows.push(...grossProfitRows(recentWeeks, weekKey))
   return { weeks, rows }
 })
 
 // ── Monthly summary transposed table ──────────────────────────────────────
-interface MonthlySalesItem { period: string; revenue?: number; transactions?: number; unique_customers?: number }
+interface MonthlySalesItem { period: string; revenue?: number; transactions?: number; unique_customers?: number; cost_of_sales?: number; gross_profit?: number }
 const transposedMonthlySummary = computed(() => {
   const monthlyData = (revenueMetrics.value.monthly_sales as MonthlySalesItem[]) || []
   if (!monthlyData.length) return { months: [] as string[], rows: [] as TransposedRow[] }
@@ -485,11 +530,12 @@ const transposedMonthlySummary = computed(() => {
       isCurrency: false,
     },
   ]
+  rows.push(...grossProfitRows(recentMonths, m => m.period))
   return { months, rows }
 })
 
 // ── Daily sales transposed table ──────────────────────────────────────────
-interface DailySalesItem { date: string; revenue?: number; transactions?: number }
+interface DailySalesItem { date: string; revenue?: number; transactions?: number; cost_of_sales?: number; gross_profit?: number }
 const transposedDailySales = computed(() => {
   const dailyData = (revenueMetrics.value.daily_sales as DailySalesItem[]) || []
   if (!dailyData.length) return { dates: [] as string[], rows: [] as TransposedRow[] }
@@ -521,6 +567,7 @@ const transposedDailySales = computed(() => {
       isCurrency: true,
     },
   ]
+  rows.push(...grossProfitRows(recentDays, d => d.date))
   return { dates, rows }
 })
 
@@ -750,10 +797,10 @@ onMounted(() => {
             <tr v-for="row in transposedDailySales.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
               <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
               <td v-for="date in transposedDailySales.dates" :key="date" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                {{ row.isCurrency ? money(row.values[date]) : num(row.values[date]) }}
+                {{ row.isPercent ? pct(row.values[date]) : row.isCurrency ? money(row.values[date]) : num(row.values[date]) }}
               </td>
               <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                {{ row.isCurrency ? money(row.total) : num(row.total) }}
+                {{ row.isPercent ? pct(row.total) : row.isCurrency ? money(row.total) : num(row.total) }}
               </td>
             </tr>
           </tbody>
@@ -780,10 +827,10 @@ onMounted(() => {
             <tr v-for="row in transposedWeeklyPerformance.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
               <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
               <td v-for="week in transposedWeeklyPerformance.weeks" :key="week.label" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                {{ row.isCurrency ? money(row.values[week.label]) : num(row.values[week.label]) }}
+                {{ row.isPercent ? pct(row.values[week.label]) : row.isCurrency ? money(row.values[week.label]) : num(row.values[week.label]) }}
               </td>
               <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                {{ row.isCurrency ? money(row.total) : num(row.total) }}
+                {{ row.isPercent ? pct(row.total) : row.isCurrency ? money(row.total) : num(row.total) }}
               </td>
             </tr>
           </tbody>
@@ -810,10 +857,10 @@ onMounted(() => {
             <tr v-for="row in transposedMonthlySummary.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
               <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
               <td v-for="month in transposedMonthlySummary.months" :key="month" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                {{ row.isCurrency ? money(row.values[month]) : num(row.values[month]) }}
+                {{ row.isPercent ? pct(row.values[month]) : row.isCurrency ? money(row.values[month]) : num(row.values[month]) }}
               </td>
               <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                {{ row.isCurrency ? money(row.total) : num(row.total) }}
+                {{ row.isPercent ? pct(row.total) : row.isCurrency ? money(row.total) : num(row.total) }}
               </td>
             </tr>
           </tbody>
