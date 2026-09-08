@@ -6,6 +6,23 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Fixed — Gross Margin % showed a fake 100% for periods with no cost basis
+
+On the Revenue Overview tab the Daily Sales Detail, Weekly Performance and Monthly
+Summary tables reported **Gross Margin % = 100%** (and Cost of Sales = 0) for every
+recent period. Cause: those invoices carry `incoming_rate = 0` — item valuation has
+not been posted for the most recent stock movements (Jul/Aug 2026 on the JKM ledger)
+— so `cost_of_sales` is genuinely 0 and `gross_profit = net_amount − 0 = net`,
+i.e. a spurious full margin. `grossProfitRows` in `RevenueSections.vue` divided by
+`gp + cost` and rendered the result verbatim, and the `money`/`pct`/`num` cell
+helpers coerced null to `0`/`0%`, so a missing cost basis was indistinguishable from
+a real zero-cost sale. Now a period with `cost_of_sales <= 0` is treated as *not
+valued*: Cost of Sales, Gross Margin and Gross Margin % render `—` and are excluded
+from the column totals, instead of reporting a false 100%. Verified against the JKM
+ledger via a fresh-module compute — Mar–Jun 2026 carry real cost (GM 7.7%–29.9%),
+Jul/Aug 2026 have no valuation and now show `—`. Frontend-only; the data itself is
+fixed by running Repost Item Valuation so `incoming_rate` populates.
+
 ### Fixed — Executive Summary overstated expenses (SUM(ABS) double-counted contra entries)
 
 On the Financial Intelligence dashboard the **Executive Summary** band (strategic

@@ -128,13 +128,16 @@ const dsoSeverity = computed(() =>
 
 // ── Local format helpers (respect server currency) ────────────────────────
 function money(value: number | null | undefined): string {
+  if (value == null) return '—'
   return formatMoney(value, props.currency)
 }
 function pct(value: number | null | undefined): string {
-  return `${value?.toFixed(1) ?? 0}%`
+  if (value == null) return '—'
+  return `${value.toFixed(1)}%`
 }
 function num(value: number | null | undefined): string {
-  return value?.toLocaleString() ?? '0'
+  if (value == null) return '—'
+  return value.toLocaleString()
 }
 
 // ── State: collapsible daily sales ─────────────────────────────────────────
@@ -368,8 +371,8 @@ const revenueProjectionConfig = computed(() => {
 
 interface TransposedRow {
   metric: string
-  values: Record<string, number>
-  total: number
+  values: Record<string, number | null>
+  total: number | null
   colorClass: string
   isCurrency?: boolean
   isPercent?: boolean
@@ -428,34 +431,40 @@ function grossProfitRows<T extends { cost_of_sales?: number; gross_profit?: numb
   items: T[],
   keyOf: (i: T) => string,
 ): TransposedRow[] {
+  // A period with revenue but zero cost basis has no valuation yet
+  // (incoming_rate not posted), not a genuine 100% margin. Treat cost <= 0
+  // as "not valued": render — and exclude it from the totals rather than
+  // reporting a fake full-margin figure.
+  const hasCost = (i: T) => typeof i.cost_of_sales === 'number' && i.cost_of_sales > 0
   const cost = (i: T) => i.cost_of_sales ?? 0
   const gp = (i: T) => i.gross_profit ?? 0
-  const totalCost = items.reduce((s, i) => s + cost(i), 0)
-  const totalGp = items.reduce((s, i) => s + gp(i), 0)
+  const costed = items.filter(hasCost)
+  const totalCost = costed.reduce((s, i) => s + cost(i), 0)
+  const totalGp = costed.reduce((s, i) => s + gp(i), 0)
   const totalNet = totalGp + totalCost
+  const anyCost = costed.length > 0
   return [
     {
       metric: 'Cost of Sales',
-      values: items.reduce((acc, i) => { acc[keyOf(i)] = cost(i); return acc }, {} as Record<string, number>),
-      total: totalCost,
+      values: items.reduce((acc, i) => { acc[keyOf(i)] = hasCost(i) ? cost(i) : null; return acc }, {} as Record<string, number | null>),
+      total: anyCost ? totalCost : null,
       colorClass: 'text-ink-gray-7',
       isCurrency: true,
     },
     {
       metric: 'Gross Margin',
-      values: items.reduce((acc, i) => { acc[keyOf(i)] = gp(i); return acc }, {} as Record<string, number>),
-      total: totalGp,
+      values: items.reduce((acc, i) => { acc[keyOf(i)] = hasCost(i) ? gp(i) : null; return acc }, {} as Record<string, number | null>),
+      total: anyCost ? totalGp : null,
       colorClass: 'text-ink-gray-8',
       isCurrency: true,
     },
     {
       metric: 'Gross Margin %',
       values: items.reduce((acc, i) => {
-        const net = gp(i) + cost(i)
-        acc[keyOf(i)] = net > 0 ? (gp(i) / net) * 100 : 0
+        acc[keyOf(i)] = hasCost(i) ? (gp(i) / (gp(i) + cost(i))) * 100 : null
         return acc
-      }, {} as Record<string, number>),
-      total: totalNet > 0 ? (totalGp / totalNet) * 100 : 0,
+      }, {} as Record<string, number | null>),
+      total: anyCost && totalNet > 0 ? (totalGp / totalNet) * 100 : null,
       colorClass: 'text-ink-gray-8',
       isPercent: true,
     },
