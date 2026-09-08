@@ -6,6 +6,37 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Fixed — COGS was zero for delivery-note-driven sales, hiding real 6–11% margins
+
+The prior fix rendered `—` for periods where `cost_of_sales = 0`, treating that as a
+valuation gap. Deeper investigation against the JKM ledger showed the zero was a
+**backend sourcing bug**, not missing data. Every Sales Invoice on this site is raised
+against a Delivery Note, which forces `update_stock = 0` on the invoice
+(`sales_invoice.py`: "stock cannot be updated again"). COGS is therefore booked on the
+**Delivery Note**, and `Sales Invoice Item.incoming_rate` stays 0 until Repost Item
+Valuation back-writes it. All six ML cost sites read `incoming_rate` off the invoice
+line, so they saw 0 whenever the invoice ran after a DN — always, here — and depended
+on repost timing.
+
+Fix: added `dn_cost()` + `line_cogs()` helpers in `api/ml/ibis_source.py`. `line_cogs`
+now coalesces `SII.incoming_rate` (nonzero) → linked Delivery Note Item `incoming_rate`
+(joined on `sii.dn_detail`) → 0, so cost is sourced from wherever ERPNext actually
+booked it regardless of repost lag. Rewired all six GP sites
+(`sales_intelligence.py` revenue-metrics daily/weekly/monthly + sales-rep,
+`sales_source_analytics.py` source + territory, `customer.py` list + profitability) to
+left-join `dn_cost()` and pass `.dn_rate`. `dn_cost()` projects the DN Item to just
+`dn_name` + `dn_rate` to avoid the ~15 shared column names that otherwise collide on
+the ibis join.
+
+Verified via `get_sales_intelligence` (the exact dashboard payload): monthly COGS now
+real for every month — Mar 6.6%, Apr 7.5%, May 7.6%, Jun 6.1%, Jul 6.9%, Aug 9.4% —
+matching the Delivery Note ledger. Source (9 rows) and territory (133 rows) GP nonzero,
+`_customer_profitability` returns real margin, zero ibis errors. Operational caveat: the
+`:8052` `cached_run` background worker holds the pre-fix module, so the live dashboard
+updates only after `bench restart`. The frontend `—` guard is kept as a correct
+safeguard for genuinely null cells; with real cost it stays dormant and the tables show
+the true 6–11% margins.
+
 ### Fixed — Gross Margin % showed a fake 100% for periods with no cost basis
 
 On the Revenue Overview tab the Daily Sales Detail, Weekly Performance and Monthly

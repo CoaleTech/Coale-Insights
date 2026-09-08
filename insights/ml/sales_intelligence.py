@@ -30,7 +30,7 @@ from typing import Any
 
 import ibis
 
-from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.ibis_source import company_filter, default_company, dn_cost, line_cogs, t
 from insights.api.ml.utils import parse_date_filter
 from insights.ml.inventory_intelligence import DemandForecasting
 from insights.ml.sales_forecasting import get_sales_forecast
@@ -133,13 +133,15 @@ def calculate_revenue_metrics(
         for _, r in monthly_df.iterrows()
     ]
 
-    # Line-level cost of sales and gross profit per period, mirroring
-    # analyze_margins: cost = sum(qty * incoming_rate), GP = sum(net_amount) - cost.
-    # net_amount is pre-tax, so gross margin % is on net sales -- the convention
-    # used across the Margins tab and rankings -- not on the tax-inclusive
+    # Line-level cost of sales and gross profit per period. Cost is COGS from
+    # the linked Delivery Note (sii.dn_detail) when the Sales Invoice ran with
+    # update_stock=0, else the reposted SII incoming_rate -- see line_cogs.
+    # GP = sum(net_amount) - cost. net_amount is pre-tax, so gross margin % is
+    # on net sales (the Margins/rankings convention), not the tax-inclusive
     # grand_total shown in the Revenue row.
     sii = t("Sales Invoice Item")
-    line_cost = (sii.qty * sii.incoming_rate.fill_null(0)).sum()
+    dn = dn_cost()
+    line_cost = line_cogs(sii, dn.dn_rate).sum()
     line_profit = sii.net_amount.sum() - line_cost
 
     def _merge_gp(series: list[dict[str, Any]], gp_map: dict[str, tuple[float, float]], key: str) -> None:
@@ -148,7 +150,7 @@ def calculate_revenue_metrics(
             row["cost_of_sales"] = round(cost, 2)
             row["gross_profit"] = round(gp, 2)
 
-    base_daily = si_daily.inner_join(sii, sii.parent == si_daily.name)
+    base_daily = si_daily.inner_join(sii, sii.parent == si_daily.name).left_join(dn, sii.dn_detail == dn.dn_name)
     gp_daily = {
         str(r["posting_date"]): (float(r["cost"] or 0), float(r["gross_profit"] or 0))
         for _, r in base_daily.group_by(base_daily.posting_date)
@@ -158,7 +160,7 @@ def calculate_revenue_metrics(
     }
     _merge_gp(daily_sales, gp_daily, "date")
 
-    base_weekly = si_weekly.inner_join(sii, sii.parent == si_weekly.name)
+    base_weekly = si_weekly.inner_join(sii, sii.parent == si_weekly.name).left_join(dn, sii.dn_detail == dn.dn_name)
     gp_weekly = {
         r["year_week"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
         for _, r in base_weekly.group_by(base_weekly.year_week)
@@ -168,7 +170,7 @@ def calculate_revenue_metrics(
     }
     _merge_gp(weekly_sales, gp_weekly, "year_week")
 
-    base_monthly = si_monthly.inner_join(sii, sii.parent == si_monthly.name)
+    base_monthly = si_monthly.inner_join(sii, sii.parent == si_monthly.name).left_join(dn, sii.dn_detail == dn.dn_name)
     gp_monthly = {
         r["period"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
         for _, r in base_monthly.group_by(base_monthly.period)
@@ -400,14 +402,16 @@ def analyze_sales_reps(
 
     # Per-rep gross profit, allocated to each sales person by their share of
     # the invoice (allocated_amount / grand_total), so margin reconciles with
-    # the allocated revenue shown. Line-level GP mirrors analyze_margins:
-    # net_amount - qty * incoming_rate (NULL incoming_rate treated as zero).
+    # the allocated revenue shown. Line-level GP = net_amount - COGS, cost from
+    # the linked Delivery Note or reposted SII incoming_rate (see line_cogs).
     sii = t("Sales Invoice Item")
+    dn = dn_cost()
     inv_gp_df = (
         si.inner_join(sii, sii.parent == si.name)
+        .left_join(dn, sii.dn_detail == dn.dn_name)
         .group_by(invoice=si.name)
         .aggregate(
-            invoice_gp=sii.net_amount.sum() - (sii.qty * sii.incoming_rate.fill_null(0)).sum(),
+            invoice_gp=sii.net_amount.sum() - line_cogs(sii, dn.dn_rate).sum(),
             grand_total=si.grand_total.max(),
         )
         .execute()

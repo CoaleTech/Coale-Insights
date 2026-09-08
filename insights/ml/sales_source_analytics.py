@@ -23,7 +23,7 @@ import ibis
 
 from typing import Dict, Any, List
 
-from insights.api.ml.ibis_source import t
+from insights.api.ml.ibis_source import dn_cost, line_cogs, t
 
 from insights.ml.source_attribution import build_source_attribution_map
 
@@ -75,16 +75,16 @@ def get_source_attributed_sales(period_start: str, period_end: str) -> List[Dict
     # so summing it per invoice across the invoice's own joined lines is
     # correct -- unlike `grand_total`, these values are not replicated
     # header fields.
+    dn = dn_cost()
     gp_df = (
         si.inner_join(sii, sii.parent == si.name)
+        .left_join(dn, sii.dn_detail == dn.dn_name)
         .filter(si.docstatus == 1)
         .filter(si.is_return == 0)
         .filter(si.posting_date.between(period_start, period_end))
         .group_by(si.name)
         .aggregate(
-            gross_profit=(
-                sii.net_amount.sum() - (sii.qty * sii.incoming_rate.fill_null(0)).sum()
-            )
+            gross_profit=sii.net_amount.sum() - line_cogs(sii, dn.dn_rate).sum()
         )
         .execute()
     )
@@ -211,13 +211,13 @@ def get_territory_performance(period_start: str, period_end: str) -> List[Dict]:
     if revenue_df.empty:
         return []
 
+    dn = dn_cost()
     gp_expr = (
         base.inner_join(sii, sii.parent == si.name)
+        .left_join(dn, sii.dn_detail == dn.dn_name)
         .group_by(si.territory)
         .aggregate(
-            gross_profit=(
-                sii.net_amount.sum() - (sii.qty * sii.incoming_rate.fill_null(0)).sum()
-            )
+            gross_profit=sii.net_amount.sum() - line_cogs(sii, dn.dn_rate).sum()
         )
     )
     gp_df = gp_expr.execute()

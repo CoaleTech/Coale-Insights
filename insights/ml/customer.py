@@ -43,6 +43,8 @@ from frappe.query_builder.functions import Count, Sum
 from insights.api.ml.ibis_source import (
     company_filter,
     default_company,
+    dn_cost,
+    line_cogs,
     t,
 )
 
@@ -499,7 +501,10 @@ def compute_customer_intelligence(
     # scorecard), so the customer list and territory rollup can show margin.
     sii = t("Sales Invoice Item")
     si_for_profit = t("Sales Invoice")
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    dn = dn_cost()
+    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
+        dn, sii.dn_detail == dn.dn_name
+    )
     if company:
         profit_lines = profit_lines.filter(si_for_profit.company == company)
     profit_lines = profit_lines.filter(
@@ -507,7 +512,7 @@ def compute_customer_intelligence(
     )
     gp_df = (
         profit_lines.group_by(si_for_profit.customer)
-        .aggregate(gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum())
+        .aggregate(gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum())
         .execute()
     )
     if not gp_df.empty:
@@ -1239,12 +1244,15 @@ def _customer_profitability(customer_id: str, company: Optional[str]):
     """
     sii = t("Sales Invoice Item")
     si_for_profit = t("Sales Invoice")
-    lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    dn = dn_cost()
+    lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
+        dn, sii.dn_detail == dn.dn_name
+    )
     if company:
         lines = lines.filter(si_for_profit.company == company)
     lines = lines.filter((si_for_profit.docstatus == 1) & (si_for_profit.customer == customer_id))
     row = lines.aggregate(
-        gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum(),
+        gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
         revenue=sii.amount.sum(),
     ).execute().iloc[0]
     revenue = float(row["revenue"] or 0)

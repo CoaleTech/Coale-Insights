@@ -149,3 +149,37 @@ def default_company() -> str | None:
         "Global Defaults", "default_company"
     )
     return cstr(company) or None
+
+
+def dn_cost() -> ir.Table:
+    """Delivery Note Item projected to just its key + valuation rate.
+
+    Projected (not the raw table) so it can be left-joined onto a Sales
+    Invoice Item expression without ibis name collisions -- the two DocTypes
+    share ~15 column names (``name``, ``modified``, ``cost_center`` ...).
+    Join on ``sii.dn_detail == dn_cost().dn_name`` and pass ``.dn_rate`` to
+    :func:`line_cogs`.
+    """
+    dni = t("Delivery Note Item")
+    return dni.select(dn_name=dni.name, dn_rate=dni.incoming_rate)
+
+
+def line_cogs(sii: ir.Table, dn_rate: ir.Column) -> ir.Column:
+    """Effective per-line cost of goods sold for a Sales Invoice Item.
+
+    ERPNext books COGS (stock ledger + expense GL) on whichever document runs
+    ``update_stock``. A Sales Invoice raised against a Delivery Note is forced
+    to ``update_stock = 0`` (``sales_invoice.py``: "stock cannot be updated
+    again"), so the invoice books only receivable + income and the Sales
+    Invoice Item's ``incoming_rate`` stays 0 until Repost Item Valuation
+    back-writes it -- the real cost is booked on the Delivery Note.
+
+    Prefer the (possibly reposted) SII rate; fall back to the linked Delivery
+    Note Item rate (``sii.dn_detail`` -> DN Item ``name``) so gross margin is
+    correct on a delivery-note-driven sales flow regardless of repost lag.
+    Callers left-join :func:`dn_cost` and pass its ``dn_rate`` column here.
+    """
+    import ibis
+
+    rate = ibis.coalesce(sii.incoming_rate.nullif(0), dn_rate, 0)
+    return sii.qty * rate
