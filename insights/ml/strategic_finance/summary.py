@@ -345,13 +345,13 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
 
     efficiency_status = "Excellent" if efficiency_score >= 80 else "Good" if efficiency_score >= 60 else "Fair" if efficiency_score >= 40 else "Poor"
 
-    overall_score = round((liquidity_score + profitability_score + efficiency_score) / 3, 1)
-
     return {
-        "overall_score": overall_score,
-        "liquidity": {"score": liquidity_score, "status": liquidity_status},
-        "profitability": {"score": profitability_score, "status": profitability_status},
-        "efficiency": {"score": efficiency_score, "status": efficiency_status},
+        "liquidity": liquidity_score,
+        "liquidity_status": liquidity_status,
+        "profitability": profitability_score,
+        "profitability_status": profitability_status,
+        "efficiency": efficiency_score,
+        "efficiency_status": efficiency_status,
     }
 
 

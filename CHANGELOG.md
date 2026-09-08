@@ -6,6 +6,27 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Fixed — Financial Health Scorecard rendered [object Object] and broken rings
+
+On the Finance dashboard's Actuals → Overview tab, `calculate_health_scores()`
+in `insights/ml/strategic_finance/summary.py` returned a *nested* shape —
+`{"liquidity": {"score": 40, "status": "Fair"}, ...}` plus an unused
+`overall_score` — but `ExecutiveSummaryTab.vue` (and its TS interface, mirrored
+in `types.ts`) reads a *flat* shape: `liquidity` as a number and
+`liquidity_status` as a string. The mismatch meant the score text rendered
+`[object Object]`, the SVG progress ring's `stroke-dashoffset`
+(`251.2 − 251.2·score/100`) evaluated to `NaN` so the ring never filled, and
+every status label fell back to "N/A". Flattened the backend to the declared
+contract (`liquidity`, `liquidity_status`, `profitability`,
+`profitability_status`, `efficiency`, `efficiency_status`); dropped the unused
+`overall_score` (no consumer — `generate_key_insights` takes the arg but reads
+only the scalar metrics). Backend-only; the frontend already expected this
+shape. Live-verified on jkm: Liquidity 40/Fair, Profitability 30/Poor,
+Efficiency 55/Fair — rings fill proportionally, badges/status agree (both use
+40/60 boundaries), zero console errors. Reviewed the sibling Expense Breakdown
+panel in the same pass: its `{category, amount, percentage}` rows already match
+`ExpensePieChart`'s field mapping and reconcile to YTD expenses — left as-is.
+
 ### Added — Recommended Credit Limit on the customer 360 page
 
 The 360 page surfaced demand (CLV, AOV) and repayment risk (avg days-to-pay,
