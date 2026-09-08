@@ -1179,7 +1179,7 @@ def compute_customer_360(customer_id: str,
     if per_customer.empty:
         customer = _blank_customer_row(cust)
     else:
-        customer = _score_one_customer_row(per_customer.iloc[0], cust, as_of_date)
+        customer = _score_one_customer_row(per_customer.iloc[0], cust, as_of_date, company)
 
     response = {"status": "success", "customer": _to_native(customer),
                 "base_currency": _base_currency(company)}
@@ -1317,10 +1317,70 @@ def _blank_customer_row(cust):
         "gross_profit": 0.0,
         "margin_pct": None,
         "recommendations": [],
+        "current_credit_limit": 0.0,
+        "recommended_credit_limit": 0.0,
+        "credit_headroom": 0.0,
+        "credit_monthly_run_rate": 0.0,
+        "credit_target_days": 45,
+        "credit_risk_factor": 0.0,
     }
 
 
-def _score_one_customer_row(row, cust, as_of_date):
+def _recommend_credit_limit(*, predicted_12m, historical_clv, tenure_months,
+                            payment_score, overdue_count, churn_risk,
+                            target_credit_days=45):
+    """Recommend a customer credit limit from demand + repayment-risk signals.
+
+    A credit limit funds the exposure carried for the time a customer takes to
+    pay, so size it from expected sales over a *target* credit period (your
+    terms, not the customer's actual overrun), then haircut for repayment risk:
+
+        limit = monthly_run_rate * (target_credit_days / 30) * risk_factor
+
+    ``monthly_run_rate`` prefers the forward CLV projection, falling back to the
+    lifetime average when there is no projection yet. ``risk_factor`` is banded
+    on ``payment_score`` (0-100 reliability, 100 = pays fast), then discounted
+    for any overdue invoices and elevated churn -- both say "carry less of this
+    customer's paper", never more. Returns the figure plus the inputs behind it
+    so the UI can show the rationale; a customer with no run-rate yet gets 0.
+    """
+    run_rate = 0.0
+    if predicted_12m and predicted_12m > 0:
+        run_rate = predicted_12m / 12.0
+    elif historical_clv and tenure_months >= 1:
+        run_rate = historical_clv / tenure_months
+    if run_rate <= 0:
+        return {"recommended_credit_limit": 0.0, "credit_monthly_run_rate": 0.0,
+                "credit_target_days": target_credit_days, "credit_risk_factor": 0.0}
+
+    if payment_score is None:
+        base_factor = 0.5          # unknown payer: neutral-cautious
+    elif payment_score >= 75:
+        base_factor = 1.0
+    elif payment_score >= 50:
+        base_factor = 0.7
+    elif payment_score >= 30:
+        base_factor = 0.5
+    else:
+        base_factor = 0.35
+    risk_factor = base_factor
+    if overdue_count > 0:
+        risk_factor *= 0.8
+    if churn_risk in ("High", "Critical"):
+        risk_factor *= 0.85
+
+    limit = run_rate * (target_credit_days / 30.0) * risk_factor
+    # Round to a clean figure the credit team can act on.
+    limit = round(limit / 10000.0) * 10000.0 if limit >= 10000 else round(limit, -2)
+    return {
+        "recommended_credit_limit": float(limit),
+        "credit_monthly_run_rate": round(run_rate, 2),
+        "credit_target_days": target_credit_days,
+        "credit_risk_factor": round(risk_factor, 2),
+    }
+
+
+def _score_one_customer_row(row, cust, as_of_date, company=None):
     """Build the per-customer payload the customer_360 view expects. Same
     per-customer logic as the bulk engine, just for one row -- plus real
     payment/trend/profitability numbers from this customer's own invoices
@@ -1434,6 +1494,21 @@ def _score_one_customer_row(row, cust, as_of_date):
     if margin_pct is not None:
         margin_pct = float(margin_pct)
 
+    # Recommended credit limit from demand + repayment risk, shown beside the
+    # customer's current ERPNext limit (Customer -> Group -> Company fallback).
+    credit = _recommend_credit_limit(
+        predicted_12m=predicted_12m, historical_clv=historical_clv,
+        tenure_months=tenure_months, payment_score=payment_score,
+        overdue_count=overdue_count, churn_risk=churn_risk,
+    )
+    current_credit_limit = 0.0
+    if company:
+        try:
+            from erpnext.selling.doctype.customer.customer import get_credit_limit
+            current_credit_limit = float(get_credit_limit(cust.name, company) or 0)
+        except Exception:
+            current_credit_limit = 0.0
+
     return {
         "customer_id": cust.name,
         "customer_name": cust.customer_name,
@@ -1470,6 +1545,9 @@ def _score_one_customer_row(row, cust, as_of_date):
         "gross_profit": gross_profit,
         "margin_pct": margin_pct,
         "recommendations": [],
+        "current_credit_limit": current_credit_limit,
+        "credit_headroom": round(credit["recommended_credit_limit"] - outstanding, 2),
+        **credit,
     }
 
 

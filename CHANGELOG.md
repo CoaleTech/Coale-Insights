@@ -6,6 +6,34 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Added — Recommended Credit Limit on the customer 360 page
+
+The 360 page surfaced demand (CLV, AOV) and repayment risk (avg days-to-pay,
+payment score, overdue, outstanding) but stopped short of the decision they
+support. Added `_recommend_credit_limit()` in `insights/ml/customer.py`, wired
+into the 360 payload: `limit = monthly_run_rate × (target_credit_days/30) ×
+risk_factor`, where run-rate prefers the forward CLV projection, the target
+period is your terms (45d default, not the customer's overrun), and risk_factor
+is banded on payment_score then discounted for overdue invoices and elevated
+churn. The response also carries the customer's current ERPNext limit (reusing
+`erpnext…customer.get_credit_limit`, Customer→Group→Company fallback) and the
+headroom vs live outstanding. A new tile in the Risk Assessment tab's Payment
+Behavior card shows Recommended / Current / Headroom plus a plain-language
+rationale, labelled a suggestion for the credit team (not auto-applied).
+Live-verified on jkm CS00255: recommended ₹520,000, current "Not set", headroom
+−₹1,609,306 (already over-exposed at ₹2.13M outstanding, payment score 20/100,
+3 overdue) — the data correctly argues to tighten despite Diamond tier.
+
+### Fixed — Overlapping icon+label on the customer 360 sidebar nav
+
+The five section-nav items (Profile, Purchases, CLV Analysis, Recommendations,
+Risk Assessment) used frappe-ui `<Button>`, which wraps the whole default slot
+in one centered `<span>` and forces `justify-center`, collapsing our icon and
+label on top of each other. Replaced with the native `<button>` +
+`flex items-center gap-3` pattern the global rail already uses, so the icon sits
+left of the label. Live-verified: icon right-edge now precedes the label, zero
+console errors.
+
 ### Changed — Margins tab rebuilt to tell a margin story (and its COGS fixed)
 
 `analyze_margins` still used the pre-fix `qty * SII.incoming_rate` cost formula, so

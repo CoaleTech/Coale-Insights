@@ -160,6 +160,20 @@ const healthSeverity = computed(() =>
 )
 const churnSeverity = computed(() => severityBadge(churnRisk.value))
 
+// Credit limit: recommended exposure ceiling vs the current ERPNext limit
+const recommendedCreditLimit = computed(() => (customer.value?.recommended_credit_limit as number) || 0)
+const currentCreditLimit = computed(() => (customer.value?.current_credit_limit as number) || 0)
+const creditHeadroom = computed(() => (customer.value?.credit_headroom as number) || 0)
+const creditRationale = computed(() => {
+  const c = customer.value
+  if (!c || !recommendedCreditLimit.value) return ''
+  const rr = moneyCompact(c.credit_monthly_run_rate as number)
+  const days = c.credit_target_days as number
+  const ps = c.payment_score == null ? 'unknown' : `${Math.round(c.payment_score as number)}/100`
+  const od = (c.overdue_count as number) || 0
+  return `Based on ~${rr}/mo expected sales funded over ${days}-day terms, discounted for payment behaviour (score ${ps}${od ? `, ${od} overdue` : ''}). A suggestion for the credit team, not auto-applied.`
+})
+
 const chatContext = computed(() => ({
   customer_id: customerId.value,
   customer_name: customer.value?.customer_name,
@@ -232,19 +246,18 @@ watch(customerId, () => {
       <!-- Sidebar Navigation -->
       <aside class="w-64 bg-surface-white border-r border-outline-gray-1 overflow-y-auto">
         <nav class="p-4 space-y-1" aria-label="Customer sections">
-          <Button
+          <button
             v-for="section in sections"
             :key="section.id"
-            variant="ghost"
-            theme="gray"
-            class="w-full justify-start text-left"
-            :class="activeSection === section.id ? 'bg-surface-gray-2 text-ink-gray-9' : 'text-ink-gray-6'"
+            type="button"
+            class="flex w-full items-center gap-3 rounded px-3 py-1.5 text-left text-sm transition-colors hover:bg-surface-gray-2"
+            :class="activeSection === section.id ? 'bg-surface-gray-2 text-ink-gray-9 font-medium' : 'text-ink-gray-6'"
             :aria-pressed="activeSection === section.id"
             @click="activeSection = section.id"
           >
-            <component :is="section.icon" class="w-5 h-5 shrink-0" />
-            <span class="ml-3">{{ section.label }}</span>
-          </Button>
+            <component :is="section.icon" class="w-5 h-5 shrink-0" aria-hidden="true" />
+            <span>{{ section.label }}</span>
+          </button>
         </nav>
 
         <!-- Quick Stats in Sidebar -->
@@ -766,6 +779,21 @@ watch(customerId, () => {
                   :clickable="true"
                   @click="drillDown.open(CUSTOMER_ENDPOINT, 'Overdue Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'overdue' })"
                 />
+              </div>
+
+              <!-- Recommended Credit Limit -->
+              <div v-if="recommendedCreditLimit > 0" class="mt-6 pt-6 border-t border-outline-gray-1">
+                <SectionHeader variant="caption" title="Recommended Credit Limit"
+                  hint="Suggested exposure ceiling from demand and repayment risk" :level="4" />
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <KpiCard label="Recommended" :value="money(recommendedCreditLimit)" sublabel="suggested ceiling" />
+                  <KpiCard label="Current Limit (ERPNext)" :value="currentCreditLimit > 0 ? money(currentCreditLimit) : 'Not set'"
+                    :sublabel="currentCreditLimit > 0 ? undefined : 'no limit configured'" />
+                  <KpiCard label="Headroom vs Outstanding" :value="money(creditHeadroom)"
+                    :severity="creditHeadroom < 0 ? 'high' : undefined"
+                    :sublabel="creditHeadroom < 0 ? 'over recommended exposure' : 'available'" />
+                </div>
+                <p class="mt-3 text-sm text-ink-gray-6">{{ creditRationale }}</p>
               </div>
             </div>
           </div>
