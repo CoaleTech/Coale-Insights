@@ -742,9 +742,10 @@ def analyze_margins(
 ) -> dict[str, Any]:
     """Per-product-group and per-item gross margin analysis.
 
-    Gross profit per line = `net_amount - qty * incoming_rate`. A line
-    with a NULL `incoming_rate` is treated as zero cost (conservative
-    on the margin percentage).
+    Gross profit per line = `net_amount - line_cogs(...)`, where cost is the
+    linked Delivery Note Item rate when the invoice ran with update_stock=0,
+    else the reposted SII incoming_rate (see `line_cogs`). A line whose cost
+    still resolves to zero is treated as uncosted, not a genuine full margin.
     """
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
@@ -754,10 +755,13 @@ def analyze_margins(
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
 
-    line_cost = (sii.qty * sii.incoming_rate.fill_null(0)).sum()
+    dn = dn_cost()
+    line_cost = line_cogs(sii, dn.dn_rate).sum()
     line_profit = sii.net_amount.sum() - line_cost
 
-    base = si.inner_join(sii, sii.parent == si.name)
+    base = si.inner_join(sii, sii.parent == si.name).left_join(
+        dn, sii.dn_detail == dn.dn_name
+    )
 
     overall_df = base.aggregate(
         total_revenue=sii.net_amount.sum(),
@@ -783,7 +787,7 @@ def analyze_margins(
             # leaderboard already does.
             uncosted_revenue=(
                 ibis.ifelse(
-                    sii.incoming_rate.isnull() | (sii.incoming_rate == 0),
+                    (sii.incoming_rate.fill_null(0) == 0) & (dn.dn_rate.fill_null(0) == 0),
                     sii.net_amount,
                     0,
                 ).sum()

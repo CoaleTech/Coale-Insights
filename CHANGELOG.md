@@ -6,6 +6,29 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Changed — Margins tab rebuilt to tell a margin story (and its COGS fixed)
+
+`analyze_margins` still used the pre-fix `qty * SII.incoming_rate` cost formula, so
+on this delivery-note-driven ledger nearly every line read cost 0 → fake ~100% margins
+that got flagged "uncosted" and held out of the leaderboards, leaving the tab
+dominated by costing-gap noise. Migrated it to the shared `dn_cost()` + `line_cogs()`
+helpers (one `left_join` on `base` fixes overall, per-group, per-item and trend at
+once); the "uncosted" flag now fires only when both SII and the linked DN rate are
+zero. Result: overall margin 9.6% (was a distorted 21% inflated by uncosted lines),
+0 uncosted items, real per-month trend.
+
+Frontend: the tab computed `margin_trend` but never rendered it. Rebuilt around the
+story — a headline KPI band (Overall Margin + 12-month average, Gross Profit on net
+sales, This Month with pp delta, Strongest Month), a plain-language narrative
+sentence, a **Margin Trend** chart (net-sales bars + margin-% line on a second axis),
+a **Where Profit Comes From** table ranking product groups by gross-profit
+contribution with share bars, and **Protect / Fix** leaderboards that now carry
+revenue alongside margin so a high-margin high-revenue item reads as one to protect
+and a high-revenue low-margin item as one to fix. Live-verified on jkm: narrative
+reads "9.6% … rose 2.6pp last month to 10.7% … peaked 15.9% Jan 26, bottomed 7.2%
+Jun 26", chart + tables render, zero console errors. Same worker-restart caveat as the
+COGS fix; primed the cache via `bench execute` (inline compute) for verification.
+
 ### Fixed — COGS was zero for delivery-note-driven sales, hiding real 6–11% margins
 
 The prior fix rendered `—` for periods where `cost_of_sales = 0`, treating that as a

@@ -176,6 +176,62 @@ const monthlyTrendConfig = computed(() => {
   }
 })
 
+// ── Margins story ──────────────────────────────────────────────────────────
+// The tab used to show three KPIs + two tables and silently drop the
+// server's `margin_trend`. These derive the narrative spine (trajectory,
+// peak/trough, GP concentration) from the same payload.
+interface MarginPoint { period: string; margin: number; revenue: number; gp: number }
+const marginStory = computed(() => {
+  const trend = (margins.value.margin_trend as Record<string, unknown>[]) ?? []
+  if (!trend.length) return null
+  const pts: MarginPoint[] = trend.map(t => ({
+    period: (t.period as string) ?? '',
+    margin: (t.margin_pct as number) ?? 0,
+    revenue: (t.revenue as number) ?? 0,
+    gp: (t.gross_profit as number) ?? 0,
+  }))
+  const latest = pts[pts.length - 1]
+  const prior = pts.length > 1 ? pts[pts.length - 2] : null
+  const deltaPp = prior ? latest.margin - prior.margin : null
+  const best = pts.reduce((a, b) => (b.margin > a.margin ? b : a))
+  const worst = pts.reduce((a, b) => (b.margin < a.margin ? b : a))
+  const avg = pts.reduce((s, p) => s + p.margin, 0) / pts.length
+  return { latest, prior, deltaPp, best, worst, avg, months: pts.length }
+})
+const marginTrendConfig = computed(() => {
+  const trend = (margins.value.margin_trend as Record<string, unknown>[]) ?? []
+  if (!trend.length) return null
+  const palette = chartPalette(2)
+  return {
+    data: trend.map(m => ({
+      period: formatPeriod(m.period as string),
+      'Net Sales': (m.revenue as number) ?? 0,
+      'Margin %': (m.margin_pct as number) ?? 0,
+    })),
+    title: '',
+    xAxis: { key: 'period', type: 'category' as const },
+    yAxis: { title: '' },
+    y2Axis: { title: '', yMin: 0 },
+    series: [
+      { name: 'Net Sales', type: 'bar' as const, color: palette[0], axis: 'y' as const },
+      { name: 'Margin %', type: 'line' as const, color: palette[1], axis: 'y2' as const, showDataPoints: true },
+    ],
+  }
+})
+// Product groups ranked by gross-profit contribution (share of total GP),
+// so the table answers "where does the profit actually come from".
+const marginGroups = computed(() => {
+  const groups = (margins.value.by_product_group as Record<string, unknown>[]) ?? []
+  const totalGp = groups.reduce((s, g) => s + ((g.gross_profit as number) ?? 0), 0)
+  return [...groups]
+    .sort((a, b) => ((b.gross_profit as number) ?? 0) - ((a.gross_profit as number) ?? 0))
+    .slice(0, 10)
+    .map(g => ({
+      ...g,
+      gp_share: totalGp > 0 ? ((g.gross_profit as number) ?? 0) / totalGp * 100 : 0,
+    }))
+})
+
 // ── Train ML models ───────────────────────────────────────────────────────
 function trainForecasts(modelType: string) {
   confirmDialog({
@@ -1044,31 +1100,79 @@ onMounted(() => {
   </div>
 
   <!-- ═══ Margins ═══ -->
-  <div v-if="activeTab === 'rev-margins'">
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-      <KpiCard label="Overall Margin" :value="pct(margins.overall_margin as number)" />
-      <KpiCard label="Total Revenue" :value="money(margins.total_revenue as number)" />
-      <KpiCard label="Gross Profit" :value="money(margins.total_profit as number)" />
+  <div v-if="activeTab === 'rev-margins'" class="space-y-6">
+    <!-- Headline KPIs -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <KpiCard label="Overall Margin" :percent="margins.overall_margin as number"
+        :sublabel="marginStory ? `${marginStory.avg.toFixed(1)}% avg over ${marginStory.months} months` : undefined" />
+      <KpiCard label="Gross Profit" :amount="margins.total_profit as number" :currency="props.currency"
+        :sublabel="`on ${money(margins.total_revenue as number)} net sales`" />
+      <KpiCard v-if="marginStory" label="This Month" :percent="marginStory.latest.margin"
+        :sublabel="marginStory.deltaPp !== null ? `${deltaGlyph(marginStory.deltaPp)} ${Math.abs(marginStory.deltaPp).toFixed(1)}pp vs last month` : formatPeriod(marginStory.latest.period)" />
+      <KpiCard v-if="marginStory" label="Strongest Month" :percent="marginStory.best.margin"
+        :sublabel="formatPeriod(marginStory.best.period)" />
     </div>
+
+    <!-- Narrative -->
+    <p v-if="marginStory" class="text-sm text-ink-gray-7 bg-surface-gray-1 rounded-lg p-4 leading-relaxed">
+      Blended gross margin is
+      <span class="font-semibold text-ink-gray-9">{{ pct(margins.overall_margin as number) }}</span>
+      on {{ money(margins.total_revenue as number) }} of net sales.
+      <template v-if="marginStory.deltaPp !== null">
+        It
+        <span :class="['font-semibold', deltaInk(marginStory.deltaPp)]">{{ marginStory.deltaPp >= 0 ? 'rose' : 'slipped' }} {{ Math.abs(marginStory.deltaPp).toFixed(1) }}pp</span>
+        last month to {{ pct(marginStory.latest.margin) }}.
+      </template>
+      It peaked at {{ pct(marginStory.best.margin) }} in {{ formatPeriod(marginStory.best.period) }}
+      and bottomed at {{ pct(marginStory.worst.margin) }} in {{ formatPeriod(marginStory.worst.period) }}.
+      <template v-if="(margins.uncosted_items_excluded as number) > 0">
+        {{ margins.uncosted_items_excluded }} item(s) still lack recorded cost ({{ money(margins.uncosted_revenue as number) }} revenue) and are held out of the rankings below.
+      </template>
+    </p>
+
+    <!-- Margin trend chart -->
+    <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+      <SectionHeader variant="caption" title="Margin Trend"
+        hint="Bars are monthly net sales; the line is gross margin % on the right axis" :level="3">
+        <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
+      </SectionHeader>
+      <div v-if="marginTrendConfig" class="mt-4 h-64 sm:h-72 lg:h-80">
+        <IntelligenceChart :config="marginTrendConfig" class="h-64 sm:h-72 lg:h-80" />
+      </div>
+      <p v-else class="mt-4 text-center py-12 text-ink-gray-6 text-sm">No margin history available.</p>
+    </div>
+
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Where profit comes from -->
       <div>
-        <SectionHeader variant="caption" title="Margin by Product Group" :level="3" />
+        <SectionHeader variant="caption" title="Where Profit Comes From"
+          hint="Product groups ranked by share of total gross profit" :level="3" />
         <div class="mt-4 overflow-x-auto">
           <table class="w-full text-sm">
+            <caption class="sr-only">Product groups by revenue, gross profit, share of total gross profit, and margin.</caption>
             <thead class="bg-surface-gray-1">
               <tr>
                 <th scope="col" class="px-4 py-2 text-left text-ink-gray-7">Product Group</th>
                 <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Revenue</th>
-                <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Profit</th>
-                <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Margin %</th>
+                <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Gross Profit</th>
+                <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">GP Share</th>
+                <th scope="col" class="px-4 py-2 text-right text-ink-gray-7">Margin</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="pg in (margins.by_product_group as Record<string, unknown>[])?.slice(0, 10)" :key="pg.item_group as string"
+              <tr v-for="pg in marginGroups" :key="pg.item_group as string"
                 class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
                 <td class="px-4 py-2 text-ink-gray-8">{{ pg.item_group || 'Uncategorized' }}</td>
-                <td class="px-4 py-2 text-right text-ink-gray-8">{{ money(pg.revenue as number) }}</td>
-                <td class="px-4 py-2 text-right text-ink-gray-7">{{ money(pg.gross_profit as number) }}</td>
+                <td class="px-4 py-2 text-right text-ink-gray-8 tnum">{{ money(pg.revenue as number) }}</td>
+                <td class="px-4 py-2 text-right text-ink-gray-7 tnum">{{ money(pg.gross_profit as number) }}</td>
+                <td class="px-4 py-2 text-right">
+                  <div class="flex items-center justify-end gap-2">
+                    <div class="h-1.5 w-16 rounded-full bg-surface-gray-3 overflow-hidden" aria-hidden="true">
+                      <div class="h-full rounded-full bg-surface-gray-7" :style="{ width: Math.min(100, pg.gp_share as number) + '%' }"></div>
+                    </div>
+                    <span class="tnum text-ink-gray-7 w-12 text-right">{{ (pg.gp_share as number).toFixed(1) }}%</span>
+                  </div>
+                </td>
                 <td class="px-4 py-2 text-right">
                   <Badge v-bind="severityBadge(scoreSeverity(pg.margin_pct as number, { good: 30, warn: 15 }))" :label="pct(pg.margin_pct as number)" size="sm" />
                 </td>
@@ -1077,27 +1181,30 @@ onMounted(() => {
           </table>
         </div>
       </div>
+
+      <!-- Protect / Fix leaderboards -->
       <div class="space-y-6">
         <div>
-          <SectionHeader variant="caption" title="Top Margin Items" :level="3" />
-          <p v-if="(margins.uncosted_items_excluded as number) > 0" class="text-xs text-ink-gray-5 mt-1">
-            {{ margins.uncosted_items_excluded }} item(s) with no recorded cost excluded from this ranking ({{ money(margins.uncosted_revenue as number) }} revenue)
-          </p>
+          <SectionHeader variant="caption" title="Protect — Highest Margin"
+            hint="Top sellers by margin; guard their pricing and supply" :level="3" />
           <div class="mt-2 space-y-2">
-            <div v-for="item in (margins.top_margin_items as Record<string, unknown>[])?.slice(0, 10)" :key="item.item_code as string"
-              class="flex justify-between items-center text-sm bg-surface-gray-1 rounded p-2">
-              <span class="truncate flex-1 text-ink-gray-8">{{ item.item_code }} - {{ item.item_name }}</span>
-              <span class="font-bold text-ink-gray-9 ml-2">{{ pct(item.margin_pct as number) }}</span>
+            <div v-for="item in (margins.top_margin_items as Record<string, unknown>[])?.slice(0, 8)" :key="item.item_code as string"
+              class="flex justify-between items-center gap-2 text-sm bg-surface-gray-1 rounded p-2">
+              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }} — {{ item.item_name }}</span>
+              <span class="tnum text-ink-gray-6 shrink-0">{{ money(item.revenue as number) }}</span>
+              <span class="font-bold text-ink-gray-9 tnum shrink-0 w-14 text-right">{{ pct(item.margin_pct as number) }}</span>
             </div>
           </div>
         </div>
         <div>
-          <SectionHeader variant="caption" title="Low Margin Items" :level="3" />
+          <SectionHeader variant="caption" title="Fix — Lowest Margin"
+            hint="Sellers dragging the blended margin down" :level="3" />
           <div class="mt-2 space-y-2">
-            <div v-for="item in (margins.low_margin_items as Record<string, unknown>[])?.slice(0, 10)" :key="item.item_code as string"
-              class="flex justify-between items-center text-sm bg-surface-gray-1 rounded p-2">
-              <span class="truncate flex-1 text-ink-gray-8">{{ item.item_code }} - {{ item.item_name }}</span>
-              <Badge v-bind="severityBadge(scoreSeverity(item.margin_pct as number, { good: 30, warn: 15 }))" :label="pct(item.margin_pct as number)" size="sm" />
+            <div v-for="item in (margins.low_margin_items as Record<string, unknown>[])?.slice(0, 8)" :key="item.item_code as string"
+              class="flex justify-between items-center gap-2 text-sm bg-surface-gray-1 rounded p-2">
+              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }} — {{ item.item_name }}</span>
+              <span class="tnum text-ink-gray-6 shrink-0">{{ money(item.revenue as number) }}</span>
+              <Badge v-bind="severityBadge(scoreSeverity(item.margin_pct as number, { good: 30, warn: 15 }))" :label="pct(item.margin_pct as number)" size="sm" class="shrink-0" />
             </div>
           </div>
         </div>
