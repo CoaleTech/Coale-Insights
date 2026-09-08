@@ -12,8 +12,11 @@ the legend and gets the same information without needing the chart.
       its stated size in the row layout too.
     -->
     <div v-if="donutData.length" class="flex flex-col items-center gap-4 sm:flex-row sm:gap-8">
-      <!-- DonutChart replaces the hand-rolled stroke-dasharray SVG ring -->
-      <IntelligenceChart kind="donut" class="h-48 w-48 shrink-0" :config="donutConfig" />
+      <!-- Fixed box holds the ring; IntelligenceChart's internal w-full would
+           otherwise stretch the ECharts area and leave a gap before the legend. -->
+      <div class="h-48 w-48 shrink-0">
+        <IntelligenceChart kind="donut" class="h-full w-full" :config="donutConfig" hide-legend />
+      </div>
 
       <!-- Legend: swatch + label + value + percentage (visible, serves as accessible text) -->
       <div class="space-y-2">
@@ -27,15 +30,15 @@ the legend and gets the same information without needing the chart.
             :style="{ backgroundColor: paletteColors[index % paletteColors.length] }"
             aria-hidden="true"
           ></div>
-          <span class="text-sm text-ink-gray-6 truncate max-w-32">
-            {{ item.category }}
-          </span>
-          <span class="text-sm font-medium text-ink-gray-9">
-            {{ formatCurrency(item.value) }}
-          </span>
-          <span class="text-xs text-ink-gray-6">
-            ({{ formatPercent(item.pct || getPercentage(item.value)) }})
-          </span>
+        <span class="text-sm text-ink-gray-6 truncate max-w-32">
+          {{ item.category }}
+        </span>
+        <span class="text-sm font-medium text-ink-gray-9 whitespace-nowrap shrink-0">
+          {{ formatCurrency(item.value) }}
+        </span>
+        <span class="text-xs text-ink-gray-6 whitespace-nowrap shrink-0">
+          ({{ formatPercent(item.pct || getPercentage(item.value)) }})
+        </span>
         </div>
         <div v-if="donutData.length > 6" class="text-xs text-ink-gray-6">
           +{{ donutData.length - 6 }} more categories

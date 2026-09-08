@@ -6,6 +6,22 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Fixed — Expense Breakdown donut overlapped its legend
+
+On the Finance dashboard's Actuals → Overview tab, `ExpensePieChart.vue` drew
+two legends: frappe-ui's built-in paginated ECharts legend ("< 1/10 >") along
+the bottom *and* our own swatch/label/value/percent list on the right. The
+built-in one was redundant and its reserved space collided with the ring. In
+the custom legend the value token also wrapped ("INR" / "57.0M" on two lines)
+and ran into the percentage. Two fixes: (1) added an opt-in `hideLegend` prop to
+`IntelligenceChart.vue` that deletes ECharts' `legend` key (reclaiming its
+space, unlike `show:false`), and passed it here since we render an accessible
+legend already; (2) pinned the value and percentage spans to `whitespace-nowrap
+shrink-0` and wrapped the ring in a fixed `h-48 w-48` box so the chart's
+internal `w-full` no longer stretched the ECharts area and pushed the legend
+away. Live-verified on jkm: single donut, one-line legend rows
+(`Cost of Goods Sold  INR 57.0M  (96.2%)`), ~32px gap, zero overlap.
+
 ### Fixed — Financial Health Scorecard rendered [object Object] and broken rings
 
 On the Finance dashboard's Actuals → Overview tab, `calculate_health_scores()`

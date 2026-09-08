@@ -44,6 +44,8 @@ const props = withDefaults(
     /** 'axis' for bar/line/area, 'donut' for share-of-total. */
     kind?: 'axis' | 'donut'
     config: AxisChartConfig | DonutChartConfig
+    /** Drop the chart's own legend (the caller renders an accessible one). */
+    hideLegend?: boolean
   }>(),
   { kind: 'axis' },
 )
@@ -58,6 +60,11 @@ const options = computed(() => {
       props.kind === 'donut'
         ? useDonutChartOptions(props.config as DonutChartConfig)
         : useAxisChartOptions(props.config as AxisChartConfig)
+    // ECharts shows no legend unless `legend` is present, so removing the key
+    // (not setting `show:false`) also reclaims the space it reserved.
+    if (props.hideLegend && base && typeof base === 'object') {
+      delete (base as { legend?: unknown }).legend
+    }
     if (!reduceMotion.value) return base
     // Drop the entrance and update tweens; the chart still renders in full.
     return {
