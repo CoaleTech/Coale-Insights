@@ -6,6 +6,21 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-07
 
+### Changed — Expense Breakdown redesigned from donut to ranked bar list
+
+On the Finance dashboard's Actuals → Overview tab the panel was a donut with a
+six-row legend. On the JKM ledger Cost of Goods Sold is 96.2% of spend, so the
+donut was one near-complete ring plus nine invisible slivers, and the legend's
+"+4 more categories" line dropped the tail (Handling INR 155K, Carriage INR
+153K, Partner Interest INR 109K, Consulting INR 93K) from view entirely.
+Replaced it with a ranked share-of-total bar list in `ExpensePieChart.vue`:
+every category, largest first, each showing its real amount, precise percent
+(`<0.1%` instead of a rounded `0.0%`), and a proportional bar (100% track = total
+spend, 3px floor so a real-but-tiny expense stays visible). Dropped the ECharts
+donut, its palette, and the `hideLegend` plumbing this panel needed; freed the
+caller's fixed `lg:h-64` so the list is not clipped. Live-verified on jkm: all
+10 categories rendered, reconciling to 100%, zero console errors.
+
 ### Fixed — Expense Breakdown donut overlapped its legend
 
 On the Finance dashboard's Actuals → Overview tab, `ExpensePieChart.vue` drew

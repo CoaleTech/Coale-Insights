@@ -127,9 +127,9 @@
         <!-- Expense Breakdown -->
         <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
           <SectionHeader variant="caption" title="Expense Breakdown" :level="3" />
-          <!-- h-auto on phones: the donut and legend stack there, so a fixed
-               160px box would clip both. -->
-          <div v-if="expenseBreakdown?.length" class="h-auto sm:h-56 lg:h-64 mt-4">
+          <!-- Auto height: the ranked list grows with the category count and
+               balances against the taller Monthly trend card beside it. -->
+          <div v-if="expenseBreakdown?.length" class="mt-4">
             <ExpensePieChart :data="expenseBreakdown" :currency="currencyVal" />
           </div>
           <div v-else class="h-40 sm:h-56 lg:h-64 flex items-center justify-center text-ink-gray-6 mt-4">
