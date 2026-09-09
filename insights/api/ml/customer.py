@@ -199,6 +199,47 @@ def geographic_insights(company: Optional[str] = None) -> Dict[str, Any]:
 
 
 @frappe.whitelist()
+def geography_breakdown(
+    dimension: str = "territory",
+    date_filter: str = "12m",
+    company: Optional[str] = None,
+    territory: Optional[str] = None,
+    item_group: Optional[str] = None,
+    sales_person: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Drillable geography slice: revenue / gross profit / customers by
+    territory, item group, salesperson or customer. The optional
+    territory/item_group/sales_person args narrow the slice (drill-down)."""
+    frappe.has_permission("Sales Invoice", "read", throw=True)
+    from insights.ml.geography import compute_geography_breakdown
+    return run(
+        lambda: compute_geography_breakdown(
+            dimension=dimension,
+            date_filter=date_filter,
+            company=company,
+            territory=territory or None,
+            item_group=item_group or None,
+            sales_person=sales_person or None,
+        ),
+        "Geography breakdown",
+    )
+
+
+@frappe.whitelist()
+def geography_options(
+    date_filter: str = "12m", company: Optional[str] = None
+) -> Dict[str, Any]:
+    """Distinct territory / item group / salesperson values for the
+    Geography tab filter selectors."""
+    frappe.has_permission("Sales Invoice", "read", throw=True)
+    from insights.ml.geography import compute_geography_options
+    return run(
+        lambda: compute_geography_options(date_filter=date_filter, company=company),
+        "Geography options",
+    )
+
+
+@frappe.whitelist()
 def next_best_actions(company: Optional[str] = None) -> Dict[str, Any]:
     """Rule-based next-best-action recommendations per customer."""
     frappe.has_permission("Customer", "read", throw=True)

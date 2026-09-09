@@ -1106,8 +1106,10 @@ def get_reconciliation_score(intelligence, start: date, end: date) -> Dict[str, 
     unactioned_count = 0
     if span is not None and not span.empty:
         row = span.iloc[0]
-        data_from = str(row.get("from_date") or "")
-        data_through = str(row.get("to_date") or "")
+        # bill_date is a date; the aggregate yields a datetime whose str() carries
+        # a "00:00:00" tail. Keep the date only — it renders in the UI verbatim.
+        data_from = str(row.get("from_date") or "")[:10]
+        data_through = str(row.get("to_date") or "")[:10]
         unactioned_count = int(row.get("unactioned") or 0)
 
     return {
@@ -1241,7 +1243,7 @@ def get_counterparty_risk(intelligence, start: date, end: date) -> Dict[str, Any
 
         sales_gstins = (
             si.filter(si["billing_address_gstin"].fill_null("") != "")
-            .group_by(si["billing_address_gstin"].name("gstin"))
+            .group_by(si["billing_address_gstin"].cast("string").name("gstin"))
             .aggregate(value=si["base_grand_total"].fill_null(0).sum())
         )
 
@@ -1251,19 +1253,24 @@ def get_counterparty_risk(intelligence, start: date, end: date) -> Dict[str, Any
 
         purchase_gstins = (
             pi.filter(pi["supplier_gstin"].fill_null("") != "")
-            .group_by(pi["supplier_gstin"].name("gstin"))
+            .group_by(pi["supplier_gstin"].cast("string").name("gstin"))
             .aggregate(value=pi["base_grand_total"].fill_null(0).sum())
         )
 
         from ibis import union as _union
         unioned = _union(sales_gstins, purchase_gstins)
 
+        # At-risk registry GSTINs (cancelled / suspended / Rule-86A blocked).
+        at_risk = gstin.filter(
+            gstin["status"].isin(["Cancelled", "Suspended"])
+            | (gstin["is_blocked"].fill_null(0) == 1)
+        ).select("gstin")
+
+        # Aggregate over `unioned` alone (single relation): a post-join
+        # aggregate that referenced `unioned` columns raised Ibis
+        # IntegrityError ("belong to another relation").
         exposed = (
-            gstin.join(unioned, gstin["gstin"] == unioned["gstin"], how="inner")
-            .filter(
-                gstin["status"].isin(["Cancelled", "Suspended"])
-                | (gstin["is_blocked"].fill_null(0) == 1)
-            )
+            unioned.filter(unioned["gstin"].isin(at_risk["gstin"]))
             .aggregate(
                 parties=unioned["gstin"].nunique(),
                 value=unioned["value"].fill_null(0).sum(),

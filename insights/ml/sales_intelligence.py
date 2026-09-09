@@ -30,7 +30,7 @@ from typing import Any
 
 import ibis
 
-from insights.api.ml.ibis_source import company_filter, default_company, dn_cost, line_cogs, t
+from insights.api.ml.ibis_source import company_filter, default_company, dn_cost, line_cogs, sle_cost, t
 from insights.api.ml.utils import parse_date_filter
 from insights.ml.inventory_intelligence import DemandForecasting
 from insights.ml.sales_forecasting import get_sales_forecast
@@ -52,9 +52,17 @@ def calculate_revenue_metrics(
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
     ).filter(t("Sales Invoice").is_return == 0)
-    start, _ = parse_date_filter(date_filter)
+    start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
+    # Respect the window end too. Dropping it (the old `start, _ =` form)
+    # counted every invoice from `start` through today, so for any window
+    # ending before today (custom ranges, past presets) the revenue-side
+    # headline — total_revenue, transactions, AOV and unique_customers —
+    # was inflated and diverged from the customer-side counts, which use
+    # `between(start, end)`. Presets return end=today, so this is a no-op there.
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
 
     # One aggregate for the headline numbers.
     overall_df = si.aggregate(
@@ -136,13 +144,18 @@ def calculate_revenue_metrics(
     # Line-level cost of sales and gross profit per period. Cost is COGS from
     # the linked Delivery Note (sii.dn_detail) when the Sales Invoice ran with
     # update_stock=0, else the reposted SII incoming_rate -- see line_cogs.
-    # GP = sum(net_amount) - cost. net_amount is pre-tax, so gross margin % is
-    # on net sales (the Margins/rankings convention), not the tax-inclusive
-    # grand_total shown in the Revenue row.
+    # GP = sum(base_net_amount) - cost. base_net_amount is pre-tax and in the
+    # company (base) currency -- matching the base-currency valuation the cost
+    # is booked in (incoming_rate / DN incoming_rate), so foreign-currency
+    # invoices don't mix a transaction-currency numerator against a
+    # base-currency cost. Gross margin % is therefore on net sales (the
+    # Margins/rankings convention), not the tax-inclusive grand_total shown in
+    # the Revenue row.
     sii = t("Sales Invoice Item")
     dn = dn_cost()
-    line_cost = line_cogs(sii, dn.dn_rate).sum()
-    line_profit = sii.net_amount.sum() - line_cost
+    sle = sle_cost()
+    line_cost = line_cogs(sii, dn.dn_rate, sle.svd).sum()
+    line_profit = sii.base_net_amount.sum() - line_cost
 
     def _merge_gp(series: list[dict[str, Any]], gp_map: dict[str, tuple[float, float]], key: str) -> None:
         for row in series:
@@ -150,7 +163,10 @@ def calculate_revenue_metrics(
             row["cost_of_sales"] = round(cost, 2)
             row["gross_profit"] = round(gp, 2)
 
-    base_daily = si_daily.inner_join(sii, sii.parent == si_daily.name).left_join(dn, sii.dn_detail == dn.dn_name)
+    _svd_key = ibis.coalesce(sii.dn_detail.nullif(""), sii.name)
+    base_daily = (si_daily.inner_join(sii, sii.parent == si_daily.name)
+                  .left_join(dn, sii.dn_detail == dn.dn_name)
+                  .left_join(sle, _svd_key == sle.vd_name))
     gp_daily = {
         str(r["posting_date"]): (float(r["cost"] or 0), float(r["gross_profit"] or 0))
         for _, r in base_daily.group_by(base_daily.posting_date)
@@ -160,7 +176,9 @@ def calculate_revenue_metrics(
     }
     _merge_gp(daily_sales, gp_daily, "date")
 
-    base_weekly = si_weekly.inner_join(sii, sii.parent == si_weekly.name).left_join(dn, sii.dn_detail == dn.dn_name)
+    base_weekly = (si_weekly.inner_join(sii, sii.parent == si_weekly.name)
+                   .left_join(dn, sii.dn_detail == dn.dn_name)
+                   .left_join(sle, _svd_key == sle.vd_name))
     gp_weekly = {
         r["year_week"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
         for _, r in base_weekly.group_by(base_weekly.year_week)
@@ -170,7 +188,9 @@ def calculate_revenue_metrics(
     }
     _merge_gp(weekly_sales, gp_weekly, "year_week")
 
-    base_monthly = si_monthly.inner_join(sii, sii.parent == si_monthly.name).left_join(dn, sii.dn_detail == dn.dn_name)
+    base_monthly = (si_monthly.inner_join(sii, sii.parent == si_monthly.name)
+                    .left_join(dn, sii.dn_detail == dn.dn_name)
+                    .left_join(sle, _svd_key == sle.vd_name))
     gp_monthly = {
         r["period"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
         for _, r in base_monthly.group_by(base_monthly.period)
@@ -756,15 +776,18 @@ def analyze_margins(
         si = si.filter(si.posting_date >= start.date())
 
     dn = dn_cost()
-    line_cost = line_cogs(sii, dn.dn_rate).sum()
-    line_profit = sii.net_amount.sum() - line_cost
+    sle = sle_cost()
+    line_cost = line_cogs(sii, dn.dn_rate, sle.svd).sum()
+    line_profit = sii.base_net_amount.sum() - line_cost
 
-    base = si.inner_join(sii, sii.parent == si.name).left_join(
-        dn, sii.dn_detail == dn.dn_name
+    base = (
+        si.inner_join(sii, sii.parent == si.name)
+        .left_join(dn, sii.dn_detail == dn.dn_name)
+        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
     )
 
     overall_df = base.aggregate(
-        total_revenue=sii.net_amount.sum(),
+        total_revenue=sii.base_net_amount.sum(),
         total_profit=line_profit,
     ).execute().iloc[0]
     total_revenue = float(overall_df["total_revenue"] or 0)
@@ -775,7 +798,7 @@ def analyze_margins(
         base.filter(sii.item_group.notnull())
         .group_by(sii.item_group)
         .aggregate(
-            revenue=sii.net_amount.sum(),
+            revenue=sii.base_net_amount.sum(),
             gross_profit=line_profit,
             qty_sold=sii.qty.sum(),
             unique_items=sii.item_code.nunique(),
@@ -787,8 +810,10 @@ def analyze_margins(
             # leaderboard already does.
             uncosted_revenue=(
                 ibis.ifelse(
-                    (sii.incoming_rate.fill_null(0) == 0) & (dn.dn_rate.fill_null(0) == 0),
-                    sii.net_amount,
+                    (sle.svd.fill_null(0) == 0)
+                    & (sii.incoming_rate.fill_null(0) == 0)
+                    & (dn.dn_rate.fill_null(0) == 0),
+                    sii.base_net_amount,
                     0,
                 ).sum()
             ),
@@ -823,7 +848,7 @@ def analyze_margins(
         base.filter(sii.item_code.notnull())
         .group_by([sii.item_code, sii.item_name, sii.item_group])
         .aggregate(
-            revenue=sii.net_amount.sum(),
+            revenue=sii.base_net_amount.sum(),
             gross_profit=line_profit,
             qty_sold=sii.qty.sum(),
         )
@@ -886,7 +911,7 @@ def analyze_margins(
         base.mutate(period=base.posting_date.strftime("%Y-%m"))
         .group_by("period")
         .aggregate(
-            revenue=sii.net_amount.sum(),
+            revenue=sii.base_net_amount.sum(),
             gross_profit=line_profit,
         )
         .order_by("period")

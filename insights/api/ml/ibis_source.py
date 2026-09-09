@@ -164,22 +164,53 @@ def dn_cost() -> ir.Table:
     return dni.select(dn_name=dni.name, dn_rate=dni.incoming_rate)
 
 
-def line_cogs(sii: ir.Table, dn_rate: ir.Column) -> ir.Column:
+def sle_cost() -> ir.Table:
+    """Actual booked COGS per sold line, from the Stock Ledger Entry.
+
+    ``stock_value_difference`` is the change in inventory value each stock
+    movement posts to the GL -- negative for an outgoing sale, so its
+    negation is the real cost of goods sold, exactly what ERPNext's Gross
+    Profit report reads (``get_buying_amount`` -> SLE ``stock_value``). This
+    is the ledger truth, unlike the (repost-lagged) ``incoming_rate`` stored
+    on the item row. Keyed by ``voucher_detail_no`` -- the Delivery Note Item
+    row for a delivery-driven sale, else the Sales Invoice Item row -- so
+    callers join on ``coalesce(sii.dn_detail, sii.name)``. Summed per line to
+    net any repost corrections. A line with no stock movement (non-stock /
+    drop-ship item) has no SLE; :func:`line_cogs` falls back to the stored
+    rate for those (ERPNext instead estimates them via an item average rate,
+    the one place the two figures can still diverge).
+    """
+    sle = t("Stock Ledger Entry")
+    return (
+        sle.filter(sle.is_cancelled == 0)
+        .group_by(sle.voucher_detail_no)
+        .aggregate(svd=sle.stock_value_difference.sum())
+        .select(vd_name=lambda x: x.voucher_detail_no, svd=lambda x: x.svd)
+    )
+
+
+def line_cogs(sii: ir.Table, dn_rate: ir.Column, sle_svd: ir.Column | None = None) -> ir.Column:
     """Effective per-line cost of goods sold for a Sales Invoice Item.
 
-    ERPNext books COGS (stock ledger + expense GL) on whichever document runs
+    When ``sle_svd`` (the summed Stock Ledger ``stock_value_difference`` from
+    :func:`sle_cost`, left-joined by the caller) is supplied, the actual
+    booked cost ``-sle_svd`` is used -- the ledger truth ERPNext's Gross
+    Profit report reports on. Lines with no stock movement (no SLE) fall back
+    to the stored rate below.
+
+    The stored-rate fallback: ERPNext books COGS on whichever document runs
     ``update_stock``. A Sales Invoice raised against a Delivery Note is forced
     to ``update_stock = 0`` (``sales_invoice.py``: "stock cannot be updated
     again"), so the invoice books only receivable + income and the Sales
     Invoice Item's ``incoming_rate`` stays 0 until Repost Item Valuation
-    back-writes it -- the real cost is booked on the Delivery Note.
-
-    Prefer the (possibly reposted) SII rate; fall back to the linked Delivery
-    Note Item rate (``sii.dn_detail`` -> DN Item ``name``) so gross margin is
-    correct on a delivery-note-driven sales flow regardless of repost lag.
-    Callers left-join :func:`dn_cost` and pass its ``dn_rate`` column here.
+    back-writes it -- the real cost is booked on the Delivery Note. Prefer the
+    (possibly reposted) SII rate; fall back to the linked Delivery Note Item
+    rate (``sii.dn_detail`` -> DN Item ``name``). Callers left-join
+    :func:`dn_cost` and pass its ``dn_rate`` column here.
     """
     import ibis
 
-    rate = ibis.coalesce(sii.incoming_rate.nullif(0), dn_rate, 0)
-    return sii.qty * rate
+    stored = sii.qty * ibis.coalesce(sii.incoming_rate.nullif(0), dn_rate, 0)
+    if sle_svd is None:
+        return stored
+    return ibis.coalesce(-sle_svd, stored)

@@ -1708,15 +1708,33 @@ def compute_customer_counts(date_filter: str = "12m",
         new_by_creation = 0
 
     if start and end:
-        first_txn = company_filter(t("Sales Invoice"), company)
-        first_txn = first_txn.filter(first_txn.docstatus == 1)
-        first_txn = first_txn.group_by(first_txn.customer).aggregate(
-            first_date=first_txn.posting_date.min()
+        si_all = company_filter(t("Sales Invoice"), company).filter(
+            t("Sales Invoice").docstatus == 1
         )
-        first_txn = first_txn.filter(first_txn.first_date.between(start.date(), end.date()))
-        new_by_first_txn = _scalar_int(first_txn.count())
+        first_dates = si_all.group_by(si_all.customer).aggregate(
+            first_date=si_all.posting_date.min()
+        )
+        # New = customers whose first-ever invoice falls in the window
+        # (matches ERPNext's Customer Acquisition & Loyalty), not the
+        # Customer master creation date that `new_by_creation` uses.
+        new_by_first_txn = _scalar_int(
+            first_dates.filter(first_dates.first_date.between(start.date(), end.date())).count()
+        )
+        # Repeat = customers who transacted in the window AND had a prior
+        # purchase before it — the returning-buyer behaviour ERPNext reports,
+        # distinct from the master-data residual `existing`.
+        in_window = (
+            si_all.filter(si_all.posting_date.between(start.date(), end.date()))
+            .select(si_all.customer)
+            .distinct()
+        )
+        prior = first_dates.filter(first_dates.first_date < start.date()).select(
+            first_dates.customer
+        )
+        repeat = _scalar_int(in_window.filter(in_window.customer.isin(prior.customer)).count())
     else:
         new_by_first_txn = 0
+        repeat = 0
 
     cutoff = (datetime.now() - timedelta(days=active_cutoff_months * 30)).date()
     so = company_filter(t("Sales Order"), company)
@@ -1742,6 +1760,7 @@ def compute_customer_counts(date_filter: str = "12m",
         "total": total,
         "new_by_creation": new_by_creation,
         "new_by_first_txn": new_by_first_txn,
+        "repeat": repeat,
         "existing": max(0, total - new_by_creation),
         "active": active,
         "inactive": max(0, total - active),

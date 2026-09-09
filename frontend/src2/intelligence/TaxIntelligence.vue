@@ -387,7 +387,7 @@ function handleDashboardRedirect(target: string) {
           label="Compliance Score"
           :value="data?.compliance_score" unit="/100"
           :severity="complianceSeverity(data?.compliance_score)"
-          sublabel="e-Invoice, Filing, Recon"
+          sublabel="e-Invoice, e-Waybill, Filing, Recon"
         />
       </div>
 

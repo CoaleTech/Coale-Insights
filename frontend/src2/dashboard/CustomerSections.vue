@@ -254,6 +254,47 @@ const paretoAnalysis = computed(() => (props.data.pareto_analysis ?? {}) as Reco
 const cohortAnalysis = computed(() => (props.data.cohort_analysis ?? {}) as Record<string, unknown>)
 const nextActions = computed(() => (props.data.next_best_actions ?? []) as ActionItem[])
 
+// ── Geography breakdown (dimension-driven, drillable) ───────────────────────
+// One endpoint slices sales by territory / item group / salesperson /
+// customer with revenue, gross profit (SLE-based, matching Margins),
+// distinct customers and transactions. Clicking a dimension row drills to
+// the customers behind it; clicking a customer opens Customer Detail.
+type GeoDim = 'territory' | 'item_group' | 'sales_person'
+type GeoMeasure = 'revenue' | 'gross_profit' | 'customers' | 'margin_pct' | 'transactions'
+interface GeoRow {
+  key: string; label: string
+  revenue: number; gross_profit: number; margin_pct: number
+  customers: number; transactions: number
+}
+interface GeoBreakdown { dimension: string; rows: GeoRow[]; totals: Omit<GeoRow, 'key' | 'label'> }
+interface GeoOptions { territories: string[]; item_groups: string[]; sales_persons: string[] }
+const GEO_DIM_LABELS: Record<string, string> = {
+  territory: 'Territory', item_group: 'Item Group', sales_person: 'Salesperson', customer: 'Customer',
+}
+const geoDim = ref<GeoDim>('territory')
+const geoNarrow = ref<{ territory: string; item_group: string; sales_person: string }>({ territory: '', item_group: '', sales_person: '' })
+const geoDrill = ref(false)
+const geoResp = ref<GeoBreakdown | null>(null)
+const geoLoading = ref(false)
+const geoOptions = ref<GeoOptions>({ territories: [], item_groups: [], sales_persons: [] })
+const geoSortKey = ref<GeoMeasure>('revenue')
+const geoSortDir = ref<'asc' | 'desc'>('desc')
+
+const effectiveGeoDim = computed(() => (geoDrill.value ? 'customer' : geoDim.value))
+const geoRows = computed<GeoRow[]>(() => {
+  const rows = [...(geoResp.value?.rows ?? [])]
+  const k = geoSortKey.value
+  const dir = geoSortDir.value === 'asc' ? 1 : -1
+  return rows.sort((a, b) => (Number(a[k] ?? 0) - Number(b[k] ?? 0)) * dir)
+})
+const geoTotals = computed(() => geoResp.value?.totals ?? null)
+const geoActiveNarrow = computed(
+  () => Object.entries(geoNarrow.value).filter(([, v]) => v) as [GeoDim, string][],
+)
+function asSelectOptions(placeholder: string, vals: string[]) {
+  return [{ value: '', label: placeholder }, ...vals.map(v => ({ value: v, label: v }))]
+}
+
 // ── Actions (next best actions) ────────────────────────────────────────────
 // Each action leads with the real ledger figure at stake, not just advice:
 // churn/re-engagement risk the booked revenue (`historical_clv`), payment
@@ -396,17 +437,69 @@ async function loadRankings() {
   }
 }
 
+async function loadGeoOptions() {
+  try {
+    geoOptions.value = await apiCall('insights.api.ml.customer.geography_options', {
+      date_filter: props.dateFilter,
+    }) as GeoOptions
+  } catch (e: unknown) {
+    console.error('Failed to load geography options:', readFrappeError(e).message)
+  }
+}
+
+async function loadGeoBreakdown() {
+  geoLoading.value = true
+  try {
+    geoResp.value = await apiCall('insights.api.ml.customer.geography_breakdown', {
+      dimension: effectiveGeoDim.value,
+      date_filter: props.dateFilter,
+      territory: geoNarrow.value.territory,
+      item_group: geoNarrow.value.item_group,
+      sales_person: geoNarrow.value.sales_person,
+    }) as GeoBreakdown
+  } catch (e: unknown) {
+    createToast({ title: 'Error', message: readFrappeError(e, 'Failed to load geography breakdown').message, variant: 'error' })
+  } finally {
+    geoLoading.value = false
+  }
+}
+
+function setGeoSort(k: GeoMeasure) {
+  if (geoSortKey.value === k) geoSortDir.value = geoSortDir.value === 'asc' ? 'desc' : 'asc'
+  else { geoSortKey.value = k; geoSortDir.value = 'desc' }
+}
+// A dimension row drills to the customers behind it: narrow by the clicked
+// key and switch to the customer view. A customer row navigates to detail.
+function geoRowClick(row: GeoRow) {
+  if (effectiveGeoDim.value === 'customer') { viewCustomerDetail(row.key); return }
+  geoNarrow.value = { ...geoNarrow.value, [geoDim.value]: row.key }
+  geoDrill.value = true
+}
+function clearGeoDrill() { geoDrill.value = false }
+function clearGeoAll() {
+  geoNarrow.value = { territory: '', item_group: '', sales_person: '' }
+  geoDrill.value = false
+}
+
 
 // ── Watchers ───────────────────────────────────────────────────────────────
 watch(activeCutoff, () => loadCustomerCounts())
 watch(() => props.activeTab, (tab) => {
   if (tab === 'cust-patterns') loadPurchasePatterns()
   if (tab === 'cust-rankings') loadRankings()
+  if (tab === 'cust-geography') { loadGeoOptions(); loadGeoBreakdown() }
 })
+
+// Reload the geography slice whenever its dimension, drill state, narrow
+// filters or the dashboard window change -- but only while the tab is open.
+watch([effectiveGeoDim, geoNarrow, () => props.dateFilter], () => {
+  if (props.activeTab === 'cust-geography') loadGeoBreakdown()
+}, { deep: true })
 
 watch(() => props.dateFilter, () => {
   loadCustomerCounts()
   loadRankings()
+  if (props.activeTab === 'cust-geography') loadGeoOptions()
 })
 
 onMounted(() => {
@@ -426,11 +519,11 @@ onMounted(() => {
       </div>
       <div class="min-w-0">
         <dt class="text-sm text-ink-gray-6">New</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.new_by_creation as number) }}</dd>
+        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.new_by_first_txn as number) }}</dd>
       </div>
       <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Existing</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.existing as number) }}</dd>
+        <dt class="text-sm text-ink-gray-6">Repeat</dt>
+        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.repeat as number) }}</dd>
       </div>
       <div class="min-w-0">
         <dt class="text-sm text-ink-gray-6">Active</dt>
@@ -646,44 +739,94 @@ onMounted(() => {
       </p>
     </div>
 
+    <!-- Dimension-driven, drillable breakdown -->
     <div class="overflow-hidden bg-surface-white rounded-lg border border-outline-gray-1">
-      <div class="px-4 py-3 border-b border-outline-gray-1">
-        <SectionHeader variant="caption" title="Territory Performance" :level="3" />
+      <div class="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-outline-gray-1">
+        <SectionHeader variant="caption"
+          :title="geoDrill ? 'Customers' : (GEO_DIM_LABELS[geoDim] + ' Breakdown')" :level="3" />
+        <div class="flex flex-wrap items-center gap-2 ml-auto">
+          <Select v-if="!geoDrill" v-model="geoDim" aria-label="Group by" class="text-sm"
+            :options="[{ value: 'territory', label: 'By Territory' }, { value: 'item_group', label: 'By Item Group' }, { value: 'sales_person', label: 'By Salesperson' }]" />
+          <Select v-model="geoSortKey" aria-label="Sort by measure" class="text-sm"
+            :options="[{ value: 'revenue', label: 'Sort: Revenue' }, { value: 'gross_profit', label: 'Sort: Gross Profit' }, { value: 'customers', label: 'Sort: Customers' }, { value: 'margin_pct', label: 'Sort: Margin %' }, { value: 'transactions', label: 'Sort: Transactions' }]" />
+        </div>
       </div>
-      <table class="w-full">
-        <caption class="sr-only">Territory performance by customer count, revenue, revenue share, and health.</caption>
+
+      <!-- Narrowing filters -->
+      <div class="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-outline-gray-1 bg-surface-gray-1">
+        <Filter class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
+        <Select v-model="geoNarrow.territory" aria-label="Filter by territory" class="text-sm"
+          :options="asSelectOptions('All territories', geoOptions.territories)" />
+        <Select v-model="geoNarrow.item_group" aria-label="Filter by item group" class="text-sm"
+          :options="asSelectOptions('All item groups', geoOptions.item_groups)" />
+        <Select v-model="geoNarrow.sales_person" aria-label="Filter by salesperson" class="text-sm"
+          :options="asSelectOptions('All salespeople', geoOptions.sales_persons)" />
+        <Button v-if="geoActiveNarrow.length || geoDrill" variant="outline" theme="gray" size="sm" label="Clear" @click="clearGeoAll" />
+        <span v-if="geoTotals" class="ml-auto text-sm text-ink-gray-6">
+          {{ money(geoTotals.revenue) }} rev · {{ formatPercent(geoTotals.margin_pct) }} margin · {{ formatNumber(geoTotals.customers) }} customers
+        </span>
+      </div>
+
+      <!-- Drill breadcrumb -->
+      <div v-if="geoDrill" class="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-outline-gray-1">
+        <Button variant="subtle" theme="gray" size="sm" :label="'Back to ' + GEO_DIM_LABELS[geoDim]" @click="clearGeoDrill" />
+        <Badge v-for="[f, v] in geoActiveNarrow" :key="f" theme="blue" variant="subtle"
+          :label="GEO_DIM_LABELS[f] + ': ' + v" size="sm" />
+      </div>
+
+      <div v-if="geoLoading" class="p-6"><SkeletonBlock :rows="6" /></div>
+      <table v-else-if="geoRows.length" class="w-full">
+        <caption class="sr-only">Sales breakdown: revenue, gross profit, margin, customers and transactions.</caption>
         <thead class="bg-surface-gray-1">
           <tr>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">Territory</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Customers</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Revenue</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Gross Profit</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Share</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Avg AOV</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Health</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">
+              {{ effectiveGeoDim === 'customer' ? 'Customer' : GEO_DIM_LABELS[geoDim] }}
+            </th>
+            <th v-if="effectiveGeoDim !== 'customer'" scope="col"
+              class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('customers')">
+              Customers <span v-if="geoSortKey === 'customers'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
+            </th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('revenue')">
+              Revenue <span v-if="geoSortKey === 'revenue'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
+            </th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('gross_profit')">
+              Gross Profit <span v-if="geoSortKey === 'gross_profit'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
+            </th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('margin_pct')">
+              Margin % <span v-if="geoSortKey === 'margin_pct'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
+            </th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('transactions')">
+              Transactions <span v-if="geoSortKey === 'transactions'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
+            </th>
+            <th scope="col" class="px-4 py-3"></th>
           </tr>
         </thead>
         <tbody class="divide-y divide-outline-gray-1">
-          <tr v-for="territory in (geoAnalysis.territory_analysis as Record<string, unknown>[])?.slice(0, 20)" :key="territory.territory as string"
-            class="hover:bg-surface-gray-1">
+          <tr v-for="row in geoRows.slice(0, 100)" :key="row.key || row.label"
+            class="hover:bg-surface-gray-1 cursor-pointer transition-colors motion-reduce:transition-none" tabindex="0"
+            @click="geoRowClick(row)" @keydown.enter="geoRowClick(row)">
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
-                <MapPin class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
-                <span class="font-medium text-ink-gray-8">{{ territory.territory || 'Unassigned' }}</span>
+                <MapPin v-if="effectiveGeoDim === 'territory'" class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
+                <span class="font-medium text-ink-gray-8">{{ row.label }}</span>
               </div>
             </td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ territory.customer_count }}</td>
-            <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(territory.total_revenue as number) }}</td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(territory.gross_profit as number) }}</td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ formatPercent(territory.revenue_share as number) }}</td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(territory.avg_order_value as number) }}</td>
-            <td class="px-4 py-3 text-right">
-              <Badge v-bind="severityBadge(scoreSeverity(territory.avg_health_score as number, { good: 60, warn: 40, higherIsBetter: true }))"
-                :label="String(Math.round(territory.avg_health_score as number))" size="sm" />
-            </td>
+            <td v-if="effectiveGeoDim !== 'customer'" class="px-4 py-3 text-right tnum text-ink-gray-7">{{ formatNumber(row.customers) }}</td>
+            <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(row.revenue) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(row.gross_profit) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ formatPercent(row.margin_pct) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ formatNumber(row.transactions) }}</td>
+            <td class="px-4 py-3 text-center"><ChevronRight class="w-4 h-4 text-ink-gray-5 inline" aria-hidden="true" /></td>
           </tr>
         </tbody>
       </table>
+      <div v-else class="p-10 text-center text-ink-gray-6">
+        <MapPin class="w-8 h-8 mx-auto text-ink-gray-4 mb-2" aria-hidden="true" />
+        <p class="text-sm">No data for this slice.</p>
+      </div>
+      <div v-if="geoRows.length > 100" class="px-4 py-3 text-sm text-center text-ink-gray-6 bg-surface-gray-1">
+        Showing 100 of {{ geoRows.length }} rows
+      </div>
     </div>
   </div>
 

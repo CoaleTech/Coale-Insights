@@ -310,20 +310,30 @@ class IndiaTaxIntelligence:
             weights.append(25)
 
         if isinstance(ewaybill, dict) and "error" not in ewaybill:
+            # Coverage is measured only against invoices that actually need an
+            # e-Waybill: "Not Applicable" rows (below the movement threshold)
+            # must not dilute the denominator, exactly as `get_einvoice_status`
+            # measures IRN coverage only over `needs_irn` invoices.
             total = float(ewaybill.get("total") or 0)
+            not_applicable = float(ewaybill.get("not_applicable") or 0)
+            applicable = total - not_applicable
             active = float(ewaybill.get("active") or 0)
-            pct = (active / total * 100) if total > 0 else 0
+            pct = (active / applicable * 100) if applicable > 0 else 0
             scores.append(min(pct, 100))
             weights.append(15)
 
         if isinstance(filing, dict) and "error" not in filing:
             gstr1 = filing.get("gstr1") or {}
             gstr3b = filing.get("gstr3b") or {}
-            gstr1_total = int(gstr1.get("total") or 0)
-            gstr3b_total = int(gstr3b.get("total") or 0)
+            # Denominator is periods that are actually due: a NULL filing_status
+            # ("unknown") marks a period not yet due (future return_period), so
+            # counting it as unfiled would understate compliance. Score only
+            # over periods with a definite filed/pending status.
+            gstr1_due = int(gstr1.get("total") or 0) - int(gstr1.get("unknown") or 0)
+            gstr3b_due = int(gstr3b.get("total") or 0) - int(gstr3b.get("unknown") or 0)
             gstr1_filed = int(gstr1.get("filed") or 0)
             gstr3b_filed = int(gstr3b.get("filed") or 0)
-            denom = gstr1_total + gstr3b_total
+            denom = gstr1_due + gstr3b_due
             filing_score = (
                 (gstr1_filed + gstr3b_filed) / denom * 100 if denom > 0 else 0
             )
