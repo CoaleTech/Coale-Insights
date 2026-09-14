@@ -18,6 +18,7 @@ from typing import Any, Dict, List
 import frappe
 
 import insights.ml.india_tax_intelligence.analytics as _analytics
+import insights.ml.india_tax_intelligence.control as _control
 import insights.ml.india_tax_intelligence.data as _data
 from insights.ml.india_tax_intelligence.data import EINVOICE_COMPLIANCE
 
@@ -143,10 +144,10 @@ class IndiaTaxIntelligence:
         return {"name": f"Last {months} Months", "start": start, "end": end}
 
     # ------------------------------------------------------------------ safe
-    def _safe(self, fn, *args, default=None):
-        """Call fn(*args); return `default` on any exception (logged)."""
+    def _safe(self, fn, *args, default=None, **kwargs):
+        """Call fn(*args, **kwargs); return `default` on any exception (logged)."""
         try:
-            return fn(*args)
+            return fn(*args, **kwargs)
         except Exception as exc:
             frappe.log_error(
                 f"IndiaTaxIntelligence section failed [{fn.__name__}]: {exc}",
@@ -229,6 +230,54 @@ class IndiaTaxIntelligence:
             einvoice_status, ewaybill_status, filing_compliance, reconciliation_score
         )
 
+        # ------------------------------------------------------------ control
+        # The management layer (see `control.py`): ownership, statutory calendar
+        # and per-area readiness. Ordered by dependency -- the cash outlook
+        # consumes the legal register's rows, and the pulse and matrix roll up
+        # everything computed above them.
+        action_queue = self._safe(
+            _control.get_action_queue, self,
+            default=_control._unavailable("Action queue failed to load", rows=[], summary={}),
+        )
+        legal_register = self._safe(
+            _control.get_legal_register, self,
+            default=_control._unavailable("Legal register failed to load", rows=[], summary={}),
+        )
+        rcm_summary = self._safe(
+            _control.get_rcm_summary, self, fy_start, fy_end,
+            default=_control._unavailable("RCM summary failed to load"),
+        )
+        pan_exceptions = self._safe(
+            _control.get_pan_exceptions, self, fy_start, fy_end,
+            default=_control._unavailable("PAN exceptions failed to load", rows=[], summary={}),
+        )
+        customs_summary = self._safe(
+            _control.get_customs_summary, self, fy_start, fy_end,
+            default=_control._unavailable("Customs summary failed to load"),
+        )
+        tax_cash_outlook = self._safe(
+            _control.get_tax_cash_outlook, self, fy_start, fy_end,
+            gst_summary, input_tax, legal_register,
+            default=_control._unavailable("Cash outlook failed to load", weeks=[]),
+        )
+        compliance_pulse = _control.get_compliance_pulse(
+            action_queue, legal_register, compliance_score
+        )
+        compliance_matrix = self._safe(
+            _control.get_compliance_matrix, self,
+            default=[],
+            filing=filing_compliance,
+            recon=reconciliation_score,
+            einvoice=einvoice_status,
+            ewaybill=ewaybill_status,
+            itc=itc_health,
+            tds=tds_summary,
+            pan=pan_exceptions,
+            customs=customs_summary,
+            legal=legal_register,
+            queue=action_queue,
+        )
+
         return {
             "status": "success",
             "generated_at": datetime.now().isoformat(),
@@ -283,6 +332,15 @@ class IndiaTaxIntelligence:
             "net_gst": round(net_gst, 2),
             "effective_tax_rate": effective_tax_rate,
             "compliance_score": compliance_score,
+            # --- control layer (see `control.py`) ---------------------------
+            "action_queue": action_queue,
+            "legal_register": legal_register,
+            "tax_cash_outlook": tax_cash_outlook,
+            "compliance_pulse": compliance_pulse,
+            "compliance_matrix": compliance_matrix,
+            "rcm_summary": rcm_summary,
+            "pan_exceptions": pan_exceptions,
+            "customs_summary": customs_summary,
             # Reference data embedded in payload so the frontend never has to
             # hard-code thresholds.
             "einvoice_compliance_info": EINVOICE_COMPLIANCE,
@@ -325,18 +383,16 @@ class IndiaTaxIntelligence:
         if isinstance(filing, dict) and "error" not in filing:
             gstr1 = filing.get("gstr1") or {}
             gstr3b = filing.get("gstr3b") or {}
-            # Denominator is periods that are actually due: a NULL filing_status
-            # ("unknown") marks a period not yet due (future return_period), so
-            # counting it as unfiled would understate compliance. Score only
-            # over periods with a definite filed/pending status.
-            gstr1_due = int(gstr1.get("total") or 0) - int(gstr1.get("unknown") or 0)
-            gstr3b_due = int(gstr3b.get("total") or 0) - int(gstr3b.get("unknown") or 0)
-            gstr1_filed = int(gstr1.get("filed") or 0)
-            gstr3b_filed = int(gstr3b.get("filed") or 0)
-            denom = gstr1_due + gstr3b_due
-            filing_score = (
-                (gstr1_filed + gstr3b_filed) / denom * 100 if denom > 0 else 0
-            )
+            # Denominator is periods whose statutory due date has actually
+            # passed (`get_filing_compliance` derives it from GST_DUE_DATES).
+            # Scoring against every logged period counts future returns as
+            # failures; scoring against periods that merely carry a status
+            # forgives one the portal never acknowledged -- which had this
+            # dashboard reporting 100% filing while `tax_cash_outlook` was
+            # simultaneously listing GSTR-3B 2026-07 as overdue.
+            denom = int(gstr1.get("due") or 0) + int(gstr3b.get("due") or 0)
+            filed = int(gstr1.get("filed_due") or 0) + int(gstr3b.get("filed_due") or 0)
+            filing_score = (filed / denom * 100) if denom > 0 else 0
             scores.append(min(filing_score, 100))
             weights.append(35)
 

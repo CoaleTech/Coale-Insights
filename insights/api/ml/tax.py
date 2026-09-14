@@ -11,7 +11,7 @@ by a background job per period; the slices below compute per call.
 
 import frappe
 from frappe import _
-from frappe.query_builder.functions import Coalesce, Count
+from frappe.query_builder.functions import Coalesce, Count, NullIf, Sum, Trim
 from typing import Any, Dict
 
 from insights.api.response import success, error
@@ -361,6 +361,153 @@ def get_tax_detail(metric: str, filters: str) -> dict:
                 {"label": _("Bill Date"), "fieldname": "bill_date", "fieldtype": "Date"},
                 {"label": _("Taxable Value"), "fieldname": "taxable_value", "fieldtype": "Currency"},
                 {"label": _("ITC At Risk"), "fieldname": "at_risk_tax", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    # --- control-layer drill-downs -------------------------------------------
+    # The wireframe's action queue, legal register and PAN exception list. All
+    # three read their DocType directly: the control sections travel in the
+    # cached `tax_intelligence` payload already, so a drill must not trigger
+    # another full recompute just to list rows the ledger can answer in one
+    # query.
+
+    if metric == "action_queue":
+        frappe.has_permission("JKM Action", throw=True)
+
+        A = frappe.qb.DocType("JKM Action")
+        query = (
+            frappe.qb.from_(A)
+            .select(
+                A.name, A.title, A.priority, A.status, A.owner_role,
+                A.due_date, A.impact_kes, A.area,
+            )
+            .where((A.plan_type == "Tax") & (A.status.isin(["To Do", "In Progress", "Blocked"])))
+        )
+        rows = (
+            query.orderby(A.due_date)
+            .orderby(A.impact_kes, order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = query.select(Count("*").as_("total")).run(as_dict=True)[0].get("total", 0)
+
+        return {
+            "columns": [
+                {"label": _("Action"), "fieldname": "name", "fieldtype": "Link",
+                 "options": "JKM Action"},
+                {"label": _("Exception"), "fieldname": "title", "fieldtype": "Data"},
+                {"label": _("Risk"), "fieldname": "priority", "fieldtype": "Data"},
+                {"label": _("Owner"), "fieldname": "owner_role", "fieldtype": "Data"},
+                {"label": _("Due"), "fieldname": "due_date", "fieldtype": "Date"},
+                {"label": _("Tax / Cash at Risk"), "fieldname": "impact_kes",
+                 "fieldtype": "Currency"},
+                {"label": _("Status"), "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    if metric == "legal_cases":
+        frappe.has_permission("JKM Tax Legal Case", throw=True)
+
+        L = frappe.qb.DocType("JKM Tax Legal Case")
+        query = frappe.qb.from_(L).select(
+            L.name, L.title, L.case_type, L.authority, L.reference_no,
+            L.total_exposure, L.stage, L.status, L.statutory_reply_date,
+            L.business_owner, L.advisor,
+        )
+        if company:
+            query = query.where(L.company == company)
+        rows = (
+            query.orderby(L.statutory_reply_date)
+            .orderby(L.total_exposure, order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        total = query.select(Count("*").as_("total")).run(as_dict=True)[0].get("total", 0)
+
+        return {
+            "columns": [
+                {"label": _("Case"), "fieldname": "name", "fieldtype": "Link",
+                 "options": "JKM Tax Legal Case"},
+                {"label": _("Matter"), "fieldname": "title", "fieldtype": "Data"},
+                {"label": _("Area / Case Type"), "fieldname": "case_type", "fieldtype": "Data"},
+                {"label": _("Authority"), "fieldname": "authority", "fieldtype": "Data"},
+                {"label": _("Reference"), "fieldname": "reference_no", "fieldtype": "Data"},
+                {"label": _("Exposure"), "fieldname": "total_exposure", "fieldtype": "Currency"},
+                {"label": _("Stage"), "fieldname": "stage", "fieldtype": "Data"},
+                {"label": _("Next Legal Date"), "fieldname": "statutory_reply_date",
+                 "fieldtype": "Date"},
+                {"label": _("Owner"), "fieldname": "business_owner", "fieldtype": "Link",
+                 "options": "User"},
+            ],
+            "rows": rows,
+            "total": total,
+        }
+
+    if metric == "tds_suppliers_no_pan":
+        frappe.has_permission("Purchase Invoice", throw=True)
+
+        # s.206AA exposure list: suppliers we already withhold from whose PAN
+        # is blank. PAN is read from `Supplier.pan` (india_compliance) with
+        # `tax_id` as the fallback -- the same precedence the detector uses,
+        # because reading `tax_id` alone reported every TDS supplier here as
+        # PAN-less while all of them held a valid PAN in `pan`.
+        S = frappe.qb.DocType("Supplier")
+        PI = frappe.qb.DocType("Purchase Invoice")
+        pan_field = S.pan if frappe.db.has_column("Supplier", "pan") else S.tax_id
+        pan_expr = Coalesce(NullIf(Trim(pan_field), ""), Trim(Coalesce(S.tax_id, "")))
+
+        query = (
+            frappe.qb.from_(PI)
+            .join(S)
+            .on(S.name == PI.supplier)
+            .select(
+                PI.supplier,
+                S.supplier_name,
+                S.tax_withholding_category,
+                Count(PI.name).as_("invoices"),
+                Sum(Coalesce(PI.base_net_total, 0)).as_("base_net_total"),
+            )
+            .where((PI.docstatus == 1) & (PI.apply_tds == 1) & (pan_expr == ""))
+            .groupby(PI.supplier, S.supplier_name, S.tax_withholding_category)
+        )
+        if company:
+            query = query.where(PI.company == company)
+
+        rows = (
+            query.orderby(Sum(Coalesce(PI.base_net_total, 0)), order=frappe.qb.desc)
+            .limit(page_size)
+            .offset(start)
+            .run(as_dict=True)
+        )
+        # One row per supplier, so the page total is a distinct-supplier count.
+        # `Count("*")` on the grouped query counts rows *within* each group.
+        count_q = (
+            frappe.qb.from_(PI)
+            .join(S)
+            .on(S.name == PI.supplier)
+            .select(Count(PI.supplier).distinct().as_("total"))
+            .where((PI.docstatus == 1) & (PI.apply_tds == 1) & (pan_expr == ""))
+        )
+        if company:
+            count_q = count_q.where(PI.company == company)
+        total = count_q.run(as_dict=True)[0].get("total", 0)
+
+        return {
+            "columns": [
+                {"label": _("Supplier"), "fieldname": "supplier", "fieldtype": "Link",
+                 "options": "Supplier"},
+                {"label": _("Name"), "fieldname": "supplier_name", "fieldtype": "Data"},
+                {"label": _("TDS Category"), "fieldname": "tax_withholding_category",
+                 "fieldtype": "Data"},
+                {"label": _("Invoices"), "fieldname": "invoices", "fieldtype": "Int"},
+                {"label": _("Net Billed"), "fieldname": "base_net_total",
+                 "fieldtype": "Currency"},
             ],
             "rows": rows,
             "total": total,

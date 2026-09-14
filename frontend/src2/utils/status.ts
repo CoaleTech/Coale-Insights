@@ -127,8 +127,35 @@ export function severityFill(severity: Severity | string | null | undefined): st
 }
 
 /**
+ * The same non-text fill as an SVG stroke, for an arc or a line series.
+ *
+ * A separate function rather than string surgery on the fill class at the
+ * call site: Tailwind only emits utilities it can find as literal
+ * text when it scans the source, so a class assembled at runtime matches no
+ * rule at all. `stroke` then falls back to its initial value of `none` and
+ * the graphic vanishes -- silently, and only in the built bundle.
+ */
+export function severityStroke(severity: Severity | string | null | undefined): string {
+  switch (normaliseSeverity(severity)) {
+    case 'critical':
+    case 'high':
+      return 'stroke-neg-fill'
+    case 'medium':
+      return 'stroke-warn-fill'
+    case 'low':
+      return 'stroke-pos-fill'
+    default:
+      return 'stroke-muted-fill'
+  }
+}
+
+/**
  * Accessible name for a status graphic, so a bar or indicator is never a bare
  * colour to assistive tech.
+ *
+ * Speaks the risk vocabulary, so keep it on risk-shaped figures -- exposure
+ * at stake, pending covers, an alert row -- where "High" means high
+ * severity. For a readiness or coverage percentage use `readinessLabel`.
  *
  *   <div :class="severityFill(s)" :aria-label="severityAria('Credit risk', s, 72)" role="img" />
  */
@@ -141,6 +168,31 @@ export function severityAria(
   return value === null || value === undefined || value === ''
     ? `${metric}: ${label}`
     : `${metric}: ${label} (${value})`
+}
+
+/**
+ * The readiness word for a severity step, for figures where higher is better.
+ *
+ * `severityBadge` speaks a risk vocabulary -- Critical / High / Medium / Low
+ * -- which inverts on a `higherIsBetter` score. 100% e-Invoice coverage is
+ * good, resolves to severity `low`, and reads as low coverage; a
+ * reconciliation score of 46 out of 100 is bad, resolves to `high`, and
+ * reads as a high score. The colour is right in both cases; only the word
+ * lies. Use this wherever the number is a readiness or coverage percentage
+ * rather than a risk index -- for the badge itself, and for the accessible
+ * name of a graphic carrying the same figure.
+ */
+export function readinessLabel(severity: Severity | string | null | undefined): string {
+  switch (normaliseSeverity(severity)) {
+    case 'low':
+      return 'On target'
+    case 'medium':
+      return 'Below target'
+    case 'none':
+      return 'Not measured'
+    default:
+      return 'Off target'
+  }
 }
 
 /**

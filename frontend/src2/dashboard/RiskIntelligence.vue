@@ -205,12 +205,15 @@ function riskScoreSeverity(score: number): Severity {
 }
 
 // GST filing status vocabulary from `get_filing_compliance` (server):
-// Compliant | Pending | Not Tracked | No Data | Not Available.
+// No Data | Not Due | Compliant | Overdue. `Pending` / `Not Tracked` are the
+// pre-due-date-aware spellings, still served from cached payloads.
 function gstStatusSeverity(status: string | undefined): Severity {
-  if (status === 'Compliant') return 'none'
-  if (status === 'Pending') return 'high'
+  if (status === 'Compliant' || status === 'Not Due') return 'none'
+  if (status === 'Overdue' || status === 'Pending') return 'high'
   if (status === 'Not Tracked' || status === 'No Data' || status === 'Not Available') return 'medium'
-  return 'none'
+  // An unrecognised status is an unread signal, never an all-clear: a silent
+  // green fallthrough is how `Overdue` would have rendered as no risk.
+  return 'medium'
 }
 
 const chatContext = computed(() => ({

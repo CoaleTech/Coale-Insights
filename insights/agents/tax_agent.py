@@ -66,7 +66,9 @@ class TaxIntelligenceAgent(BaseIntelligenceAgent):
             return itc
         return {
             "available": itc.get("available", 0),
-            "claimed": itc.get("claimed", 0),
+            "accrued": itc.get("accrued", 0),
+            "utilised": itc.get("utilised", 0),
+            "balance": itc.get("balance", 0),
             "ineligible": itc.get("ineligible", 0),
             "utilizable": itc.get("utilizable", 0),
             "utilization_pct": itc.get("utilization_pct", 0),
@@ -114,8 +116,18 @@ class TaxIntelligenceAgent(BaseIntelligenceAgent):
         return {
             "gstr1_status": filing.get("gstr1", {}).get("status", "Unknown"),
             "gstr3b_status": filing.get("gstr3b", {}).get("status", "Unknown"),
-            "gstr1_filed": filing.get("gstr1", {}).get("filed", 0),
-            "gstr3b_filed": filing.get("gstr3b", {}).get("filed", 0),
+            # A filed count without its denominator is not a fact: 3 of 4 due
+            # is a live company, 3 of 12 logged is a delinquent one, and the
+            # bare `3` reads as either. `due` counts only periods whose
+            # statutory due date has passed, which is what the compliance
+            # score is scored on -- see `_last_past_due_period`.
+            "gstr1_filed_of_due": filing.get("gstr1", {}).get("filed_due", 0),
+            "gstr1_due": filing.get("gstr1", {}).get("due", 0),
+            "gstr1_overdue": filing.get("gstr1", {}).get("overdue", 0),
+            "gstr3b_filed_of_due": filing.get("gstr3b", {}).get("filed_due", 0),
+            "gstr3b_due": filing.get("gstr3b", {}).get("due", 0),
+            "gstr3b_overdue": filing.get("gstr3b", {}).get("overdue", 0),
+            "due_through": filing.get("gstr3b", {}).get("due_through", ""),
         }
 
     def _extract_reconciliation_score(self, context: Dict) -> Dict:
@@ -131,16 +143,23 @@ class TaxIntelligenceAgent(BaseIntelligenceAgent):
         }
 
     def _extract_hsn_summary(self, context: Dict) -> List[Dict]:
-        """Extract top HSN summary"""
+        """Extract top HSN summary.
+
+        The tax figure here is allocated from the invoice, not estimated from
+        a rate card. An earlier revision read `estimated_tax`, a key the
+        payload has never carried, so every row reported ₹0 tax against real
+        revenue and the model was asked to reason about a zero-rated book.
+        """
         hsn = context.get("hsn_summary", [])
         return [
             {
                 "hsn_code": row.get("hsn_code", ""),
                 "revenue": float(row.get("revenue", 0)),
-                "estimated_tax": float(row.get("estimated_tax", 0)),
+                "actual_gst": float(row.get("actual_gst", 0)),
+                "effective_gst_rate": float(row.get("effective_gst_rate", 0)),
                 "invoice_count": int(row.get("invoice_count", 0)),
             }
-            for row in hsn[:10]
+            for row in hsn
         ]
 
     def _extract_tax_forecast(self, context: Dict) -> Dict:

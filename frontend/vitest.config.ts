@@ -12,6 +12,10 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     globals: true,
+    // jsdom 29 provides no Web Storage. See vitest.setup.ts: the composable
+    // guards the access, so without this the persistence specs do not fail
+    // loudly, they stop testing anything.
+    setupFiles: ['./vitest.setup.ts'],
     // Unit specs live beside the code in src2. `tests/` holds Playwright E2E
     // specs (see playwright.config.js) which import @playwright/test and need a
     // live server; collecting them here fails the run before any unit test.

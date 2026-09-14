@@ -26,7 +26,7 @@ patterns because `'Input Tax CGST RCM'` matches both.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 import frappe
@@ -113,6 +113,21 @@ EINVOICE_COMPLIANCE: Dict[str, Any] = {
     "rule_37_days": 180,   # ITC reversal if the supplier is unpaid within 180 days
 }
 
+# `gst_category` values that require an IRN. India Compliance's standard set is
+# listed first; the bare "SEZ" / "Deemed Export" / "Tax Deductor" legacy and
+# aliased values are added because live data on at least one install uses them
+# in place of the longer labels. Shared with the tests so the coverage
+# denominator they assert against is the same population the query measures.
+IRN_REQUIRED_GST_CATEGORIES: List[str] = [
+    "Registered Regular",
+    "Registered Composition",
+    "SEZ supply with payment of tax",
+    "SEZ supply without payment of tax",
+    "Deemed Export",
+    "Overseas",
+    "SEZ",
+]
+
 # Return due dates. Gujarat (state code 24) is a QRMP Group 1 state, so its
 # quarterly GSTR-3B is due on the 22nd, not the 24th.
 GST_DUE_DATES: Dict[str, Any] = {
@@ -128,6 +143,35 @@ GST_DUE_DATES: Dict[str, Any] = {
     "eway_bill_threshold_inr": 50000,       # interstate and Gujarat intrastate
     "eway_bill_validity_km_per_day": 200,
 }
+
+
+def _last_past_due_period(due_day: int, today: date | None = None) -> str:
+    """Newest `YYYY-MM` return period whose statutory due date has passed.
+
+    A period is filed in the *following* month, on `due_day`. So last month's
+    return is only late once `today` is past `due_day`; before that the newest
+    genuinely-late period is the month before it.
+
+    This is what separates "not filed" from "not due yet". Scoring a filing
+    percentage against every logged period counts future obligations as
+    failures; scoring against periods that merely carry a status forgives a
+    return the portal never acknowledged. Neither is the question a compliance
+    officer is asking, which is: of the returns I owed by today, how many did
+    I file?
+
+    Assumes monthly filing. Every row on this deployment is `filing_preference
+    = Monthly`; QRMP days live in `GST_DUE_DATES` for a filer that needs them.
+    """
+    today = today or datetime.now().date()
+    # Step back one month for the period itself, and one more when this
+    # month's due date has not yet arrived.
+    back = 1 if today.day > due_day else 2
+    month = today.month - back
+    year = today.year
+    while month <= 0:
+        month += 12
+        year -= 1
+    return f"{year:04d}-{month:02d}"
 
 
 # ---------------------------------------------------------------------------
@@ -445,18 +489,19 @@ def get_itc_health(intelligence, start: date, end: date) -> Dict[str, Any]:
     available_expr = _component_sum(joined, *ALL_PLAIN)
     available_val = float(_scalar_or(available_expr, 0.0))
 
-    # Reverse-charge ITC: identified by component (cgst_rcm/sgst_rcm/igst_rcm),
-    # tracked apart because under RCM the recipient self-assesses and pays.
-    # RCM rows on Purchase Taxes and Charges have add_deduct_tax = 'Deduct'
-    # (the company owes the tax it then claims as ITC), so they are
-    # excluded by the `add_deduct_tax = 'Add'` filter applied to
-    # `joined` above — sum against the unfiltered join instead.
-    rcm_expr = _component_sum(pi.join(ptc, pi["name"] == ptc["parent"], how="inner"), *ALL_RCM)
-    rcm_itc = float(_scalar_or(rcm_expr, 0.0))
-
-    # Claimed ITC: the GL Entry side. Input tax accounts are assets:
-    # ITC accrues as a DEBIT. Summing credit - debit returned it negative,
-    # inverting utilisation, so use debit - credit here.
+    # ITC movement, from the GL side. Input tax accounts are assets, so the
+    # two directions are different facts and the net is a third:
+    #
+    #   debit  -- credit accrued into the ledger when a purchase posts it
+    #   credit -- credit consumed: the monthly GSTR-3B set-off journal
+    #             debits Output Tax and credits these accounts, and
+    #             reversals land here too
+    #   net    -- balance still carried forward, unused
+    #
+    # An earlier revision summed `debit - credit`, labelled it `claimed` and
+    # divided it by available credit. That reports the *unused remainder* as
+    # though it were the amount taken: on this ledger it rendered 78%
+    # utilisation as 22%, inverting the one number a tax manager acts on.
     gle = _company_filter(t("GL Entry"), intelligence.company)
     gle = gle.filter(gle["is_cancelled"] == 0)
     gle = _date_filter(gle, start, end, "posting_date")
@@ -471,10 +516,17 @@ def get_itc_health(intelligence, start: date, end: date) -> Dict[str, Any]:
         | name.like("%input tax%")
     )
     filtered_gle = gle_acc.filter(cond)
-    claimed_df = filtered_gle.aggregate(
-        v=(filtered_gle["debit"] - filtered_gle["credit"]).sum()
+    itc_df = filtered_gle.aggregate(
+        accrued=filtered_gle["debit"].sum(),
+        utilised=filtered_gle["credit"].sum(),
     ).execute()
-    claimed_val = float(claimed_df.iloc[0]["v"] or 0) if claimed_df is not None and not claimed_df.empty else 0.0
+    if itc_df is None or itc_df.empty:
+        accrued_val = 0.0
+        utilised_val = 0.0
+    else:
+        accrued_val = float(itc_df.iloc[0]["accrued"] or 0)
+        utilised_val = float(itc_df.iloc[0]["utilised"] or 0)
+    balance_val = accrued_val - utilised_val
     # Sec 17(5) blocked credits. expense_account lives on Purchase Invoice
     # Item, not on the invoice; we then need the tax rows joined on top to
     # get the tax amount. Chain the joins explicitly so the resulting
@@ -561,50 +613,43 @@ def get_itc_health(intelligence, start: date, end: date) -> Dict[str, Any]:
     else:
         at_risk_invoices = 0
         at_risk_tax = 0.0
-    # Reconciliation row: total, unactioned, mismatched, recon_through
-    if _has_columns(inward, "match_status", "action", "bill_date"):
+    # Unactioned inward-supply rows. `total` / `mismatched` / `bill_date` used
+    # to be aggregated here too, but `get_reconciliation_score` already
+    # computes all three off the same table and is the copy the dashboard
+    # renders -- this one only fed the compliance matrix's ITC reconciliation
+    # cell and the `tax.recon_unactioned` action detector, both of which read
+    # `recon_unactioned` alone.
+    if _has_columns(inward, "action"):
         inward_c = _company_filter(inward, intelligence.company)
         recon_row = inward_c.aggregate(
-            total=inward_c["name"].count(),
             unactioned=(inward_c["action"].fill_null("No Action") == "No Action").cast("int64").sum(),
-            mismatched=(inward_c["match_status"] == "Mismatch").cast("int64").sum(),
-            recon_through=inward_c["bill_date"].max(),
         ).execute()
-        if recon_row is None or recon_row.empty:
-            recon_total = 0
-            recon_unactioned = 0
-            recon_mismatched = 0
-            recon_through = ""
-        else:
-            recon_total = int(recon_row.iloc[0]["total"] or 0)
-            recon_unactioned = int(recon_row.iloc[0]["unactioned"] or 0)
-            recon_mismatched = int(recon_row.iloc[0]["mismatched"] or 0)
-            recon_through_v = recon_row.iloc[0]["recon_through"]
-            recon_through = str(recon_through_v) if recon_through_v is not None else ""
+        recon_unactioned = (
+            0 if recon_row is None or recon_row.empty
+            else int(recon_row.iloc[0]["unactioned"] or 0)
+        )
     else:
-        recon_total = 0
         recon_unactioned = 0
-        recon_mismatched = 0
-        recon_through = ""
 
     utilizable = max(0.0, available_val - ineligible_val)
+    # Both sides of this ratio come from the same ledger, same window, same
+    # account filter. Dividing the GL numerator by the Purchase-Invoice
+    # `utilizable` figure would mix two sources that never agree exactly.
     utilization_pct = (
-        round((claimed_val / utilizable * 100), 2) if utilizable > 0 else 0.0
+        round((utilised_val / accrued_val * 100), 2) if accrued_val > 0 else 0.0
     )
 
     return {
         "available": available_val,
-        "claimed": claimed_val,
+        "accrued": accrued_val,
+        "utilised": utilised_val,
+        "balance": balance_val,
         "ineligible": ineligible_val,
         "utilizable": utilizable,
         "utilization_pct": utilization_pct,
-        "rcm_itc": rcm_itc,
         "at_risk_supplier_unfiled": at_risk_tax,
         "at_risk_invoice_count": at_risk_invoices,
-        "recon_total": recon_total,
         "recon_unactioned": recon_unactioned,
-        "recon_mismatched": recon_mismatched,
-        "recon_through": recon_through,
     }
 
 
@@ -701,56 +746,11 @@ def get_tds_summary(intelligence, start: date, end: date) -> Dict[str, Any]:
         _scalar_or(s_filtered["base_tax_amount"].abs().sum(), 0.0)
     )
 
-    # Coverage: how much of our TDS configuration is actually reaching invoices.
-    twc = t("Tax Withholding Category")
-    categories_configured = int(_scalar_or(twc["name"].count(), 0))
-
-    sup = t("Supplier")
-    if "tax_withholding_category" in sup.columns:
-        suppliers_mapped = int(
-            _scalar_or(
-                sup.filter(sup["tax_withholding_category"].fill_null("") != "")
-                .aggregate(v=sup["name"].count())["v"],
-                0,
-            )
-        )
-    else:
-        suppliers_mapped = 0
-    if "disabled" in sup.columns:
-        suppliers_total = int(
-            _scalar_or(
-                sup.filter(sup["disabled"].fill_null(0) == 0)
-                .aggregate(v=sup["name"].count())["v"],
-                0,
-            )
-        )
-    else:
-        suppliers_total = int(_scalar_or(sup.aggregate(v=sup["name"].count())["v"], 0))
-
-    if "apply_tds" in pi.columns:
-        invoices_with_tds = int(
-            _scalar_or(
-                pi.filter(pi["apply_tds"].fill_null(0) == 1)
-                .aggregate(v=pi["name"].count())["v"],
-                0,
-            )
-        )
-    else:
-        invoices_with_tds = 0
-    invoices_total = int(
-        _scalar_or(pi.aggregate(v=pi["name"].count())["v"], 0)
-    )
-
     return {
         "payable_by_section": payable_rows,
         "total_payable": round(total_payable, 2),
         "receivable": round(receivable_val, 2),
         "net_position": round(receivable_val - total_payable, 2),
-        "categories_configured": categories_configured,
-        "suppliers_mapped": suppliers_mapped,
-        "suppliers_total": suppliers_total,
-        "invoices_with_tds": invoices_with_tds,
-        "invoices_total": invoices_total,
     }
 
 
@@ -772,31 +772,27 @@ def get_einvoice_status(intelligence, start: date, end: date) -> Dict[str, Any]:
     si = _docstatus_filter(si)
     si = _date_filter(si, start, end, "posting_date")
 
-    # `gst_category` values that require an IRN. India Compliance's standard
-    # set is listed first; the bare "SEZ" / "Deemed Export" / "Tax Deductor"
-    # legacy / aliased values are added because live data on at least one
-    # install uses them in place of the longer labels.
-    needs_irn = si["gst_category"].isin(
-        [
-            "Registered Regular",
-            "Registered Composition",
-            "SEZ supply with payment of tax",
-            "SEZ supply without payment of tax",
-            "Deemed Export",
-            "Overseas",
-            "SEZ",
-        ]
-    )
+    needs_irn = si["gst_category"].isin(IRN_REQUIRED_GST_CATEGORIES)
     has_irn = (si["irn"].fill_null("") != "") if "irn" in si.columns else ibis.literal(False)
 
-    one = ibis.literal(1)
-    zero = ibis.literal(0)
+    # `einvoice_status` carries the same vocabulary as `e_waybill_status`
+    # (Pending / Generated / Failed / Cancelled / Not Applicable / ...). An
+    # earlier revision hardcoded `failed: 0` on the premise that no such field
+    # existed here; it does, and a fabricated zero would go on reading zero on
+    # the day a generation actually fails. Scoped to `needs_irn` like every
+    # other count in this aggregate.
+    failed_status = (
+        (si["einvoice_status"] == "Failed")
+        if "einvoice_status" in si.columns
+        else ibis.literal(False)
+    )
 
     agg = si.aggregate(
         all_invoices=si["name"].count(),
         total=needs_irn.cast("int64").sum(),
         filed=(needs_irn & has_irn).cast("int64").sum(),
         pending=(needs_irn & (~has_irn)).cast("int64").sum(),
+        failed=(needs_irn & failed_status).cast("int64").sum(),
         exempt=(~needs_irn).cast("int64").sum(),
         pending_value=si["base_grand_total"].fill_null(0)
         .sum(where=(needs_irn & (~has_irn))),
@@ -816,9 +812,7 @@ def get_einvoice_status(intelligence, start: date, end: date) -> Dict[str, Any]:
         "total": total,
         "filed": filed,
         "pending": pending,
-        # No `einvoice_status` field exists on Sales Invoice in this install,
-        # so a failed-generation count is not observable here.
-        "failed": 0,
+        "failed": int(row.get("failed") or 0),
         "exempt": int(row.get("exempt") or 0),
         "all_invoices": int(row.get("all_invoices") or 0),
         "pending_value": float(row.get("pending_value") or 0),
@@ -889,6 +883,11 @@ def get_ewaybill_status(intelligence, start: date, end: date) -> Dict[str, Any]:
         "total": total,
         "active": generated,
         "pending": pending,
+        # The `Failed` bucket was computed into `counts` and shown in the
+        # `by_status` table, but never surfaced as a key -- so the caller's
+        # `ew.failed ?? 0` silently reported no issues while the table
+        # underneath it listed a real failure.
+        "failed": counts.get("Failed", 0),
         "not_applicable": counts.get("Not Applicable", 0),
         "cancelled": cancelled,
         "by_status": by_status_list,
@@ -920,8 +919,19 @@ def get_filing_compliance(intelligence, start: date, end: date) -> Dict[str, Any
         end_ym = _to_date(end)[:7]
         grl = grl.filter(norm.between(start_ym, end_ym))
 
-    def _returns(return_type: str) -> Dict[str, Any]:
+    def _returns(return_type: str, due_day: int) -> Dict[str, Any]:
         sub = grl.filter(grl["return_type"] == return_type) if "return_type" in grl.columns else grl
+        # A period counts against the filing score only once its due date has
+        # passed. `cutoff` is the newest such period; everything after it is a
+        # future obligation, not a failure.
+        cutoff = _last_past_due_period(due_day)
+        if "return_period" in sub.columns:
+            sub_norm = (
+                sub["return_period"].substr(2, 4) + "-" + sub["return_period"].substr(0, 2)
+            )
+            is_due = sub_norm <= cutoff
+        else:
+            is_due = ibis.literal(False)
         if "filing_status" in sub.columns:
             agg = sub.aggregate(
                 total_returns=sub["name"].count(),
@@ -930,6 +940,8 @@ def get_filing_compliance(intelligence, start: date, end: date) -> Dict[str, Any
                 pending=(
                     sub["filing_status"].isin(["Not Filed", "Pending"])
                 ).cast("int64").sum(),
+                due=is_due.cast("int64").sum(),
+                filed_due=(is_due & (sub["filing_status"] == "Filed")).cast("int64").sum(),
                 latest_period=sub["return_period"].max() if "return_period" in sub.columns else ibis.null(),
             )
         else:
@@ -938,13 +950,15 @@ def get_filing_compliance(intelligence, start: date, end: date) -> Dict[str, Any
                 filed=ibis.literal(0),
                 unknown=ibis.literal(0),
                 pending=ibis.literal(0),
+                due=ibis.literal(0),
+                filed_due=ibis.literal(0),
                 latest_period=ibis.null(),
             )
         df = agg.execute()
         if df is None or df.empty:
             return {
-                "total_returns": 0, "filed": 0, "unknown": 0,
-                "pending": 0, "latest_period": None,
+                "total_returns": 0, "filed": 0, "unknown": 0, "pending": 0,
+                "due": 0, "filed_due": 0, "latest_period": None, "cutoff": cutoff,
             }
         row = df.iloc[0]
         return {
@@ -952,28 +966,41 @@ def get_filing_compliance(intelligence, start: date, end: date) -> Dict[str, Any
             "filed": int(row.get("filed") or 0),
             "unknown": int(row.get("unknown") or 0),
             "pending": int(row.get("pending") or 0),
+            "due": int(row.get("due") or 0),
+            "filed_due": int(row.get("filed_due") or 0),
             "latest_period": row.get("latest_period"),
+            "cutoff": cutoff,
         }
 
-    gstr1 = _returns("GSTR1")
-    gstr3b = _returns("GSTR3B")
+    gstr1 = _returns("GSTR1", GST_DUE_DATES["gstr1_monthly_day"])
+    gstr3b = _returns("GSTR3B", GST_DUE_DATES["gstr3b_monthly_day"])
 
     def _status(row: Dict[str, Any]) -> str:
         total = int(row.get("total_returns", 0) or 0)
+        due = int(row.get("due", 0) or 0)
         if total == 0:
             return "No Data"
-        if int(row.get("unknown", 0) or 0) == total:
-            return "Not Tracked"
-        if int(row.get("filed", 0) or 0) == total:
+        if due == 0:
+            # Logged, but nothing in the window has come due yet.
+            return "Not Due"
+        if int(row.get("filed_due", 0) or 0) == due:
             return "Compliant"
-        return "Pending"
+        return "Overdue"
 
     def _shape(row: Dict[str, Any]) -> Dict[str, Any]:
+        due = int(row.get("due", 0) or 0)
+        filed_due = int(row.get("filed_due", 0) or 0)
         return {
             "total": int(row.get("total_returns", 0) or 0),
             "filed": int(row.get("filed", 0) or 0),
             "pending": int(row.get("pending", 0) or 0),
             "unknown": int(row.get("unknown", 0) or 0),
+            # Periods whose statutory due date has passed, and how many of
+            # those were filed. The score runs on these, not on `total`.
+            "due": due,
+            "filed_due": filed_due,
+            "overdue": max(due - filed_due, 0),
+            "due_through": row.get("cutoff") or "",
             "late": 0,
             "latest_period": row.get("latest_period") or "",
             "status": _status(row),
@@ -1135,8 +1162,14 @@ def get_reconciliation_score(intelligence, start: date, end: date) -> Dict[str, 
     }
 
 
+# The HSN panel is a "top N by revenue" table, not a register. Every consumer
+# (the dashboard table, the LLM extractor) took the first 10 and dropped the
+# rest, so the full 120-row tail was 43% of the payload nothing could read.
+HSN_TOP_N = 10
+
+
 def get_hsn_summary(intelligence, start: date, end: date) -> List[Dict[str, Any]]:
-    """Revenue, actual GST and invoice count by HSN code.
+    """Top HSN codes by revenue, with actual GST and invoice count.
 
     GST is proportionally allocated to each item line using the invoice-
     level tax total (`base_grand_total - base_net_total`), avoiding a full-
@@ -1175,6 +1208,7 @@ def get_hsn_summary(intelligence, start: date, end: date) -> List[Dict[str, Any]
             invoice_count=joined["name"].nunique(),
         )
         .order_by(joined["base_amount"].fill_null(0).sum().desc())
+        .limit(HSN_TOP_N)
     )
     df = hsn_agg.execute()
     if df is None or df.empty:

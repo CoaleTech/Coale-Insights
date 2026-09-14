@@ -48,10 +48,19 @@ def _closed_form_linear_fit(ys: List[float]) -> Dict[str, Any]:
 def get_tax_forecast(intelligence, start, end) -> Dict[str, Any]:
     """Forecast next 3 months' net GST from the monthly series.
 
-    Replaces the old `sklearn.linear_model.LinearRegression` with a
-    closed-form OLS fit on a small (~24-element) list. The forecast is a
-    linear extrapolation of the fitted line — same answer the model
-    produced, no scikit-learn required.
+    Closed-form OLS on the monthly net-GST list (no scikit-learn).
+
+    Two things this deliberately does not do:
+
+    - **Fit on the running month.** A month that is still open carries a
+      part-month of invoices, so it sits far below every closed month and
+      drags the slope down. The fit uses closed months only; the current
+      calendar month is dropped even though it is inside the window.
+    - **Clamp the projection at zero.** Net GST is output tax less input
+      credit, so a negative projection is a real state -- credit exceeding
+      liability, carried forward -- not an error and not a refund. Clamping
+      would hide it. `r_squared` is returned so a reader can discount a line
+      that does not fit; the caller renders it.
     """
     from insights.ml.india_tax_intelligence.data import (
         get_gst_output_tax,
@@ -86,11 +95,20 @@ def get_tax_forecast(intelligence, start, end) -> Dict[str, Any]:
         months.append(month)
         net_gst.append(out_total - inp_total)
 
+    # A month equal to today's is still accruing. String compare is safe on
+    # zero-padded `YYYY-MM`, and a window that ended in the past keeps every
+    # month it has.
+    running_month = datetime.now().date().strftime("%Y-%m")
+    closed = [(m, v) for m, v in zip(months, net_gst, strict=True) if m < running_month]
+    dropped_running_month = len(closed) < len(months)
+    months = [m for m, _ in closed]
+    net_gst = [v for _, v in closed]
+
     n = len(months)
     if n < 3:
         return {
             "forecast": [],
-            "note": "Need at least 3 months of data for forecasting",
+            "note": "Need at least 3 closed months of data for forecasting",
         }
 
     fit = _closed_form_linear_fit(net_gst)
@@ -111,11 +129,19 @@ def get_tax_forecast(intelligence, start, end) -> Dict[str, Any]:
             }
         )
 
+    note = (
+        f"Ordinary least squares on net GST for the {n} closed months to {months[-1]}"
+    )
+    if dropped_running_month:
+        note += "; the running month is still accruing and is excluded"
+
     return {
         "forecast": forecast,
         "trend_slope": round(float(slope), 2),
         "r_squared": round(float(r_sq), 4) if r_sq is not None else None,
-        "note": "Linear regression on monthly net GST",
+        "months_used": n,
+        "last_closed_month": months[-1],
+        "note": note,
     }
 
 
