@@ -172,6 +172,7 @@ _LAZY_MAP = {
     "retrain": ("insights.api.ml.model_ops", "retrain"),
     "lead_conversion": ("insights.api.ml.model_ops", "lead_conversion"),
     "gl_anomalies": ("insights.api.ml.model_ops", "gl_anomalies"),
+    "get_ml_detail": ("insights.api.ml.model_ops", "get_ml_detail"),
     # `predictive` removed 2026-08-10: AdvancedPredictiveAnalyticsEngine trained on
     # simulated history, all 8 endpoints had already been reduced to
     # {"status": "not_implemented"} stubs, and nothing in the frontend called any

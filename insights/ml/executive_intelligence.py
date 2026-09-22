@@ -79,6 +79,23 @@ def _base_currency() -> str:
             return cur
     return frappe.db.get_single_value("Global Defaults", "default_currency") or "USD"
 
+
+def _plain_money(value: float, currency: str | None) -> str:
+    """Currency text for narrative prose, matching the frontend's
+    `formatMoney` (en-US grouping, currency symbol prefix, 0 decimals)
+    instead of `frappe.utils.fmt_money`'s site `number_format` (Indian
+    grouping, 2 decimals here) -- the same KPI value this narrative speaks
+    also renders as a `KpiCard` via `formatMoney` on the same dashboard.
+    """
+    symbol = (
+        frappe.db.get_value("Currency", currency, "symbol", cache=True)
+        if currency
+        else None
+    ) or (currency or "")
+    sign = "-" if value < 0 else ""
+    return f"{sign}{symbol}{abs(value):,.0f}"
+
+
 def _company() -> Optional[str]:
     """Resolve the user's default company (used as a filter). Returns None
     when no company is configured; ``company_filter`` treats None as a no-op."""
@@ -924,7 +941,7 @@ def _spoken_value(kpi: Dict[str, Any]) -> str:
         return _("not available")
     fmt = kpi.get("format")
     if fmt == "currency":
-        return frappe.utils.fmt_money(value, currency=_base_currency())
+        return _plain_money(value, _base_currency())
     if fmt == "percentage":
         return f"{value:,.1f}%"
     if fmt == "decimal":

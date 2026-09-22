@@ -209,7 +209,7 @@
       :options="{
         title: 'Generate Executive Report',
         actions: [
-          { label: 'Cancel', variant: 'outline', onClick: () => generateReportModal = false },
+          { label: 'Cancel', variant: 'outline', onClick: () => { generateReportModal = false } },
           { label: generatingReport ? 'Generating...' : 'Generate Report', variant: 'solid', loading: generatingReport, disabled: generatingReport, onClick: generateReport }
         ]
       }"
@@ -246,7 +246,7 @@
         title: 'Report Preview',
         size: 'xl',
         actions: [
-          { label: 'Close', variant: 'outline', onClick: () => previewModal = false }
+          { label: 'Close', variant: 'outline', onClick: () => { previewModal = false } }
         ]
       }"
     >
@@ -295,7 +295,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import {
   Calendar, TrendingUp, BarChart3, Clock, RefreshCw, Plus, FileText,
@@ -306,15 +306,63 @@ import { apiCall } from '../helpers/api'
 import { createToast } from '../helpers/toasts'
 import { formatMoney, formatPercent, formatCount } from '../utils/format'
 
+/** `Executive Report` doctype row, per `get_recent_executive_reports`
+ *  (`insights/api/ml/executive.py`). */
+interface ReportRow {
+  id: string
+  report_type: string
+  report_date: string
+  status: string
+  created: string
+}
+
+/** Counts derived client-side in `updateReportsStatus` from `recentReports` —
+ *  not a backend payload. */
+interface ReportsStatusSummary {
+  daily_count: number
+  weekly_count: number
+  monthly_count: number
+  last_daily: string | null
+  last_weekly: string | null
+  last_monthly: string | null
+}
+
+/** `get_executive_reports_status` -> `ExecutiveReports.schedule_automated_reports`
+ *  (`insights/reports/executive_reports.py`). */
+interface SchedulingStatus {
+  daily_reports?: string
+  weekly_reports?: string
+  monthly_reports?: string
+  error?: string
+}
+
+/** One alert entry from `_identify_daily_alerts` and its weekly/monthly
+ *  counterparts (`insights/reports/executive_reports.py`). */
+interface ReportAlert {
+  priority: string
+  type: string
+  message: string
+  action_required: string
+}
+
+/** `preview_executive_report_data` (`insights/api/ml/executive.py`). */
+interface ReportPreviewData {
+  executive_summary: string
+  key_metrics: Record<string, number>
+  alerts: ReportAlert[]
+  modules_with_data: string[]
+  currency: string
+}
+
 // Reactive data
-const recentReports = ref([])
-const reportsStatus = ref({})
-const schedulingStatus = ref(null)
+const recentReports = ref<ReportRow[]>([])
+const reportsStatus = ref<Partial<ReportsStatusSummary>>({})
+const schedulingStatus = ref<SchedulingStatus | null>(null)
 const loadingReports = ref(false)
 const loadingStatus = ref(false)
-const loadingPreview = ref(null)
-const loadingDownload = ref(null)
-const loadingSend = ref(null)
+const loadingPreview = ref<string | null>(null)
+const loadingDownload = ref<string | null>(null)
+const loadingSend = ref<string | null>(null)
 
 // Modal states
 const generateReportModal = ref(false)
@@ -324,8 +372,8 @@ const sendEmailAfterGeneration = ref(true)
 const generatingReport = ref(false)
 
 // Preview data
-const selectedReport = ref(null)
-const previewData = ref(null)
+const selectedReport = ref<ReportRow | null>(null)
+const previewData = ref<ReportPreviewData | null>(null)
 
 const reportTypeOptions = [
   { label: 'Daily Executive Summary', value: 'daily' },
@@ -337,7 +385,7 @@ const reportTypeOptions = [
 const fetchRecentReports = async () => {
   loadingReports.value = true
   try {
-    const result = await apiCall('insights.api.ml.get_recent_executive_reports', { limit: 20 })
+    const result = await apiCall<{ reports: ReportRow[]; count: number }>('insights.api.ml.get_recent_executive_reports', { limit: 20 })
     recentReports.value = result?.reports || []
     updateReportsStatus()
   } catch (error) {
@@ -350,7 +398,7 @@ const fetchRecentReports = async () => {
 const fetchReportsStatus = async () => {
   loadingStatus.value = true
   try {
-    schedulingStatus.value = await apiCall('insights.api.ml.get_executive_reports_status')
+    schedulingStatus.value = await apiCall<SchedulingStatus>('insights.api.ml.get_executive_reports_status')
   } catch (error) {
     console.error('Error fetching reports status:', error)
   } finally {
@@ -396,7 +444,7 @@ const generateReport = async () => {
   } catch (error) {
     console.error('Error generating report:', error)
     createToast({
-      message: error?.message || 'Error generating report. Please try again.',
+      message: error instanceof Error ? error.message : 'Error generating report. Please try again.',
       variant: 'error',
     })
   } finally {
@@ -404,10 +452,10 @@ const generateReport = async () => {
   }
 }
 
-const previewReport = async (report) => {
+const previewReport = async (report: ReportRow) => {
   loadingPreview.value = report.id
   try {
-    const result = await apiCall('insights.api.ml.preview_executive_report_data', {
+    const result = await apiCall<ReportPreviewData>('insights.api.ml.preview_executive_report_data', {
       report_type: report.report_type
     })
 
@@ -417,7 +465,7 @@ const previewReport = async (report) => {
   } catch (error) {
     console.error('Error previewing report:', error)
     createToast({
-      message: error?.message || 'Could not load report preview.',
+      message: error instanceof Error ? error.message : 'Could not load report preview.',
       variant: 'error',
     })
   } finally {
@@ -425,10 +473,10 @@ const previewReport = async (report) => {
   }
 }
 
-const downloadReport = async (report) => {
+const downloadReport = async (report: ReportRow) => {
   loadingDownload.value = report.id
   try {
-    const result = await apiCall('insights.api.ml.download_executive_report', {
+    const result = await apiCall<{ download_url: string }>('insights.api.ml.download_executive_report', {
       report_id: report.id
     })
 
@@ -436,7 +484,7 @@ const downloadReport = async (report) => {
   } catch (error) {
     console.error('Error downloading report:', error)
     createToast({
-      message: error?.message || 'Could not download report.',
+      message: error instanceof Error ? error.message : 'Could not download report.',
       variant: 'error',
     })
   } finally {
@@ -444,7 +492,7 @@ const downloadReport = async (report) => {
   }
 }
 
-const sendReportEmail = async (report) => {
+const sendReportEmail = async (report: ReportRow) => {
   loadingSend.value = report.id
   try {
     await apiCall('insights.api.ml.send_executive_report', {
@@ -455,7 +503,7 @@ const sendReportEmail = async (report) => {
   } catch (error) {
     console.error('Error sending report:', error)
     createToast({
-      message: error?.message || 'Could not send report.',
+      message: error instanceof Error ? error.message : 'Could not send report.',
       variant: 'error',
     })
   } finally {
@@ -464,7 +512,7 @@ const sendReportEmail = async (report) => {
 }
 
 // Utility functions
-const getReportTypeIcon = (type) => {
+const getReportTypeIcon = (type: string) => {
   switch (type) {
     case 'daily': return Calendar
     case 'weekly': return TrendingUp
@@ -473,17 +521,17 @@ const getReportTypeIcon = (type) => {
   }
 }
 
-const formatReportDate = (dateStr) => {
+const formatReportDate = (dateStr: string | null | undefined) => {
   if (!dateStr) return 'N/A'
   return new Date(dateStr).toLocaleDateString()
 }
 
-const formatDateTime = (dateTimeStr) => {
+const formatDateTime = (dateTimeStr: string | null | undefined) => {
   if (!dateTimeStr) return 'N/A'
   return new Date(dateTimeStr).toLocaleString()
 }
 
-const formatMetricKey = (key) => {
+const formatMetricKey = (key: string) => {
   return key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
 }
 
@@ -498,7 +546,7 @@ const MONEY_METRICS = new Set(['revenue', 'cash_flow'])
 const SCORE_METRICS = new Set(['business_health_score'])
 const PERCENT_METRICS = new Set(['oee_score'])
 
-const formatMetricValue = (value, key) => {
+const formatMetricValue = (value: number, key: string) => {
   if (typeof value !== 'number') return value
   if (MONEY_METRICS.has(key)) return formatMoney(value, previewData.value?.currency, { compact: true })
   if (PERCENT_METRICS.has(key)) return formatPercent(value)

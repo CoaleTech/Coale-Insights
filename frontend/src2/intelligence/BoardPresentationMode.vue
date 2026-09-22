@@ -246,7 +246,7 @@
       :options="{
         title: 'Export Presentation',
         actions: [
-          { label: 'Cancel', variant: 'outline', onClick: () => showExportModal = false },
+          { label: 'Cancel', variant: 'outline', onClick: () => { showExportModal = false } },
           { label: 'Export', variant: 'solid', loading: exporting, onClick: performExport }
         ]
       }"
@@ -306,7 +306,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 defineOptions({ name: 'BoardPresentationMode' })
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
@@ -333,23 +333,44 @@ import { apiCall } from '../helpers/api'
 import { BOARD_DASHBOARD_OPTIONS, BOARD_PRESENTATION_SOURCES } from '../helpers/dashboards'
 import { severityBadge } from '../utils/status'
 
+/** One slide from `_generate_*_slides` (`presentation_service.py`); shape varies by slide `type`, so only `id` is load-bearing here. */
+interface PresentationSlideData {
+  id?: string | number
+  type?: string
+  [key: string]: unknown
+}
+interface PresentationInsight { title: string; impact?: string; value?: string | number; insight?: string }
+interface PresentationRecommendation { title: string; priority?: string; description?: string; impact?: string; effort?: string }
+/** Response of `generate_presentation_data` (`presentation_service.py:68`). */
+interface PresentationData {
+  metadata?: { dashboard_type?: string; color_scheme?: Record<string, string> }
+  executive_summary?: { text?: string; key_points?: string[] }
+  key_insights?: PresentationInsight[]
+  recommendations?: PresentationRecommendation[]
+  slides?: PresentationSlideData[]
+  error?: string
+}
+/** Response of `export_presentation_powerpoint` / `export_presentation_pdf`. */
+interface PresentationExportResult {
+  status?: string
+  message?: string
+  data?: { download_ready?: boolean; [key: string]: unknown }
+}
+
 /** Map a priority / impact string to a Severity. */
-function priorityToSeverity(priority) {
-  const map = { high: 'high', medium: 'medium', low: 'low' }
-  return map[priority?.toLowerCase()] ?? 'none'
+function priorityToSeverity(priority?: string | null) {
+  const map: Record<string, string> = { high: 'high', medium: 'medium', low: 'low' }
+  return map[priority?.toLowerCase() ?? ''] ?? 'none'
 }
 
 // Props (optional - component works standalone or embedded)
-const props = defineProps({
-  dashboardType: {
-    type: String,
-    default: ''
-  },
-  dashboardData: {
-    type: Object,
-    default: () => ({})
-  }
-})
+const props = withDefaults(
+  defineProps<{
+    dashboardType?: string
+    dashboardData?: Record<string, unknown>
+  }>(),
+  { dashboardType: '', dashboardData: () => ({}) },
+)
 
 // From `helpers/dashboards`. The previous six-entry list both under- and
 // over-shot: seven domains could not be presented at all, while `operations`
@@ -369,12 +390,12 @@ const presentationEnabled = ref(false)
 const presentationType = ref('executive')
 const isFullscreen = ref(false)
 const generating = ref(false)
-const error = ref(null)
+const error = ref<string | null>(null)
 const exporting = ref(false)
-const exportError = ref(null)
+const exportError = ref<string | null>(null)
 const showExportModal = ref(false)
 const currentSlide = ref(1)
-const presentationData = ref({})
+const presentationData = ref<PresentationData>({})
 
 // Export options
 const exportFormat = ref('powerpoint')
@@ -431,14 +452,15 @@ const activeDashboardData = computed(() => {
 // generic boilerplate. Fetch the same live endpoint(s) the selected
 // dashboard's own page calls (BOARD_PRESENTATION_SOURCES) so the board pack
 // is built from the same audited numbers, not a separate/stale computation.
-const fetchedDashboardData = ref({})
+const fetchedDashboardData = ref<Record<string, unknown>>({})
 
-async function fetchLiveDashboardData(dashboardType) {
-  const urls = BOARD_PRESENTATION_SOURCES[dashboardType] || []
+async function fetchLiveDashboardData(dashboardType: string): Promise<Record<string, unknown>> {
+  const urls: string[] = BOARD_PRESENTATION_SOURCES[dashboardType] || []
   const results = await Promise.all(
-    urls.map((url) => apiCall(url).catch(() => null)),
+    urls.map((url) => apiCall<Record<string, unknown>>(url).catch(() => null)),
   )
-  return Object.assign({ dashboard_type: dashboardType }, ...results.filter(Boolean))
+  const loaded = results.filter((r): r is Record<string, unknown> => r !== null)
+  return Object.assign({ dashboard_type: dashboardType }, ...loaded)
 }
 
 // Methods
@@ -451,7 +473,7 @@ const generatePresentation = async () => {
       fetchedDashboardData.value = await fetchLiveDashboardData(selectedDashboardType.value)
     }
 
-    const result = await apiCall('insights.api.ml.generate_presentation_data', {
+    const result = await apiCall<PresentationData>('insights.api.ml.generate_presentation_data', {
       dashboard_type: selectedDashboardType.value,
       dashboard_data: activeDashboardData.value,
       presentation_type: presentationType.value
@@ -466,7 +488,7 @@ const generatePresentation = async () => {
     }
   } catch (err) {
     console.error('Error generating presentation:', err)
-    error.value = err.message || 'Failed to generate presentation'
+    error.value = err instanceof Error ? err.message : 'Failed to generate presentation'
   } finally {
     generating.value = false
   }
@@ -501,7 +523,7 @@ const previousSlide = () => {
   }
 }
 
-const goToSlide = (slideNumber) => {
+const goToSlide = (slideNumber: number) => {
   if (slideNumber >= 1 && slideNumber <= totalSlides.value) {
     currentSlide.value = slideNumber
   }
@@ -536,7 +558,7 @@ const performExport = async () => {
       ? 'insights.api.ml.export_presentation_powerpoint'
       : 'insights.api.ml.export_presentation_pdf'
 
-    const result = await apiCall(endpoint, {
+    const result = await apiCall<PresentationExportResult>(endpoint, {
       presentation_data: presentationData.value,
       export_options: exportOptions.value
     })
@@ -555,13 +577,13 @@ const performExport = async () => {
     showExportModal.value = false
   } catch (err) {
     console.error('Error exporting presentation:', err)
-    exportError.value = 'Failed to export: ' + (err.message || 'Unknown error')
+    exportError.value = 'Failed to export: ' + (err instanceof Error ? err.message : 'Unknown error')
   } finally {
     exporting.value = false
   }
 }
 
-const downloadJson = (data) => {
+const downloadJson = (data: unknown) => {
   const timestamp = new Date().getTime()
   const filename = `presentation_${selectedDashboardType.value}_${timestamp}.json`
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -575,7 +597,7 @@ const downloadJson = (data) => {
   URL.revokeObjectURL(url)
 }
 
-const downloadExportedFile = (exportData, format) => {
+const downloadExportedFile = (exportData: unknown, format: string) => {
   // Reachable only once a backend export genuinely sets
   // `download_ready: true` for `format` (currently never, for both
   // powerpoint and pdf -- see presentation_service.py). Kept as the
@@ -596,7 +618,7 @@ const downloadExportedFile = (exportData, format) => {
 }
 
 // Keyboard navigation — leave the addEventListener/onUnmounted pair intact
-const handleKeyNavigation = (event) => {
+const handleKeyNavigation = (event: KeyboardEvent) => {
   if (!isFullscreen.value) return
 
   switch (event.code) {

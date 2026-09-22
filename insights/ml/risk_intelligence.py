@@ -140,6 +140,24 @@ def _base_currency(company: str | None) -> str:
     )
 
 
+def _plain_money(value: float, currency: str | None) -> str:
+    """Currency text for prose descriptions, matching the frontend's
+    `formatMoney` (en-US grouping, currency symbol prefix, 0 decimals) --
+    not `frappe.utils.fmt_money`/`frappe.format_value`, which use the
+    site's own `number_format` (Indian grouping on this site) and 2
+    decimals. A sentence built with the site format next to a `ListView`
+    `Amount` column or `KpiCard` built with `formatMoney` renders the same
+    number two different ways on the same screen.
+    """
+    symbol = (
+        frappe.db.get_value("Currency", currency, "symbol", cache=True)
+        if currency
+        else None
+    ) or (currency or "")
+    sign = "-" if value < 0 else ""
+    return f"{sign}{symbol}{abs(value):,.0f}"
+
+
 def _days_diff_sql(date_col):
     """MariaDB DATEDIFF(CURDATE(), <col>) as an integer expression."""
     today = datetime.now().date()
@@ -243,7 +261,7 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "customer": cust,
                 "overdue_days": 60,
                 "title": f"Overdue Customer: {names.get(cust) or cust}",
-                "description": f"Outstanding: {frappe.format_value(out, {'fieldtype': 'Currency'})}",
+                "description": f"Outstanding: {_plain_money(out, _base_currency(company))}",
                 "action": "Review credit limit and payment terms",
                 # The same figure as a number. ``description`` is a formatted
                 # string, so a table could only right-align these by parsing
@@ -262,7 +280,7 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "type": "cashflow_risk",
                 "severity": "critical" if cash < 500_000 else "high",
                 "title": "Low Cash Position",
-                "description": f"Current cash: {frappe.format_value(cash, {'fieldtype': 'Currency'})}",
+                "description": f"Current cash: {_plain_money(cash, _base_currency(company))}",
                 "action": "Monitor cash flow and accelerate collections",
                 "amount": cash,
             }
@@ -1255,7 +1273,7 @@ def _generate_predictive_analytics(company: str | None) -> dict:
     revenue_forecast = _forecast_revenue(company)
     payment_risk_forecast = _predict_payment_delays(company)
     anomalies = _detect_anomalies(company)
-    early_warnings = _early_warnings(cash_forecast)
+    early_warnings = _early_warnings(cash_forecast, company)
 
     return {
         "cash_flow_forecast": cash_forecast,
@@ -1493,7 +1511,7 @@ def _detect_anomalies(company: str | None) -> list[dict]:
     return anomalies[-20:]
 
 
-def _early_warnings(cash_forecast: dict) -> list[dict]:
+def _early_warnings(cash_forecast: dict, company: str | None = None) -> list[dict]:
     warnings: list[dict] = []
     if cash_forecast and cash_forecast.get("status") == "success":
         forecast_list = cash_forecast.get("forecast", [])
@@ -1505,7 +1523,7 @@ def _early_warnings(cash_forecast: dict) -> list[dict]:
                         "type": "cash_flow",
                         "severity": "critical",
                         "title": "Cash Flow Warning",
-                        "description": f"Forecasted cash position: {frappe.format_value(future, {'fieldtype': 'Currency'})}",
+                        "description": f"Forecasted cash position: {_plain_money(future, _base_currency(company))}",
                         "timeframe": "Next 30 days",
                         "amount": float(future),
                     }

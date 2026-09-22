@@ -91,11 +91,11 @@
             </div>
 
             <!-- AI Narrative -->
-            <div v-if="data.narrative" class="mt-6 flex items-start gap-3 max-w-4xl">
+            <div v-if="data?.narrative" class="mt-6 flex items-start gap-3 max-w-4xl">
               <Brain class="w-5 h-5 text-accent mt-0.5" />
               <div>
                 <h3 class="text-sm font-semibold text-ink-gray-9">AI Executive Summary</h3>
-                <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">{{ data.narrative }}</p>
+                <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">{{ data?.narrative }}</p>
               </div>
             </div>
 
@@ -134,7 +134,7 @@
                 Business Health Score
               </div>
               <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">
-                {{ data.restricted_note || 'This is a cross-department composite score, shown only to users with read access to every department.' }}
+                {{ data?.restricted_note || 'This is a cross-department composite score, shown only to users with read access to every department.' }}
               </p>
             </div>
           </div>
@@ -207,7 +207,7 @@
                   :delta="getKpiVariance(kpi)"
                   :delta-higher-is-better="!dept.reverseVariance"
                   :clickable="!!getExecMetric(kpi.label)"
-                  @click="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) })"
+                  @click="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) as string })"
                 >
                   <template v-if="sparklineData(dept, kpiIndex).length > 1" #footer>
                     <svg
@@ -311,7 +311,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 defineOptions({ name: 'ExecutiveDashboard' })
 import { ref, computed, watch } from 'vue'
 import {
@@ -346,19 +346,63 @@ import {
 } from '../utils/status'
 import { formatMoney } from '../utils/format'
 
+/** One KPI leaf, built by `_kpi()` (`executive_intelligence.py:124`). */
+interface ExecutiveKpi {
+  label: string
+  value: number | null
+  format: string
+  target?: number
+  rag_status?: 'green' | 'amber' | 'red'
+  variance_pct?: number
+  variance_points?: number
+  variance_ratio?: number
+  variance_weeks?: number
+  variance_turns?: number
+  /** Set only on the block-level `_unavailable(domain)` sentinel, never on a real KPI leaf. */
+  error?: string
+}
+/** One domain's KPI dict, or the `_unavailable(domain)` sentinel in its place. */
+type KpiBlock = Record<string, ExecutiveKpi | string | undefined>
+/** One row of `_executive_alerts` (`executive_intelligence.py:696`). */
+interface ExecutiveAlert {
+  priority: string
+  department: string
+  message: string
+  rag_status: string
+}
+/** Response of `_business_health_score` (`executive_intelligence.py:649`). */
+interface BusinessHealthScore {
+  overall_score: number
+  overall_rag: string
+  department_scores: Record<string, number>
+  score_breakdown: { excellent: number; good: number; needs_attention: number }
+}
+/** Response of `get_executive_summary` (`api/ml/executive.py:111`), redacted by `_scoped_rollup` for partial-access callers. */
+interface ExecutiveSummaryData {
+  period?: string
+  generated_at?: string
+  currency?: string
+  kpis?: Record<string, KpiBlock>
+  alerts?: ExecutiveAlert[]
+  narrative?: string | null
+  business_health_score?: BusinessHealthScore | null
+  trends?: Record<string, number[]> | null
+  restricted_note?: string
+}
+
 const router = useRouter()
 
 const EXEC_ENDPOINT = 'insights.api.ml.executive.get_executive_detail'
 const drillDown = useDrillDown()
 
-const EXEC_DRILLABLE_METRICS = {
+const EXEC_DRILLABLE_METRICS: Record<string, (label: string) => boolean> = {
   'revenue_invoices': (label) => /Revenue|Sales/i.test(label),
   'open_orders': (label) => /Open Orders|Sales Orders/i.test(label),
   'active_employees': (label) => /Employees|Headcount/i.test(label),
   'open_pos': (label) => /Purchase Orders|Open PO/i.test(label),
 }
 
-function getExecMetric(label) {
+function getExecMetric(label: string): string | null {
   for (const [metric, test] of Object.entries(EXEC_DRILLABLE_METRICS)) {
     if (test(label)) return metric
   }
@@ -366,7 +410,7 @@ function getExecMetric(label) {
 }
 
 const selectedPeriod = ref('YTD')
-const companyCurrency = ref(null)
+const companyCurrency = ref<string | null>(null)
 
 const periodParams = computed(() => ({ period: selectedPeriod.value }))
 
@@ -383,16 +427,16 @@ const {
   reload,
   retry,
 } =
-  useIntelligenceDashboard({
+  useIntelligenceDashboard<ExecutiveSummaryData>({
     url: 'insights.api.ml.get_executive_summary',
     params: periodParams,
     cache: 'executive-dashboard',
   })
 
-const businessHealth = computed(() => data.value?.business_health_score || {})
-const alerts = computed(() => data.value?.alerts || [])
-const kpis = computed(() => data.value?.kpis || {})
-const trends = computed(() => data.value?.trends || {})
+const businessHealth = computed<Partial<BusinessHealthScore>>(() => data.value?.business_health_score || {})
+const alerts = computed<ExecutiveAlert[]>(() => data.value?.alerts || [])
+const kpis = computed<Record<string, KpiBlock>>(() => data.value?.kpis || {})
+const trends = computed<Record<string, number[]>>(() => data.value?.trends || {})
 
 /**
  * Department columns with neutral annotation icon color.
@@ -428,7 +472,7 @@ function exportData() {
   linkElement.click()
 }
 
-function formatKpiValue(value, format) {
+function formatKpiValue(value: number | null | undefined, format: string): string {
   if (value === null || value === undefined) return 'N/A'
   switch (format) {
     case 'currency':
@@ -446,17 +490,17 @@ function formatKpiValue(value, format) {
   }
 }
 
-function getKpiVariance(kpi) {
+function getKpiVariance(kpi: ExecutiveKpi): number | null {
   return kpi.variance_pct ?? kpi.variance_points ?? kpi.variance_ratio ?? kpi.variance_weeks ?? kpi.variance_turns ?? null
 }
 
-function sparklineData(dept, kpiIndex) {
+function sparklineData(dept: { key: string }, kpiIndex: number): number[] {
   const entry = departmentTrendKeys[dept.key]
   if (!entry || entry.kpiIndex !== kpiIndex) return []
   return getTrendData(entry.key)
 }
 
-const departmentRoutes = {
+const departmentRoutes: Record<string, string> = {
   financial: '/financial-intelligence',
   sales: '/sales-intelligence',
   customer: '/customer-intelligence',
@@ -483,17 +527,17 @@ const departmentRoutes = {
 // their own KPIs' real metric, so they render without a sparkline --
 // an honest absence, the same pattern `_trend_sparklines` already applies
 // to Risk on the backend (see its docstring).
-const departmentTrendKeys = {
+const departmentTrendKeys: Record<string, { kpiIndex: number; key: string }> = {
   financial: { kpiIndex: 0, key: 'revenue' },
   sales: { kpiIndex: 0, key: 'sales_growth' },
   manufacturing: { kpiIndex: 0, key: 'oee' },
 }
 
-function getTrendData(metric) {
+function getTrendData(metric: string): number[] {
   return trends.value[metric] || []
 }
 
-function generateSparkline(points) {
+function generateSparkline(points: number[]): string {
   if (!points || points.length === 0) return ''
   // The domain includes zero on purpose. A min-to-max domain rescales every
   // series to fill the full 20-unit band, so a 98->100 wobble rendered exactly
@@ -505,7 +549,7 @@ function generateSparkline(points) {
   const lo = Math.min(0, ...points)
   const hi = Math.max(0, ...points)
   const range = hi - lo
-  return points.map((value, index) => {
+  return points.map((value: number, index: number) => {
     // Guard length 1: `0 / 0` produced `NaN` and emitted an unrenderable path.
     const x = points.length === 1 ? 0 : (index / (points.length - 1)) * 100
     const y = range > 0 ? ((hi - value) / range) * 20 : 20

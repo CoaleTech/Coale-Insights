@@ -16,6 +16,14 @@
   Every number is server-computed (`insights.api.ml.price.get_selling_price_intelligence`)
   and every "unavailable" is rendered as its own message, never as 0: a missing
   measurement and a measured zero are different claims.
+
+  No `useDrillDown` here, deliberately: all three KPI-strip counts are computed
+  from rows already fully rendered in the section immediately below them
+  (`belowValuation` filters `marginRows`, `floorBreaches.length` is
+  `floorSection.rows.length`) — a drill-down modal would show the identical
+  columns and rows the reader is already looking at. Wiring one anyway is the
+  thing Rule 8 warns against: a `:clickable` whose target duplicates visible
+  evidence instead of revealing hidden evidence.
 -->
 <template>
 	<div class="flex flex-col h-full bg-surface-gray-1">

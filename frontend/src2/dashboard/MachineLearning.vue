@@ -19,9 +19,14 @@ import { Badge, Button } from 'frappe-ui'
 import { createToast } from '../helpers/toasts'
 import { apiCall, readFrappeError } from '../helpers/api'
 import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
+import { useDrillDown } from '../intelligence/composables/useDrillDown'
+import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import { formatCount, formatDateTime } from '../utils/format'
+
+const ML_ENDPOINT = 'insights.api.ml.get_ml_detail'
+const drillDown = useDrillDown()
 
 interface ModelRow {
   key: string
@@ -311,7 +316,12 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
                 </dt>
                 <dd
                   class="text-sm text-right tabular-nums"
-                  :class="row.state === 'populated' ? 'text-ink-gray-9' : 'text-ink-gray-5'"
+                  :class="row.state === 'populated' ? 'text-ink-gray-9 cursor-pointer hover:underline' : 'text-ink-gray-5'"
+                  :role="row.state === 'populated' ? 'button' : undefined"
+                  :tabindex="row.state === 'populated' ? 0 : undefined"
+                  @click="row.state === 'populated' && drillDown.open(ML_ENDPOINT, row.doctype, { metric: 'data_volume', doctype: row.doctype })"
+                  @keydown.enter.prevent="row.state === 'populated' && drillDown.open(ML_ENDPOINT, row.doctype, { metric: 'data_volume', doctype: row.doctype })"
+                  @keydown.space.prevent="row.state === 'populated' && drillDown.open(ML_ENDPOINT, row.doctype, { metric: 'data_volume', doctype: row.doctype })"
                 >
                   {{ row.state === 'absent' ? 'no doctype' : formatCount(row.rows ?? 0) }}
                 </dd>
@@ -322,5 +332,20 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
       </section>
     </div>
     </IntelligenceDashboardShell>
+    <IntelligenceDrillDown
+      v-model:show="drillDown.show.value"
+      :title="drillDown.title.value"
+      :columns="drillDown.columns.value"
+      :rows="drillDown.rows.value"
+      :loading="drillDown.loading.value"
+      :error="drillDown.error.value"
+      :is-permission-error="drillDown.isPermissionError.value"
+      :total="drillDown.total.value"
+      :page="drillDown.page.value"
+      @next-page="drillDown.nextPage()"
+      @prev-page="drillDown.prevPage()"
+      @close="drillDown.close()"
+      @retry="drillDown.retry()"
+    />
   </div>
 </template>

@@ -97,6 +97,22 @@ def _company_currency() -> str:
     ) or frappe.db.get_default("currency") or ""
 
 
+def _plain_money(value: float, currency: str | None) -> str:
+    """Currency text for alert prose, matching the frontend's `formatMoney`
+    (en-US grouping, currency symbol prefix, 0 decimals) instead of
+    `frappe.format_value`'s site `number_format` (Indian grouping here) --
+    the same `expired_value` this alert quotes also renders as a `KpiCard`
+    sublabel via `formatMoney` on the same dashboard.
+    """
+    symbol = (
+        frappe.db.get_value("Currency", currency, "symbol", cache=True)
+        if currency
+        else None
+    ) or (currency or "")
+    sign = "-" if value < 0 else ""
+    return f"{sign}{symbol}{abs(value):,.0f}"
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Source / territory / cost-per-lead (the smaller endpoints)
 # ────────────────────────────────────────────────────────────────────────────
@@ -254,6 +270,7 @@ def _generate_marketing_alerts(
     trend: list,
     source_rows: list,
     days_stale,
+    currency: str | None = None,
 ) -> list:
     """Threshold-based alert generation. Pure function of already-fetched
     query results -- no I/O, unit-testable without a DB fixture.
@@ -272,8 +289,8 @@ def _generate_marketing_alerts(
             "severity": "critical",
             "title": _("Quotations are expiring unconverted"),
             "description": _("{0} expired versus {1} ordered in this period.").format(
-                frappe.format_value(expired_value, {"fieldtype": "Currency"}),
-                frappe.format_value(won_value, {"fieldtype": "Currency"}),
+                _plain_money(expired_value, currency),
+                _plain_money(won_value, currency),
             ),
         })
     if len(trend) >= 4:
@@ -636,12 +653,13 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     funnel = _build_marketing_funnel(
         lead_totals, quote_totals, won, won_value, total, converted
     )
+    currency = _company_currency()
     alerts = _generate_marketing_alerts(
-        total, open_leads, expired_value, won_value, trend, source_rows, days_stale
+        total, open_leads, expired_value, won_value, trend, source_rows, days_stale,
+        currency,
     )
 
     period_leads = int(lead_totals["in_period"] or 0)
-    currency = _company_currency()
 
     return {
         "period": period,

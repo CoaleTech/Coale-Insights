@@ -231,7 +231,7 @@
                   <div class="bg-surface-gray-3 rounded-full h-2">
                     <div
                       class="h-2 rounded-full"
-                      :class="dept.variance >= 0 ? 'bg-surface-red-5' : 'bg-surface-green-3'"
+                      :class="(dept.variance || 0) >= 0 ? 'bg-surface-red-5' : 'bg-surface-green-3'"
                       :style="{ width: `${Math.min(Math.abs(dept.variance_percentage || 0), 100)}%` }"
                     ></div>
                   </div>
@@ -481,7 +481,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useCurrency } from '../../composables/useCurrency'
 import { Button, Badge, Tabs } from 'frappe-ui'
@@ -499,7 +499,7 @@ import {
   Lightbulb,
   Lock,
 } from 'lucide-vue-next'
-import { severityBadge } from '../../utils/status'
+import { severityBadge, type BadgeTheme, type BadgeVariant } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SkeletonBlock from '../../intelligence/components/SkeletonBlock.vue'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
@@ -508,6 +508,7 @@ import { themeColor } from '../../utils/chartTheme'
 import { formatMoney, NO_VALUE } from '../../utils/format'
 import { formatPeriod } from '../financial/format'
 import { computed as vueComputed } from 'vue'
+import type { BudgetVarianceData, BudgetVarianceStatus } from './types'
 
 /**
  * Server currency, same source the sibling planning tabs use. This tab used to
@@ -523,14 +524,14 @@ const currency = useCurrency()
  * and this tab carried a second Refresh button of its own to compensate.
  * That button is gone; the header's now refreshes this feed too.
  */
-const props = defineProps({
-  data: { type: Object, default: null },
-  loading: { type: Boolean, default: false },
-  error: { type: String, default: '' },
-  isPermissionError: { type: Boolean, default: false },
-  hasData: { type: Boolean, default: false },
-})
-const emit = defineEmits(['refresh'])
+const props = defineProps<{
+  data?: BudgetVarianceData | null
+  loading?: boolean
+  error?: string
+  isPermissionError?: boolean
+  hasData?: boolean
+}>()
+const emit = defineEmits<{ refresh: [] }>()
 
 /** The error state's "Try Again" asks the owner to refetch. */
 const retry = () => emit('refresh')
@@ -555,7 +556,7 @@ const monthlyVarianceChart = vueComputed(() => {
       Budget: Number(m.budget) || 0,
       Actual: Number(m.actual) || 0,
     })),
-    xAxis: { key: 'month', type: 'category' },
+    xAxis: { key: 'month', type: 'category' as const },
     yAxis: { title: currency.value },
     series: [
       // Neither series is a status, so both take neutral data colours. Budget is
@@ -563,8 +564,8 @@ const monthlyVarianceChart = vueComputed(() => {
       // Not `--app-accent` for Actual: it resolves to the same #0070cc as
       // `--app-info-fill` (chartTheme.ts:31,33), which would have drawn two
       // indistinguishable lines.
-      { name: 'Budget', type: 'line', color: themeColor('--app-muted-fill') },
-      { name: 'Actual', type: 'line', color: themeColor('--app-info-fill') },
+      { name: 'Budget', type: 'line' as const, color: themeColor('--app-muted-fill') },
+      { name: 'Actual', type: 'line' as const, color: themeColor('--app-info-fill') },
     ],
   }
 })
@@ -609,35 +610,36 @@ const exportReport = () => {
 // without `Math.abs`, so a negative variance (the common case when actuals come
 // in under budget) matched no branch and printed raw and ungrouped. That is the
 // exact defect `utils/format.ts` was created to remove.
-const formatCurrency = (value) => formatMoney(value, currency.value, { compact: true })
+const formatCurrency = (value?: number | null) => formatMoney(value, currency.value, { compact: true })
 
-const formatPercentage = (value) => {
+const formatPercentage = (value?: number | null) => {
   if (value === null || value === undefined) return NO_VALUE
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`
 }
 
 // Variance colour: high absolute variance is bad (red); low is neutral.
 // Replaces getVarianceColor which used green/yellow/red raw classes.
-const varianceInk = (percentage) => {
-  if (Math.abs(percentage) <= 5) return 'text-ink-gray-9'
-  if (Math.abs(percentage) <= 15) return 'text-ink-gray-7'
+const varianceInk = (percentage?: number | null) => {
+  const abs = Math.abs(percentage || 0)
+  if (abs <= 5) return 'text-ink-gray-9'
+  if (abs <= 15) return 'text-ink-gray-7'
   return 'text-ink-red-4'
 }
 
 // Status badge: domain labels preserved, Espresso-safe themes/variants
-const statusBadge = (status) => {
-  const map = {
+const statusBadge = (status?: BudgetVarianceStatus | string) => {
+  const map: Record<string, { theme: BadgeTheme; variant: BadgeVariant; label: string }> = {
     excellent: { theme: 'gray', variant: 'subtle', label: 'Excellent' },
     good: { theme: 'gray', variant: 'subtle', label: 'Good' },
     acceptable: { theme: 'gray', variant: 'outline', label: 'Acceptable' },
     poor: { theme: 'gray', variant: 'outline', label: 'Poor' },
     critical: { theme: 'red', variant: 'subtle', label: 'Critical' },
   }
-  return map[status] || { theme: 'gray', variant: 'subtle', label: (status || '').replace('_', ' ') || 'Unknown' }
+  return map[status || ''] || { theme: 'gray' as const, variant: 'subtle' as const, label: (status || '').replace('_', ' ') || 'Unknown' }
 }
 
 // Priority badge
-const priorityBadge = (priority) => {
+const priorityBadge = (priority?: string): { theme: BadgeTheme; variant: BadgeVariant; label: string } => {
   switch (priority) {
     case 'high': return { theme: 'red', variant: 'subtle', label: 'High' }
     case 'medium': return { theme: 'gray', variant: 'outline', label: 'Medium' }

@@ -318,3 +318,49 @@ def gl_anomalies(refresh: bool = False) -> Dict[str, Any]:
         raise
     except Exception as e:
         return error(str(e))
+
+
+# ─── Drill-down ───────────────────────────────────────────────────────────────
+
+
+@frappe.whitelist()
+def get_ml_detail(metric: str, filters: str) -> dict:
+    """Rows behind one ``_data_volumes()`` count.
+
+    The health table shows ``frappe.db.count(doctype)`` with no record list
+    anywhere else on the page -- the one genuine aggregate on this dashboard,
+    unlike the model rows above it which already state their own method and
+    quality inline. ``doctype`` is restricted to ``SOURCE_TABLES`` so this
+    whitelisted endpoint cannot be used to browse an arbitrary doctype; the
+    columns are the standard Frappe fields every doctype has, since the eleven
+    source tables share no domain-specific field in common.
+    """
+    f = frappe.parse_json(filters) or {}
+    page = int(f.pop("page", 1))
+    page_size = 50
+    start = (page - 1) * page_size
+
+    if metric == "data_volume":
+        doctype = f.get("doctype")
+        allowed = {spec["doctype"] for spec in SOURCE_TABLES}
+        if doctype not in allowed:
+            frappe.throw(_("Unknown source table: {0}").format(doctype), frappe.ValidationError)
+        frappe.has_permission(doctype, "read", throw=True)
+        rows = frappe.get_list(
+            doctype,
+            fields=["name", "owner", "creation", "modified"],
+            start=start, page_length=page_size, order_by="creation desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Name", "fieldname": "name", "fieldtype": "Link", "options": doctype},
+                {"label": "Owner", "fieldname": "owner", "fieldtype": "Data"},
+                {"label": "Created", "fieldname": "creation", "fieldtype": "Date"},
+                {"label": "Modified", "fieldname": "modified", "fieldtype": "Date"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count(doctype),
+        }
+
+    frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

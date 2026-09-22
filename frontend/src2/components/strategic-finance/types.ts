@@ -391,6 +391,117 @@ export interface ExpenseForecastData {
 }
 
 // ---------------------------------------------------------------------------
+// Budget variance
+// ---------------------------------------------------------------------------
+
+/** Matches `_get_variance_status` (`budget_variance_intelligence.py:702`). */
+export type BudgetVarianceStatus = 'excellent' | 'good' | 'acceptable' | 'poor' | 'critical'
+
+/** One row of `_get_variance_alerts` (`budget_variance_intelligence.py:367`). */
+export interface BudgetVarianceAlert {
+	type?: string
+	severity?: 'high' | 'medium' | 'low'
+	title?: string
+	description?: string
+	action?: string
+}
+
+/** Response of `_get_variance_summary` (`budget_variance_intelligence.py:154`). */
+export interface BudgetVarianceSummary {
+	total_budget?: number
+	total_actual?: number
+	total_variance?: number
+	variance_percentage?: number
+	favorable_variance?: number
+	adverse_variance?: number
+	budget_utilization?: number
+	status?: BudgetVarianceStatus
+}
+
+/** Response of `_get_forecast_accuracy` (`budget_variance_intelligence.py:293`); `status: 'not_implemented'` when no history has been captured yet. */
+export interface BudgetForecastAccuracy {
+	status?: 'not_implemented'
+	overall_accuracy?: number
+	accuracy_grade?: string
+	accuracy_trend?: string
+}
+
+/** One row of `_get_department_key_accounts` (`budget_variance_intelligence.py:818`). */
+export interface BudgetKeyAccount {
+	account?: string
+	actual_amount?: number
+	account_type?: string
+}
+
+/** One row of `_get_departmental_variance` (`budget_variance_intelligence.py:204`). */
+export interface BudgetDepartmentVariance {
+	department?: string
+	budget?: number
+	actual?: number
+	variance?: number
+	variance_percentage?: number
+	status?: BudgetVarianceStatus
+	trend?: string
+	key_accounts?: BudgetKeyAccount[]
+}
+
+/** One row of `_get_account_variance` (`budget_variance_intelligence.py:237`). */
+export interface BudgetAccountVariance {
+	account?: string
+	account_type?: string
+	budget?: number
+	actual?: number
+	variance?: number
+	variance_percentage?: number
+	status?: BudgetVarianceStatus
+}
+
+/** One row of `_get_variance_recommendations` (`budget_variance_intelligence.py:460`). */
+export interface BudgetVarianceRecommendation {
+	category?: string
+	priority?: 'high' | 'medium' | 'low'
+	title?: string
+	description?: string
+	actions?: string[]
+	impact?: string
+	effort?: string
+}
+
+/** `budget_accuracy` block of `_get_budget_performance_metrics` (`_calculate_budget_accuracy`, `budget_variance_intelligence.py:1301`). */
+export interface BudgetAccuracyMetric {
+	accuracy_percentage?: number
+	grade?: string
+	performance?: 'above' | 'below'
+}
+
+/** `variance_control` block of `_get_budget_performance_metrics` (`_calculate_variance_control`, `budget_variance_intelligence.py:1351`); `status: 'not_implemented'` when no Budget record covers the period. */
+export interface BudgetVarianceControlMetric {
+	status?: 'not_implemented'
+	control_score?: number
+	average_variance?: number
+	control_level?: 'excellent' | 'good' | 'needs_improvement'
+}
+
+/** `performance_metrics` block of `get_budget_variance_overview` (`budget_variance_intelligence.py:426`). */
+export interface BudgetPerformanceMetrics {
+	overall_score?: number
+	budget_accuracy?: BudgetAccuracyMetric
+	variance_control?: BudgetVarianceControlMetric
+}
+
+/** Response of `get_budget_variance_overview` (`budget_variance_intelligence.py:96`), the Budget Variance tab's data prop. */
+export interface BudgetVarianceData {
+	summary?: BudgetVarianceSummary
+	departmental_analysis?: BudgetDepartmentVariance[]
+	account_analysis?: BudgetAccountVariance[]
+	forecast_accuracy?: BudgetForecastAccuracy
+	variance_trends?: { monthly_variances?: Array<{ month?: string; budget?: number; actual?: number }> }
+	alerts?: BudgetVarianceAlert[]
+	performance_metrics?: BudgetPerformanceMetrics
+	recommendations?: BudgetVarianceRecommendation[]
+}
+
+// ---------------------------------------------------------------------------
 // Shell payload
 // ---------------------------------------------------------------------------
 

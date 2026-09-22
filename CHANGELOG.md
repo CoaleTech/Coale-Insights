@@ -66,6 +66,40 @@ override, an invalid `:show=` binding on a frappe-ui `Dialog` in
 `MarketingCRMIntelligence.vue`, and an `oee_rating: null` defaulting to the
 "high" (red) severity instead of "not measured" in `ManufacturingIntelligence.vue`.
 
+### Fixed — backend narrative money text didn't match the frontend card it echoed
+
+`risk_intelligence.py`, `executive_intelligence.py`, and `api/ml/marketing.py`
+built prose sentences ("₹10,56,046 overdue") with `frappe.utils.fmt_money`,
+which follows the site's `number_format` (Indian digit grouping) while every
+card on the same page reads the value through the frontend's `formatMoney`
+(en-US grouping, 0 decimals). The two disagreed on the same number in the same
+viewport. Added a `_plain_money(value, currency)` helper to each module —
+matching the file-local small-helper convention already used throughout
+`insights/ml/` — and live-verified narrative text now equals its card on Risk
+Overview, the Executive Dashboard summary, and the Marketing & CRM alert
+banner.
+
+### Changed — typed 4 more dashboard files, wired the Machine Learning drill-down
+
+`BudgetVarianceTab.vue`, `ExecutiveDashboard.vue`, `BoardPresentationMode.vue`,
+and `ExecutiveReports.vue` converted from bare `<script setup>` to
+`lang="ts"`, each against real interfaces (no `any`) doc-commented to their
+backend source function; full-project `vue-tsc --noEmit` stays at the
+270-error baseline (net zero from all four). `CrossDashboardSearch.vue` is
+now the only remaining bare file (631 pre-existing errors if converted —
+out of scope here).
+
+Added `get_ml_detail` (`insights/api/ml/model_ops.py`): a generic
+`data_volume` metric, allow-listed against `SOURCE_TABLES`, returning
+paginated rows for one doctype. Wired as the Machine Learning dashboard's
+only genuine drill-down candidate — the "Source data" row count per doctype,
+the one number on that page with no rows shown anywhere else. Live-verified:
+clicking "3,923" against Sales Invoice opens a table reading "Showing 1–50 of
+3923 records". `PriceIntelligence.vue` deliberately did not get a drill-down:
+all three KPI-strip figures already reconcile with full tables rendered
+directly below them on the same page, so a modal would just duplicate what's
+already visible.
+
 ## [Unreleased] — 2026-09-21
 
 ### Changed — Cash tab rebuilt around the deposit that holds the cash
