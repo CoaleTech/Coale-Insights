@@ -80,7 +80,15 @@ class PresentationModeService:
         """
         try:
             logger.info(f"Generating {presentation_type} presentation for {dashboard_type} dashboard")
-            
+
+            # Every extraction method below only ever looks for 'summary' /
+            # 'alerts' / 'recommendations' keys -- but most insights.api.ml.*
+            # payloads (see BOARD_PRESENTATION_SOURCES in
+            # frontend/src2/helpers/dashboards.ts) don't nest data under those
+            # names. Alias each dashboard's real shape onto them so the
+            # existing extraction logic below has something to find.
+            dashboard_data = self._normalize_dashboard_data(dashboard_type, dashboard_data)
+
             # Get color scheme for dashboard type
             colors = self.color_schemes.get(dashboard_type.lower(), self.color_schemes["executive"])
             
@@ -262,6 +270,80 @@ class PresentationModeService:
         
         return slides
     
+    def _normalize_dashboard_data(self, dashboard_type: str, data: Dict) -> Dict[str, Any]:
+        """Alias each dashboard's real `insights.api.ml.*` payload shape onto
+        the generic `summary` / `alerts` / `recommendations` keys the
+        extraction methods below read.
+
+        Only ``inventory_intelligence`` naturally nests a real `summary`
+        (inside `abc_xyz`, not top-level either) and a couple of financial
+        sub-responses use the name too; every other dashboard type has no
+        top-level `summary` at all (verified live on jkm, see t_1f929a20),
+        so the KPI slide and executive-summary text silently fell back to
+        boilerplate. This does not replace or redesign those payloads --
+        it copies numeric leaves from the real block that plays the role
+        of "summary" for that dashboard type into a `summary` dict, and
+        copies each dashboard's own alerts/recommendations list up to the
+        top level, without mutating the caller's dict in place.
+        """
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)  # shallow copy -- do not mutate the caller's dict
+
+        # dashboard_type -> key holding the block whose numeric fields
+        # should become the KPI slide's `summary`.
+        summary_source_key = {
+            "executive": None,  # handled specially: kpis.<domain>.value
+            "financial": "overview",
+            "hr": "headcount_metrics",
+            "risk": "overview",
+            "manufacturing": "production_metrics",
+            "marketing": "kpis",
+            "tax": None,  # already flat scalars at top level (net_gst, etc.)
+            "procurement": "spend_overview",
+            "price": None,  # no scalar overview block; leave to defaults
+            "inventory": "stock_overview",
+            "revenue-customers": "summary",  # sales_intelligence already nests one
+        }
+
+        if dashboard_type == "executive" and isinstance(data.get("kpis"), dict):
+            summary = {}
+            for domain_kpis in data["kpis"].values():
+                if not isinstance(domain_kpis, dict):
+                    continue
+                for kpi_key, kpi in domain_kpis.items():
+                    if isinstance(kpi, dict) and isinstance(kpi.get("value"), (int, float)):
+                        summary[kpi_key] = kpi["value"]
+            data.setdefault("summary", summary)
+        else:
+            source_key = summary_source_key.get(dashboard_type)
+            block = data.get(source_key) if source_key else None
+            if isinstance(block, dict) and "summary" not in data:
+                data["summary"] = {k: v for k, v in block.items() if isinstance(v, (int, float))}
+
+        # Tax has no 'summary'/'overview' block at all -- its headline
+        # numbers are flat scalars at the top level already.
+        if dashboard_type == "tax" and "summary" not in data:
+            data["summary"] = {
+                k: v for k in ("net_gst", "effective_tax_rate", "compliance_score")
+                if isinstance((v := data.get(k)), (int, float))
+            }
+
+        # alerts: only executive and marketing already carry a top-level
+        # 'alerts' list; risk nests its under 'overview'.
+        if "alerts" not in data or not data.get("alerts"):
+            nested_alerts = None
+            if isinstance(data.get("overview"), dict):
+                nested_alerts = data["overview"].get("alerts")
+            if isinstance(nested_alerts, list):
+                data["alerts"] = nested_alerts
+
+        # recommendations: hr already has a top-level list; most others
+        # (financial/risk/tax/procurement/price/inventory) don't compute one
+        # yet, so leave that to _extract_recommendations' generic fallback.
+
+        return data
+
     def _generate_executive_summary(self, data: Dict, dashboard_type: str) -> Dict[str, Any]:
         """Generate executive summary text"""
         try:
@@ -270,8 +352,8 @@ class PresentationModeService:
             # Performance overview
             if 'summary' in data:
                 summary_data = data['summary']
-                if dashboard_type.lower() == 'budget':
-                    variance = summary_data.get('variance_percentage', 0)
+                if dashboard_type.lower() == 'budget' and 'variance_percentage' in summary_data:
+                    variance = summary_data['variance_percentage']
                     if abs(variance) <= 5:
                         performance = "excellent"
                     elif abs(variance) <= 15:
@@ -281,12 +363,12 @@ class PresentationModeService:
                     
                     summary_parts.append(f"Budget performance is {performance} with {variance:.1f}% variance from plan.")
                 
-                elif dashboard_type.lower() == 'hr':
-                    retention = summary_data.get('retention_rate', 0)
+                elif dashboard_type.lower() == 'hr' and 'retention_rate' in summary_data:
+                    retention = summary_data['retention_rate']
                     summary_parts.append(f"Employee retention rate stands at {retention:.1f}%.")
                 
-                elif dashboard_type.lower() == 'manufacturing':
-                    oee = summary_data.get('overall_oee', 0)
+                elif dashboard_type.lower() == 'manufacturing' and 'overall_oee' in summary_data:
+                    oee = summary_data['overall_oee']
                     summary_parts.append(f"Overall Equipment Effectiveness achieved {oee:.1f}%.")
             
             # Alerts and issues

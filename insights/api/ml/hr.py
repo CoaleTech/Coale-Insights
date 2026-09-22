@@ -26,6 +26,24 @@ from frappe.query_builder.functions import Count
 
 from insights.api.ml.utils import cached_run, run
 
+_HR_AGGREGATE_ROLES = {"HR Manager", "HR User"}
+
+
+def _require_hr_role() -> None:
+    """Aggregate HR figures (payroll cost, headcount, attrition, dept
+    breakdowns) must never be gated by has_permission("Employee"/"Salary
+    Slip", "read") alone: both doctypes grant plain read to the ESS
+    "Employee" role for self-service, so any Employee-role user would pass
+    that check and see their own 1-row sample presented as a company-wide
+    aggregate (CWE-863). Require an explicit HR role on top.
+
+    frappe.has_role() does not exist in this Frappe version -- intersect
+    frappe.get_roles() instead.
+    """
+    if not _HR_AGGREGATE_ROLES & set(frappe.get_roles()):
+        frappe.throw(_("Not permitted to view HR aggregate analytics"), frappe.PermissionError)
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Whitelisted endpoints
 # ────────────────────────────────────────────────────────────────────────────
@@ -40,6 +58,7 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
     """
     frappe.has_permission("Employee", "read", throw=True)
     frappe.has_permission("Salary Slip", "read", throw=True)
+    _require_hr_role()
 
     def _compute() -> Dict[str, Any]:
         from insights.ml.hr_intelligence import HRIntelligence
@@ -63,6 +82,7 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
 def get_headcount_analytics(period: str = "YTD") -> Dict[str, Any]:
     """Headcount slice of the HR overview."""
     frappe.has_permission("Employee", "read", throw=True)
+    _require_hr_role()
     from insights.ml.hr_intelligence import HRIntelligence
 
     return run(
@@ -75,6 +95,7 @@ def get_headcount_analytics(period: str = "YTD") -> Dict[str, Any]:
 def get_attrition_analytics(period: str = "YTD") -> Dict[str, Any]:
     """Attrition slice of the HR overview (rate + voluntary/involuntary split)."""
     frappe.has_permission("Employee", "read", throw=True)
+    _require_hr_role()
     from insights.ml.hr_intelligence import HRIntelligence
 
     return run(
@@ -87,6 +108,7 @@ def get_attrition_analytics(period: str = "YTD") -> Dict[str, Any]:
 def get_payroll_analytics(period: str = "YTD") -> Dict[str, Any]:
     """Payroll slice -- total cost, average salary, deduction rate, by dept."""
     frappe.has_permission("Salary Slip", "read", throw=True)
+    _require_hr_role()
     from insights.ml.hr_intelligence import HRIntelligence
 
     return run(
@@ -99,6 +121,7 @@ def get_payroll_analytics(period: str = "YTD") -> Dict[str, Any]:
 def get_workforce_planning() -> Dict[str, Any]:
     """Hiring-forecast + department composition for the planning tab."""
     frappe.has_permission("Employee", "read", throw=True)
+    _require_hr_role()
     from insights.ml.hr_intelligence import HRIntelligence
 
     return run(
@@ -112,6 +135,7 @@ def get_hr_insights(query: str, complexity: str = "Medium") -> Dict[str, Any]:
     """Free-text HR query -- returns the standard overview so the chat agent
     has the same numbers as the dashboard."""
     frappe.has_permission("Employee", "read", throw=True)
+    _require_hr_role()
     from insights.ml.hr_intelligence import HRIntelligence
 
     return run(
@@ -130,6 +154,7 @@ def get_talent_analytics(focus_area: str = "retention") -> Dict[str, Any]:
     compatibility and ignored: the only supported panel today is retention,
     which the overview's attrition and engagement slices already cover."""
     frappe.has_permission("Employee", "read", throw=True)
+    _require_hr_role()
     from insights.ml.hr_intelligence import HRIntelligence
 
     return run(
@@ -143,6 +168,7 @@ def analyze_hr_query(query: str) -> Dict[str, Any]:
     """Free-text HR query -- same body as ``get_hr_insights`` today (the chat
     agent runs both paths through the same code)."""
     frappe.has_permission("Employee", "read", throw=True)
+    _require_hr_role()
     from insights.ml.hr_intelligence import HRIntelligence
 
     return run(

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { asNumber } from '../utils/format'
+import { asNumber, NO_VALUE } from '../utils/format'
 import { Badge, Button, ListView, Select, Spinner } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
 import {
@@ -80,6 +80,37 @@ const crossSellColumns = [
       (props.row.reason as string) || 'Purchase history',
   },
 ]
+
+// Next Best Actions ListView columns
+const nextBestActionsColumns = [
+  // Priority is rendered as a Badge in the #cell slot, so it needs no getLabel.
+  { label: 'Priority', key: 'priority', width: 0.9 },
+  {
+    label: 'Action',
+    key: 'action',
+    width: 1.8,
+    getLabel: (props: { row: Record<string, unknown> }) =>
+      (props.row.action as string)?.replace(/_/g, ' ') || NO_VALUE,
+  },
+  {
+    label: 'Why',
+    key: 'description',
+    width: 3.0,
+    getLabel: (props: { row: Record<string, unknown> }) =>
+      (props.row.description as string) || NO_VALUE,
+  },
+  {
+    label: 'Suggestion',
+    key: 'suggestion',
+    width: 2.4,
+    getLabel: (props: { row: Record<string, unknown> }) =>
+      (props.row.suggestion as string) || NO_VALUE,
+  },
+]
+
+const nextBestActionsListHeight = computed(() =>
+  `${(nextBestActions.value.length + 1) * 40 + 12}px`,
+)
 
 // Sidebar navigation
 const activeSection = ref('profile')
@@ -604,25 +635,24 @@ watch(customerId, () => {
                   <Zap class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
                 </template>
               </SectionHeader>
-              <div v-if="nextBestActions.length > 0" class="mt-4 space-y-3">
-                <div
-                  v-for="action in nextBestActions"
-                  :key="action.action as string"
-                  class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white"
+              <div v-if="nextBestActions.length > 0">
+                <ListView
+                  class="mt-4 list-ink-fix"
+                  :style="{ height: nextBestActionsListHeight }"
+                  :columns="nextBestActionsColumns"
+                  :rows="nextBestActions"
+                  row-key="action"
+                  :options="{ selectable: false, showTooltip: true, rowHeight: 40 }"
                 >
-                  <div class="flex items-center justify-between mb-2">
-                    <span class="text-sm font-bold uppercase text-ink-gray-8">
-                      {{ (action.action as string)?.replace(/_/g, ' ') }}
-                    </span>
+                  <template #cell="{ column, row, item }">
                     <Badge
-                      v-bind="severityBadge((action.priority as string)?.toLowerCase())"
-                      :label="`${action.priority} Priority`"
+                      v-if="column.key === 'priority' && row.priority"
+                      v-bind="severityBadge(String(row.priority ?? '').toLowerCase())"
                       size="sm"
                     />
-                  </div>
-                  <p class="text-sm text-ink-gray-7">{{ action.description }}</p>
-                  <p v-if="action.suggestion" class="mt-2 text-xs text-ink-gray-6">{{ action.suggestion }}</p>
-                </div>
+                    <span v-else class="truncate">{{ column.getLabel ? column.getLabel({ row }) : item }}</span>
+                  </template>
+                </ListView>
               </div>
               <div v-else class="mt-4 text-center py-12 text-ink-gray-6">
                 <Zap class="w-12 h-12 mx-auto opacity-40" aria-hidden="true" />

@@ -16,7 +16,7 @@ percentage already stated in text).
     <template v-if="rows.length">
       <!-- Total, so each row's share has an anchor -->
       <div class="flex items-baseline justify-between mb-4">
-        <span class="text-xs font-medium uppercase tracking-wide text-ink-gray-5">
+        <span class="text-xs font-medium uppercase tracking-wide text-ink-gray-6">
           Total
         </span>
         <span class="text-base font-semibold text-ink-gray-9 tnum">
@@ -59,6 +59,8 @@ percentage already stated in text).
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useCurrency } from '../../composables/useCurrency'
+import { formatMoney, formatPercent as sharedFormatPercent } from '../../utils/format'
 import { themeColor } from '../../utils/chartTheme'
 
 /** Rows accept category/name/label + value/amount/percentage keys, all optional upstream. */
@@ -69,7 +71,7 @@ interface Props {
   currency?: string
 }
 
-const props = withDefaults(defineProps<Props>(), { currency: 'KES' })
+const props = defineProps<Props>()
 
 const total = computed(() =>
   (props.data || []).reduce((sum, item) => sum + Number(item.value || item.amount || 0), 0),
@@ -107,18 +109,10 @@ const barColor = computed(() => themeColor('--app-accent'))
 /** Proportional fill; a category's share of total spend. */
 const barWidth = (pct: number): string => `${Math.max(0, Math.min(100, pct))}%`
 
-const formatCurrency = (value: number): string => {
-  if (value >= 1_000_000) return `${props.currency} ${(value / 1_000_000).toFixed(1)}M`
-  if (value >= 1_000) return `${props.currency} ${(value / 1_000).toFixed(0)}K`
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: props.currency,
-    minimumFractionDigits: 0,
-  }).format(value)
-}
-
 /** Sub-0.1% amounts still carry a real value, so show `<0.1%` rather than a
- *  misleading rounded `0.0%`. */
+ *  misleading rounded `0.0%`. Delegates to the shared formatter for the main case. */
+const currency = useCurrency()
+const formatCurrency = (value: number): string => formatMoney(value, currency.value, { compact: true })
 const formatPercent = (value: number): string =>
-  value > 0 && value < 0.1 ? '<0.1%' : `${value.toFixed(1)}%`
+  value > 0 && value < 0.1 ? '<0.1%' : sharedFormatPercent(value)
 </script>

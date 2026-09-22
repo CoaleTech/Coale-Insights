@@ -105,6 +105,12 @@ def _company_currency() -> str:
 @frappe.whitelist()
 def source_metrics(period: str = "YTD") -> Dict[str, Any]:
     """Get lead source metrics including cost per lead."""
+    # Whitelisted endpoints get no automatic doctype gate. Reads Lead
+    # (leads/hot-leads/territory) and, via get_cost_per_lead ->
+    # get_source_costs, GL Entry -- gate on both before touching either.
+    frappe.has_permission("Lead", "read", throw=True)
+    frappe.has_permission("GL Entry", "read", throw=True)
+
     from datetime import datetime
 
     from insights.ml.marketing_source_metrics import (
@@ -137,6 +143,10 @@ def source_metrics(period: str = "YTD") -> Dict[str, Any]:
 @frappe.whitelist()
 def cost_per_lead(period: str = "YTD") -> Dict[str, Any]:
     """Get cost per lead by source."""
+    # Reads both Lead (leads_by_source) and GL Entry (source_costs).
+    frappe.has_permission("Lead", "read", throw=True)
+    frappe.has_permission("GL Entry", "read", throw=True)
+
     from datetime import datetime
 
     from insights.ml.marketing_source_metrics import get_cost_per_lead
@@ -159,6 +169,8 @@ def cost_per_lead(period: str = "YTD") -> Dict[str, Any]:
 @frappe.whitelist()
 def territory_leads(period: str = "YTD") -> Dict[str, Any]:
     """Get lead count by territory."""
+    frappe.has_permission("Lead", "read", throw=True)
+
     from datetime import datetime
 
     from insights.ml.marketing_source_metrics import get_territory_leads
@@ -187,8 +199,6 @@ def _build_marketing_funnel(
     lead_totals: dict,
     quote_totals: list,
     won: dict,
-    open_value: float,
-    decided_value: float,
     won_value: float,
     total: int,
     converted: int,
@@ -209,8 +219,12 @@ def _build_marketing_funnel(
         },
         {
             "label": _("Quoted"),
+            # Value must sum the SAME rows as count above (every docstatus<2
+            # quotation, all 6 statuses) -- `open_value + decided_value` used
+            # to leave out "Open" and "Partially Ordered", silently dropping
+            # their value from this stage while still counting them.
             "count": sum(int(r["count"] or 0) for r in quote_totals),
-            "value": open_value + decided_value,
+            "value": sum(float(r.get("value") or 0) for r in quote_totals),
         },
         {
             "label": _("Ordered"),
@@ -620,7 +634,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     open_leads = int(lead_totals["open_leads"] or 0)
 
     funnel = _build_marketing_funnel(
-        lead_totals, quote_totals, won, open_value, decided_value, won_value, total, converted
+        lead_totals, quote_totals, won, won_value, total, converted
     )
     alerts = _generate_marketing_alerts(
         total, open_leads, expired_value, won_value, trend, source_rows, days_stale

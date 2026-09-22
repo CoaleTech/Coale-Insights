@@ -257,9 +257,11 @@ def calculate_payment_mix(
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
     ).filter(t("Sales Invoice").is_return == 0)
-    start, _ = parse_date_filter(date_filter)
+    start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
 
     is_cash = si.outstanding_amount == 0
     overall_df = si.aggregate(
@@ -382,9 +384,11 @@ def analyze_sales_reps(
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
     ).filter(t("Sales Invoice").is_return == 0)
-    start, _ = parse_date_filter(date_filter)
+    start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
 
     total_invoice_revenue = float(si.grand_total.sum().execute() or 0)
 
@@ -537,9 +541,11 @@ def calculate_comparisons(
     # MoM slice: subject to the user's date filter (both endpoints
     # live inside the window).
     si = base
-    start, _ = parse_date_filter(date_filter)
+    start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
 
     # YoY slice: skips the user's `date_filter` (which would push the cutoff
     # past the YoY window's start). Date filter is still respected for the
@@ -639,9 +645,11 @@ def analyze_by_dimensions(
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
     ).filter(t("Sales Invoice").is_return == 0)
-    start, _ = parse_date_filter(date_filter)
+    start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
 
     # By customer_group / territory -- header fields, no fan-out.
     #
@@ -771,9 +779,11 @@ def analyze_margins(
         t("Sales Invoice").docstatus == 1
     ).filter(t("Sales Invoice").is_return == 0)
     sii = t("Sales Invoice Item")
-    start, _ = parse_date_filter(date_filter)
+    start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
 
     dn = dn_cost()
     sle = sle_cost()
@@ -961,9 +971,11 @@ def analyze_fulfillment(
     so = company_filter(t("Sales Order"), company or default_company()).filter(
         t("Sales Order").docstatus == 1
     )
-    start, _ = parse_date_filter(date_filter)
+    start, end = parse_date_filter(date_filter)
     if start is not None:
         so = so.filter(so.transaction_date >= start.date())
+    if end is not None:
+        so = so.filter(so.transaction_date <= end.date())
 
     by_status_df = (
         so.mutate(

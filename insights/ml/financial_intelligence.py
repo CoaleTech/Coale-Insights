@@ -31,6 +31,15 @@ def _now_iso() -> str:
     return datetime.now().isoformat()
 
 
+def _today() -> str:
+    return datetime.now().date().isoformat()
+
+
+# ERPNext has no term-deposit `account_type`, so a fixed deposit is identified
+# by account name. Lower-cased prefix match, applied in one place.
+FD_PREFIX = "fixed deposit"
+
+
 def _fiscal_year_for(company: str) -> dict[str, str]:
     """Return {name, start_date, end_date} for the fiscal year that contains
     today (calendar fallback if the company has no Fiscal Year record)."""
@@ -310,10 +319,16 @@ class FinancialIntelligence:
 
         joined = self._gl_with_account()
 
-        # Cash accounts balance (Bank + Cash)
+        # Cash-equivalent accounts: Bank + Cash by account_type, plus
+        # name-matched Fixed Deposit accounts. ERPNext models no term deposit:
+        # `Account.account_type`'s Select options stop at Indirect Income, and
+        # the schema's only native mention of a fixed deposit is
+        # `Bank Guarantee.fixed_deposit_number` -- a margin-money field on an
+        # unrelated document. An FD therefore lives in a plain Asset account
+        # and is identifiable only by name, the same convention as the TDS/TCS
+        # GL lookup in india_tax_intelligence/data.py.
         cash_agg = (
-            joined
-            .filter(joined["account_type"].isin(["Bank", "Cash"]))
+            self._cash_accounts(joined)
             .group_by(
                 joined["account"].name("account"),
                 joined["account_name"].name("account_name"),
@@ -321,8 +336,32 @@ class FinancialIntelligence:
             )
             .aggregate(balance=(joined["debit"] - joined["credit"]).sum())
         )
-        cash_rows = [r for r in self._rows(cash_agg) if float(r.get("balance") or 0) != 0]
-        total_cash = sum(float(c.get("balance") or 0) for c in cash_rows)
+        cash_rows: list[dict[str, Any]] = []
+        for r in self._rows(cash_agg):
+            balance = round(float(r.get("balance") or 0), 2)
+            if balance == 0:
+                continue
+            # `account_class` is what the dashboard labels the row with. The
+            # frontend used to re-derive it and fell back to printing
+            # "Fixed Deposit" for any account with a blank account_type, so a
+            # plain bank account with no type set was labelled a deposit.
+            is_fd = (r.get("account_name") or "").lower().startswith(FD_PREFIX)
+            r["balance"] = balance
+            r["is_fd"] = is_fd
+            r["account_class"] = "Fixed Deposit" if is_fd else (r.get("account_type") or "Other")
+            cash_rows.append(r)
+        cash_rows.sort(key=lambda r: -r["balance"])
+        total_cash = sum(r["balance"] for r in cash_rows)
+        for r in cash_rows:
+            r["share_pct"] = round(r["balance"] / total_cash * 100, 1) if total_cash else None
+        fd_rows = [r for r in cash_rows if r["is_fd"]]
+        fd_balance = sum(r["balance"] for r in fd_rows)
+        bank_balance = sum(
+            r["balance"] for r in cash_rows if not r["is_fd"] and r.get("account_type") == "Bank"
+        )
+        cash_on_hand = sum(
+            r["balance"] for r in cash_rows if not r["is_fd"] and r.get("account_type") == "Cash"
+        )
 
         # Monthly inflows (Payment Entry Receive) for last 6 months
         pe = company_filter(t("Payment Entry"), self.company).filter(
@@ -407,8 +446,20 @@ class FinancialIntelligence:
         large_transactions = self._rows(large_tx)
 
         return {
+            "as_of": _today(),
             "total_cash": total_cash,
+            "bank_balance": round(bank_balance, 2),
+            "cash_on_hand": round(cash_on_hand, 2),
+            "fd_balance": round(fd_balance, 2),
+            # Spendable today without breaking a deposit.
+            "liquid_cash": round(total_cash - fd_balance, 2),
             "cash_accounts": cash_rows,
+            "post_dated": self._post_dated_cash(joined),
+            # GL-based, so it reconciles to the balances above. The Payment
+            # Entry series below cannot: it misses every journal-posted
+            # movement (deposit sweeps, contra entries, bank charges).
+            "monthly_cash_movement": self._monthly_cash_movement(joined, total_cash),
+            "fixed_deposits": self._fixed_deposit_analysis(joined, fd_rows, total_cash),
             "avg_monthly_inflow": round(avg_inflow, 2),
             "avg_monthly_outflow": round(avg_outflow, 2),
             "net_burn_rate": round(net_burn, 2),
@@ -418,6 +469,236 @@ class FinancialIntelligence:
             "inflow_by_source": inflow_by_source,
             "outflow_by_use": outflow_by_use,
             "large_transactions": large_transactions,
+        }
+
+    def _cash_accounts(self, joined):
+        """Narrow a GL+Account join to the cash-equivalent accounts."""
+        return joined.filter(
+            joined["account_type"].isin(["Bank", "Cash"])
+            | joined["account_name"].lower().startswith(FD_PREFIX)
+        )
+
+    def _post_dated_cash(self, joined) -> dict[str, Any] | None:
+        """Cash movement that is posted but dated in the future.
+
+        A post-dated cheque hits the ledger the day it is written, so a bank
+        account can show a negative book balance for money that has not left
+        yet. Separating the two is the difference between "we are overdrawn"
+        and "we are not, yet" -- which is not a distinction a balance column
+        can make on its own.
+        """
+        rows = self._rows(
+            self._cash_accounts(joined)
+            .filter(joined["posting_date"] > _today())
+            .aggregate(
+                net=(joined["debit"] - joined["credit"]).sum(),
+                entries=joined["account"].count(),
+                last_date=joined["posting_date"].max(),
+            )
+        )
+        entries = int(rows[0].get("entries") or 0) if rows else 0
+        if not entries:
+            return None
+        return {
+            "entries": entries,
+            "net": round(float(rows[0].get("net") or 0), 2),
+            "last_date": str(rows[0].get("last_date") or "")[:10] or None,
+        }
+
+    def _monthly_cash_movement(
+        self, joined, total_cash: float, months: int = 12
+    ) -> list[dict[str, Any]]:
+        """Monthly cash in/out from the GL, with each month's closing balance
+        walked backwards from today's total so the series ties to the account
+        balances instead of to an independently computed opening figure."""
+        agg = (
+            self._cash_accounts(joined)
+            .filter(joined["posting_date"] >= _months_ago(months - 1))
+            .group_by(joined["posting_date"].truncate("month").name("period"))
+            .aggregate(inflow=joined["debit"].sum(), outflow=joined["credit"].sum())
+            .order_by("period")
+        )
+        rows: list[dict[str, Any]] = []
+        for r in self._rows(agg):
+            inflow = float(r.get("inflow") or 0)
+            outflow = float(r.get("outflow") or 0)
+            rows.append(
+                {
+                    "period": str(r["period"])[:7] if r.get("period") else "",
+                    "inflow": round(inflow, 2),
+                    "outflow": round(outflow, 2),
+                    "net": round(inflow - outflow, 2),
+                }
+            )
+        # Future-dated months are walked through (so the current month's
+        # closing excludes them) but not reported: `post_dated` covers them.
+        balance = total_cash
+        for r in reversed(rows):
+            r["closing"] = round(balance, 2)
+            balance -= r["net"]
+        this_month = _today()[:7]
+        return [r for r in rows if r["period"] <= this_month]
+
+    def _fixed_deposit_analysis(
+        self, joined, fd_rows: list[dict[str, Any]], total_cash: float, months: int = 12
+    ) -> dict[str, Any] | None:
+        """What the ledger can actually say about fixed deposits.
+
+        Maturity date, tenor and contracted rate are not in the database at
+        all (see `_cash_accounts` on ERPNext's missing deposit model), so this
+        reports what is recoverable and nothing more: principal on deposit,
+        how it moved, the bank reference each movement quotes, the interest
+        booked against it, and which account it is swept to and from.
+        """
+        if not fd_rows:
+            return None
+        import re
+
+        fd = joined.filter(joined["account"].isin([r["account"] for r in fd_rows]))
+        balance = sum(r["balance"] for r in fd_rows)
+        entries = self._rows(
+            fd
+            .filter(joined["posting_date"] >= _months_ago(months - 1))
+            .select(
+                joined["posting_date"],
+                joined["voucher_no"],
+                joined["debit"],
+                joined["credit"],
+                joined["remarks"],
+                joined["against"],
+            )
+            .order_by(joined["posting_date"].desc())
+        )
+
+        # Bank deposit receipt numbers are quoted in the journal remarks
+        # ("FD BKD FOR ... 50301417445901", "SWEEP-IN CREDIT - 50301417445901").
+        # They are the only per-deposit identifier that exists, so they are
+        # surfaced verbatim on the activity rows rather than aggregated into a
+        # deposit register the ledger cannot actually support.
+        ref_pat = re.compile(r"\d{10,}")
+        monthly: dict[str, dict[str, float]] = {}
+        placed = released = 0.0
+        placements = releases = 0
+        last_placement = last_release = None
+        counterparties: dict[str, float] = {}
+        activity: list[dict[str, Any]] = []
+        for e in entries:
+            date = str(e.get("posting_date") or "")[:10]
+            debit = float(e.get("debit") or 0)
+            credit = float(e.get("credit") or 0)
+            bucket = monthly.setdefault(date[:7], {"placed": 0.0, "released": 0.0})
+            bucket["placed"] += debit
+            bucket["released"] += credit
+            if debit:
+                placed += debit
+                placements += 1
+                last_placement = last_placement or date
+            if credit:
+                released += credit
+                releases += 1
+                last_release = last_release or date
+            against = e.get("against") or ""
+            if against:
+                counterparties[against] = counterparties.get(against, 0.0) + debit + credit
+            if len(activity) < 12:
+                ref = ref_pat.search(e.get("remarks") or "")
+                activity.append(
+                    {
+                        "posting_date": date,
+                        "voucher_no": e.get("voucher_no"),
+                        "amount": round(debit or credit, 2),
+                        "direction": "placement" if debit else "release",
+                        "reference": ref.group(0) if ref else None,
+                    }
+                )
+
+        series: list[dict[str, Any]] = []
+        for period in sorted(monthly):
+            bucket = monthly[period]
+            series.append(
+                {
+                    "period": period,
+                    "placed": round(bucket["placed"], 2),
+                    "released": round(bucket["released"], 2),
+                    "net": round(bucket["placed"] - bucket["released"], 2),
+                }
+            )
+        running = balance
+        for r in reversed(series):
+            r["closing"] = round(running, 2)
+            running -= r["net"]
+
+        interest = self._deposit_interest()
+        avg_balance = (
+            sum(r["closing"] for r in series) / len(series) if series else balance
+        )
+        yield_pct = (
+            round(interest["booked_fy"] / avg_balance * (12 / interest["months_elapsed"]) * 100, 2)
+            if avg_balance > 0
+            else None
+        )
+        return {
+            "balance": round(balance, 2),
+            "pct_of_cash": round(balance / total_cash * 100, 1) if total_cash else None,
+            "accounts": [
+                {"account": r["account"], "account_name": r["account_name"], "balance": r["balance"]}
+                for r in fd_rows
+            ],
+            "monthly": series,
+            "window_months": months,
+            "placed": round(placed, 2),
+            "released": round(released, 2),
+            "placement_count": placements,
+            "release_count": releases,
+            "avg_ticket": round(placed / placements, 2) if placements else None,
+            "last_placement": last_placement,
+            "last_release": last_release,
+            # Where the principal comes from and returns to: on a sweep
+            # facility this is the operating current account, which is what
+            # makes the deposit callable rather than locked.
+            "swept_with": [
+                a for a, _ in sorted(counterparties.items(), key=lambda kv: -kv[1])[:3]
+            ],
+            "recent_activity": activity,
+            "interest_booked_fy": interest["booked_fy"],
+            "interest_accrued": interest["accrued"],
+            "fiscal_year": interest["fiscal_year"],
+            "yield_pct": yield_pct,
+        }
+
+    def _deposit_interest(self) -> dict[str, Any]:
+        """Deposit interest booked this fiscal year, and the accrual balance.
+
+        Matched on account name (interest + deposit/FD) because the chart of
+        accounts is the only place that link exists: nothing joins an interest
+        account to the deposit that earned it.
+        """
+        joined = self._gl_with_account()
+        name = joined["account_name"].lower()
+        interest = joined.filter(
+            name.contains("interest") & (name.contains("deposit") | name.contains("fd"))
+        )
+        fy = self.fiscal_year or _fiscal_year_for(self.company or "")
+        booked = self._scalar(
+            interest
+            .filter(
+                (joined["root_type"] == "Income")
+                & (joined["posting_date"] >= fy["start_date"])
+            )
+            .aggregate(v=(joined["credit"] - joined["debit"]).sum())
+        )
+        accrued = self._scalar(
+            interest
+            .filter(joined["root_type"] == "Asset")
+            .aggregate(v=(joined["debit"] - joined["credit"]).sum())
+        )
+        start = datetime.strptime(fy["start_date"], "%Y-%m-%d").date()
+        elapsed = max((datetime.now().date() - start).days / 30.44, 1.0)
+        return {
+            "booked_fy": round(booked, 2),
+            "accrued": round(accrued, 2),
+            "fiscal_year": fy["name"],
+            "months_elapsed": round(elapsed, 2),
         }
 
     # ------------------------------------------------------------------ receivables

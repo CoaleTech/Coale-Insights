@@ -22,7 +22,7 @@ import { chartPalette, themeColor } from '../utils/chartTheme'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { severityBadge, scoreSeverity, deltaInk, deltaGlyph } from '../utils/status'
-import { formatMoney, formatDateShort, NO_VALUE } from '../utils/format'
+import { formatMoney, formatDateShort, formatCount, formatPercent, NO_VALUE } from '../utils/format'
 import type { DrillDownParams } from '../intelligence/composables/useDrillDown'
 
 const props = defineProps<{
@@ -700,18 +700,19 @@ const attributionConfig = computed(() => {
     ],
   }
 })
-const lostReasonsConfig = computed(() => {
+const lostReasonsData = computed(() => {
   const reasons = (quotationAnalytics.value?.lost_reasons as Record<string, unknown>[]) ?? []
-  if (!reasons.length) return null
-  return {
-    data: reasons.map(r => ({
+  if (!reasons.length) return []
+  // Compute total for percentage calculation
+  const total = reasons.reduce((sum, r) => sum + ((r.count as number) ?? 0), 0)
+  // Sort by count descending, then calculate percentage for each
+  return reasons
+    .map(r => ({
       reason: r.order_lost_reason as string,
-      count: r.count as number,
-    })),
-    title: '',
-    categoryColumn: 'reason',
-    valueColumn: 'count',
-  }
+      count: (r.count as number) ?? 0,
+      percentage: total > 0 ? (((r.count as number) ?? 0) / total * 100) : 0,
+    }))
+    .sort((a, b) => b.count - a.count)
 })
 
 // ── Lazy-load on tab activation ───────────────────────────────────────────
@@ -1401,8 +1402,11 @@ onMounted(() => {
           </thead>
           <tbody>
             <tr v-for="row in attributionRows" :key="row.source"
-              class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
-              :class="row.source === 'Unattributed' ? 'text-ink-gray-5 italic' : ''">
+              class="border-b border-outline-gray-1 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
+              :class="row.source === 'Unattributed' ? 'text-ink-gray-5 italic' : ''"
+              tabindex="0"
+              @click="drillOpen(`Invoices attributed to ${row.source}`, { metric: 'sales_by_source', source: row.source, period: props.dateFilter })"
+              @keydown.enter="drillOpen(`Invoices attributed to ${row.source}`, { metric: 'sales_by_source', source: row.source, period: props.dateFilter })">
               <td class="px-4 py-2 text-left font-medium text-ink-gray-8">{{ row.source }}</td>
               <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money(row.revenue) }}</td>
               <td class="px-4 py-2 text-right text-ink-gray-6">{{ pct(row.share) }}</td>
@@ -1427,24 +1431,55 @@ onMounted(() => {
       <SectionHeader variant="caption" title="Quotation Funnel"
         hint="Quote-to-order conversion and why deals are lost" :level="3" />
       <div v-if="quotationAnalytics" class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-        <KpiCard label="Total Quotes" :value="num(quotationAnalytics.total as number)" />
-        <KpiCard label="Won" :value="num(quotationAnalytics.won as number)" />
-        <KpiCard label="Pending" :value="num(quotationAnalytics.pending as number)" />
-        <KpiCard label="Lost" :value="num(quotationAnalytics.lost as number)" severity="high" />
+        <KpiCard label="Total Quotes" :value="num(quotationAnalytics.total as number)" :clickable="true"
+          @click="drillOpen('Quotations', { metric: 'quotations', bucket: 'all', period: props.dateFilter })" />
+        <KpiCard label="Won" :value="num(quotationAnalytics.won as number)" :clickable="true"
+          @click="drillOpen('Quotations won', { metric: 'quotations', bucket: 'won', period: props.dateFilter })" />
+        <KpiCard label="Pending" :value="num(quotationAnalytics.pending as number)" :clickable="true"
+          @click="drillOpen('Quotations pending', { metric: 'quotations', bucket: 'pending', period: props.dateFilter })" />
+        <KpiCard label="Lost" :value="num(quotationAnalytics.lost as number)" severity="high" :clickable="true"
+          @click="drillOpen('Quotations lost', { metric: 'quotations', bucket: 'lost', period: props.dateFilter })" />
         <KpiCard label="Conversion" :percent="quotationAnalytics.conversion_rate as number" />
       </div>
-      <div v-if="lostReasonsConfig">
+      <div v-if="lostReasonsData.length" class="space-y-4">
         <SectionHeader variant="caption" title="Why quotes are lost" :level="4" />
-        <div class="mt-2 h-48 sm:h-56 lg:h-64">
-          <IntelligenceChart kind="donut" :config="lostReasonsConfig" class="h-48 sm:h-56 lg:h-64" />
+        <!-- Ranked bar list, largest reason first -->
+        <div class="space-y-3">
+          <div v-for="row in lostReasonsData" :key="row.reason" class="space-y-1">
+            <!-- Row header: reason label, count, percentage -->
+            <div class="flex justify-between items-baseline">
+              <span class="font-medium text-ink-gray-8">{{ row.reason }}</span>
+              <span class="text-ink-gray-7 text-sm">
+                {{ formatCount(row.count) }}
+                <span class="text-ink-gray-6">{{ formatPercent(row.percentage) }}</span>
+              </span>
+            </div>
+            <!--
+              Share of total lost quotes. Fill comes from a whole token class,
+              not an inline `themeColor()` hex: `themeColor` exists because
+              ECharts cannot resolve CSS custom properties, and using it on DOM
+              freezes the colour at render so a light/dark switch no longer
+              reaches it. Same shape as `WaterfallRows`, which is the precedent.
+            -->
+            <div
+              class="h-6 overflow-hidden rounded-full bg-surface-gray-2"
+              role="img"
+              :aria-label="`${row.reason}: ${formatCount(row.count)} lost quotes`"
+            >
+              <div
+                class="h-full rounded-full bg-muted-fill"
+                :style="{ width: `${Math.max(0, Math.min(100, row.percentage))}%` }"
+              />
+            </div>
+          </div>
         </div>
         <table class="sr-only">
           <caption>Quotation lost reasons by count</caption>
           <thead><tr><th scope="col">Reason</th><th scope="col">Count</th></tr></thead>
           <tbody>
-            <tr v-for="r in (quotationAnalytics?.lost_reasons as Record<string, unknown>[])" :key="r.order_lost_reason as string">
-              <th scope="row">{{ r.order_lost_reason }}</th>
-              <td>{{ r.count }}</td>
+            <tr v-for="r in lostReasonsData" :key="r.reason">
+              <th scope="row">{{ r.reason }}</th>
+              <td>{{ formatCount(r.count) }}</td>
             </tr>
           </tbody>
         </table>

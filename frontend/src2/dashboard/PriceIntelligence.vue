@@ -27,7 +27,7 @@
 				</p>
 			</div>
 			<div class="flex flex-wrap items-center gap-3">
-				<span v-if="lastUpdated" class="text-sm text-ink-gray-5">
+				<span v-if="lastUpdated" class="text-sm text-ink-gray-6">
 					Updated {{ formatDateTime(lastUpdated) }}
 				</span>
 				<Button variant="solid" :loading="refreshing" @click="reload">
@@ -81,14 +81,14 @@
 					</p>
 					<table v-else class="w-full text-sm">
 						<thead>
-							<tr class="text-left text-ink-gray-5 border-b border-outline-gray-1">
-								<th class="py-2 pr-4 font-medium">Item</th>
-								<th class="py-2 pr-4 font-medium">Group</th>
-								<th class="py-2 pr-4 font-medium text-right">Revenue</th>
-								<th class="py-2 pr-4 font-medium text-right">Qty</th>
-								<th class="py-2 pr-4 font-medium text-right">Avg price</th>
-								<th class="py-2 pr-4 font-medium text-right">Valuation</th>
-								<th class="py-2 font-medium text-right">Margin</th>
+							<tr class="text-left border-b border-outline-gray-1">
+								<th class="py-2 pr-4 font-medium text-ink-gray-6">Item</th>
+								<th class="py-2 pr-4 font-medium text-ink-gray-6">Group</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Revenue</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Qty</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Avg price</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Valuation</th>
+								<th class="py-2 font-medium text-right text-ink-gray-6">Margin</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -100,11 +100,11 @@
 								<td class="py-2 pr-4 text-ink-gray-8">
 									{{ row.item_name || row.item_code }}
 								</td>
-								<td class="py-2 pr-4 text-ink-gray-6">{{ row.item_group || '—' }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ money(row.revenue) }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ count(row.qty) }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ money(row.avg_rate) }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">
+								<td class="py-2 pr-4 text-ink-gray-7">{{ row.item_group || '—' }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.revenue) }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ count(row.qty) }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.avg_rate) }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">
 									{{ row.valuation_rate == null ? '—' : money(row.valuation_rate) }}
 								</td>
 								<!-- Sign carries the meaning, colour only reinforces it. -->
@@ -127,12 +127,12 @@
 					</p>
 					<table v-else class="w-full text-sm">
 						<thead>
-							<tr class="text-left text-ink-gray-5 border-b border-outline-gray-1">
-								<th class="py-2 pr-4 font-medium">Item</th>
-								<th class="py-2 pr-4 font-medium text-right">Lines</th>
-								<th class="py-2 pr-4 font-medium text-right">List value</th>
-								<th class="py-2 pr-4 font-medium text-right">Realised</th>
-								<th class="py-2 font-medium text-right">Discount</th>
+							<tr class="text-left border-b border-outline-gray-1">
+								<th class="py-2 pr-4 font-medium text-ink-gray-6">Item</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Lines</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">List value</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Realised</th>
+								<th class="py-2 font-medium text-right text-ink-gray-6">Discount</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -144,10 +144,10 @@
 								<td class="py-2 pr-4 text-ink-gray-8">
 									{{ row.item_name || row.item_code }}
 								</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ count(row.line_count) }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ money(row.list_value) }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ money(row.revenue) }}</td>
-								<td class="py-2 text-right tabular-nums text-ink-amber-6">
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ count(row.line_count) }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.list_value) }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.revenue) }}</td>
+								<td class="py-2 text-right tabular-nums text-ink-gray-8">
 									{{ money(row.discount_value) }}
 								</td>
 							</tr>
@@ -166,13 +166,13 @@
 					</p>
 					<table v-else class="w-full text-sm">
 						<thead>
-							<tr class="text-left text-ink-gray-5 border-b border-outline-gray-1">
-								<th class="py-2 pr-4 font-medium">Quotation</th>
-								<th class="py-2 pr-4 font-medium">Customer</th>
-								<th class="py-2 pr-4 font-medium">Item</th>
-								<th class="py-2 pr-4 font-medium text-right">Rate</th>
-								<th class="py-2 pr-4 font-medium text-right">Floor</th>
-								<th class="py-2 font-medium text-right">Shortfall</th>
+							<tr class="text-left border-b border-outline-gray-1">
+								<th class="py-2 pr-4 font-medium text-ink-gray-6">Quotation</th>
+								<th class="py-2 pr-4 font-medium text-ink-gray-6">Customer</th>
+								<th class="py-2 pr-4 font-medium text-ink-gray-6">Item</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Rate</th>
+								<th class="py-2 pr-4 font-medium text-right text-ink-gray-6">Floor</th>
+								<th class="py-2 font-medium text-right text-ink-gray-6">Shortfall</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -182,11 +182,11 @@
 								class="border-b border-outline-gray-1"
 							>
 								<td class="py-2 pr-4 text-ink-gray-8">{{ row.quotation }}</td>
-								<td class="py-2 pr-4 text-ink-gray-6">{{ row.customer_name || '—' }}</td>
-								<td class="py-2 pr-4 text-ink-gray-6">{{ row.item_code }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ money(row.rate) }}</td>
-								<td class="py-2 pr-4 text-right tabular-nums">{{ money(row.floor_price) }}</td>
-								<td class="py-2 text-right tabular-nums text-ink-red-6">
+								<td class="py-2 pr-4 text-ink-gray-7">{{ row.customer_name || '—' }}</td>
+								<td class="py-2 pr-4 text-ink-gray-7">{{ row.item_code }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.rate) }}</td>
+								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.floor_price) }}</td>
+								<td class="py-2 text-right tabular-nums text-ink-red-4">
 									{{ money(row.shortfall) }}
 								</td>
 							</tr>
@@ -345,8 +345,12 @@ function percent(value: number | null | undefined): string {
 	return formatPercent(value)
 }
 
+// Only red survives AA as coloured text: ink-red-4 is 7.20:1 dark / 5.36:1 light.
+// ink-green-3 is 3.82:1 and ink-amber-3 is 2.97:1 on the light surface, and no
+// lighter shade exists in the palette -- so a positive margin is left as plain
+// ink-gray-8 and reads from its sign, exactly as the template comment intends.
 function marginClass(marginPct: number | null | undefined): string {
-	if (marginPct == null) return 'text-ink-gray-5'
-	return marginPct < 0 ? 'text-ink-red-6' : 'text-ink-green-6'
+	if (marginPct == null) return 'text-ink-gray-6'
+	return marginPct < 0 ? 'text-ink-red-4' : 'text-ink-gray-8'
 }
 </script>

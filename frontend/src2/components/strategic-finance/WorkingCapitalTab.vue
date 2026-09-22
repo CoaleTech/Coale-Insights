@@ -134,8 +134,11 @@
             <span class="text-sm font-medium text-ink-gray-7">Inventory</span>
             <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.inventory || 0) }}</span>
           </div>
-          <!-- Total row: neutral emphasis, not a status colour -->
-          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2">
+          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2 cursor-pointer hover:bg-surface-gray-2 transition-colors"
+            :tabindex="0"
+            role="button"
+            @click="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })"
+            @keydown.enter="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })">
             <span class="text-sm font-bold text-ink-gray-9">Total Current Assets</span>
             <span class="text-sm font-bold text-ink-gray-9">{{ formatCurrency(data?.total_current_assets || 0) }}</span>
           </div>
@@ -275,6 +278,7 @@ import {
 import { scoreSeverity, severityFill, severityAria, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
+import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { WorkingCapitalData, WorkingCapitalTrendRow } from './types'
 
 /** API trend rows also carry display fields the shell contract does not need. */
@@ -283,9 +287,10 @@ interface TrendRow extends WorkingCapitalTrendRow {
   current_assets?: number
   current_liabilities?: number
 }
-
 interface Props {
   data?: WorkingCapitalData
+  finEndpoint: string
+  drillDown: ReturnType<typeof useDrillDown>
 }
 
 const props = defineProps<Props>()

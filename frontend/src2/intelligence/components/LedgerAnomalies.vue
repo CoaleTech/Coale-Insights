@@ -40,7 +40,7 @@ const state = computed(() => anomalies.data.value?.status as string | undefined)
 
 <template>
   <section>
-    <p v-if="anomalies.error.value" class="text-sm text-ink-red-6">
+    <p v-if="anomalies.error.value" class="text-sm text-ink-red-4">
       {{ anomalies.error.value }}
     </p>
     <p v-else-if="state && state !== 'success'" class="text-sm text-ink-gray-6">

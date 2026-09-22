@@ -1,3 +1,10 @@
+<!--
+  Capital Planning: Asset Schedule & Forecasts: no drill-down.
+  
+  Capital expenditure, depreciation, and asset-age forecasts are modelled and
+  planned figures without direct GL transaction rows. A drill-down to account
+  detail would not resolve the planning logic.
+-->
 <template>
   <div class="space-y-6">
 

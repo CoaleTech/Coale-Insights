@@ -188,7 +188,47 @@ def get_finance_detail(metric: str, filters: str) -> dict:
 
     if metric == "cash_accounts":
         frappe.has_permission("Account", throw=True)
-        db_filters = {"account_type": ("in", ["Cash", "Bank"]), "is_group": 0}
+        # Same set _calculate_cash_flow uses: Bank/Cash by account_type, plus
+        # Fixed Deposit accounts (no core account_type for FD, name-matched).
+        acct_filters = [["is_group", "=", 0]]
+        if company:
+            acct_filters.append(["company", "=", company])
+        acct_or_filters = [
+            ["account_type", "in", ["Cash", "Bank"]],
+            ["account_name", "like", "fixed deposit%"],
+        ]
+        rows = frappe.get_list(
+            "Account",
+            filters=acct_filters,
+            or_filters=acct_or_filters,
+            fields=["name", "account_name", "account_type", "account_currency"],
+            start=start, page_length=page_size, order_by="account_name asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Account", "fieldname": "name", "fieldtype": "Link", "options": "Account"},
+                {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
+                {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
+                {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": len(frappe.get_list(
+                "Account", filters=acct_filters, or_filters=acct_or_filters,
+                pluck="name", limit_page_length=0,
+            )),
+        }
+
+    if metric == "working_capital_components":
+        frappe.has_permission("Account", throw=True)
+        # The accounts the working-capital figures are built from. No or_filters
+        # here, unlike cash_accounts above: one `in` clause is a plain filter, so
+        # `frappe.db.count` can express the total and there is no need to pluck
+        # every matching name to length it.
+        db_filters = {
+            "is_group": 0,
+            "account_type": ("in", ["Receivable", "Payable", "Stock", "Bank", "Cash"]),
+        }
         if company:
             db_filters["company"] = company
         rows = frappe.get_list(
@@ -205,6 +245,63 @@ def get_finance_detail(metric: str, filters: str) -> dict:
                 {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
                 {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
             ],
+            "rows": rows,
+            "total": frappe.db.count("Account", filters=db_filters),
+        }
+
+    if metric == "cost_structure_accounts":
+        frappe.has_permission("Account", throw=True)
+        db_filters = {"is_group": 0, "root_type": "Expense"}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Account",
+            filters=db_filters,
+            fields=["name", "account_name", "parent_account", "account_currency"],
+            start=start, page_length=page_size, order_by="account_name asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Account", "fieldname": "name", "fieldtype": "Link", "options": "Account"},
+                {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
+                {"label": "Parent", "fieldname": "parent_account", "fieldtype": "Data"},
+                {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Account", filters=db_filters),
+        }
+
+    if metric == "forex_exposure":
+        frappe.has_permission("Account", throw=True)
+        columns = [
+            {"label": "Account", "fieldname": "name", "fieldtype": "Link", "options": "Account"},
+            {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
+            {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
+            {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
+        ]
+        default_currency = (
+            frappe.get_cached_value("Company", company, "default_currency") if company else None
+        )
+        # "Foreign" is only definable against a reporting currency. Without one
+        # there is no exposure to list -- which is not the same as an error, and
+        # not the same as zero exposure either; the empty table says so.
+        if not default_currency:
+            return {"columns": columns, "rows": [], "total": 0}
+        db_filters = [
+            ["is_group", "=", 0],
+            ["company", "=", company],
+            ["account_currency", "!=", default_currency],
+        ]
+        rows = frappe.get_list(
+            "Account",
+            filters=db_filters,
+            fields=["name", "account_name", "account_currency", "account_type"],
+            start=start, page_length=page_size, order_by="account_name asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": columns,
             "rows": rows,
             "total": frappe.db.count("Account", filters=db_filters),
         }

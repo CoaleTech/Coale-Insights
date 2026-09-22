@@ -48,10 +48,31 @@ class BudgetVarianceIntelligence:
             fiscal_year: Fiscal year for budget tracking
             budget_period: Budget period granularity (monthly/quarterly)
         """
-        from insights.api.ml.ibis_source import default_company
+        from insights.api.ml.permissions import permitted_company
         from insights.ml.financial_intelligence import _base_currency, _fiscal_year_for
 
-        self.company = company or default_company()
+        # `permitted_company` (not `default_company`/`get_user_default`
+        # directly): every query below is raw `frappe.qb`, which -- unlike
+        # `frappe.get_list` -- applies NO row-level permission check at all.
+        # A user default or site-wide Global Default is a preference, not a
+        # permission boundary; a user restricted via User Permission to
+        # Company B but whose default/global company is A would previously
+        # get company A's GL Entries, Budgets, and Accounts back even
+        # without read access to company A. `permitted_company` routes
+        # through `frappe.get_list("Company")`, which does apply User
+        # Permissions, and throws if a company is requested but not
+        # permitted.
+        self.company = permitted_company({"company": company} if company else None)
+        if not self.company:
+            # None means either zero permitted companies, or several with no
+            # single default -- every query below filters `company ==
+            # self.company` unconditionally, so `None` would silently return
+            # zero rows everywhere rather than "all companies". Fail loud
+            # instead: a report that quietly shows nothing is worse than one
+            # that says why.
+            frappe.throw(
+                frappe._("Set a default Company (or ask an administrator to grant one) to view budget variance analysis.")
+            )
         self.budget_period = budget_period
         self.base_currency = _base_currency(self.company)
 

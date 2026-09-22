@@ -1,15 +1,16 @@
 <script setup lang="ts">
 defineOptions({ name: 'ESGIntelligence' })
 import { ref, computed, onMounted } from 'vue'
-import { Badge, Button, Tabs } from 'frappe-ui'
+import { Badge, Button, ListView, Tabs } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import { apiCall } from '../helpers/api'
+import { createInfoToast } from '../helpers/toasts'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import {
   severityBadge, severityFill, severityAria, scoreSeverity, ragSeverity,
   prioritySeverity, type Severity,
 } from '../utils/status'
-import { formatDate, formatDateTime, formatPercent, formatCount } from '../utils/format'
+import { formatDate, formatDateTime, formatPercent, formatCount, NO_VALUE } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
@@ -176,6 +177,44 @@ const governanceScore = computed((): GovernanceScoreBlock =>
   data.value?.governance_metrics?.governance_score ?? ({} as GovernanceScoreBlock))
 const recommendations = computed((): EsgRecommendationRow[] =>
   data.value?.recommendations ?? [])
+const esgRecRows = computed((): (EsgRecommendationRow & { key: string })[] =>
+  recommendations.value.map((rec, index) => ({
+    ...rec,
+    key: `r${index}`,
+  })))
+
+const esgRecColumns = [
+  { label: 'Priority', key: 'priority', width: 0.9 },
+  {
+    label: 'Category',
+    key: 'category',
+    width: 1.2,
+    getLabel: ({ row }: { row: EsgRecommendationRow }) => row.category ?? NO_VALUE,
+  },
+  {
+    label: 'Recommendation',
+    key: 'recommendation',
+    width: 2.8,
+    // The payload uses either key depending on the detector that raised it.
+    getLabel: ({ row }: { row: EsgRecommendationRow }) =>
+      row.recommendation ?? row.title ?? NO_VALUE,
+  },
+  {
+    label: 'Impact',
+    key: 'impact',
+    width: 2.2,
+    getLabel: ({ row }: { row: EsgRecommendationRow }) => row.impact ?? NO_VALUE,
+  },
+  {
+    label: 'Timeline',
+    key: 'timeframe',
+    width: 1.2,
+    getLabel: ({ row }: { row: EsgRecommendationRow }) => row.timeframe ?? NO_VALUE,
+  },
+]
+
+const esgRecListHeight = computed(() =>
+  `${(esgRecRows.value.length + 1) * 40 + 12}px`)
 
 
 /** ESG letter ratings (AAA/AA/A/BBB/BB/B/CCC) mapped to a Severity for Badge. */
@@ -211,7 +250,16 @@ async function refreshData() {
 async function exportReport() {
   exporting.value = true
   try {
-    await apiCall('insights.api.ml.export_esg_report', { format: 'pdf' })
+    // export_esg_report is currently an honest not_implemented stub (see
+    // insights/api/ml/esg.py) wrapped in a 200/success envelope, so apiCall
+    // never throws for it — say so instead of a silent no-op click.
+    const result = await apiCall<{ status?: string; message?: string }>(
+      'insights.api.ml.export_esg_report',
+      { format: 'pdf' },
+    )
+    if (result?.status === 'not_implemented') {
+      createInfoToast(result.message || 'ESG report export is not yet available.')
+    }
   } catch (e) {
     console.error('Error exporting ESG report:', e)
   } finally {
@@ -525,7 +573,7 @@ function handleDashboardRedirect(target: string) {
                     </div>
                   </div>
                   <p v-if="initiative.expected_impact" class="text-xs text-ink-gray-6">{{ initiative.expected_impact }}</p>
-                  <p v-if="initiative.target_completion" class="text-xs text-ink-gray-5 mt-1">
+                  <p v-if="initiative.target_completion" class="text-xs text-ink-gray-6 mt-1">
                     Target: {{ formatDate(initiative.target_completion) }}
                   </p>
                 </div>
@@ -715,29 +763,24 @@ function handleDashboardRedirect(target: string) {
 
         <!-- Recommendations -->
         <div v-show="tabIndex === 4">
-          <div v-if="recommendations.length > 0" class="space-y-4">
-            <div
-              v-for="rec in recommendations"
-              :key="rec.recommendation || rec.title"
-              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
-            >
-              <div class="flex items-start justify-between mb-3">
-                <div class="flex-1">
-                  <div class="flex items-center gap-2 mb-2">
-                    <Badge
-                      v-bind="severityBadge(prioritySeverity(rec.priority))"
-                      :label="severityBadge(prioritySeverity(rec.priority)).label"
-                      size="sm"
-                    />
-                    <span v-if="rec.category" class="text-sm text-ink-gray-6">{{ rec.category }}</span>
-                  </div>
-                  <h4 class="font-semibold text-ink-gray-8 mb-2">{{ rec.recommendation || rec.title }}</h4>
-                  <p v-if="rec.impact" class="text-sm text-ink-gray-6 mb-1">{{ rec.impact }}</p>
-                  <p v-if="rec.timeframe" class="text-xs text-ink-gray-5 mt-2">Timeline: {{ rec.timeframe }}</p>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ListView
+            v-if="recommendations.length > 0"
+            class="mt-4 list-ink-fix"
+            :style="{ height: esgRecListHeight }"
+            :columns="esgRecColumns"
+            :rows="esgRecRows"
+            row-key="key"
+            :options="{ selectable: false, showTooltip: true, rowHeight: 40 }"
+          >
+            <template #cell="{ column, row, item }">
+              <Badge
+                v-if="column.key === 'priority' && row.priority"
+                v-bind="severityBadge(prioritySeverity(row.priority))"
+                size="sm"
+              />
+              <span v-else class="truncate">{{ column.getLabel ? column.getLabel({ row }) : item }}</span>
+            </template>
+          </ListView>
           <div v-else class="bg-surface-white rounded-lg border border-outline-gray-1 p-12 text-center text-ink-gray-6">
             <p class="text-sm">No recommendations available. Refresh to generate insights.</p>
           </div>

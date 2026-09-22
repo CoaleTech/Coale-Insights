@@ -41,7 +41,7 @@
 			:has-data="hasData"
 			subject="finance data"
 			permission-hint="Ask an administrator for finance read access."
-			:kpi-count="8"
+			:kpi-count="6"
 			@retry="retry"
 		>
 			<!-- Summary Cards -->
@@ -107,22 +107,6 @@
 					:loading="refreshing"
 					:error="error ?? undefined"
 					@click="drillDown.open(FIN_ENDPOINT, 'Outstanding AP', { metric: 'outstanding_ap' })"
-				/>
-				<KpiCard
-					label="Working Capital"
-					:amount="strategicSummary.workingCapital"
-					:currency="baseCurrency"
-					:sublabel="currentRatioLabel"
-					:loading="strategicLoading && !strategicData"
-					:error="strategicError ?? undefined"
-				/>
-				<KpiCard
-					label="Forex Exposure"
-					:amount="summary.forexExposure"
-					:currency="baseCurrency"
-					:sublabel="forexSublabel"
-					:loading="refreshing"
-					:error="error ?? undefined"
 				/>
 			</div>
 
@@ -198,7 +182,7 @@
 
 				<!-- Actuals: Cash -->
 				<div v-if="activeTab === 'cashflow'">
-					<CashFlowTab :data="cashFlowData" :currency="baseCurrency" />
+					<CashFlowTab :data="cashFlowData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
 				</div>
 
 				<!-- Actuals: Receivables -->
@@ -213,7 +197,7 @@
 
 				<!-- Actuals: Working Capital -->
 				<div v-if="activeTab === 'working'">
-					<WorkingCapitalTab :data="strategicTyped?.working_capital" />
+					<WorkingCapitalTab :data="strategicTyped?.working_capital" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
 				</div>
 
 				<!-- Actuals: Ratios & Trends -->
@@ -227,12 +211,14 @@
 						:data="strategicTyped?.cost_structure ?? null"
 						:forecast="strategicTyped?.expense_forecast ?? null"
 						:currency="baseCurrency"
+						:fin-endpoint="FIN_ENDPOINT"
+						:drill-down="drillDown"
 					/>
 				</div>
 
 				<!-- Actuals: Forex Exposure -->
 				<div v-if="activeTab === 'forex'">
-					<ForexExposureTab :data="forexData" :currency="baseCurrency" />
+					<ForexExposureTab :data="forexData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
 				</div>
 
 				<!-- Planning: Cash Forecast -->
@@ -262,7 +248,14 @@
 
 				<!-- Planning: Budget Variance -->
 				<div v-if="activeTab === 'budget'">
-					<BudgetVarianceTab />
+					<BudgetVarianceTab
+						:data="budgetData ?? undefined"
+						:loading="budgetLoading"
+						:error="budgetError ?? undefined"
+						:is-permission-error="budgetPermissionError"
+						:has-data="budgetHasData"
+						@refresh="reloadBudget"
+					/>
 				</div>
 
 				<!-- Planning: Break-Even Overview -->
@@ -545,8 +538,6 @@ const summary = computed(() => ({
 	overdueAR90Count: (overdueAR90Bucket.value?.count as number) || 0,
 	outstandingAP: (payablesData.value.total_outstanding as number) || 0,
 	avgDPO: payablesData.value.current_dpo != null ? Math.round(payablesData.value.current_dpo as number) : undefined,
-	forexExposure: Math.abs((forexData.value.net_exposure_base as number) || 0),
-	forexCurrencies: forexData.value.exposure_summary?.length || undefined,
 }))
 
 /**
@@ -555,13 +546,6 @@ const summary = computed(() => ({
  * (`financial_intelligence.py:272` returns `999` for "not consuming cash").
  */
 const cashRunwayLabel = computed(() => sharedCashRunwayLabel(summary.value.cashRunwayMonths))
-
-/** Singular/plural currency label; absent when exposure count is unknown or zero. */
-const forexSublabel = computed(() => {
-	const n = summary.value.forexCurrencies
-	if (n == null) return undefined
-	return `${n} ${n === 1 ? 'currency' : 'currencies'}`
-})
 
 // Planning data (from insights.api.ml.strategic_finance_intelligence) —
 // kept as a raw `createResource` because the planning engine is a secondary,
@@ -580,29 +564,6 @@ const strategicData = ref<Record<string, unknown> | null>(null)
 const strategicError = ref<string | null>(null)
 const strategicPermissionError = ref(false)
 const strategicTyped = computed<StrategicFinanceData | null>(() => strategicData.value as unknown as StrategicFinanceData | null)
-
-/**
- * Absent, not zero, when the planning engine has not answered.
- *
- * This returned `{ workingCapital: 0, currentRatio: 0 }` for a null payload, so
- * the card reported working capital of nothing and a current ratio of 0.00 --
- * a solvency crisis -- whenever the second fetch was merely slow or failed.
- */
-const strategicSummary = computed(() => {
-	const wc = (strategicData.value?.['working_capital'] as Record<string, number> | undefined) ?? {}
-	const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined)
-	return {
-		workingCapital: num(wc['working_capital']),
-		currentRatio: num(wc['current_ratio']),
-	}
-})
-
-/** Omitted entirely rather than asserting a ratio the server never sent. */
-const currentRatioLabel = computed(() =>
-	strategicSummary.value.currentRatio === undefined
-		? undefined
-		: `Current Ratio: ${strategicSummary.value.currentRatio.toFixed(2)}`,
-)
 
 const strategicResource = createResource({
 	url: 'insights.api.ml.strategic_finance_intelligence',
@@ -650,9 +611,38 @@ const fetchStrategicData = (refresh = false) => {
 	ignoreRejection(strategicResource.submit({ refresh }))
 }
 
+/**
+ * Third feed: budget variance, owned here rather than inside
+ * `BudgetVarianceTab`. The tab fetched for itself, which put it outside the
+ * shell contract in two observable ways: the header's Refresh button could not
+ * reach it, and its retry re-entered a fetch the shell knew nothing about.
+ *
+ * `auto: false` keeps the original lazy behaviour -- this is a separate ML
+ * endpoint, and the tab is one of fourteen, so paying for it on every
+ * Financial page load would be a regression. The watcher below fetches on
+ * first visit, exactly as break-even already does.
+ */
+const budgetParams = ref<Record<string, unknown>>({})
+const {
+	data: budgetData,
+	loading: budgetLoading,
+	error: budgetError,
+	isPermissionError: budgetPermissionError,
+	hasData: budgetHasData,
+	reload: reloadBudget,
+} = useIntelligenceDashboard<Record<string, unknown>>({
+	url: '/api/method/insights.api.ml.get_budget_variance_overview',
+	params: budgetParams,
+	cache: 'budget-variance-overview',
+	auto: false,
+})
+
 const refreshData = () => {
 	reload()
 	fetchStrategicData(true)
+	// Only if it has been loaded at all; refreshing an unvisited tab would
+	// defeat the lazy fetch above.
+	if (budgetData.value) reloadBudget()
 }
 
 /**
@@ -720,6 +710,13 @@ const fetchBreakEvenData = () => {
 watch(activeTab, (tabId) => {
 	if (tabId?.startsWith('be') && !beData.value) {
 		fetchBreakEvenData()
+	}
+})
+
+// Same lazy-on-first-visit contract as break-even above.
+watch(activeTab, (tabId) => {
+	if (tabId === 'budget' && !budgetData.value) {
+		reloadBudget()
 	}
 })
 

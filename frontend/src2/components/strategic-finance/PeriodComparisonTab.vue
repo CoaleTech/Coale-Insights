@@ -1,3 +1,11 @@
+<!--
+  Period Comparison: No drill-down.
+  
+  Every figure on this tab is period-over-period delta (change between two
+  periods) rather than a snapshot of one period. A drill-down to a single
+  account row list would belong to neither period and would not explain the
+  change being measured.
+-->
 <template>
   <div class="space-y-6">
 

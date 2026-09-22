@@ -10,7 +10,9 @@ from datetime import datetime
 from typing import Any
 
 import frappe
+from frappe import _
 
+from insights.api.ml.permissions import permitted_company
 from insights.ml.strategic_finance.analysis import (
     analyze_capital_planning,
     analyze_working_capital,
@@ -58,10 +60,28 @@ class StrategicFinanceIntelligence:
 
     def __init__(self):
         self.model_name = "StrategicFinanceIntelligence"
-        self.company = (
-            frappe.defaults.get_user_default("Company")
-            or frappe.db.get_single_value("Global Defaults", "default_company")
-        )
+        # `permitted_company` (not `get_user_default`/`Global Defaults`
+        # directly): every query below is raw `frappe.qb`, which -- unlike
+        # `frappe.get_list` -- applies NO row-level permission check at all.
+        # A user default or site-wide Global Default is a preference, not a
+        # permission boundary; a user restricted via User Permission to
+        # Company B but whose default/global company is A would previously
+        # get company A's GL Entries, Sales Invoices, and Journal Entries
+        # back even without read access to company A. `permitted_company`
+        # routes through `frappe.get_list("Company")`, which does apply
+        # User Permissions, and throws if a company is requested but not
+        # permitted.
+        self.company = permitted_company(None)
+        if not self.company:
+            # None means either zero permitted companies, or several with no
+            # single default -- every query below filters `company ==
+            # self.company` unconditionally, so `None` would silently return
+            # zero rows everywhere rather than "all companies". Fail loud
+            # instead: a report that quietly shows nothing is worse than one
+            # that says why.
+            frappe.throw(
+                _("Set a default Company (or ask an administrator to grant one) to view strategic finance intelligence.")
+            )
         self.base_currency = (
             frappe.db.get_value("Company", self.company, "default_currency")
             or frappe.db.get_single_value("Global Defaults", "default_currency")

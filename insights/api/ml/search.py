@@ -39,9 +39,14 @@ def perform_cross_dashboard_search(
         response.navigation_recommendations
 
     The service is responsible for producing that exact envelope.
+
+    No blanket permission check here: `CrossDashboardSearchService`
+    already gates every domain individually via `_user_can_see_domain`
+    (`ml/cross_dashboard_search.py`), so a user with only HR read access
+    still gets HR hits instead of being refused the whole feature for
+    lacking Sales Invoice read.
     """
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
 
         service = CrossDashboardSearchService()
@@ -59,7 +64,6 @@ def get_search_suggestions(
 ) -> Dict[str, Any]:
     """Get search suggestions for autocomplete."""
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
 
         service = CrossDashboardSearchService()
@@ -85,7 +89,6 @@ def get_search_history(limit: int = 20) -> Dict[str, Any]:
     exist rather than fabricating rows.
     """
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
 
         service = CrossDashboardSearchService()
@@ -104,7 +107,6 @@ def save_search_favorite(query: str, title: str | None = None) -> Dict[str, Any]
     always taken from `frappe.session.user`, never from the caller.
     """
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
 
         service = CrossDashboardSearchService()
@@ -122,7 +124,6 @@ def get_cross_dashboard_navigation(
 ) -> Dict[str, Any]:
     """Get cross-dashboard navigation suggestions for a target query."""
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
 
         service = CrossDashboardSearchService()
@@ -177,7 +178,6 @@ def search_domain_data(
 ) -> Dict[str, Any]:
     """Search within a single dashboard domain."""
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
 
         service = CrossDashboardSearchService()
@@ -190,20 +190,24 @@ def search_domain_data(
 
 @frappe.whitelist()
 def get_available_search_filters() -> Dict[str, Any]:
-    """Return the filter options the search UI can present."""
+    """Return the filter options the search UI can present.
+
+    Domain list matches `CrossDashboardSearchService.dashboard_domains`
+    (`ml/cross_dashboard_search.py`), which in turn matches the searchable
+    ids in `frontend/src2/helpers/dashboards.ts`. Static metadata only, no
+    doctype data is touched, so no permission gate is needed here.
+    """
     try:
-        frappe.has_permission("Sales Invoice", "read", throw=True)
+        from insights.ml.cross_dashboard_search import CrossDashboardSearchService
+
         return success({
             "filters": [
-                {"name": "domain", "label": "Domain", "options": [
-                    "executive", "financial", "sales", "customer",
-                    "operations", "hr", "manufacturing", "marketing",
-                ]},
+                {"name": "domain", "label": "Domain", "options": list(
+                    CrossDashboardSearchService().dashboard_domains.keys()
+                )},
                 {"name": "date_range", "label": "Date Range", "type": "date"},
                 {"name": "priority", "label": "Priority", "options": ["high", "medium", "low"]},
             ]
         })
-    except frappe.PermissionError:
-        raise
     except Exception as e:
         return error(str(e))

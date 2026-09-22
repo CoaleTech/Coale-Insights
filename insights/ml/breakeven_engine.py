@@ -22,8 +22,11 @@ from datetime import datetime
 from typing import Any
 
 import frappe
+from frappe import _
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Coalesce, Count, DateFormat, Sum
+
+from insights.api.ml.permissions import permitted_company
 
 
 class BreakevenEngine:
@@ -32,9 +35,28 @@ class BreakevenEngine:
     def __init__(self, period: str = "Quarterly", fiscal_year: str | None = None):
         self.period = period
         self.fiscal_year = fiscal_year
-        self.company = frappe.defaults.get_user_default("Company")
+        # `permitted_company` (not `get_user_default`/`Global Defaults`
+        # directly): every query below is raw `frappe.qb`, which -- unlike
+        # `frappe.get_list` -- applies NO row-level permission check at all.
+        # A user default or site-wide Global Default is a preference, not a
+        # permission boundary; a user restricted via User Permission to
+        # Company B but whose default/global company is A would previously
+        # get company A's GL Entries, Sales Invoices, and Salary Slips back
+        # even without read access to company A. `permitted_company` routes
+        # through `frappe.get_list("Company")`, which does apply User
+        # Permissions, and throws if a company is requested but not
+        # permitted.
+        self.company = permitted_company(None)
         if not self.company:
-            self.company = frappe.db.get_single_value("Global Defaults", "default_company")
+            # None means either zero permitted companies, or several with no
+            # single default -- every query below filters `company ==
+            # self.company` unconditionally, so `None` would silently return
+            # zero rows everywhere rather than "all companies". Fail loud
+            # instead: a break-even report that quietly shows nothing is
+            # worse than one that says why.
+            frappe.throw(
+                _("Set a default Company (or ask an administrator to grant one) to view break-even analysis.")
+            )
 
         settings = frappe.get_doc("Insights Settings", None) if frappe.db.exists("Insights Settings", "Insights Settings") else None
         if settings is None:
@@ -200,6 +222,13 @@ class BreakevenEngine:
             qty = float(sp.period_qty or 0)
             # net_amount / qty -- handles discount-inclusive pricing correctly
             # (qty is in the same UOM as net_amount, so the ratio is unit price)
+            # Bug: this loop computed revenue/qty but never wrote it into
+            # sales_price_map, so every item's selling_price fell through to
+            # the master-price fallback (usually 0) -- contribution_margin
+            # was negative for every item and the Itemwise BE tab was
+            # useless. Fixed: assign the weighted-avg unit price.
+            if qty > 0:
+                sales_price_map[sp.item_code] = revenue / qty
         Bin = DocType("Bin")
         SLE = DocType("Stock Ledger Entry")
         # Subquery: most recent positive incoming_rate per item, to fall back

@@ -1,3 +1,10 @@
+<!--
+  13-Week Rolling Cash Flow Forecast: No drill-down.
+  
+  The forecast is a model output for future weeks (week-by-week projected
+  inflows and outflows), not a historical GL snapshot. Account drill-down
+  would not resolve the forecast's underlying logic.
+-->
 <template>
   <div class="space-y-6">
     <!-- No Data State -->

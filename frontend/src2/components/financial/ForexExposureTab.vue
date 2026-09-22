@@ -2,7 +2,18 @@
 	<div class="space-y-6">
 		<!-- Forex Summary -->
 		<div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
+			<!--
+				Drills to the foreign-currency accounts behind the figure. The table
+				below answers "which currencies"; this answers "which accounts",
+				which is the step needed before anyone can act on it.
+			-->
+			<div
+				class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1 cursor-pointer hover:bg-surface-gray-1 transition-colors"
+				:tabindex="0"
+				role="button"
+				@click="drillDown.open(finEndpoint, 'Foreign Currency Accounts', { metric: 'forex_exposure' })"
+				@keydown.enter="drillDown.open(finEndpoint, 'Foreign Currency Accounts', { metric: 'forex_exposure' })"
+			>
 				<div class="text-sm text-ink-gray-6">Net Forex Exposure</div>
 				<div class="text-xl font-bold"
 					 :class="deltaInk(data.net_exposure_base, { higherIsBetter: true })">
@@ -132,6 +143,7 @@
 <script setup lang="ts">
 import { Badge } from 'frappe-ui'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
+import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { deltaInk, severityBadge } from '../../utils/status'
 import { formatForeignCurrency, formatDate } from './format'
 import { formatMoney as formatCurrency } from '../../utils/format'
@@ -140,6 +152,8 @@ import type { ForexData } from './types'
 defineProps<{
 	data: ForexData
 	currency: string
+	finEndpoint: string
+	drillDown: ReturnType<typeof useDrillDown>
 }>()
 
 const openDocument = (doctype: string, name: string) => {

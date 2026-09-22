@@ -700,7 +700,6 @@ def _executive_alerts(kpis: Dict[str, Any]) -> List[Dict[str, Any]]:
             rag = kpi.get("rag_status")
             if rag not in ("red", "amber"):
                 continue
-            value = kpi.get("value")
             label = kpi.get("label", kpi_name)
             if rag == "red":
                 priority = "critical" if domain in ("financial", "risk") else "high"
@@ -708,8 +707,8 @@ def _executive_alerts(kpis: Dict[str, Any]) -> List[Dict[str, Any]]:
                 priority = "medium"
             _add(
                 priority,
-                domain.capitalize(),
-                f"{label} at {value} (RAG: {rag})",
+                _(_DOMAIN_LABELS.get(domain, domain.capitalize())),
+                _("{0} at {1}").format(label, _spoken_value(kpi)),
                 rag,
             )
 
@@ -906,6 +905,39 @@ def _friendly_period_label(period: str) -> str:
             return period
     return period
 
+# The dashboard renders `_narrative` and `_executive_alerts` as prose, so a raw
+# repr leaks straight onto the CEO's first screen: the audit caught
+# "Revenue (MTD) = 6964241.25 (green)" and "Gross Margin % at 8.7 (RAG: red)".
+# Every KPI already declares its own `format` (see `_kpi`), so use it, and speak
+# the RAG bucket as words -- "RAG: red" is internal vocabulary.
+_RAG_WORDS = {"green": "on track", "amber": "watch", "red": "needs attention"}
+
+# `domain.capitalize()` rendered the `hr` block as "Hr". These are the labels
+# the navigation already uses for the same domains.
+_DOMAIN_LABELS = {"hr": "People", "manufacturing": "Manufacturing", "operations": "Operations"}
+
+
+def _spoken_value(kpi: Dict[str, Any]) -> str:
+    """A KPI's value as a reader sees it on the card, not as Python prints it."""
+    value = kpi.get("value")
+    if value is None:
+        return _("not available")
+    fmt = kpi.get("format")
+    if fmt == "currency":
+        return frappe.utils.fmt_money(value, currency=_base_currency())
+    if fmt == "percentage":
+        return f"{value:,.1f}%"
+    if fmt == "decimal":
+        # Headcount is a `decimal` KPI but "11.0 people" reads like a rounding error.
+        return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.1f}"
+    if isinstance(value, (int, float)):
+        return f"{value:,.0f}"
+    return str(value)
+
+
+def _spoken_rag(rag: str | None) -> str:
+    return _(_RAG_WORDS.get((rag or "amber").lower(), "watch"))
+
 
 def _narrative(kpis: Dict[str, Any], health: Dict[str, Any], period: str) -> str:
     """Template narrative. AI narrative is not wired here (no LLM client
@@ -915,7 +947,7 @@ def _narrative(kpis: Dict[str, Any], health: Dict[str, Any], period: str) -> str
     rag = health.get("overall_rag", "amber")
     parts.append(
         _("Business health for the {0} period is {1}/100 ({2}).").format(
-            _friendly_period_label(period), score, rag.upper()
+            _friendly_period_label(period), f"{_f(score):,.1f}", _spoken_rag(rag)
         )
     )
 
@@ -935,8 +967,11 @@ def _narrative(kpis: Dict[str, Any], health: Dict[str, Any], period: str) -> str
         for kpi in block.values():
             if isinstance(kpi, dict) and kpi.get("value") is not None:
                 parts.append(
-                    _("{0}: {1} = {2} ({3}).").format(
-                        label, kpi.get("label", domain), kpi.get("value"), kpi.get("rag_status", "amber")
+                    _("{0}: {1} is {2} ({3}).").format(
+                        label,
+                        kpi.get("label", domain),
+                        _spoken_value(kpi),
+                        _spoken_rag(kpi.get("rag_status")),
                     )
                 )
                 break

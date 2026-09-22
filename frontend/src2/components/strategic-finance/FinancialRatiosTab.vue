@@ -1,3 +1,10 @@
+<!--
+  Financial Ratios & Benchmarks: no drill-down.
+  
+  Every ratio on this tab is derived from two or more aggregates (e.g. Current
+  Ratio = Current Assets / Current Liabilities). A ledger-account row list
+  would not resolve the computation; the ratios themselves are the insights.
+-->
 <template>
   <div class="space-y-6">
 

@@ -21,7 +21,7 @@ fork, and no in-process ML library import.
 
 import math
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterable
 
 import frappe
 import ibis
@@ -152,7 +152,15 @@ class InventoryIntelligence:
                 total_skus=Bin.item_code.nunique(),
                 total_qty=Bin.actual_qty.sum(),
                 total_value=(Bin.actual_qty * Bin.valuation_rate).sum(),
-                out_of_stock_count=ibis.ifelse(Bin.actual_qty <= 0, 1, 0).sum(),
+                # Distinct OUT-OF-STOCK ITEMS, not Bin rows: `total_skus` above
+                # is `item_code.nunique()` (one item counted once no matter how
+                # many warehouses stock it). Summing `ifelse(actual_qty<=0, 1, 0)`
+                # counted one Bin ROW per item-warehouse pair, so an item out of
+                # stock in 2 warehouses added 2 to the numerator against a
+                # denominator that still counted it once -- inflating the
+                # stockout rate (measured 60.9% vs the true 56.2% on jkm: 39
+                # OOS Bin rows across only 36 distinct OOS items / 64 total).
+                out_of_stock_count=Bin.item_code.nunique(where=Bin.actual_qty <= 0),
                 warehouse_count=Bin.warehouse.nunique(),
             )
             .execute()
@@ -439,26 +447,86 @@ class InventoryIntelligence:
     # --- aging analysis ------------------------------------------------------
 
     def _aging_analysis(self) -> dict[str, Any]:
+        """Stock age per item, by FIFO layer replay.
+
+        Pre-fix this weighted `today - posting_date` by
+        `qty_after_transaction` (a running BALANCE snapshot, not a layer
+        size) across every positive SLE row ever posted for the item --
+        that is a quantity-weighted average of *all-time receipt dates*,
+        identical regardless of the item's actual valuation method, and
+        not FIFO despite the "Aging (FIFO)" label. `Bin.stock_queue`
+        (which `erpnext.stock.valuation.FIFOValuation` maintains) stores
+        only `[qty, rate]` per layer, no receipt date, so it can't answer
+        "how old is stock still on hand" either. This replays the ledger
+        in Python -- same consume-oldest-first algorithm as
+        `FIFOValuation.remove_stock` -- tracking dates instead of rates,
+        to find which historical receipts the *current* on-hand qty is
+        still backed by.
+        """
         from insights.api.ml.ibis_source import t
 
+        Bin = t("Bin")
         SLE = t("Stock Ledger Entry")
         Item = t("Item")
         today = datetime.now().date()
 
-        # Per-item: weighted average age based on qty_after_transaction.
-        # Items may have many positive SLE rows; we aggregate in SQL.
-        # age = (today - posting_date); weighted_age = age * qty_after_transaction
-        per_item = (
-            SLE.filter((SLE.actual_qty > 0) & (SLE.is_cancelled == 0))
-            .left_join(Item, SLE.item_code == Item.name)
-            .group_by(SLE.item_code, Item.item_name, Item.item_group)
+        # Bound the replay to items that currently hold stock -- age is a
+        # property of on-hand qty, not of every item that ever moved.
+        # Current qty/value come from Bin (today's valuation_rate), same
+        # source the other tabs use; only `avg_age_days` comes from the
+        # FIFO replay below.
+        current_stock = (
+            Bin.filter(Bin.actual_qty > 0)
+            .left_join(Item, Bin.item_code == Item.name)
+            .group_by(Bin.item_code, Item.item_name, Item.item_group)
             .aggregate(
-                total_qty=SLE.qty_after_transaction.sum(),
-                total_value=(SLE.qty_after_transaction * SLE.valuation_rate).sum(),
-                weighted_age=((today - SLE.posting_date).cast("int32") * SLE.qty_after_transaction).sum(),
+                total_qty=Bin.actual_qty.sum(),
+                total_value=(Bin.actual_qty * Bin.valuation_rate).sum(),
             )
             .execute()
         )
+
+        if len(current_stock) == 0:
+            return {
+                "age_buckets": _empty_age_buckets(),
+                "by_product_group": [],
+                "oldest_items": [],
+                "total_items_analyzed": 0,
+            }
+
+        # MariaDB SUM() returns Decimal; mixing it with the Python float
+        # weighted_age computed below raises TypeError (see
+        # `_per_item_avg_daily_sales`/`ABCXYZClassification.train` for the
+        # same pattern elsewhere in this file). Cast once, up front.
+        current_stock["total_qty"] = current_stock["total_qty"].astype(float)
+        current_stock["total_value"] = current_stock["total_value"].astype(float)
+
+        item_codes = current_stock["item_code"].tolist()
+
+        # Full posted ledger history for just those items, in chronological
+        # order, to replay each item's FIFO queue.
+        # ponytail: one Python loop over every historical SLE row for
+        # items currently in stock -- fine at per-tenant table sizes this
+        # file already assumes elsewhere (unlimited Bin/SLE joins above);
+        # if this becomes the slow path, window the replay per item to a
+        # rolling N years or push it into a DB running-balance query.
+        history = (
+            SLE.filter((SLE.item_code.isin(item_codes)) & (SLE.is_cancelled == 0))
+            .select(SLE.item_code, SLE.posting_date, SLE.creation, SLE.actual_qty)
+            .execute()
+        )
+        history = history.sort_values(["item_code", "posting_date", "creation"])
+
+        age_map: dict[str, float] = {}
+        for item_code, grp in history.groupby("item_code"):
+            avg_age = _fifo_replay_age(
+                zip(grp["actual_qty"].tolist(), grp["posting_date"].tolist()), today
+            )
+            if avg_age is not None:
+                age_map[item_code] = avg_age
+
+        current_stock["avg_age_days"] = current_stock["item_code"].map(age_map)
+        per_item = current_stock.dropna(subset=["avg_age_days"])
 
         if len(per_item) == 0:
             return {
@@ -468,19 +536,6 @@ class InventoryIntelligence:
                 "total_items_analyzed": 0,
             }
 
-        per_item["avg_age_days"] = per_item.apply(
-            lambda r: round(r["weighted_age"] / r["total_qty"], 0) if r["total_qty"] > 0 else 0,
-            axis=1,
-        )
-        # NOTE: do not overwrite `weighted_age` here -- it must keep its
-        # original age*qty accumulator meaning (an extensive quantity, safe
-        # to re-sum) for the by-item-group aggregation below, which sums it
-        # across items and divides by summed qty to get a qty-weighted group
-        # average. Overwriting it with the already-normalized per-item
-        # `avg_age_days` (an intensive quantity) silently corrupted that
-        # group average -- confirmed unused by any consumer (frontend reads
-        # only `avg_age_days`). Fixed 2026-08-17.
-
         buckets = _empty_age_buckets()
         for _, row in per_item.iterrows():
             age = float(row["avg_age_days"])
@@ -489,7 +544,8 @@ class InventoryIntelligence:
             buckets[label]["count"] += 1
             buckets[label]["value"] += value
 
-        # By item group
+        # By item group: qty-weighted average of the per-item FIFO ages.
+        per_item = per_item.assign(weighted_age=per_item["avg_age_days"] * per_item["total_qty"])
         by_group = (
             per_item.groupby("item_group", dropna=False)
             .agg(
@@ -903,6 +959,23 @@ class InventoryIntelligence:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# ABC/XYZ classification thresholds
+#
+# Industry-standard cutoffs (Pareto/ABC analysis + coefficient-of-variation
+# demand-stability bands), not arbitrary: ABC's 80/95 split is the classic
+# "top 80% of value, next 15%, remaining 5%" Pareto rule used across supply-
+# chain texts; XYZ's 0.5/1.0 CV bands are the conventional
+# stable/variable/erratic demand cutoffs (CV < 0.5 ~ stable, 0.5-1.0 ~
+# variable, > 1.0 ~ erratic). Named here so a future change is a one-line
+# edit instead of a hunt through inline literals.
+# ---------------------------------------------------------------------------
+ABC_CLASS_A_CUM_PCT = 80.0  # cumulative value share for Class A (high value)
+ABC_CLASS_B_CUM_PCT = 95.0  # cumulative value share for Class B (medium value); remainder is C
+XYZ_CLASS_X_MAX_CV = 0.5  # coefficient of variation below which demand is "stable" (X)
+XYZ_CLASS_Y_MAX_CV = 1.0  # CV below which demand is "variable" (Y); above is "erratic" (Z)
+
+
 class ABCXYZClassification:
     """ABC/XYZ classification of stock items, computed in SQL.
 
@@ -1011,12 +1084,12 @@ class ABCXYZClassification:
         cum = 0.0
         for r in rows:
             cum += r["total_value"] / total_v * 100
-            r["abc_class"] = "A" if cum <= 80 else ("B" if cum <= 95 else "C")
+            r["abc_class"] = "A" if cum <= ABC_CLASS_A_CUM_PCT else ("B" if cum <= ABC_CLASS_B_CUM_PCT else "C")
 
         # XYZ by CV thresholds
         for r in rows:
             cv = r["cv"]
-            r["xyz_class"] = "X" if cv < 0.5 else ("Y" if cv < 1.0 else "Z")
+            r["xyz_class"] = "X" if cv < XYZ_CLASS_X_MAX_CV else ("Y" if cv < XYZ_CLASS_Y_MAX_CV else "Z")
             r["abc_xyz_class"] = r["abc_class"] + r["xyz_class"]
             r["strategy"] = _strategy_for(r["abc_xyz_class"])
             r["cv"] = float(cv) if math.isfinite(cv) else 999.0
@@ -1228,6 +1301,41 @@ def _per_item_avg_daily_sales(days: int):
         .mutate(avg_daily_sales=lambda t: t.qty_90d / days)
         .select("item_code", "avg_daily_sales")
     )
+
+
+def _fifo_replay_age(ledger: Iterable[tuple[float, Any]], today) -> float | None:
+    """Qty-weighted age (days) of stock still on hand, replaying the ledger
+    FIFO (oldest layer consumed first) -- the same consume-oldest-first
+    algorithm as ``erpnext.stock.valuation.FIFOValuation.remove_stock``,
+    tracking receipt dates instead of rates.
+
+    ``ledger`` is ``(actual_qty, posting_date)`` pairs for one item, already
+    in chronological order. Returns ``None`` when there is no remaining
+    positive layer (ledger doesn't back any on-hand qty for this item --
+    excluded rather than guessed).
+    """
+    queue: list[list] = []  # [[remaining_qty, posting_date], ...] oldest first
+    for actual_qty, posting_date in ledger:
+        qty = float(actual_qty or 0)
+        if qty > 0:
+            queue.append([qty, posting_date])
+        elif qty < 0:
+            remaining = -qty
+            while remaining > 1e-6 and queue:
+                layer_qty, _layer_date = queue[0]
+                take = min(layer_qty, remaining)
+                queue[0][0] -= take
+                remaining -= take
+                if queue[0][0] <= 1e-6:
+                    queue.pop(0)
+
+    layer_qty_total = sum(layer[0] for layer in queue)
+    if layer_qty_total <= 0:
+        return None
+    weighted_days = sum(
+        qty * (today - (d.date() if hasattr(d, "date") else d)).days for qty, d in queue
+    )
+    return round(weighted_days / layer_qty_total, 0)
 
 
 def _empty_age_buckets() -> dict[str, dict[str, int | float]]:

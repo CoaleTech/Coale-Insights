@@ -694,7 +694,8 @@ def get_tds_summary(intelligence, start: date, end: date) -> Dict[str, Any]:
     `add_deduct_tax` exists on Purchase Taxes and Charges but NOT on
     Sales Taxes and Charges: the previous receivable query filtered on
     `stc.add_deduct_tax` and raised "Unknown column", zeroing the whole
-    section. TDS suffered on sales is identified by the account head alone.
+    section. TDS suffered on sales is identified from the GL, not the
+    Sales Invoice tax table -- see the receivable block below.
     """
     # Payable by section: TDS-deducted entries on Purchase Invoices.
     pi = _company_filter(t("Purchase Invoice"), intelligence.company)
@@ -729,21 +730,37 @@ def get_tds_summary(intelligence, start: date, end: date) -> Dict[str, Any]:
             )
     total_payable = sum(r["amount"] for r in payable_rows)
 
-    # Receivable: TDS / TCS suffered on sales, identified by account head
-    # only (Sales Taxes and Charges has no add_deduct_tax column).
-    si = _company_filter(t("Sales Invoice"), intelligence.company)
-    si = _docstatus_filter(si)
-    si = _date_filter(si, start, end, "posting_date")
-    stc = t("Sales Taxes and Charges")
-    s_joined = si.join(stc, si["name"] == stc["parent"], how="inner")
-    s_tds_cond = (
-        stc["account_head"].lower().like("%tds%")
-        | stc["account_head"].lower().like("%tax deducted%")
-        | stc["account_head"].lower().like("%tcs%")
+    # Receivable: TDS / TCS suffered on our income. On this site (and every
+    # JKM-style ledger checked) the customer's withholding never appears as
+    # a line on the Sales Invoice's own tax table -- it is booked straight
+    # to the GL via a Journal Entry against a dedicated asset account (TDS
+    # Receivable, TCS 0.1%, ...) when the payment/26AS credit lands. The
+    # `Sales Taxes and Charges` query above always returned 0 rows here, so
+    # `receivable` (and therefore `net_position`) was silently pinned to 0 /
+    # -total_payable regardless of real receivable activity -- confirmed via
+    # live reconciliation: FY26-27 has zero matching Sales Taxes rows but
+    # 323.30 of real GL debit movement on `TDS Receivable - JKM`.
+    #
+    # Mirrors `get_itc_health`'s GL-based accrual query: join GL Entry to
+    # Account, match by name (root_type Asset excludes the payable-side and
+    # expense-side accounts of the same vocabulary -- TDS Payable is a
+    # Liability, Interest on TDS is an Expense), and take the net debit
+    # (asset increase = credit suffered/received in the period).
+    gle = _company_filter(t("GL Entry"), intelligence.company)
+    gle = gle.filter(gle["is_cancelled"] == 0)
+    gle = _date_filter(gle, start, end, "posting_date")
+    acc = t("Account")
+    gle_acc = gle.join(acc, gle["account"] == acc["name"], how="inner")
+    recv_name = acc["account_name"].lower()
+    recv_cond = (
+        (recv_name.like("%tds%") | recv_name.like("%tcs%") | recv_name.like("%tax deducted%"))
+        & (acc["root_type"] == "Asset")
     )
-    s_filtered = s_joined.filter(s_tds_cond)
+    recv_filtered = gle_acc.filter(recv_cond)
     receivable_val = float(
-        _scalar_or(s_filtered["base_tax_amount"].abs().sum(), 0.0)
+        _scalar_or(
+            recv_filtered["debit"].sum() - recv_filtered["credit"].sum(), 0.0
+        )
     )
 
     return {

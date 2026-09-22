@@ -203,18 +203,29 @@ class ManufacturingIntelligence:
             workstation_util = production_data.get("workstation_utilization", [])
             work_order_summary = production_data.get("work_order_summary", {})
 
-            if not workstation_util:
-                return {"message": _("No workstation data available for OEE calculation")}
-
-            # Performance = Actual Output / Maximum Possible Output
+            # Performance = Actual Output / Maximum Possible Output. It only
+            # depends on work_order_summary, not on workstation/Job Card data
+            # -- gating this whole method on workstation_util hid a real,
+            # computable performance_pct on any site with Work Order qty data
+            # but no Job Card tracking. Only bail out when NEITHER signal
+            # exists (truly nothing to report).
             total_qty_produced = work_order_summary.get("total_qty_produced", 0)
             total_qty_planned = work_order_summary.get("total_qty_planned", 0)
-            performance = (total_qty_produced / total_qty_planned * 100) if total_qty_planned else 0
+
+            if not workstation_util and not total_qty_planned:
+                return {"message": _("No workstation data available for OEE calculation")}
+
+            # None (not 0) when nothing was planned -- consistent with the
+            # None-not-0 convention used throughout this file (see
+            # `_get_production_efficiency`, `_analyze_production`): a 0%
+            # performance score on an unplanned period reads as "total
+            # failure" on a severity-coloured KPI card instead of "unmeasured".
+            performance = (total_qty_produced / total_qty_planned * 100) if total_qty_planned else None
 
             return {
                 "oee_score_pct": None,
                 "availability_pct": None,
-                "performance_pct": round(performance, 2),
+                "performance_pct": round(performance, 2) if performance is not None else None,
                 "quality_pct": None,
                 "oee_rating": None,
                 "benchmark_comparison": None,

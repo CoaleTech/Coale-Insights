@@ -152,8 +152,12 @@ const props = withDefaults(
     /**
      * Pre-formatted for display. Use for non-money KPIs. For money prefer
      * `amount` + `currency` so the card can pick notation for the viewport.
+     *
+     * `null` is accepted and renders as a dash, which `plain()` below has
+     * always done: the type omitted it, so a caller holding a nullable figure
+     * had to coerce it -- back to the `|| 0` this component exists to remove.
      */
-    value?: string | number
+    value?: string | number | null
     /**
      * Suffix for a non-money, non-percent figure: `' days'`, `'x'`, `'/100'`.
      *

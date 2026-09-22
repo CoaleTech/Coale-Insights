@@ -217,10 +217,13 @@ def get_inventory_recommendations() -> Dict[str, Any]:
 @frappe.whitelist()
 def item_breakeven(period: str = "Quarterly", fiscal_year: Optional[str] = None, item_group: Optional[str] = None) -> Dict[str, Any]:
     """Get item-level break-even analysis."""
-    try:
-        frappe.has_permission("Item", "read", throw=True)
-    except frappe.PermissionError:
-        raise
+    # BreakevenEngine.calculate_item_breakeven reads Item, Sales Invoice
+    # (+ its Sales Invoice Item child), GL Entry (fixed-cost centers), Bin
+    # and Stock Ledger Entry -- all via raw frappe.qb, which applies no
+    # row-level check. Gate on every parent doctype it reads, not just Item.
+    frappe.has_permission("Item", "read", throw=True)
+    frappe.has_permission("Sales Invoice", "read", throw=True)
+    frappe.has_permission("GL Entry", "read", throw=True)
     from insights.ml.breakeven_engine import BreakevenEngine
 
     engine = BreakevenEngine(period=period, fiscal_year=fiscal_year)
@@ -244,15 +247,40 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
     company = f.get("company") or frappe.defaults.get_user_default("company")
 
     if metric == "total_skus":
+        # KpiCard label is "Active SKUs" and its value comes from
+        # `InventoryIntelligence._stock_overview` -- Bin.item_code.nunique()
+        # filtered to rows with any actual/reserved/ordered qty (e.g. 64
+        # items on jkm). This branch used to ignore Bin entirely and list
+        # every disabled=0/is_stock_item=1 Item master row (556 on jkm) --
+        # clicking the "64" KPI opened a drill-down with 556 unrelated
+        # rows. Join through Bin so the drill-down population matches the
+        # KPI it was opened from.
         frappe.has_permission("Item", throw=True)
-        db_filters = {"disabled": 0, "is_stock_item": 1}
-        rows = frappe.get_list(
-            "Item",
-            filters=db_filters,
-            fields=["name", "item_name", "item_group", "stock_uom", "valuation_method"],
-            start=start, page_length=page_size, order_by="item_name asc",
-            ignore_permissions=False,
+        frappe.has_permission("Bin", throw=True)
+        Item = frappe.qb.DocType("Item")
+        Bin = frappe.qb.DocType("Bin")
+        active_item_codes = (
+            frappe.qb.from_(Bin)
+            .where((Bin.actual_qty != 0) | (Bin.reserved_qty != 0) | (Bin.ordered_qty != 0))
+            .select(Bin.item_code)
+            .distinct()
         )
+        base_q = (
+            frappe.qb.from_(Item)
+            .where(Item.disabled == 0)
+            .where(Item.is_stock_item == 1)
+            .where(Item.name.isin(active_item_codes))
+        )
+        rows = (
+            base_q
+            .select(Item.name, Item.item_name, Item.item_group, Item.stock_uom, Item.valuation_method)
+            .orderby(Item.item_name)
+            .offset(start)
+            .limit(page_size)
+            .run(as_dict=True)
+        )
+        total_result = base_q.select(qb_functions.Count("*").as_("total")).run()
+        total = total_result[0][0] if total_result else 0
         return {
             "columns": [
                 {"label": "Item Code", "fieldname": "name", "fieldtype": "Link", "options": "Item"},
@@ -261,64 +289,95 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
                 {"label": "UOM", "fieldname": "stock_uom", "fieldtype": "Data"},
             ],
             "rows": rows,
-            "total": frappe.db.count("Item", filters=db_filters),
+            "total": total,
         }
 
     if metric == "low_stock_items":
+        # KpiCard label is "Low Stock" and its value comes from
+        # `InventoryIntelligence._stock_overview` -- sales-velocity based:
+        # positive stock, avg daily sales (last 90d) > 0, and actual_qty <
+        # avg_daily_sales * 14 (less than 14 days of cover). This branch
+        # instead required an `Item Reorder` child row with a positive
+        # `warehouse_reorder_level` -- on sites that don't populate Item
+        # Reorder (e.g. jkm: 0 rows), clicking a nonzero "Low Stock" KPI
+        # always opened an empty drill-down. Reuse the KPI's own velocity
+        # definition so the drill-down always explains the number shown.
         frappe.has_permission("Bin", throw=True)
-        Bin = frappe.qb.DocType("Bin")
-        ItemReorder = frappe.qb.DocType("Item Reorder")
-        join_cond = (Bin.item_code == ItemReorder.parent) & (Bin.warehouse == ItemReorder.warehouse)
-        base_q = (
-            frappe.qb.from_(Bin)
-            .join(ItemReorder).on(join_cond)
-            .where(ItemReorder.warehouse_reorder_level > 0)
-            .where(Bin.actual_qty <= ItemReorder.warehouse_reorder_level)
-        )
-        rows = (
-            base_q
-            .select(
-                Bin.item_code,
-                Bin.warehouse,
-                Bin.actual_qty,
-                Bin.projected_qty,
-                ItemReorder.warehouse_reorder_level.as_("reorder_level"),
-            )
-            .orderby(Bin.actual_qty)
-            .offset(start)
-            .limit(page_size)
+        frappe.has_permission("Sales Invoice", throw=True)
+        SalesInvoiceItem = frappe.qb.DocType("Sales Invoice Item")
+        SalesInvoice = frappe.qb.DocType("Sales Invoice")
+        cutoff_90d = frappe.utils.add_days(frappe.utils.nowdate(), -90)
+        sales_90d = (
+            frappe.qb.from_(SalesInvoiceItem)
+            .join(SalesInvoice)
+            .on(SalesInvoiceItem.parent == SalesInvoice.name)
+            .where(SalesInvoice.docstatus == 1)
+            .where(SalesInvoice.posting_date >= cutoff_90d)
+            .groupby(SalesInvoiceItem.item_code)
+            .select(SalesInvoiceItem.item_code, qb_functions.Sum(SalesInvoiceItem.qty).as_("qty_90d"))
             .run(as_dict=True)
         )
-        total_result = (
-            base_q
-            .select(qb_functions.Count("*").as_("total"))
-            .run()
+        avg_daily_sales = {r.item_code: float(r.qty_90d or 0) / 90.0 for r in sales_90d}
+
+        bins = (
+            frappe.qb.from_(Bin := frappe.qb.DocType("Bin"))
+            .where(Bin.actual_qty > 0)
+            .select(Bin.item_code, Bin.warehouse, Bin.actual_qty, Bin.projected_qty)
+            .run(as_dict=True)
         )
-        total = total_result[0][0] if total_result else 0
+        candidates = []
+        for b in bins:
+            daily = avg_daily_sales.get(b.item_code, 0.0)
+            if daily > 0 and float(b.actual_qty) < daily * 14:
+                candidates.append(
+                    {
+                        "item_code": b.item_code,
+                        "warehouse": b.warehouse,
+                        "actual_qty": b.actual_qty,
+                        "projected_qty": b.projected_qty,
+                        "avg_daily_sales": round(daily, 2),
+                        "days_of_supply": round(float(b.actual_qty) / daily, 1),
+                    }
+                )
+        candidates.sort(key=lambda r: r["days_of_supply"])
+        total = len(candidates)
+        rows = candidates[start:start + page_size]
         return {
             "columns": [
                 {"label": "Item", "fieldname": "item_code", "fieldtype": "Link", "options": "Item"},
                 {"label": "Warehouse", "fieldname": "warehouse", "fieldtype": "Link", "options": "Warehouse"},
                 {"label": "Actual Qty", "fieldname": "actual_qty", "fieldtype": "Float"},
-                {"label": "Reorder Level", "fieldname": "reorder_level", "fieldtype": "Float"},
+                {"label": "Days of Supply", "fieldname": "days_of_supply", "fieldtype": "Float"},
             ],
             "rows": rows,
             "total": total,
         }
 
     if metric == "warehouse_stock":
+        # `_warehouse_analysis`'s "Items" count (the KpiCard this drill-down
+        # opens from) is Bin.item_code.nunique() filtered to actual_qty>0
+        # OR reserved_qty>0 OR ordered_qty>0 -- items with pending
+        # reservations/POs but zero on-hand stock still count. This branch
+        # filtered actual_qty>0 only, so a warehouse showing "60 Items"
+        # opened a drill-down listing 28 rows. Match the same filter.
         frappe.has_permission("Bin", throw=True)
         warehouse = f.get("warehouse")
-        db_filters = {"actual_qty": (">", 0)}
-        if warehouse:
-            db_filters["warehouse"] = warehouse
-        rows = frappe.get_list(
-            "Bin",
-            filters=db_filters,
-            fields=["item_code", "warehouse", "actual_qty", "reserved_qty", "ordered_qty"],
-            start=start, page_length=page_size, order_by="actual_qty desc",
-            ignore_permissions=False,
+        Bin = frappe.qb.DocType("Bin")
+        base_q = frappe.qb.from_(Bin).where(
+            (Bin.actual_qty > 0) | (Bin.reserved_qty > 0) | (Bin.ordered_qty > 0)
         )
+        if warehouse:
+            base_q = base_q.where(Bin.warehouse == warehouse)
+        rows = (
+            base_q
+            .select(Bin.item_code, Bin.warehouse, Bin.actual_qty, Bin.reserved_qty, Bin.ordered_qty)
+            .orderby(Bin.actual_qty, order=frappe.qb.desc)
+            .offset(start)
+            .limit(page_size)
+            .run(as_dict=True)
+        )
+        total_result = base_q.select(qb_functions.Count("*").as_("total")).run()
+        total = total_result[0][0] if total_result else 0
         return {
             "columns": [
                 {"label": "Item", "fieldname": "item_code", "fieldtype": "Link", "options": "Item"},
@@ -327,7 +386,7 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
                 {"label": "Reserved", "fieldname": "reserved_qty", "fieldtype": "Float"},
             ],
             "rows": rows,
-            "total": frappe.db.count("Bin", filters=db_filters),
+            "total": total,
         }
 
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

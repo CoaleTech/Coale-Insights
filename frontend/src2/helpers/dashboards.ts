@@ -237,6 +237,36 @@ export const DASHBOARD_ICONS: Record<string, Component> = Object.fromEntries(
 	INTELLIGENCE_DASHBOARDS.map((d) => [d.id, d.icon]),
 )
 
+/**
+ * Live endpoint(s) `BoardPresentationMode.vue` calls to build a board pack for
+ * each dashboard id -- the exact same `insights.api.ml.*` methods that
+ * dashboard's own page calls (see each Vue file's `useIntelligenceDashboard`/
+ * `apiCall` url). Without this, `BoardPresentationMode` had no data source of
+ * its own and always sent `dashboard_data: {}` to the backend (confirmed via
+ * the Insights Intelligence Dashboard audit, t_8036df14): every generated
+ * presentation fell through to generic boilerplate text and zero metrics,
+ * never a stale/separately-computed recombination of the real numbers.
+ *
+ * Multiple urls (`revenue-customers`) are fetched in parallel and shallow-merged,
+ * matching how `RevenueCustomerIntelligence.vue` itself combines `sales_intelligence`
+ * + `customer_intelligence` into one view.
+ */
+export const BOARD_PRESENTATION_SOURCES: Record<string, string[]> = {
+	executive: ['insights.api.ml.get_executive_summary'],
+	'revenue-customers': ['insights.api.ml.sales_intelligence', 'insights.api.ml.customer_intelligence'],
+	financial: ['insights.api.ml.financial_intelligence'],
+	tax: ['insights.api.ml.tax.tax_intelligence'],
+	procurement: ['insights.api.ml.procurement_intelligence'],
+	price: ['insights.api.ml.price.get_selling_price_intelligence'],
+	inventory: ['insights.api.ml.inventory_intelligence'],
+	manufacturing: ['insights.api.ml.get_manufacturing_overview'],
+	marketing: ['insights.api.ml.marketing.get_marketing_overview'],
+	hr: ['insights.api.ml.get_hr_overview'],
+	esg: ['insights.api.ml.get_esg_overview'],
+	risk: ['insights.api.ml.risk_intelligence'],
+	machine_learning: ['insights.api.ml.model_health'],
+}
+
 /** Route names to keep alive, so tab state survives navigation. */
 export const DASHBOARD_ROUTE_NAMES = INTELLIGENCE_DASHBOARDS.map((d) => d.route)
 

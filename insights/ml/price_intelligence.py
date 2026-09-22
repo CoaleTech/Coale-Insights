@@ -384,12 +384,27 @@ def _floor_breaches(limit: int = 25) -> dict[str, Any]:
     return {"status": "available", "message": None, "rows": breaches}
 
 
-def _approval_queue() -> dict[str, Any]:
-    """Pricing requests by workflow state, when jkm_finance is installed."""
+def _approval_queue(company: str | None) -> dict[str, Any]:
+    """Pricing requests by workflow state, when jkm_finance is installed.
+
+    Unlike ``_realised_margin``/``_discount_pressure``/``_floor_breaches``,
+    this section queries ``JKM Sales Pricing Request`` with a raw
+    ``frappe.qb`` statement instead of going through ``ibis_source.t()`` --
+    that doctype isn't wired into the ibis source registry, so it gets none
+    of ``permissions.permitted()``'s row/column filtering for free. The
+    explicit ``has_permission`` check below and the ``company`` filter
+    replace what ``t()`` gives every other section here.
+    """
     if not frappe.db.exists("DocType", "JKM Sales Pricing Request"):
         return {
             "status": "unavailable",
             "message": frappe._("The JKM Finance pricing app is not installed on this site."),
+            "rows": [],
+        }
+    if not frappe.has_permission("JKM Sales Pricing Request", "read"):
+        return {
+            "status": "unavailable",
+            "message": frappe._("You do not have permission to view the pricing approval queue."),
             "rows": [],
         }
     if not frappe.db.has_column("JKM Sales Pricing Request", "workflow_state"):
@@ -410,7 +425,7 @@ def _approval_queue() -> dict[str, Any]:
     # `frappe.qb`, not `get_all(fields=["count(name) as count"])`: v16's query
     # builder rejects SQL functions written as strings in `fields`.
     SPR = frappe.qb.DocType("JKM Sales Pricing Request")
-    rows = (
+    query = (
         frappe.qb.from_(SPR)
         .select(
             SPR.workflow_state.as_("state"),
@@ -420,8 +435,10 @@ def _approval_queue() -> dict[str, Any]:
         .where(SPR.docstatus < 2)
         .groupby(SPR.workflow_state)
         .orderby("count", order=Order.desc)
-        .run(as_dict=True)
     )
+    if company:
+        query = query.where(SPR.company == company)
+    rows = query.run(as_dict=True)
     # DECIMAL sums arrive as `decimal.Decimal`, which the JSON layer stringifies.
     for row in rows:
         row["count"] = int(row["count"] or 0)
@@ -442,5 +459,5 @@ def get_selling_price_intelligence() -> dict[str, Any]:
         "margin_by_item": _realised_margin(company),
         "discount_pressure": _discount_pressure(company),
         "floor_breaches": _floor_breaches(),
-        "approval_queue": _approval_queue(),
+        "approval_queue": _approval_queue(company),
     }

@@ -10,10 +10,6 @@
         </p>
       </div>
       <div class="flex items-center space-x-3">
-        <Button @click="reload" :loading="refreshing" variant="subtle" theme="gray" size="sm">
-          <template #prefix><RotateCcw class="w-4 h-4" /></template>
-          Refresh
-        </Button>
         <Button @click="exportReport" variant="subtle" theme="gray" size="sm">
           <template #prefix><Download class="w-4 h-4" /></template>
           Export
@@ -490,7 +486,6 @@ import { ref, computed } from 'vue'
 import { useCurrency } from '../../composables/useCurrency'
 import { Button, Badge, Tabs } from 'frappe-ui'
 import {
-  RotateCcw,
   Download,
   AlertCircle,
   RefreshCw,
@@ -505,7 +500,6 @@ import {
   Lock,
 } from 'lucide-vue-next'
 import { severityBadge } from '../../utils/status'
-import { useIntelligenceDashboard } from '../../intelligence/composables/useIntelligenceDashboard'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SkeletonBlock from '../../intelligence/components/SkeletonBlock.vue'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
@@ -522,21 +516,27 @@ import { computed as vueComputed } from 'vue'
  */
 const currency = useCurrency()
 
-const emptyParams = ref({})
-const {
-  data: budgetData,
-  loading,
-  refreshing,
-  error,
-  isPermissionError,
-  hasData,
-  reload,
-  retry,
-} = useIntelligenceDashboard({
-  url: '/api/method/insights.api.ml.get_budget_variance_overview',
-  params: emptyParams,
-  cache: 'budget-variance-overview',
+/**
+ * Presentational: the parent shell owns this feed. It fetched for itself
+ * before, which put it outside the one data-loading contract every other tab
+ * body follows -- the dashboard header's Refresh button could not reach it,
+ * and this tab carried a second Refresh button of its own to compensate.
+ * That button is gone; the header's now refreshes this feed too.
+ */
+const props = defineProps({
+  data: { type: Object, default: null },
+  loading: { type: Boolean, default: false },
+  error: { type: String, default: '' },
+  isPermissionError: { type: Boolean, default: false },
+  hasData: { type: Boolean, default: false },
 })
+const emit = defineEmits(['refresh'])
+
+/** The error state's "Try Again" asks the owner to refetch. */
+const retry = () => emit('refresh')
+
+/** Kept under its original name so the 480-line template is untouched. */
+const budgetData = computed(() => props.data)
 
 /**
  * Budget vs Actual by month, or `null` when there is nothing to plot.

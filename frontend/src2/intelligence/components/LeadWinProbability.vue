@@ -56,7 +56,7 @@ const BAND_THEME: Record<ScoredLead['band'], 'green' | 'orange' | 'gray'> = {
 
 <template>
   <section>
-    <p v-if="leads.error.value" class="text-sm text-ink-red-6">{{ leads.error.value }}</p>
+    <p v-if="leads.error.value" class="text-sm text-ink-red-4">{{ leads.error.value }}</p>
     <p v-else-if="state && state !== 'success'" class="text-sm text-ink-gray-6">
       {{ (leads.data.value?.message as string) || 'Not trained yet.' }}
     </p>

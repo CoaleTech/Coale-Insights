@@ -265,6 +265,24 @@ DASHBOARD_DOCTYPES: dict[str, tuple[str, ...]] = {
         "Leave Application",
         "Salary Slip",
     ),
+    "strategic_finance": (
+        "Account",
+        "Asset",
+        "Depreciation Schedule",
+        "Fiscal Year",
+        "GL Entry",
+        "Journal Entry",
+        "Journal Entry Account",
+        "Payment Entry",
+        "Purchase Invoice",
+        "Sales Invoice",
+    ),
+    "budget_variance": (
+        "Account",
+        "Budget",
+        "Department",
+        "GL Entry",
+    ),
 }
 
 

@@ -223,6 +223,9 @@ const axisConfig = computed(() => {
     title: '',
     xAxis: { key: 'week', type: 'category' as const },
     yAxis: { title: 'Weekly flow' },
+    // Balance axis is deliberately unbounded (no yMin: 0): a negative projected balance
+    // is the critical signal this chart exists to show, indicating the company would run
+    // out of cash within the forecast period.
     y2Axis: { title: 'Balance' },
     series,
   }

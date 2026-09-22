@@ -47,6 +47,24 @@ WEIGHTS = {"credit": 0.30, "cashflow": 0.30, "operational": 0.25, "compliance": 
 # Time window for the analysis (months back). 12 = "last year" of data.
 HISTORY_MONTHS = 12
 
+# Receivables/payables aging buckets: (label, min days overdue, max days overdue).
+# `None` means unbounded on that side -- "Current" is everything not yet overdue,
+# "90+ Days" everything past 90.
+#
+# Single source of the ranges. Both `_aging_buckets*` build their SQL CASE from
+# this list, and `insights.api.ml.risk.get_risk_detail` turns a label back into a
+# `due_date` window so a drill from a bucket opens exactly the invoices counted
+# in it. Previously the labels were spelled out in four places and the drill
+# applied no bucket filter at all: clicking "90+ Days" listed every overdue
+# invoice, so the dialog contradicted the figure that opened it.
+AGING_BUCKETS: list[tuple[str, int | None, int | None]] = [
+    ("Current", None, 0),
+    ("1-30 Days", 1, 30),
+    ("31-60 Days", 31, 60),
+    ("61-90 Days", 61, 90),
+    ("90+ Days", 91, None),
+]
+
 
 def _risk_category(score: float) -> str:
     if score <= 25:
@@ -193,7 +211,24 @@ def _top_alerts(company: str | None) -> list[dict]:
         .limit(5)
         .execute()
     )
-    for r in by_customer.to_dict(orient="records"):
+    top = by_customer.to_dict(orient="records")
+    # The group-by returns primary keys ("CS00178"), which is not a thing a
+    # reader recognises -- the alert has to name the customer. One extra query
+    # for at most five codes, not one per row.
+    codes = [r["customer"] for r in top if r.get("customer")]
+    names = (
+        dict(
+            frappe.get_all(
+                "Customer",
+                filters={"name": ("in", codes)},
+                fields=["name", "customer_name"],
+                as_list=True,
+            )
+        )
+        if codes
+        else {}
+    )
+    for r in top:
         cust = r.get("customer")
         if not cust:
             continue
@@ -202,9 +237,21 @@ def _top_alerts(company: str | None) -> list[dict]:
             {
                 "type": "credit_risk",
                 "severity": "high",
-                "title": f"Overdue Customer: {cust}",
+                # ``customer`` is the drill key: the dashboard passes it back to
+                # ``get_risk_detail`` with the same 60-day cut-off used above, so
+                # the rows it opens reconcile with ``outstanding`` here.
+                "customer": cust,
+                "overdue_days": 60,
+                "title": f"Overdue Customer: {names.get(cust) or cust}",
                 "description": f"Outstanding: {frappe.format_value(out, {'fieldtype': 'Currency'})}",
                 "action": "Review credit limit and payment terms",
+                # The same figure as a number. ``description`` is a formatted
+                # string, so a table could only right-align these by parsing
+                # its own prose back into a float; ``amount`` exists so the
+                # queue can rank and align money without doing that. ``None``
+                # where an item has no money dimension at all -- an absent
+                # amount must not print as a confident zero.
+                "amount": out,
             }
         )
 
@@ -217,6 +264,7 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "title": "Low Cash Position",
                 "description": f"Current cash: {frappe.format_value(cash, {'fieldtype': 'Currency'})}",
                 "action": "Monitor cash flow and accelerate collections",
+                "amount": cash,
             }
         )
 
@@ -229,6 +277,8 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "title": f"Stock Outs: {stockouts} Items",
                 "description": "Multiple items out of stock",
                 "action": "Review inventory reorder levels",
+                # A stock-out count is not money. No amount rather than 0.
+                "amount": None,
             }
         )
 
@@ -513,12 +563,9 @@ def _analyze_credit_risk(company: str | None) -> dict:
         .execute()
     )
     payment_patterns: list[dict] = []
-    avg_days_overdue_values: list[float] = []
     for r in monthly.to_dict(orient="records"):
         m = r.get("month")
         ado = r.get("avg_days_overdue")
-        if ado is not None:
-            avg_days_overdue_values.append(float(ado))
         payment_patterns.append(
             {
                 "period": str(m)[:7] if m else None,
@@ -531,17 +578,58 @@ def _analyze_credit_risk(company: str | None) -> dict:
 
     # Aging analysis: bucket all open invoices by days overdue.
     aging = _aging_buckets(company)
+    total_outstanding, weighted_days_overdue = _open_ledger_stats(si, company)
 
     return {
         "customer_risk_scores": customer_scores,
         "payment_patterns": payment_patterns,
         "aging_analysis": aging,
-        "total_outstanding": sum(c["outstanding"] for c in customer_scores),
+        "total_outstanding": total_outstanding,
         "high_risk_customers": sum(1 for c in customer_scores if c["risk_score"] > 70),
-        "avg_days_overdue": round(
-            sum(avg_days_overdue_values) / max(1, len(avg_days_overdue_values)), 1
-        ),
+        "avg_days_overdue": weighted_days_overdue,
     }
+
+
+def _open_ledger_stats(table, company: str | None) -> tuple[float, float | None]:
+    """``(total_outstanding, outstanding-weighted days past due)`` for one ledger.
+
+    Both figures used to be derived from the per-customer/supplier score lists,
+    which are capped at the top 50 rows, so "Total Outstanding" silently omitted
+    the tail. This reads the whole ledger.
+
+    ``avg_days_overdue`` is the **outstanding-weighted** mean over invoices that
+    are both open and actually past due. The previous definition averaged
+    ``today - due_date`` across every invoice in the 12-month window, settled
+    ones included, so it measured the age of the window rather than lateness:
+    it returned ~182 days here and would return ~180 for a company that paid
+    every bill on time. The card it feeds grades 30/60 days as good/warning,
+    thresholds only the weighted definition can mean anything against.
+    """
+    today_d = ibis.literal(datetime.now().date()).cast("date")
+    open_q = company_filter(
+        table.filter(table.docstatus == 1, table.outstanding_amount > 0), company
+    )
+    total = float(
+        open_q.aggregate(total=table.outstanding_amount.sum())
+        .execute()
+        .to_dict(orient="records")[0]
+        .get("total")
+        or 0
+    )
+
+    days = today_d.delta(table.due_date.cast("date"), unit="day")
+    overdue_q = open_q.filter(table.due_date.notnull(), days > 0)
+    row = (
+        overdue_q.aggregate(
+            weighted=(table.outstanding_amount * days).sum(),
+            overdue=table.outstanding_amount.sum(),
+        )
+        .execute()
+        .to_dict(orient="records")[0]
+    )
+    overdue = float(row.get("overdue") or 0)
+    weighted = None if not overdue else round(float(row.get("weighted") or 0) / overdue, 1)
+    return total, weighted
 
 
 def _aging_buckets(company: str | None) -> list[dict]:
@@ -569,21 +657,16 @@ def _aging_buckets(company: str | None) -> list[dict]:
         ibis.literal(0),
         ibis.greatest(today_d.delta(si.due_date.cast("date"), unit="day"), 0),
     )
-    bucket = (
-        ibis.cases(
-            (days_overdue <= 0, "Current"),
-            (days_overdue <= 30, "1-30 Days"),
-            (days_overdue <= 60, "31-60 Days"),
-            (days_overdue <= 90, "61-90 Days"),
-            else_="90+ Days",
-        )
+    bucket = ibis.cases(
+        *[(days_overdue <= hi, name) for name, _lo, hi in AGING_BUCKETS if hi is not None],
+        else_=AGING_BUCKETS[-1][0],
     )
     bucketed = q.mutate(b=bucket)
     df = bucketed.group_by("b").aggregate(
         invoice_count=bucketed.count(), outstanding_amount=si.outstanding_amount.sum()
     ).execute()
     by_bucket = {r["b"]: r for r in df.to_dict(orient="records")}
-    order = ["Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+    order = [name for name, _lo, _hi in AGING_BUCKETS]
     out = []
     for name in order:
         r = by_bucket.get(name, {})
@@ -675,25 +758,19 @@ def _analyze_payables_risk(company: str | None) -> dict:
             }
         )
 
-    # Aggregate avg days overdue across *all* outstanding payables (not
-    # just the top-50-by-outstanding suppliers above), so a long tail of
-    # small overdue bills isn't dropped from the figure.
-    outstanding_pi = company_filter(pi.filter(pi.docstatus == 1, pi.outstanding_amount > 0), company)
-    overdue_expr = ibis.ifelse(
-        pi.due_date.isnull(),
-        ibis.null(),
-        today_d.delta(pi.due_date.cast("date"), unit="day"),
-    )
-    avg_overdue_all = outstanding_pi.mutate(days_overdue=overdue_expr).days_overdue.mean().execute()
-
+    # Both figures come from the whole ledger, weighted, and count only bills
+    # that are actually past due -- the local average here included not-yet-due
+    # bills, whose negative "days overdue" pulled the figure below the real
+    # lateness of the money at risk.
+    total_outstanding, weighted_days_overdue = _open_ledger_stats(pi, company)
     aging = _aging_buckets_payables(company)
 
     return {
         "supplier_risk_scores": supplier_scores,
         "aging_analysis": aging,
-        "total_outstanding": sum(s["outstanding"] for s in supplier_scores),
+        "total_outstanding": total_outstanding,
         "high_risk_suppliers": sum(1 for s in supplier_scores if s["risk_score"] > 70),
-        "avg_days_overdue": round(float(avg_overdue_all), 1) if avg_overdue_all is not None else 0.0,
+        "avg_days_overdue": weighted_days_overdue,
     }
 
 
@@ -712,21 +789,16 @@ def _aging_buckets_payables(company: str | None) -> list[dict]:
         ibis.literal(0),
         ibis.greatest(today_d.delta(pi.due_date.cast("date"), unit="day"), 0),
     )
-    bucket = (
-        ibis.cases(
-            (days_overdue <= 0, "Current"),
-            (days_overdue <= 30, "1-30 Days"),
-            (days_overdue <= 60, "31-60 Days"),
-            (days_overdue <= 90, "61-90 Days"),
-            else_="90+ Days",
-        )
+    bucket = ibis.cases(
+        *[(days_overdue <= hi, name) for name, _lo, hi in AGING_BUCKETS if hi is not None],
+        else_=AGING_BUCKETS[-1][0],
     )
     bucketed = q.mutate(b=bucket)
     df = bucketed.group_by("b").aggregate(
         invoice_count=bucketed.count(), outstanding_amount=pi.outstanding_amount.sum()
     ).execute()
     by_bucket = {r["b"]: r for r in df.to_dict(orient="records")}
-    order = ["Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days"]
+    order = [name for name, _lo, _hi in AGING_BUCKETS]
     out = []
     for name in order:
         r = by_bucket.get(name, {})
@@ -761,6 +833,7 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
 
     return {
         "overdue_days_trend": overdue_days_trend,
+        "exposure_trend": _exposure_trend(company),
         "current_working_capital": working_capital,
         "working_capital_ratio": round(wc_ratio, 2),
         "current_cash_position": _current_cash_position(company),
@@ -768,6 +841,68 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
         "top_customer_share": top_customer_share,
         "cash_forecast": _forecast_cash_flow(company),
     }
+
+
+def _exposure_trend(company: str | None) -> list[dict]:
+    """Month-end receivable and payable balances for the last
+    ``HISTORY_MONTHS`` months.
+
+    This is the only honest direction-of-travel series on this page, and it
+    exists because the two obvious candidates are not trends at all:
+
+    * ``_overdue_days_trend``'s ``avg_days_overdue`` averages ``today -
+      due_date`` across every invoice posted in a month, settled or not, so
+      it falls by ~30 per month as a matter of calendar arithmetic. A
+      13-month run reading 356 -> 5 describes the calendar, not collections.
+    * its ``month_end_outstanding`` is ``sum(outstanding_amount)`` -- what is
+      open *today* on invoices posted back then. Old months read 0 because
+      those invoices were since paid, so the curve only measures how recently
+      an invoice was raised (survivorship).
+
+    A GL balance has neither flaw: every posting through a month end counts,
+    payments included, so the value is what the ledger actually said on that
+    date. Cumulated in Python from the start of the ledger rather than in SQL
+    -- 13 output rows do not justify a window function, and the running total
+    must begin at the first entry ever posted, not at the window's cutoff.
+    """
+    gle = t("GL Entry")
+    a = t("Account")
+    a_filtered = a.filter(
+        a.account_type.isin(["Receivable", "Payable"]), a.is_group == 0
+    )
+    q = gle.join(a_filtered, gle.account == a_filtered.name).filter(
+        gle.is_cancelled == 0
+    )
+    if company:
+        q = q.filter(gle.company == company)
+    df = (
+        q.mutate(month=gle.posting_date.truncate("M"))
+        .group_by(["month", "account_type"])
+        .aggregate(net=(gle.debit.fill_null(0) - gle.credit.fill_null(0)).sum())
+        .order_by("month")
+        .execute()
+    )
+    running: dict[str, float] = {"Receivable": 0.0, "Payable": 0.0}
+    by_month: dict[str, dict[str, float]] = {}
+    for r in df.to_dict(orient="records"):
+        month = r.get("month")
+        if not month:
+            continue
+        running[r["account_type"]] += float(r.get("net") or 0)
+        # Debit-positive for receivables, credit-positive for payables, so
+        # both series read as "money at stake" rather than one going negative.
+        by_month[str(month)[:7]] = {
+            "receivables": round(running["Receivable"], 2),
+            "payables": round(-running["Payable"], 2),
+        }
+    # This ledger carries future-dated postings, so the raw tail ran two
+    # months past today and the last point was not "now" -- which is the one
+    # point a reader anchors on, and the one that must tie to the exposure
+    # figures in the header strip. Cumulation still walks those future rows
+    # (they are real entries); only the reported window stops at this month.
+    this_month = datetime.now().strftime("%Y-%m")
+    periods = [p for p in sorted(by_month) if p <= this_month][-HISTORY_MONTHS:]
+    return [{"period": p, **by_month[p]} for p in periods]
 
 
 def _overdue_days_trend(company: str | None) -> list[dict]:
@@ -1007,8 +1142,13 @@ def _analyze_compliance_risk(company: str | None) -> dict:
     document_audit = _document_audit(company)
 
     # GST/PAN registration: read from the Company master (not invented).
+    # `get_cached_doc` does not itself check permissions -- gate explicitly,
+    # since this endpoint's own entry check only requires Sales Invoice read
+    # (see `insights.api.ml.risk.risk_intelligence`), which said nothing about
+    # Company. Without this a Sales-Invoice-only user could read another
+    # company's GSTIN/PAN through the compliance tab.
     gstin, pan = "", ""
-    if company:
+    if company and frappe.has_permission("Company", "read", doc=company):
         try:
             company_doc = frappe.get_cached_doc("Company", company)
             gstin = (company_doc.get("gstin") or "").strip()
@@ -1313,6 +1453,10 @@ def _detect_anomalies(company: str | None) -> list[dict]:
                             "date": str(d),
                             "description": f"Revenue {v:,.0f} is {pct:.1f}% from average",
                             "severity": "medium" if abs(v - mean) < 3 * std else "high",
+                            # The day's own revenue, not the deviation: the
+                            # queue column is "how much is at stake", and the
+                            # % gap is already in ``description``.
+                            "amount": v,
                         }
                     )
 
@@ -1342,6 +1486,7 @@ def _detect_anomalies(company: str | None) -> list[dict]:
                             "date": str(d),
                             "description": f"Expenses {v:,.0f} is {pct:.1f}% from average",
                             "severity": "medium" if abs(v - mean) < 3 * std else "high",
+                            "amount": v,
                         }
                     )
 
@@ -1362,6 +1507,7 @@ def _early_warnings(cash_forecast: dict) -> list[dict]:
                         "title": "Cash Flow Warning",
                         "description": f"Forecasted cash position: {frappe.format_value(future, {'fieldtype': 'Currency'})}",
                         "timeframe": "Next 30 days",
+                        "amount": float(future),
                     }
                 )
     if datetime.now().month in (12, 1, 2):
@@ -1371,7 +1517,8 @@ def _early_warnings(cash_forecast: dict) -> list[dict]:
                 "severity": "medium",
                 "title": "Seasonal Risk Period",
                 "description": "Holiday season may affect cash flow and collections",
-                "timeframe": "Next 60 days",
+                # A calendar window carries no figure.
+                "amount": None,
             }
         )
     return warnings

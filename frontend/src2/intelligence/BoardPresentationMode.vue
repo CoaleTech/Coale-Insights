@@ -330,7 +330,7 @@ import {
 } from 'lucide-vue-next'
 import PresentationSlide from './PresentationSlide.vue'
 import { apiCall } from '../helpers/api'
-import { BOARD_DASHBOARD_OPTIONS } from '../helpers/dashboards'
+import { BOARD_DASHBOARD_OPTIONS, BOARD_PRESENTATION_SOURCES } from '../helpers/dashboards'
 import { severityBadge } from '../utils/status'
 
 /** Map a priority / impact string to a Severity. */
@@ -421,8 +421,25 @@ const currentSlideData = computed(() => {
 })
 
 const activeDashboardData = computed(() => {
-  return Object.keys(props.dashboardData).length > 0 ? props.dashboardData : {}
+  return Object.keys(props.dashboardData).length > 0 ? props.dashboardData : fetchedDashboardData.value
 })
+
+// Root defect (audit t_8036df14): this component had no data source of its
+// own -- normal (non-embedded) visits are the only reachable path (no
+// caller anywhere passes `dashboardData`, see router.ts), so every real
+// visit sent the backend an empty `{}` and every slide fell through to
+// generic boilerplate. Fetch the same live endpoint(s) the selected
+// dashboard's own page calls (BOARD_PRESENTATION_SOURCES) so the board pack
+// is built from the same audited numbers, not a separate/stale computation.
+const fetchedDashboardData = ref({})
+
+async function fetchLiveDashboardData(dashboardType) {
+  const urls = BOARD_PRESENTATION_SOURCES[dashboardType] || []
+  const results = await Promise.all(
+    urls.map((url) => apiCall(url).catch(() => null)),
+  )
+  return Object.assign({ dashboard_type: dashboardType }, ...results.filter(Boolean))
+}
 
 // Methods
 const generatePresentation = async () => {
@@ -430,6 +447,10 @@ const generatePresentation = async () => {
   error.value = null
 
   try {
+    if (Object.keys(props.dashboardData).length === 0) {
+      fetchedDashboardData.value = await fetchLiveDashboardData(selectedDashboardType.value)
+    }
+
     const result = await apiCall('insights.api.ml.generate_presentation_data', {
       dashboard_type: selectedDashboardType.value,
       dashboard_data: activeDashboardData.value,
@@ -455,6 +476,7 @@ const resetPresentation = () => {
   presentationEnabled.value = false
   isFullscreen.value = false
   presentationData.value = {}
+  fetchedDashboardData.value = {}
   currentSlide.value = 1
   error.value = null
 }

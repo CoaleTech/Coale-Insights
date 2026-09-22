@@ -353,7 +353,7 @@
         </div>
       </IntelligenceDashboardShell>
       <IntelligenceDrillDown
-        :show="drillDown.show.value"
+        v-model:show="drillDown.show.value"
         :loading="drillDown.loading.value"
         :error="drillDown.error.value"
         :is-permission-error="drillDown.isPermissionError.value"
@@ -362,7 +362,6 @@
         :rows="drillDown.rows.value"
         :total="drillDown.total.value"
         :page="drillDown.page.value"
-        @close="drillDown.close"
         @retry="drillDown.retry"
         @next-page="drillDown.nextPage"
         @prev-page="drillDown.prevPage"

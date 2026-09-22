@@ -1,3 +1,11 @@
+<!--
+  Executive Summary: No drill-down.
+  
+  This tab synthesizes figures from other financial tabs (Cash, Receivables,
+  Payables, Ratios). The composite KPIs here delegate their detail to the
+  respective tabs; offering a drill-down from the summary would duplicate
+  navigational paths and create redundant entry points.
+-->
 <template>
   <div class="space-y-6">
     <!-- Loading state: top KPI row -->

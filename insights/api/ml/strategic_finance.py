@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
+from insights.api.ml.permissions import authorize_dashboard
 from insights.api.ml.utils import cached_run
 
 
@@ -22,6 +23,7 @@ def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12
     """
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
+        authorize_dashboard("strategic_finance")
         from insights.ml.strategic_finance_intelligence import run_strategic_finance_intelligence
         return cached_run(
             lambda: run_strategic_finance_intelligence(refresh=refresh),
@@ -38,6 +40,7 @@ def get_budget_variance_overview(company: str = None, fiscal_year: str = None) -
     """Get budget variance overview"""
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
+        authorize_dashboard("budget_variance")
         from insights.ml.budget_variance_intelligence import BudgetVarianceIntelligence
     
         model = BudgetVarianceIntelligence()

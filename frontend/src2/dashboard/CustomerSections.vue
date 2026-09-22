@@ -782,20 +782,30 @@ onMounted(() => {
             <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">
               {{ effectiveGeoDim === 'customer' ? 'Customer' : GEO_DIM_LABELS[geoDim] }}
             </th>
-            <th v-if="effectiveGeoDim !== 'customer'" scope="col"
-              class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('customers')">
+            <th v-if="effectiveGeoDim !== 'customer'" scope="col" tabindex="0" role="button"
+              class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none"
+              :aria-sort="geoSortKey === 'customers' ? (geoSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+              @click="setGeoSort('customers')" @keydown.enter="setGeoSort('customers')" @keydown.space.prevent="setGeoSort('customers')">
               Customers <span v-if="geoSortKey === 'customers'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
             </th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('revenue')">
+            <th scope="col" tabindex="0" role="button" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none"
+              :aria-sort="geoSortKey === 'revenue' ? (geoSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+              @click="setGeoSort('revenue')" @keydown.enter="setGeoSort('revenue')" @keydown.space.prevent="setGeoSort('revenue')">
               Revenue <span v-if="geoSortKey === 'revenue'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
             </th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('gross_profit')">
+            <th scope="col" tabindex="0" role="button" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none"
+              :aria-sort="geoSortKey === 'gross_profit' ? (geoSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+              @click="setGeoSort('gross_profit')" @keydown.enter="setGeoSort('gross_profit')" @keydown.space.prevent="setGeoSort('gross_profit')">
               Gross Profit <span v-if="geoSortKey === 'gross_profit'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
             </th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('margin_pct')">
+            <th scope="col" tabindex="0" role="button" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none"
+              :aria-sort="geoSortKey === 'margin_pct' ? (geoSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+              @click="setGeoSort('margin_pct')" @keydown.enter="setGeoSort('margin_pct')" @keydown.space.prevent="setGeoSort('margin_pct')">
               Margin % <span v-if="geoSortKey === 'margin_pct'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
             </th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none" @click="setGeoSort('transactions')">
+            <th scope="col" tabindex="0" role="button" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none"
+              :aria-sort="geoSortKey === 'transactions' ? (geoSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+              @click="setGeoSort('transactions')" @keydown.enter="setGeoSort('transactions')" @keydown.space.prevent="setGeoSort('transactions')">
               Transactions <span v-if="geoSortKey === 'transactions'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
             </th>
             <th scope="col" class="px-4 py-3"></th>
@@ -1135,10 +1145,10 @@ onMounted(() => {
               <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Tier</th>
               <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Segment</th>
               <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Risk</th>
-              <th v-for="col in sortableCols" :key="col.key" scope="col"
+              <th v-for="col in sortableCols" :key="col.key" scope="col" tabindex="0" role="button"
                 class="px-4 py-3 text-right font-medium text-ink-gray-6 cursor-pointer select-none hover:text-ink-gray-8"
                 :aria-sort="rankSort === col.key ? (rankDir === 'asc' ? 'ascending' : 'descending') : 'none'"
-                @click="setRankSort(col.key)">
+                @click="setRankSort(col.key)" @keydown.enter="setRankSort(col.key)" @keydown.space.prevent="setRankSort(col.key)">
                 <span class="inline-flex items-center gap-1 justify-end">
                   {{ col.label }}
                   <ChevronRight v-if="rankSort === col.key" class="w-3 h-3"

@@ -127,6 +127,37 @@ export function severityFill(severity: Severity | string | null | undefined): st
 }
 
 /**
+ * Background for a severity-coded cell that CARRIES TEXT -- a heatmap cell, a
+ * status chip with a number in it.
+ *
+ * `severityFill` is the wrong token family for this and the docstring above
+ * says so: those fills are sized for a 3:1 non-text contrast against the
+ * surface, not for 4.5:1 against ink printed on top of them. Measured on the
+ * sensitivity heatmap, `text-ink-gray-9` over `bg-pos-fill` is 2.47:1 in dark
+ * mode and 4.42:1 in light -- both under SC 1.4.3. No gray ink shade fixes it,
+ * because the fill is mid-luminance in both themes: the ink and the fill move
+ * together when the theme flips.
+ *
+ * The `surface-*-2` tints are the family built for this. They stay pale in
+ * light mode and go deep in dark mode, so `text-ink-gray-9` measures 11.3:1 to
+ * 16.4:1 on every step in both themes. The hue still reads as the severity;
+ * only the saturation drops.
+ */
+export function severityTint(severity: Severity | string | null | undefined): string {
+  switch (normaliseSeverity(severity)) {
+    case 'critical':
+    case 'high':
+      return 'bg-surface-red-2'
+    case 'medium':
+      return 'bg-surface-amber-2'
+    case 'low':
+      return 'bg-surface-green-2'
+    default:
+      return 'bg-surface-gray-2'
+  }
+}
+
+/**
  * The same non-text fill as an SVG stroke, for an arc or a line series.
  *
  * A separate function rather than string surgery on the fill class at the

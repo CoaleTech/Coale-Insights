@@ -244,6 +244,24 @@ const counterpartyRisk = computed((): Record<string, any> => (data.value?.counte
 const actionQueue = computed((): Record<string, any> => (data.value?.action_queue ?? {}) as Record<string, any>)
 const queueRows = computed((): QueueRow[] => (actionQueue.value.rows ?? []) as QueueRow[])
 const queueSummary = computed((): Record<string, any> => (actionQueue.value.summary ?? {}) as Record<string, any>)
+/**
+ * Queue breakdown rows, typed once here instead of cast inline in the
+ * template. `v-for="x in (expr as { key: string; count: number }[])"` does not
+ * parse: the compiler splits the v-for expression on its own before
+ * TypeScript sees it, so each of the three inline casts reported five
+ * TS1005 syntax errors -- 15 of them, the file's entire `vue-tsc` output.
+ */
+interface QueueBreakdownRow {
+  key: string
+  count: number
+  exposure: number
+}
+const queueByOwnerRole = computed<QueueBreakdownRow[]>(
+  () => (queueSummary.value.by_owner_role ?? []) as QueueBreakdownRow[],
+)
+const queueByPriority = computed<QueueBreakdownRow[]>(
+  () => (queueSummary.value.by_priority ?? []) as QueueBreakdownRow[],
+)
 const legalRegister = computed((): Record<string, any> => (data.value?.legal_register ?? {}) as Record<string, any>)
 const legalRows = computed((): Record<string, any>[] => (legalRegister.value.rows ?? []) as Record<string, any>[])
 const legalSummary = computed((): Record<string, any> => (legalRegister.value.summary ?? {}) as Record<string, any>)
@@ -540,7 +558,7 @@ const taxForecastConfig = computed(() => {
     xAxis: { key: 'period', type: 'category' as const },
     yAxis: { title: 'Predicted Net GST (INR)' },
     series: [
-      { name: 'Net GST', type: 'line' as const, lineType: 'dashed' as const, color: themeColor('--app-accent-strong') },
+      { name: 'Net GST', type: 'line' as const, color: themeColor('--app-accent-strong') },
     ],
   }
 })
@@ -952,7 +970,7 @@ function handleDashboardRedirect(target: string) {
         most damage: "₹0 at risk" and "no measurement of what is at risk" are
         opposite statements.
       -->
-      <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
+      <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-4 mb-6">
         <KpiCard
           label="Compliance Health"
           :value="data?.compliance_score" unit="/100"
@@ -989,13 +1007,6 @@ function handleDashboardRedirect(target: string) {
           :amount="asNumber(tdsSummary.total_payable)"
           :currency="baseCurrency"
           sublabel="Challan and return control"
-        />
-        <KpiCard
-          label="Import Tax"
-          :amount="asNumber(customsSummary.documents) ? asNumber(customsSummary.customs_duty) : null"
-          :currency="baseCurrency"
-          :severity="(asNumber(customsSummary.unreconciled) ?? 0) > 0 ? 'medium' : 'none'"
-          :sublabel="asNumber(customsSummary.documents) ? `${formatNumber(customsSummary.unreconciled)} Bills of Entry unreconciled` : 'No Bill of Entry this window'"
         />
       </div>
 
@@ -1134,7 +1145,7 @@ function handleDashboardRedirect(target: string) {
                           `due_in_days` is signed by the server, so an overdue
                           row reads "12 days late" rather than "-12 days".
                         -->
-                        <p v-if="row.due_in_days !== undefined && row.due_in_days !== null" class="mt-0.5 text-xs" :class="row.overdue ? 'text-ink-red-6' : 'text-ink-gray-6'">
+                        <p v-if="row.due_in_days !== undefined && row.due_in_days !== null" class="mt-0.5 text-xs" :class="row.overdue ? 'text-ink-red-4' : 'text-ink-gray-6'">
                           {{ row.overdue ? `${Math.abs(row.due_in_days)} days late` : `in ${row.due_in_days} days` }}
                         </p>
                       </td>
@@ -1155,9 +1166,9 @@ function handleDashboardRedirect(target: string) {
                 weekly against the whole ledger, not a rolling window.
               </p>
 
-              <div v-if="queueSummary.by_owner_role?.length" class="mt-4 flex flex-wrap gap-2">
+              <div v-if="queueByOwnerRole.length" class="mt-4 flex flex-wrap gap-2">
                 <span
-                  v-for="o in (queueSummary.by_owner_role as { key: string; count: number; exposure: number }[])"
+                  v-for="o in queueByOwnerRole"
                   :key="o.key"
                   class="inline-flex items-baseline gap-1.5 rounded-full border border-outline-gray-1 px-3 py-1 text-xs"
                 >
@@ -2246,12 +2257,12 @@ function handleDashboardRedirect(target: string) {
               />
             </div>
 
-            <div v-if="queueSummary.by_priority?.length || queueSummary.by_owner_role?.length" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div v-if="queueByPriority.length || queueByOwnerRole.length" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader variant="caption" title="By monetary impact" :level="3" />
                 <dl class="mt-4 space-y-3">
                   <div
-                    v-for="p in (queueSummary.by_priority as { key: string; count: number; exposure: number }[] ?? [])"
+                    v-for="p in queueByPriority"
                     :key="p.key"
                     class="flex items-baseline justify-between gap-4"
                   >
@@ -2271,7 +2282,7 @@ function handleDashboardRedirect(target: string) {
                 <SectionHeader variant="caption" title="By responsible function" :level="3" />
                 <dl class="mt-4 space-y-3">
                   <div
-                    v-for="o in (queueSummary.by_owner_role as { key: string; count: number; exposure: number }[] ?? [])"
+                    v-for="o in queueByOwnerRole"
                     :key="o.key"
                     class="flex items-baseline justify-between gap-4"
                   >
@@ -2339,7 +2350,7 @@ function handleDashboardRedirect(target: string) {
                   </div>
                   <div class="min-w-0">
                     <dt class="text-xs text-ink-gray-6">Due</dt>
-                    <dd class="mt-0.5 text-sm" :class="row.overdue ? 'text-ink-red-6' : 'text-ink-gray-8'">
+                    <dd class="mt-0.5 text-sm" :class="row.overdue ? 'text-ink-red-4' : 'text-ink-gray-8'">
                       {{ formatDate(row.due_date) }}
                     </dd>
                   </div>
@@ -2354,7 +2365,7 @@ function handleDashboardRedirect(target: string) {
             </div>
 
             <div v-else class="rounded-lg border border-dashed border-outline-gray-2 bg-surface-white px-4 py-8 text-center">
-              <CheckCircle class="mx-auto h-6 w-6 text-ink-green-6" aria-hidden="true" />
+              <CheckCircle class="mx-auto h-6 w-6 text-ink-green-3" aria-hidden="true" />
               <p class="mt-2 text-sm font-medium text-ink-gray-8">No open tax exception</p>
               <p class="mt-1 text-sm text-ink-gray-6">
                 The detectors scan the whole ledger weekly, so this is a clear

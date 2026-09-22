@@ -11,16 +11,17 @@
 <script setup lang="ts">
 defineOptions({ name: 'RevenueCustomerIntelligence' })
 import { Button, Tabs, TabButtons } from 'frappe-ui'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
 import { useRouter } from 'vue-router'
-import { apiCallEnvelope, readFrappeError } from '../helpers/api'
 import { AlertTriangle, RefreshCcw, Loader2 } from 'lucide-vue-next'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillDown.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
 import SkeletonBlock from '../intelligence/components/SkeletonBlock.vue'
+import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
+import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import RevenueSections from './RevenueSections.vue'
 import CustomerSections from './CustomerSections.vue'
@@ -31,19 +32,64 @@ import { formatMoney, formatCount, formatPercent } from '../utils/format'
 const router = useRouter()
 const drillDown = useDrillDown()
 
-// ── Shared state ───────────────────────────────────────────────────────────
-const isLoading = ref(true)
-const isRefreshing = ref(false)
-const error = ref<string | null>(null)
-// Per-group errors: one endpoint failing must not blank the other's tabs.
-const salesError = ref<string | null>(null)
-const custError = ref<string | null>(null)
+// ── Data ──────────────────────────────────────────────────────────────────
+//
+// Two independent feeds, one per group, both on the shared data-loading
+// contract. This file hand-rolled that pair: two payload refs, two error refs,
+// two warming refs, two poll timers, a `clearPollTimers`, two loader functions
+// and an `allSettled` driver -- ~90 lines reproducing per-instance what
+// `useIntelligenceDashboard` already provides, and still missing the 503
+// backpressure retry it has.
 const dateFilter = ref('12m')
+const dateParams = computed(() => ({ date_filter: dateFilter.value }))
 
-// Sales payload
-const salesData = ref<Record<string, unknown> | null>(null)
-// Customer payload
-const custData = ref<Record<string, unknown> | null>(null)
+const sales = useIntelligenceDashboard<Record<string, unknown>>({
+  url: 'insights.api.ml.sales_intelligence',
+  params: dateParams,
+  cache: 'sales-intelligence',
+})
+const customers = useIntelligenceDashboard<Record<string, unknown>>({
+  url: 'insights.api.ml.customer_intelligence',
+  params: dateParams,
+  cache: 'customer-intelligence',
+})
+
+// Per-group refs under their original names: one endpoint failing or warming
+// must not blank the other's tabs, which is what the inline branches in each
+// tab block below read.
+const salesData = sales.data
+const custData = customers.data
+const salesError = sales.error
+const custError = customers.error
+const salesWarming = sales.warming
+const custWarming = customers.warming
+
+/** First paint only -- either half still on its first fetch. */
+const isLoading = computed(() => sales.loading.value || customers.loading.value)
+const isRefreshing = computed(() => sales.refreshing.value || customers.refreshing.value)
+
+/**
+ * Page-level failure only when BOTH halves failed. One bad half still renders
+ * its sibling's tabs -- the reason this dashboard loaded the two endpoints
+ * with `allSettled` rather than `all`.
+ */
+const error = computed(() => (salesError.value && custError.value ? salesError.value : null))
+/** Same rule for "no access", which this page had no state for at all. */
+const isPermissionError = computed(
+  () => sales.isPermissionError.value && customers.isPermissionError.value,
+)
+const hasData = computed(() => sales.hasData.value || customers.hasData.value)
+
+const loadSales = () => sales.reload()
+const loadCustomer = () => customers.reload()
+const loadData = () => {
+  loadSales()
+  loadCustomer()
+}
+const retryAll = () => {
+  sales.retry()
+  customers.retry()
+}
 
 // ── Tab-group architecture ────────────────────────────────────────────────
 // Two groups ("Revenue" and "Customers") share the same tab strip. The strip
@@ -99,22 +145,10 @@ const atRiskCount = computed(() => {
 })
 
 /**
- * A cold cache answers `{status: "warming"}` while a background job fits the
- * models. Either half warming would render the KPI strip all-zeros, so the
- * page shows a "computing" state until both are ready. A group that errored is
- * not warming -- that is the error branch's job.
- *
- * Set directly by `loadSales`/`loadCustomer` from the envelope's `warming`
- * flag, not derived from the payload: `apiCall` unwraps to bare data, so
- * `salesData.value?.status` used to read a field that only ever existed on
- * the envelope it had already thrown away, and this always evaluated false.
+ * Full-page "Preparing" only when BOTH halves are warming. Per-group warming
+ * is handled inline in each tab block, so one warm half still renders its
+ * data while the other computes.
  */
-const salesWarming = ref(false)
-const custWarming = ref(false)
-
-/** True only when BOTH halves are warming — full-page "Preparing" state.
- * Per-group warming is handled inline in each tab content block so one warm
- * half still renders its data while the other computes. */
 const warming = computed(
   () => !error.value && !isLoading.value && salesWarming.value && custWarming.value,
 )
@@ -123,95 +157,6 @@ function money(value: number | undefined | null): string {
   return formatMoney(value, baseCurrency.value)
 }
 
-// ── Data loading ───────────────────────────────────────────────────────────
-/** A cold ML cache trains in a background thread on the server -- seconds to
- * a couple of minutes. Each group polls independently once it reports
- * warming, so a fast Sales fit does not wait on a slower Customer
- * segmentation pass. `forceRefresh` only applies to the request that starts
- * the check; poll ticks always pass `false` so they cannot re-trigger a
- * retrain on every tick and loop forever. */
-const WARMING_POLL_MS = 4000
-let salesPollTimer: ReturnType<typeof setTimeout> | null = null
-let custPollTimer: ReturnType<typeof setTimeout> | null = null
-
-function clearPollTimers() {
-  if (salesPollTimer) {
-    clearTimeout(salesPollTimer)
-    salesPollTimer = null
-  }
-  if (custPollTimer) {
-    clearTimeout(custPollTimer)
-    custPollTimer = null
-  }
-}
-
-async function loadSales(forceRefresh = false) {
-  const { data, error: err, warming: isWarming } = await apiCallEnvelope<Record<string, unknown>>(
-    'insights.api.ml.sales_intelligence',
-    { refresh: forceRefresh, date_filter: dateFilter.value },
-  )
-  salesWarming.value = isWarming
-  if (err) {
-    salesError.value = err
-  } else if (isWarming) {
-    salesError.value = null
-    salesPollTimer = setTimeout(() => loadSales(false), WARMING_POLL_MS)
-  } else {
-    salesError.value = null
-    salesData.value = data
-  }
-}
-
-async function loadCustomer(forceRefresh = false) {
-  const { data, error: err, warming: isWarming } = await apiCallEnvelope<Record<string, unknown>>(
-    'insights.api.ml.customer_intelligence',
-    { refresh: forceRefresh, date_filter: dateFilter.value },
-  )
-  custWarming.value = isWarming
-  if (err) {
-    custError.value = err
-  } else if (isWarming) {
-    custError.value = null
-    custPollTimer = setTimeout(() => loadCustomer(false), WARMING_POLL_MS)
-  } else {
-    custError.value = null
-    custData.value = data
-  }
-}
-
-/** Parallel load of both APIs. The Sales and Customer endpoints are
- * independent, so they fire concurrently and each fails, warms, or resolves
- * on its own schedule. */
-async function loadData(refresh = false) {
-  if (refresh) {
-    isRefreshing.value = true
-  } else {
-    isLoading.value = true
-  }
-  error.value = null
-  salesError.value = null
-  custError.value = null
-  clearPollTimers()
-
-  /*
-   * allSettled, not all: the two endpoints are independent and customer
-   * intelligence is by far the heavier of the pair. With Promise.all a customer
-   * failure discarded the revenue half that had already loaded, blanking the
-   * whole page. Each group now fails on its own.
-   */
-  await Promise.allSettled([loadSales(refresh), loadCustomer(refresh)])
-
-  // Only a total failure is a page-level error; one bad half still renders.
-  if (salesError.value && custError.value) {
-    error.value = salesError.value
-  }
-
-  isLoading.value = false
-  isRefreshing.value = false
-}
-
-// ── Date filter ────────────────────────────────────────────────────────────
-watch(dateFilter, () => loadData())
 
 // ── Chat context ───────────────────────────────────────────────────────────
 const chatContext = computed(() => ({
@@ -227,12 +172,6 @@ function handleDashboardRedirect(_target: string) {
   // intelligence dashboards stays the same.
 }
 
-// ── Lifecycle ─────────────────────────────────────────────────────────────
-onMounted(() => loadData())
-
-onBeforeUnmount(() => {
-  clearPollTimers()
-})
 
 </script>
 
@@ -250,7 +189,7 @@ onBeforeUnmount(() => {
           variant="solid"
           theme="gray"
           :loading="isRefreshing"
-          @click="loadData(true)"
+          @click="loadData()"
         >
           <template #prefix><RefreshCcw class="w-4 h-4" /></template>
           {{ isRefreshing ? 'Refreshing...' : 'Refresh' }}
@@ -258,46 +197,25 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Loading state -->
-    <div v-if="isLoading" class="flex items-center justify-center flex-1">
-      <div class="flex flex-col items-center gap-4">
-        <div class="grid grid-cols-4 gap-4">
-          <SkeletonBlock class="h-24 w-40 rounded-lg" />
-          <SkeletonBlock class="h-24 w-40 rounded-lg" />
-          <SkeletonBlock class="h-24 w-40 rounded-lg" />
-          <SkeletonBlock class="h-24 w-40 rounded-lg" />
-        </div>
-        <p class="text-sm text-ink-gray-6">Loading dashboard...</p>
-      </div>
-    </div>
-
-    <!-- Error state -->
-    <div v-else-if="error" class="flex items-center justify-center flex-1">
-      <div class="text-center space-y-3">
-        <AlertTriangle class="w-12 h-12 mx-auto text-neg" aria-hidden="true" />
-        <p class="text-ink-gray-6">{{ error }}</p>
-        <Button variant="subtle" @click="loadData()">Try Again</Button>
-      </div>
-    </div>
-
-    <!-- Warming state: a cold cache is being computed by a background job.
-         Distinct from loading (first paint) and error. Shown when either
-         payload returns {status:"warming"} so the strip is not rendered
-         all-zeros while the numbers are still being built. -->
-    <div v-else-if="warming" class="flex items-center justify-center flex-1">
-      <div class="text-center space-y-3 max-w-sm">
-        <Loader2 class="w-12 h-12 mx-auto text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-        <p class="font-medium text-ink-gray-8">Preparing your dashboard</p>
-        <p class="text-sm text-ink-gray-6">
-          Revenue and customer intelligence is being computed in the background.
-          It can take a few minutes the first time.
-        </p>
-        <Button variant="subtle" @click="loadData()">Check again</Button>
-      </div>
-    </div>
-
-    <!-- Main content -->
-    <div v-else class="flex-1 overflow-auto">
+    <!--
+      One state machine, in the shell: first-load skeleton, error, warming,
+      not-implemented and empty. The three blocks that stood here were this
+      page's own copies of it, and they had drifted -- there was no permission
+      branch at all, so a 403 rendered as a generic "Try Again" that could
+      never work.
+    -->
+    <IntelligenceDashboardShell
+      :loading="isLoading"
+      :refreshing="isRefreshing"
+      :error="error ?? undefined"
+      :is-permission-error="isPermissionError"
+      :warming="warming"
+      :has-data="hasData"
+      subject="revenue and customer data"
+      permission-hint="Ask an administrator for Sales Invoice and Customer read access."
+      :kpi-count="6"
+      @retry="retryAll"
+    >
       <!-- Unified KPI strip: 6 cards mixing revenue + customer metrics -->
       <div class="grid grid-cols-2 gap-4 p-6 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
@@ -365,7 +283,7 @@ onBeforeUnmount(() => {
         <div v-else-if="salesError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
           <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />
           <p class="text-sm text-ink-gray-6">{{ salesError }}</p>
-          <Button variant="subtle" @click="loadData()">Try Again</Button>
+          <Button variant="subtle" @click="retryAll()">Try Again</Button>
         </div>
         <div v-else class="flex items-center justify-center h-64">
           <SkeletonBlock class="h-24 w-96 rounded-lg" />
@@ -395,13 +313,13 @@ onBeforeUnmount(() => {
         <div v-else-if="custError" class="flex flex-col items-center justify-center h-64 gap-3 text-center">
           <AlertTriangle class="w-8 h-8 text-neg" aria-hidden="true" />
           <p class="text-sm text-ink-gray-6">{{ custError }}</p>
-          <Button variant="subtle" @click="loadData()">Try Again</Button>
+          <Button variant="subtle" @click="retryAll()">Try Again</Button>
         </div>
         <div v-else class="flex items-center justify-center h-64">
           <SkeletonBlock class="h-24 w-96 rounded-lg" />
         </div>
       </div>
-    </div>
+    </IntelligenceDashboardShell>
 
     <!-- AI Chat Button -->
     <!--

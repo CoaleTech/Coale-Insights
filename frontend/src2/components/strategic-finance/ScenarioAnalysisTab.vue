@@ -1,3 +1,10 @@
+<!--
+  Scenario Analysis: Sensitivity & Monte Carlo: no drill-down.
+  
+  Every figure here is a modelled or projected outcome (sensitivity matrix
+  cells, Monte Carlo percentiles, scenario comparisons), not a ledger posting.
+  No account-level data underlies these calculations.
+-->
 <template>
   <div class="space-y-6">
 
@@ -371,7 +378,7 @@ import {
   Shield,
 } from 'lucide-vue-next'
 import { Tabs, Badge } from 'frappe-ui'
-import { scoreSeverity, severityBadge, severityFill, type BadgeSpec } from '../../utils/status'
+import { scoreSeverity, severityBadge, severityFill, severityTint, type BadgeSpec } from '../../utils/status'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 
@@ -460,12 +467,15 @@ const getScenarioValue = (revenueChange: number, expenseChange: number): number 
   return scenario?.net_income || 0
 }
 
-// Non-text surface fills for heatmap cells (>=3:1 on white).
-// Neutral cell for zero. Text inside each cell carries the number.
+// Cell backgrounds for the sensitivity grid. These cells CARRY the number, so
+// they use `severityTint` (surface-*-2, 11.3:1 to 16.4:1 under text-ink-gray-9
+// in both themes) and not `severityFill`, whose saturated fills measured
+// 2.47:1 dark / 4.42:1 light with the same ink -- under SC 1.4.3 both ways.
+// The legend swatches below still use severityFill: they carry no text.
 const heatmapFill = (value: number): string => {
-  if (value > 0) return severityFill('low')
-  if (value < 0) return severityFill('high')
-  return severityFill('none')
+  if (value > 0) return severityTint('low')
+  if (value < 0) return severityTint('high')
+  return severityTint('none')
 }
 
 // Percentile bars use non-text fills; text label is always rendered

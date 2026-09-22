@@ -30,6 +30,45 @@ def risk_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[s
 
 # ─── Drill-Down ───────────────────────────────────────────────────────────────
 
+def _due_date_window(f: dict, today: str) -> list[list]:
+    """`due_date` conditions for whichever figure the drill was launched from.
+
+    Three callers, three shapes, one field:
+
+    * ``aging_bucket`` -- a label from ``AGING_BUCKETS``. Translated back into
+      the day window that produced the bucket, so "90+ Days" opens only the
+      invoices counted in that bar. Without this the aging tiles all passed
+      *no* bucket filter and every one of the five opened the same
+      all-overdue list, which is the same figure five times over.
+    * ``overdue_days`` -- a minimum, used by the Overview credit alerts, which
+      count only invoices more than 60 days late.
+    * neither -- everything overdue today.
+
+    Day windows map to dates inverted: more days overdue means an *earlier*
+    ``due_date``, so the bucket's minimum becomes the upper date bound.
+    Null ``due_date`` is not handled because neither ledger has any (checked
+    live); the aggregate treats those as Current.
+    """
+    bucket = f.get("aging_bucket")
+    if bucket:
+        # Imported here, not at module scope: `risk_intelligence` pulls in ibis,
+        # which the cached read path deliberately defers (see `risk_intelligence`
+        # below) so a warm request never pays for it.
+        from insights.ml.risk_intelligence import AGING_BUCKETS
+
+        for name, lo, hi in AGING_BUCKETS:
+            if name != bucket:
+                continue
+            window = []
+            if lo is not None:
+                window.append(["due_date", "<=", frappe.utils.add_days(today, -lo)])
+            if hi is not None:
+                window.append(["due_date", ">=", frappe.utils.add_days(today, -hi)])
+            return window
+        frappe.throw(_("Unknown aging bucket: {0}").format(bucket), frappe.ValidationError)
+    return [["due_date", "<", frappe.utils.add_days(today, -int(f.get("overdue_days") or 0))]]
+
+
 @frappe.whitelist()
 def get_risk_detail(metric: str, filters: str) -> dict:
     f = frappe.parse_json(filters) or {}
@@ -41,13 +80,15 @@ def get_risk_detail(metric: str, filters: str) -> dict:
 
     if metric == "overdue_invoices":
         frappe.has_permission("Sales Invoice", throw=True)
-        db_filters = {
-            "docstatus": 1,
-            "outstanding_amount": (">", 0),
-            "due_date": ("<", today),
-        }
+        db_filters = [
+            ["docstatus", "=", 1],
+            ["outstanding_amount", ">", 0],
+            *_due_date_window(f, today),
+        ]
         if company:
-            db_filters["company"] = company
+            db_filters.append(["company", "=", company])
+        if f.get("customer"):
+            db_filters.append(["customer", "=", f["customer"]])
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
@@ -69,13 +110,15 @@ def get_risk_detail(metric: str, filters: str) -> dict:
 
     if metric == "overdue_payables":
         frappe.has_permission("Purchase Invoice", throw=True)
-        db_filters = {
-            "docstatus": 1,
-            "outstanding_amount": (">", 0),
-            "due_date": ("<", today),
-        }
+        db_filters = [
+            ["docstatus", "=", 1],
+            ["outstanding_amount", ">", 0],
+            *_due_date_window(f, today),
+        ]
         if company:
-            db_filters["company"] = company
+            db_filters.append(["company", "=", company])
+        if f.get("supplier"):
+            db_filters.append(["supplier", "=", f["supplier"]])
         rows = frappe.get_list(
             "Purchase Invoice",
             filters=db_filters,

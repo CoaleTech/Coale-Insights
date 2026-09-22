@@ -167,6 +167,22 @@ def _clip(x: float, lo: float, hi: float) -> float:
     return lo if x < lo else hi if x > hi else x
 
 
+def _inclusive_month_span(start, end) -> int:
+    """Count of calendar months touched by [start, end], inclusive of both ends.
+
+    `(end.year-start.year)*12 + (end.month-start.month)` is a month-index
+    *delta*, not a count -- Jan to Feb is index 1 but spans 2 calendar
+    months. Every custom date range (not just full-month presets) hits
+    this: two consecutive full months, or any range that doesn't start on
+    the 1st / end on the last day, undercounted `total_months` by exactly
+    1, so `months_active` (grouped by real calendar month) could exceed
+    it and push `frequency_score` above 1.0. `+1` makes this an inclusive
+    span, matching what `posting_date.truncate("M")` grouping actually
+    produces for any start/end pair.
+    """
+    return max(1, (end.year - start.year) * 12 + (end.month - start.month) + 1)
+
+
 def _churn_score(recency_days, order_count, lifespan_days, frequency_trend,
                  value_trend, outstanding, historical_clv, overdue_count):
     """Cadence-relative churn score (0-100), the single source of truth shared
@@ -1032,73 +1048,85 @@ def _quotation_conversion(start, end, company):
 
 
 
+def _customer_recommendations(c) -> List[Dict[str, Any]]:
+    """The five per-customer action rules, for ONE scored customer row.
+
+    Takes any mapping with the scored-row keys (a pandas Series from the
+    bulk path, or the plain dict `_score_one_customer_row` returns for a
+    single customer), so `compute_customer_360` can reuse the exact rules
+    the list dashboard shows instead of returning an empty list.
+    """
+    recs: List[Dict[str, Any]] = []
+    churn = str(c.get("churn_risk", ""))
+    tier = str(c.get("clv_tier", ""))
+    health = str(c.get("health_status", ""))
+    recency = int(c.get("recency_days") or 0)
+    outstanding = float(c.get("outstanding_amount") or 0)
+    aov = float(c.get("avg_order_value") or 0)
+    order_count = int(c.get("order_count") or 0)
+    if churn in ("High", "Critical"):
+        recs.append({
+            "action": "CHURN_PREVENTION",
+            "priority": "High",
+            "description": f"Customer at {churn} churn risk. Last purchase {recency} days ago.",
+            "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products.",
+        })
+    if tier in ("Gold", "Platinum", "Diamond") and health in ("Healthy", "Excellent"):
+        recs.append({
+            "action": "UPSELL_OPPORTUNITY",
+            "priority": "Medium",
+            "description": f"High-value customer with strong engagement. AOV: {aov:,.0f}",
+            "suggestion": "Introduce premium product lines, volume discounts, or exclusive partnerships.",
+        })
+    if outstanding > 0:
+        recs.append({
+            "action": "PAYMENT_FOLLOW_UP",
+            "priority": "High" if outstanding > aov * 2 else "Medium",
+            "description": f"Outstanding balance: {outstanding:,.0f}",
+            "suggestion": "Send payment reminder, offer payment plan if needed.",
+        })
+    if recency > 60 and tier in ("Silver", "Gold", "Platinum", "Diamond"):
+        recs.append({
+            "action": "RE_ENGAGEMENT",
+            "priority": "High",
+            "description": f"Valuable customer inactive for {recency} days.",
+            "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases.",
+        })
+    if order_count <= 2 and recency < 60:
+        recs.append({
+            "action": "NEW_CUSTOMER_NURTURE",
+            "priority": "Medium",
+            "description": "New customer - critical period for relationship building.",
+            "suggestion": "Send welcome series, offer first-time buyer discount on next purchase, request feedback.",
+        })
+    return recs
+
+
 def _next_best_actions(df):
-    """Rule-based recommendations. The original code enumerated six patterns
-    per customer. We keep the same six so the dashboard's action chips don't
-    change names, but drive the entire decision from the already-aggregated
-    per-customer DataFrame instead of looping with ``df.iterrows()`` for a
-    hundred rows.
+    """Rule-based recommendations, one entry per customer that trips a rule.
+
+    Drives the decision from the already-aggregated per-customer DataFrame
+    rather than a hundred `df.iterrows()` round trips; the rules themselves
+    live in `_customer_recommendations` so the single-customer 360 endpoint
+    can apply the identical set.
     """
     actions = []
     for _, c in df.iterrows():
-        recs = []
-        churn = str(c.get("churn_risk", ""))
-        tier = str(c.get("clv_tier", ""))
-        health = str(c.get("health_status", ""))
-        recency = int(c.get("recency_days") or 0)
-        outstanding = float(c.get("outstanding_amount") or 0)
-        aov = float(c.get("avg_order_value") or 0)
-        order_count = int(c.get("order_count") or 0)
-        if churn in ("High", "Critical"):
-            recs.append({
-                "action": "CHURN_PREVENTION",
-                "priority": "High",
-                "description": f"Customer at {churn} churn risk. Last purchase {recency} days ago.",
-                "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products.",
-            })
-        if tier in ("Gold", "Platinum", "Diamond") and health in ("Healthy", "Excellent"):
-            recs.append({
-                "action": "UPSELL_OPPORTUNITY",
-                "priority": "Medium",
-                "description": f"High-value customer with strong engagement. AOV: {aov:,.0f}",
-                "suggestion": "Introduce premium product lines, volume discounts, or exclusive partnerships.",
-            })
-        if outstanding > 0:
-            priority = "High" if outstanding > aov * 2 else "Medium"
-            recs.append({
-                "action": "PAYMENT_FOLLOW_UP",
-                "priority": priority,
-                "description": f"Outstanding balance: {outstanding:,.0f}",
-                "suggestion": "Send payment reminder, offer payment plan if needed.",
-            })
-        if recency > 60 and tier in ("Silver", "Gold", "Platinum", "Diamond"):
-            recs.append({
-                "action": "RE_ENGAGEMENT",
-                "priority": "High",
-                "description": f"Valuable customer inactive for {recency} days.",
-                "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases.",
-            })
-        if order_count <= 2 and recency < 60:
-            recs.append({
-                "action": "NEW_CUSTOMER_NURTURE",
-                "priority": "Medium",
-                "description": "New customer - critical period for relationship building.",
-                "suggestion": "Send welcome series, offer first-time buyer discount on next purchase, request feedback.",
-            })
+        recs = _customer_recommendations(c)
         if recs:
             actions.append({
                 "customer_id": c.get("customer"),
                 "customer_name": c.get("customer_name") or c.get("customer"),
-                "clv_tier": tier,
-                "health_status": health,
-                "churn_risk": churn,
+                "clv_tier": str(c.get("clv_tier", "")),
+                "health_status": str(c.get("health_status", "")),
+                "churn_risk": str(c.get("churn_risk", "")),
                 # Real ledger figures at stake, so the frontend leads with money:
                 # churn/re-engagement risk the booked revenue, payment follow-up
                 # the outstanding balance, upsell/nurture the predicted forward CLV.
                 "historical_clv": float(c.get("historical_clv") or 0),
                 "predicted_12m_clv": float(c.get("predicted_12m_clv") or 0),
-                "outstanding_amount": outstanding,
-                "recency_days": recency,
+                "outstanding_amount": float(c.get("outstanding_amount") or 0),
+                "recency_days": int(c.get("recency_days") or 0),
                 "recommendations": recs,
             })
 
@@ -1188,6 +1216,11 @@ def compute_customer_360(customer_id: str,
         response["purchase_patterns"] = _analyze_customer_purchase_patterns(response["purchase_history"])
     if include_recommendations:
         response["cross_sell"] = _cross_sell_for_one_customer(customer_id, company=company)
+        # `_score_one_customer_row` / `_blank_customer_row` both hardcode
+        # `recommendations: []`, so the frontend's "Next Best Actions"
+        # section rendered its empty state for every customer ever opened.
+        # Apply the same rule set the list dashboard uses.
+        response["customer"]["recommendations"] = _customer_recommendations(customer)
     return _to_native(response)
 
 
@@ -1861,7 +1894,10 @@ def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascend
     # top/bottom gross profit
     sii = t("Sales Invoice Item")
     si_for_profit = t("Sales Invoice")
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    dn = dn_cost()
+    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
+        dn, sii.dn_detail == dn.dn_name
+    )
     if company:
         profit_lines = profit_lines.filter(si_for_profit.company == company)
     profit_lines = profit_lines.filter(
@@ -1878,7 +1914,7 @@ def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascend
     profit_df = (
         profit_lines.group_by(si_for_profit.customer, si_for_profit.customer_name)
         .aggregate(
-            gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum(),
+            gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
             revenue=sii.amount.sum(),
         )
         .order_by(order("gross_profit"))
@@ -1892,7 +1928,7 @@ def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascend
     margin_per_cust = (
         profit_lines.group_by(si_for_profit.customer, si_for_profit.customer_name)
         .aggregate(
-            gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum(),
+            gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
             revenue=sii.amount.sum(),
         )
         .execute()
@@ -1915,7 +1951,7 @@ def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascend
     ).aggregate(monthly_spend=si_monthly.grand_total.sum()).execute()
     consistency = []
     if not monthly.empty:
-        total_months = max(((end.year - start.year) * 12 + (end.month - start.month)), 1)
+        total_months = _inclusive_month_span(start, end)
         grouped = monthly.groupby("customer")
         for cust, rows in grouped:
             spends = rows["monthly_spend"].astype(float).tolist()
@@ -2009,7 +2045,10 @@ def compute_customer_scorecard(date_filter: str = "12m",
     # Gross profit + margin % (line-level, identical formula to _rank_customers)
     sii = t("Sales Invoice Item")
     si_for_profit = t("Sales Invoice")
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    dn = dn_cost()
+    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
+        dn, sii.dn_detail == dn.dn_name
+    )
     if company:
         profit_lines = profit_lines.filter(si_for_profit.company == company)
     profit_lines = profit_lines.filter(
@@ -2018,7 +2057,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
     profit = (
         profit_lines.group_by(si_for_profit.customer)
         .aggregate(
-            gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum(),
+            gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
             line_revenue=sii.amount.sum(),
         )
         .execute()
@@ -2042,7 +2081,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
         .aggregate(monthly_spend=si_monthly.grand_total.sum())
         .execute()
     )
-    total_months = max(((end.year - start.year) * 12 + (end.month - start.month)), 1)
+    total_months = _inclusive_month_span(start, end)
     consistency_rows = []
     if not monthly.empty:
         for cust, rows in monthly.groupby("customer"):
@@ -2144,7 +2183,10 @@ def compute_purchase_patterns(top_percentile: int = 20,
     # bucketed alongside revenue so each pattern view shows margin, not just top line.
     sii = t("Sales Invoice Item")
     si_for_profit = t("Sales Invoice")
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name)
+    dn = dn_cost()
+    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
+        dn, sii.dn_detail == dn.dn_name
+    )
     if company:
         profit_lines = profit_lines.filter(si_for_profit.company == company)
     profit_lines = profit_lines.filter(
@@ -2154,7 +2196,7 @@ def compute_purchase_patterns(top_percentile: int = 20,
     )
     profit_per_inv = (
         profit_lines.group_by(si_for_profit.name)
-        .aggregate(gross_profit=(sii.net_amount - (sii.qty * sii.incoming_rate)).sum())
+        .aggregate(gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum())
         .execute()
     )
     gp_map = dict(zip(profit_per_inv["name"], profit_per_inv["gross_profit"])) if not profit_per_inv.empty else {}

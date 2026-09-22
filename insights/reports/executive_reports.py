@@ -42,6 +42,22 @@ class ExecutiveReports:
         current_month = datetime.now().month
         quarter_start_month = ((current_month - 1) // 3) * 3 + 1
         return datetime.now().replace(month=quarter_start_month, day=1).date()
+
+    def _sales_date_filter(self, period: str) -> str:
+        """Map the MTD/QTD/YTD tokens the other intelligence modules use to a
+        `sales_intelligence.get_sales_intelligence` date_filter (custom:start:end,
+        or its own "ytd" preset). It does not understand MTD/QTD tokens and
+        silently falls back to a 365-day window for any unrecognised string --
+        which is what every caller here got: `get_sales_intelligence()` was
+        called with no date_filter at all, so "Daily revenue" in the daily
+        report and "Period revenue" in the weekly report were both actually
+        trailing-12-months revenue, identical to the monthly report's figure.
+        """
+        if period == "MTD":
+            return f"custom:{self.current_month_start}:{self.today}"
+        if period == "QTD":
+            return f"custom:{self.current_quarter_start}:{self.today}"
+        return "ytd"
     
     def generate_daily_executive_report(self) -> Dict[str, Any]:
         """Generate daily executive summary report"""
@@ -241,9 +257,8 @@ class ExecutiveReports:
             
             # Sales intelligence
             try:
-                from insights.ml.sales_intelligence import SalesIntelligence
-                sales_intel = SalesIntelligence()
-                data["sales"] = sales_intel.predict()
+                from insights.ml.sales_intelligence import get_sales_intelligence
+                data["sales"] = get_sales_intelligence(date_filter=self._sales_date_filter("MTD"))
             except Exception as e:
                 logger.warning(f"Could not load sales intelligence: {e}")
                 data["sales"] = {}
@@ -315,10 +330,9 @@ class ExecutiveReports:
             
             # Sales intelligence
             try:
-                from insights.ml.sales_intelligence import SalesIntelligence
-                sales_intel = SalesIntelligence()
-                data["sales"] = sales_intel.predict()
-            except:
+                from insights.ml.sales_intelligence import get_sales_intelligence
+                data["sales"] = get_sales_intelligence(date_filter=self._sales_date_filter(period))
+            except Exception:
                 data["sales"] = {}
             
             # Financial intelligence
@@ -373,7 +387,7 @@ class ExecutiveReports:
             
             # Sales performance
             sales_data = report_data.get("sales", {})
-            sales_metrics = sales_data.get("sales_metrics", {})
+            sales_metrics = sales_data.get("summary", {}) or sales_data.get("revenue_metrics", {})
             if sales_metrics:
                 revenue = sales_metrics.get("total_revenue", 0)
                 summary_points.append(f"Daily revenue: {self.currency} {revenue:,.0f}")
@@ -508,7 +522,7 @@ class ExecutiveReports:
             
             sales_data = report_data.get("sales", {})
             if sales_data:
-                sales_metrics = sales_data.get("sales_metrics", {})
+                sales_metrics = sales_data.get("summary", {})
                 key_metrics["revenue"] = sales_metrics.get("total_revenue", 0)
             
             fin_data = report_data.get("financial", {})
@@ -583,9 +597,9 @@ class ExecutiveReports:
             
             # Check sales performance
             sales_data = report_data.get("sales", {})
-            sales_metrics = sales_data.get("sales_metrics", {})
+            sales_metrics = sales_data.get("summary", {})
             if sales_metrics:
-                growth_rate = sales_metrics.get("revenue_growth_rate", 0)
+                growth_rate = sales_metrics.get("revenue_growth_rate") or sales_metrics.get("mom_growth", 0)
                 if growth_rate < -10:  # Decline > 10%
                     alerts.append({
                         "priority": "high",
@@ -641,7 +655,7 @@ class ExecutiveReports:
             
             # Sales highlights
             sales_data = report_data.get("sales", {})
-            if sales_data.get("sales_metrics", {}):
+            if sales_data.get("summary", {}):
                 highlights.append("Sales performance tracking on target")
             
             # Manufacturing highlights  

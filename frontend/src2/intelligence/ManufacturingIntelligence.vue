@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'ManufacturingIntelligence' })
 import { ref, computed, onMounted } from 'vue'
-import { Badge, Button, Tabs } from 'frappe-ui'
+import { Badge, Button, ListView, Tabs } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import { apiCall } from '../helpers/api'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
@@ -9,7 +9,7 @@ import {
   severityBadge, severityFill, severityAria, scoreSeverity, ragSeverity,
   prioritySeverity, type Severity,
 } from '../utils/status'
-import { formatCount, formatPercent, formatDateTime } from '../utils/format'
+import { formatCount, formatPercent, formatDateTime, NO_VALUE } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import { useDrillDown } from './composables/useDrillDown'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
@@ -186,6 +186,53 @@ const workstationPerformance = computed(
 )
 const recommendations = computed(() => data.value?.recommendations ?? ([] as ManufacturingRecommendation[]))
 
+/** Recommendations rows with derived stable keys for ListView. */
+const mfgRecRows = computed(() =>
+  recommendations.value.map((rec, index) => ({ ...rec, key: `r${index}` }))
+)
+
+/** Recommendations columns.
+ *
+ *  Bound to the fields `_generate_manufacturing_recommendations`
+ *  (insights/ml/manufacturing_intelligence.py:526) actually emits:
+ *  `priority`, `category`, `title`, `description`, `actions[]`. The old card
+ *  markup also rendered `impact` / `action` / `timeframe`, which no backend
+ *  path produces -- as columns those would be a permanent row of "-", so the
+ *  emitted `description` and `actions` take their place instead.
+ */
+const mfgRecsColumns = [
+  { label: 'Priority', key: 'priority', width: 0.9 },
+  {
+    label: 'Category',
+    key: 'category',
+    width: 1.2,
+    getLabel: ({ row }: { row: ManufacturingRecommendation }) => row.category ?? NO_VALUE,
+  },
+  {
+    label: 'Recommendation',
+    key: 'recommendation',
+    width: 2.4,
+    getLabel: ({ row }: { row: ManufacturingRecommendation }) =>
+      row.recommendation ?? row.title ?? NO_VALUE,
+  },
+  {
+    label: 'Detail',
+    key: 'description',
+    width: 2.8,
+    getLabel: ({ row }: { row: ManufacturingRecommendation }) => row.description ?? NO_VALUE,
+  },
+  {
+    label: 'Next step',
+    key: 'action',
+    width: 2.6,
+    getLabel: ({ row }: { row: ManufacturingRecommendation }) =>
+      row.action ?? (row.actions?.length ? row.actions.join(' · ') : NO_VALUE),
+  },
+]
+
+/** Recommendations ListView height: header row plus data rows, 40px each, plus 12px padding. */
+const mfgRecsListHeight = computed(() => `${(mfgRecRows.value.length + 1) * 40 + 12}px`)
+
 /** OEE / availability / performance / quality: higher is better. */
 function oeeSeverity(score: number | undefined): Severity {
   return scoreSeverity(score, { good: 85, warn: 65, higherIsBetter: true })
@@ -203,15 +250,17 @@ function utilizationSeverity(pct: number | null | undefined): Severity {
   return 'low'
 }
 
-/** Scrap/defect rates: lower is better. */
-function scrapSeverity(rate: number | undefined): Severity {
-  return scoreSeverity(rate, { good: 2, warn: 5, higherIsBetter: false })
-}
-
-/** OEE rating string ('World Class' / 'Good' / etc.) to Severity. */
+/** OEE rating string ('World Class' / 'Good' / etc.) to Severity.
+ *  `oee_rating` is null whenever the backend can't compute it (this site:
+ *  always, since availability/quality aren't sourced yet -- see
+ *  manufacturing_intelligence.py `_calculate_oee`). Null must map to 'none',
+ *  matching every other severity helper in this file (scoreSeverity,
+ *  utilizationSeverity): defaulting to 'high' painted an honest "not
+ *  measured" stub as a red "Not Rated" alert on every load. */
 function oeeRatingSeverity(rating: string | undefined): Severity {
-  if (['World Class', 'Excellent'].includes(rating || '')) return 'low'
-  if (['Good', 'Average'].includes(rating || '')) return 'medium'
+  if (!rating) return 'none'
+  if (['World Class', 'Excellent'].includes(rating)) return 'low'
+  if (['Good', 'Average'].includes(rating)) return 'medium'
   return 'high'
 }
 
@@ -301,7 +350,7 @@ onMounted(() => {
       :has-data="hasData"
       subject="manufacturing data"
       permission-hint="Ask an administrator for Work Order and BOM read access."
-      :kpi-count="8"
+      :kpi-count="6"
       @retry="retry"
     >
       <!-- Summary KPI cards -->
@@ -348,21 +397,6 @@ onMounted(() => {
           :sublabel="hasData ? `of ${formatCount(productionMetrics.total_work_orders)} total` : undefined"
           :clickable="true"
           @click="drillDown.open(MFG_ENDPOINT, 'Work Orders', { metric: 'completed_work_orders' })"
-        />
-        <KpiCard
-          label="Open Work Orders"
-          :value="productionMetrics.open_work_orders"
-          :loading="!hasData"
-          :severity="(productionMetrics.open_work_orders as number) > 0 ? 'medium' : undefined"
-          :clickable="true"
-          @click="drillDown.open(MFG_ENDPOINT, 'Open Work Orders', { metric: 'open_work_orders' })"
-        />
-        <KpiCard
-          label="Pending Material Requests"
-          :value="productionMetrics.pending_material_requests"
-          :loading="!hasData"
-          :clickable="true"
-          @click="drillDown.open(MFG_ENDPOINT, 'Pending Material Requests', { metric: 'material_requests' })"
         />
       </div>
 
@@ -511,6 +545,29 @@ onMounted(() => {
                   />
                 </div>
               </div>
+            <!-- Production Status -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="Production Status" :level="3" />
+              <div class="flex gap-4 mt-4">
+                <KpiCard
+                  variant="tile"
+                  label="Open Work Orders"
+                  :value="productionMetrics.open_work_orders"
+                  :severity="(productionMetrics.open_work_orders as number) > 0 ? 'medium' : undefined"
+                  :loading="!hasData"
+                  :clickable="true"
+                  @click="drillDown.open(MFG_ENDPOINT, 'Open Work Orders', { metric: 'open_work_orders' })"
+                />
+                <KpiCard
+                  variant="tile"
+                  label="Pending Material Requests"
+                  :value="productionMetrics.pending_material_requests"
+                  :loading="!hasData"
+                  :clickable="true"
+                  @click="drillDown.open(MFG_ENDPOINT, 'Pending Material Requests', { metric: 'material_requests' })"
+                />
+              </div>
+            </div>
             </div>
           </div>
         </div>
@@ -753,29 +810,24 @@ onMounted(() => {
 
         <!-- Recommendations -->
         <div v-if="tabIndex === 4">
-          <div v-if="recommendations.length > 0" class="space-y-4">
-            <div
-              v-for="rec in recommendations"
-              :key="rec.recommendation || rec.title"
-              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
+          <div v-if="recommendations.length > 0">
+            <ListView
+              class="mt-4 list-ink-fix"
+              :style="{ height: mfgRecsListHeight }"
+              :columns="mfgRecsColumns"
+              :rows="mfgRecRows"
+              row-key="key"
+              :options="{ selectable: false, showTooltip: true, rowHeight: 40 }"
             >
-              <div class="flex items-start justify-between mb-3">
-                <div class="flex-1">
-                  <div class="flex items-center gap-2 mb-2">
-                    <Badge
-                      v-bind="severityBadge(prioritySeverity(rec.priority))"
-                      :label="(rec.priority || 'Medium').toUpperCase()"
-                      size="sm"
-                    />
-                    <span v-if="rec.category" class="text-sm text-ink-gray-6">{{ rec.category }}</span>
-                  </div>
-                  <h4 class="font-semibold text-ink-gray-8 mb-2">{{ rec.recommendation || rec.title }}</h4>
-                  <p v-if="rec.impact" class="text-sm text-ink-gray-6 mb-1">{{ rec.impact }}</p>
-                  <p v-if="rec.action" class="text-sm text-ink-gray-6">{{ rec.action }}</p>
-                  <p v-if="rec.timeframe" class="text-xs text-ink-gray-5 mt-2">Timeline: {{ rec.timeframe }}</p>
-                </div>
-              </div>
-            </div>
+              <template #cell="{ column, row, item }">
+                <Badge
+                  v-if="column.key === 'priority' && row.priority"
+                  v-bind="severityBadge(prioritySeverity(row.priority))"
+                  size="sm"
+                />
+                <span v-else class="truncate">{{ column.getLabel ? column.getLabel({ row }) : item }}</span>
+              </template>
+            </ListView>
           </div>
           <div v-else class="bg-surface-white rounded-lg border border-outline-gray-1 p-12 text-center text-ink-gray-6">
             <p class="text-sm">No recommendations available. Refresh to generate insights.</p>

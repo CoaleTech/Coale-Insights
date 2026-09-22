@@ -1,3 +1,10 @@
+<!--
+  Break-Even Overview: No drill-down.
+  
+  Break-even analysis computes modelled thresholds and volumes based on cost
+  structure and sales dynamics. These are projected figures, not GL snapshots,
+  and drill-down to account detail would not resolve the break-even math.
+-->
 <template>
   <div class="space-y-6">
     <!-- Loading state -->

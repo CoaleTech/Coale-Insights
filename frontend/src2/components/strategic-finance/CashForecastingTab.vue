@@ -1,3 +1,10 @@
+<!--
+  Cash Forecasting: Projected Cash Position: no drill-down.
+  
+  The forecast figure is a model output (regression, trend extrapolation, or
+  explicit projection), not historical GL data. Drilling to accounts would
+  not explain the forecast logic.
+-->
 <template>
   <div class="space-y-6">
     <!-- Loading state -->

@@ -159,17 +159,29 @@ class ProductRecommendations:
     # -----------------------------------------------------------------
 
     def _count_transactions(self) -> int:
-        """Distinct submitted Sales Invoices with >= 2 line items."""
+        """Distinct submitted Sales Invoices with >= 2 line items.
+
+        Two-stage aggregate, not a single group_by+having+aggregate: once
+        grouped by `parent`, `parent.nunique()` is 1 *within every group*
+        (the group already pins that column to one value), so the old
+        one-shot query returned one row per qualifying invoice all equal
+        to 1, and `.iloc[0]` silently read the first of those -- always
+        reporting 1 transaction regardless of the real count (found 1 on
+        this site, though 763 invoices actually qualify). This blocked
+        Product Recommendations behind `MIN_TRANSACTIONS` forever. Count
+        the *rows* of the per-invoice table instead: get one row per
+        qualifying invoice first, then count how many rows that is.
+        """
         sii = t("Sales Invoice Item")
         si = t("Sales Invoice")
         joined = sii.join(si, sii.parent == si.name).view()
-        q = (
+        per_invoice = (
             joined.filter(joined.docstatus == 1)
             .group_by(joined.parent)
-            .having(joined.item_code.count() >= 2)
-            .aggregate(n=joined.parent.nunique())
+            .aggregate(line_count=joined.item_code.count())
         )
-        row = q.execute().iloc[0]
+        qualifying = per_invoice.filter(per_invoice.line_count >= 2)
+        row = qualifying.aggregate(n=qualifying.parent.nunique()).execute().iloc[0]
         return int(row["n"] or 0)
 
     def _count_distinct_items(self) -> int:

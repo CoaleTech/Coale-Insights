@@ -561,9 +561,21 @@ class ProcurementIntelligence:
             .pipe(_to_records)
         )
 
-        # Pending POs
+        # Pending POs. ``pending`` below is capped to the 20 oldest for
+        # display; pending_count/pending_value must come from a separate
+        # full aggregate over the same filter, not len()/sum() of the
+        # capped display list (that under-reported both on any site with
+        # >20 pending POs — e.g. this site: 20 shown vs. 30 actual).
+        pending_filtered = PO.filter(~PO.status.isin(["Completed", "Closed", "Cancelled"]))
+        pending_agg = pending_filtered.aggregate(
+            pending_count=pending_filtered.name.count(),
+            pending_value=pending_filtered.grand_total.sum(),
+        ).execute()
+        pending_count = int(pending_agg["pending_count"].iloc[0]) if len(pending_agg) else 0
+        pending_value = float(pending_agg["pending_value"].iloc[0] or 0) if len(pending_agg) else 0.0
+
         pending = (
-            PO.filter(~PO.status.isin(["Completed", "Closed", "Cancelled"]))
+            pending_filtered
             .select(PO.name, PO.supplier, PO.transaction_date, PO.grand_total, PO.status)
             .mutate(
                 days_pending=(today - PO.transaction_date).cast("int32")
@@ -699,8 +711,8 @@ class ProcurementIntelligence:
         return {
             "po_status_summary": po_status,
             "pending_pos": pending,
-            "pending_count": len(pending),
-            "pending_value": sum(float(p.get("grand_total") or 0) for p in pending),
+            "pending_count": pending_count,
+            "pending_value": pending_value,
             "avg_mr_to_po_days": avg_mr_to_po,
             "avg_po_to_grn_days": avg_po_to_grn,
             "avg_grn_to_invoice_days": avg_grn_to_inv,
@@ -881,7 +893,7 @@ class ProcurementIntelligence:
         # can't expose -- inner join instead (safe: `pi_365.name` is a
         # primary key, so no row multiplication).
         pi_365 = PI.filter(PI.posting_date >= cutoff)
-        single_source = (
+        single_source_all = (
             PII.join(pi_365, PII.parent == pi_365.name, how="inner")
             .group_by(PII.item_code)
             .aggregate(
@@ -889,6 +901,21 @@ class ProcurementIntelligence:
                 total_spend=PII.amount.sum(),
             )
             .filter(lambda x: (x.supplier_count == 1) & (x.total_spend > 10000))
+        )
+        # single_source_count/value must reflect every matching item, not
+        # just the top-20 kept for the drill-down list below (that
+        # under-reported both on this site: 20 shown / 47.4M vs. 181
+        # actual / 47.4M summed correctly only by coincidence of no cap
+        # on value -- count was always wrong past 20 items).
+        ss_totals = single_source_all.aggregate(
+            single_source_count=single_source_all.item_code.nunique(),
+            single_source_value=single_source_all.total_spend.sum(),
+        ).execute()
+        single_source_count = int(ss_totals["single_source_count"].iloc[0]) if len(ss_totals) else 0
+        single_source_value = float(ss_totals["single_source_value"].iloc[0] or 0) if len(ss_totals) else 0.0
+
+        single_source = (
+            single_source_all
             .order_by(ibis.desc("total_spend"))
             .limit(20)
             .execute()
@@ -978,7 +1005,6 @@ class ProcurementIntelligence:
         overdue_value = float(overdue_totals.get("value") or 0)
 
         high_conc_count = sum(1 for s in supplier_conc if s.get("concentration_pct", 0) > 30)
-        single_source_value = sum(float(r.get("total_spend") or 0) for r in ss_records)
         # Risk score on a 0-100 scale, bounded properly. The previous
         # formula ``high_conc_count*15 + single_source_count*2 +
         # overdue_value/100000`` saturated at 100 on this site from
@@ -995,7 +1021,7 @@ class ProcurementIntelligence:
         risk_score = min(
             100.0,
             (high_conc_count * 15.0)
-            + (len(ss_records) * 2.0)
+            + (single_source_count * 2.0)
             + overdue_component,
         )
 
@@ -1004,7 +1030,7 @@ class ProcurementIntelligence:
             "supplier_concentration": supplier_conc,
             "high_concentration_count": high_conc_count,
             "single_source_items": ss_records,
-            "single_source_count": len(ss_records),
+            "single_source_count": single_source_count,
             "single_source_value": single_source_value,
             "payment_exposure": payment_exposure,
             "total_outstanding": total_outstanding,

@@ -47,69 +47,95 @@
       <!-- Business Health Score -->
       <div class="px-6 pt-6">
         <div class="bg-accent-soft rounded-xl p-6 lg:p-8">
-          <!-- Main Score -->
-          <div class="max-w-4xl">
-            <div class="text-sm font-semibold text-ink-gray-6 uppercase tracking-wider">
-              Business Health Score
-            </div>
-            <div class="mt-2 flex items-baseline gap-3">
-              <span class="text-5xl font-bold text-ink-gray-9 tracking-tight">
-                {{ businessHealth.overall_score || 0 }}
-              </span>
-              <span class="text-3xl font-semibold text-ink-gray-6">%</span>
-              <Badge
-                v-bind="severityBadge(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }))"
-                :aria-label="severityAria('Health', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
-                size="sm"
-                class="self-center"
-              />
-            </div>
-            <div
-              class="mt-4 h-3 w-full bg-surface-white rounded-full overflow-hidden"
-              role="img"
-              :aria-label="severityAria('Overall health score', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
-            >
+          <!--
+            businessHealth.overall_score is null whenever the backend's
+            `_scoped_rollup` redacts it (see insights/api/ml/executive.py):
+            it's a composite across every department and is withheld from a
+            user who can't read all of them, precisely so a partial-access
+            reader can't infer the hidden departments' numbers from how the
+            blended score moves. Rendering `|| 0` here would undo that
+            redaction at the UI layer -- a restricted user would see a
+            confident "Business Health Score: 0%, Not rated" and reasonably
+            read that as "the company is in crisis" rather than "you don't
+            have access to this composite". Show the backend's own
+            `restricted_note` instead.
+          -->
+          <template v-if="businessHealth.overall_score != null">
+            <!-- Main Score -->
+            <div class="max-w-4xl">
+              <div class="text-sm font-semibold text-ink-gray-6 uppercase tracking-wider">
+                Business Health Score
+              </div>
+              <div class="mt-2 flex items-baseline gap-3">
+                <span class="text-5xl font-bold text-ink-gray-9 tracking-tight">
+                  {{ businessHealth.overall_score }}
+                </span>
+                <span class="text-3xl font-semibold text-ink-gray-6">%</span>
+                <Badge
+                  v-bind="severityBadge(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }))"
+                  :aria-label="severityAria('Health', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
+                  size="sm"
+                  class="self-center"
+                />
+              </div>
               <div
-                :class="[severityFill(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
-                :style="`width: ${businessHealth.overall_score || 0}%`"
-              ></div>
-            </div>
-          </div>
-
-          <!-- AI Narrative -->
-          <div v-if="data.narrative" class="mt-6 flex items-start gap-3 max-w-4xl">
-            <Brain class="w-5 h-5 text-accent mt-0.5" />
-            <div>
-              <h3 class="text-sm font-semibold text-ink-gray-9">AI Executive Summary</h3>
-              <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">{{ data.narrative }}</p>
-            </div>
-          </div>
-
-          <!-- Department Health Breakdown -->
-          <div class="mt-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
-            <div
-              v-for="(score, department) in businessHealth.department_scores"
-              :key="department"
-              class="flex flex-col p-3 rounded-lg motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
-              :class="departmentRoutes[department] ? 'cursor-pointer hover:bg-surface-white' : ''"
-              :tabindex="departmentRoutes[department] ? 0 : undefined"
-              :role="departmentRoutes[department] ? 'button' : undefined"
-              :aria-label="departmentRoutes[department] ? `Go to ${department} dashboard` : undefined"
-              @click="departmentRoutes[department] && router.push(departmentRoutes[department])"
-              @keydown.enter="departmentRoutes[department] && router.push(departmentRoutes[department])"
-            >
-              <div class="text-xs font-medium text-ink-gray-6 uppercase tracking-wide truncate">{{ department }}</div>
-              <div class="mt-1 text-2xl font-bold text-ink-gray-9">{{ Math.round(score) }}%</div>
-              <div
-                class="mt-2 h-1.5 w-full bg-surface-white rounded-full overflow-hidden"
-                :aria-label="severityAria(String(department), scoreSeverity(score, { good: 80, warn: 60 }), score)"
+                class="mt-4 h-3 w-full bg-surface-white rounded-full overflow-hidden"
                 role="img"
+                :aria-label="severityAria('Overall health score', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
               >
                 <div
-                  :class="[severityFill(scoreSeverity(score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
-                  :style="`width: ${score}%`"
+                  :class="[severityFill(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
+                  :style="`width: ${businessHealth.overall_score}%`"
                 ></div>
               </div>
+            </div>
+
+            <!-- AI Narrative -->
+            <div v-if="data.narrative" class="mt-6 flex items-start gap-3 max-w-4xl">
+              <Brain class="w-5 h-5 text-accent mt-0.5" />
+              <div>
+                <h3 class="text-sm font-semibold text-ink-gray-9">AI Executive Summary</h3>
+                <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">{{ data.narrative }}</p>
+              </div>
+            </div>
+
+            <!-- Department Health Breakdown -->
+            <div class="mt-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+              <div
+                v-for="(score, department) in businessHealth.department_scores"
+                :key="department"
+                class="flex flex-col p-3 rounded-lg motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
+                :class="departmentRoutes[department] ? 'cursor-pointer hover:bg-surface-white' : ''"
+                :tabindex="departmentRoutes[department] ? 0 : undefined"
+                :role="departmentRoutes[department] ? 'button' : undefined"
+                :aria-label="departmentRoutes[department] ? `Go to ${department} dashboard` : undefined"
+                @click="departmentRoutes[department] && router.push(departmentRoutes[department])"
+                @keydown.enter="departmentRoutes[department] && router.push(departmentRoutes[department])"
+              >
+                <div class="text-xs font-medium text-ink-gray-6 uppercase tracking-wide truncate">{{ department }}</div>
+                <div class="mt-1 text-2xl font-bold text-ink-gray-9">{{ Math.round(score) }}%</div>
+                <div
+                  class="mt-2 h-1.5 w-full bg-surface-white rounded-full overflow-hidden"
+                  :aria-label="severityAria(String(department), scoreSeverity(score, { good: 80, warn: 60 }), score)"
+                  role="img"
+                >
+                  <div
+                    :class="[severityFill(scoreSeverity(score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
+                    :style="`width: ${score}%`"
+                  ></div>
+                </div>
+              </div>
+            </div>
+          </template>
+          <div v-else class="flex items-start gap-3 max-w-4xl">
+            <Lock class="w-5 h-5 text-ink-gray-5 mt-0.5" aria-hidden="true" />
+            <div>
+              <div class="text-sm font-semibold text-ink-gray-6 uppercase tracking-wider">
+                Business Health Score
+              </div>
+              <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">
+                {{ data.restricted_note || 'This is a cross-department composite score, shown only to users with read access to every department.' }}
+              </p>
             </div>
           </div>
         </div>
@@ -302,7 +328,8 @@ import {
   FileText,
   Calendar,
   UserCog,
-  Factory
+  Factory,
+  Lock
 } from 'lucide-vue-next'
 import { Button, Badge, LoadingIndicator } from 'frappe-ui'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
@@ -424,8 +451,9 @@ function getKpiVariance(kpi) {
 }
 
 function sparklineData(dept, kpiIndex) {
-  const key = (departmentTrendKeys[dept.key] || [])[kpiIndex] || ''
-  return getTrendData(key)
+  const entry = departmentTrendKeys[dept.key]
+  if (!entry || entry.kpiIndex !== kpiIndex) return []
+  return getTrendData(entry.key)
 }
 
 const departmentRoutes = {
@@ -439,26 +467,26 @@ const departmentRoutes = {
 }
 
 // Trend keys are the names produced by `ml/executive_intelligence
-// ._trend_sparklines`. The previous version referenced three keys
-// (`headcount`, `churn_rate`, `inventory_turns`) that did not match
-// the underlying computation: the Python module was already
-// computing `new_hires_per_month`, a self-referential customer-
-// activity index, and a normalised stock-outflow index under
-// those names, all of which read as misleading labels on the
-// KPI cards. The Python module has been renamed to
-// `new_hires_per_month`, `customer_activity_change`, and
-// `stock_outflow_index` so the sparkline data and the KPI card
-// numbers reconcile. (Risk has no monthly trend -- see
-// `_trend_sparklines` -- so all three Risk KPI cards render
-// without a sparkline; not a regression, just an honest absence.)
+// ._trend_sparklines`. Each department's KPI grid shows 3-4 cards, but
+// `_trend_sparklines` only computes ONE monthly series per department --
+// there is no per-KPI trend data. The previous version repeated that one
+// series across every card's index (`['revenue','revenue','revenue']`),
+// which put the exact same sparkline shape under "Revenue", "Net Margin %"
+// AND "Cash Runway" -- a reader sees a sparkline inside a KPI card and
+// reasonably assumes it traces THAT card's own history, not an unrelated
+// department series. Only attach the sparkline to the one card whose own
+// metric genuinely equals the computed series (`kpiIndex` = that KPI's
+// position in its `_xxx_kpis()` dict): Financial's `revenue` trend matches
+// the Revenue KPI (index 0); Sales' `sales_growth` matches the Sales
+// Growth KPI (index 0); Manufacturing's `oee` matches the OEE KPI (index
+// 0). Customer/Operations/HR/Risk have no computed series matching any of
+// their own KPIs' real metric, so they render without a sparkline --
+// an honest absence, the same pattern `_trend_sparklines` already applies
+// to Risk on the backend (see its docstring).
 const departmentTrendKeys = {
-  financial: ['revenue', 'revenue', 'revenue'],
-  sales: ['sales_growth', 'sales_growth', 'sales_growth'],
-  customer: ['customer_activity_change', 'customer_activity_change', 'customer_activity_change'],
-  operations: ['stock_outflow_index', 'stock_outflow_index', 'stock_outflow_index'],
-  risk: ['credit_risk', 'credit_risk', 'credit_risk'],
-  hr: ['new_hires_per_month', 'new_hires_per_month', 'new_hires_per_month'],
-  manufacturing: ['oee', 'oee', 'oee'],
+  financial: { kpiIndex: 0, key: 'revenue' },
+  sales: { kpiIndex: 0, key: 'sales_growth' },
+  manufacturing: { kpiIndex: 0, key: 'oee' },
 }
 
 function getTrendData(metric) {

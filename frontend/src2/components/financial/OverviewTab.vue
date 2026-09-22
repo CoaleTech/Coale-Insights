@@ -99,6 +99,12 @@ import { formatPeriod } from './format'
 import { formatMoney as formatCurrency } from '../../utils/format'
 import type { OverviewData } from './types'
 
+/**
+ * No drill-down props: this tab renders P&L aggregates (revenue, expenses,
+ * profit, margin) and a revenue trend. None of them resolve to a row list --
+ * `get_finance_detail` has no metric behind a computed margin -- so declaring
+ * `finEndpoint`/`drillDown` here would be props nothing reads.
+ */
 const props = defineProps<{
 	data: OverviewData
 	currency: string

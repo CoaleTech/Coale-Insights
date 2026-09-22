@@ -33,6 +33,7 @@ from insights.api.ml import general as general_api
 from insights.api.ml import breakeven as breakeven_api
 from insights.api.ml import executive as executive_api
 from insights.api.ml import price as price_api
+from insights.api.ml import marketing as marketing_api
 
 
 class TestMLPermissionGates(FrappeTestCase):
@@ -54,6 +55,73 @@ class TestMLPermissionGates(FrappeTestCase):
         with patch.object(frappe, "has_permission", side_effect=frappe.PermissionError("denied")):
             with self.assertRaises(frappe.PermissionError):
                 hr_api.get_hr_overview()
+
+    def test_hr_overview_denies_employee_role_without_hr_role(self):
+        """CWE-863 regression: an Employee-role-only (ESS) user passes the
+        doctype-level has_permission check on both Employee and Salary Slip
+        (ESS self-service grants plain read), but HR aggregates must still
+        be denied without an explicit HR Manager/HR User role -- otherwise
+        the ESS user's single-row sample gets presented as a company-wide
+        payroll/headcount figure. See t_06cf4e69 / t_ab698dcf.
+
+        frappe.has_role() does not exist on this Frappe version; the gate
+        is implemented via frappe.get_roles(), so that's what's mocked."""
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.get_hr_overview()
+
+    def test_payroll_analytics_denies_employee_role_without_hr_role(self):
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.get_payroll_analytics()
+
+    def test_headcount_analytics_denies_employee_role_without_hr_role(self):
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.get_headcount_analytics()
+
+    def test_attrition_analytics_denies_employee_role_without_hr_role(self):
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.get_attrition_analytics()
+
+    def test_workforce_planning_denies_employee_role_without_hr_role(self):
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.get_workforce_planning()
+
+    def test_hr_insights_denies_employee_role_without_hr_role(self):
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.get_hr_insights(query="headcount")
+
+    def test_talent_analytics_denies_employee_role_without_hr_role(self):
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.get_talent_analytics()
+
+    def test_analyze_hr_query_denies_employee_role_without_hr_role(self):
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee"]):
+            with self.assertRaises(frappe.PermissionError):
+                hr_api.analyze_hr_query(query="headcount")
+
+    def test_hr_overview_allows_hr_user_role(self):
+        """Positive case: an HR User role passes both the permission and
+        role gates and reaches the underlying compute path."""
+        with patch.object(frappe, "has_permission"), \
+             patch.object(frappe, "get_roles", return_value=["Employee", "HR User"]), \
+             patch("insights.ml.hr_intelligence.HRIntelligence") as MockHR:
+            MockHR.return_value.train.return_value = {"status": "success"}
+            result = hr_api.get_hr_overview()
+            self.assertEqual(result.get("status"), "success")
 
     def test_financial_overview_checks_gl_entry_permission(self):
         with patch.object(frappe, "has_permission") as mock_has_perm, \
@@ -105,24 +173,82 @@ class TestOutsideVoiceFixes(FrappeTestCase):
     finding (verified and fixed separately, covered here for regression)."""
 
     def test_employee_breakeven_gates_on_salary_slip_not_sales_invoice(self):
-        """calculate_employee_breakeven queries Salary Slip (payroll), not
-        Sales Invoice -- the original gate was for the wrong doctype
-        entirely. See outside-voice finding 3."""
+        """calculate_employee_breakeven queries Salary Slip (payroll), plus
+        Sales Order (order counts) and GL Entry (COGS ratio) -- the original
+        gate checked Sales Invoice alone, the wrong doctype entirely. See
+        outside-voice finding 3 and the security-reviewer-bot follow-up
+        (2026-09-19) that widened this to match the full read surface."""
         with patch.object(frappe, "has_permission") as mock_has_perm, \
              patch("insights.ml.breakeven_engine.BreakevenEngine") as MockEngine:
             MockEngine.return_value.calculate_employee_breakeven.return_value = {}
             breakeven_api.employee_breakeven()
-            mock_has_perm.assert_called_once_with("Salary Slip", "read", throw=True)
+            mock_has_perm.assert_any_call("Salary Slip", "read", throw=True)
+            mock_has_perm.assert_any_call("Sales Order", "read", throw=True)
+            mock_has_perm.assert_any_call("GL Entry", "read", throw=True)
 
     def test_capital_efficiency_gates_on_gl_entry(self):
-        """calculate_roce/calculate_irr are GL Entry-derived, not Sales
-        Invoice. See outside-voice finding 3."""
+        """calculate_roce/calculate_irr are GL Entry- and Payment
+        Entry-derived, not Sales Invoice. See outside-voice finding 3 and
+        the security-reviewer-bot follow-up (2026-09-19) that added the
+        missing Payment Entry (IRR) gate."""
         with patch.object(frappe, "has_permission") as mock_has_perm, \
              patch("insights.ml.breakeven_engine.BreakevenEngine") as MockEngine:
             MockEngine.return_value.calculate_roce.return_value = 0
             MockEngine.return_value.calculate_irr.return_value = 0
             breakeven_api.capital_efficiency()
-            mock_has_perm.assert_called_once_with("GL Entry", "read", throw=True)
+            mock_has_perm.assert_any_call("GL Entry", "read", throw=True)
+            mock_has_perm.assert_any_call("Payment Entry", "read", throw=True)
+
+    def test_item_breakeven_gates_on_full_read_surface(self):
+        """calculate_item_breakeven reads Item and GL Entry (fixed costs)
+        besides Sales Invoice -- security-reviewer-bot follow-up
+        (2026-09-19) to the backend-engineer fix in inventory.py's sibling
+        endpoint, applied here to the older breakeven.py copy."""
+        with patch.object(frappe, "has_permission") as mock_has_perm, \
+             patch("insights.ml.breakeven_engine.BreakevenEngine") as MockEngine:
+            MockEngine.return_value.calculate_item_breakeven.return_value = {}
+            breakeven_api.item_breakeven()
+            mock_has_perm.assert_any_call("Sales Invoice", "read", throw=True)
+            mock_has_perm.assert_any_call("Item", "read", throw=True)
+            mock_has_perm.assert_any_call("GL Entry", "read", throw=True)
+
+    def test_breakeven_summary_gates_on_every_sub_analysis_doctype(self):
+        """get_breakeven_summary fans out into every other calculate_*
+        method (item/employee/cash-flow/ROCE/IRR) -- a Sales-Invoice-only
+        gate let any Sales-only user pull company payroll-by-department and
+        GL/Payment-Entry-derived financials through this single endpoint.
+        security-reviewer-bot finding, 2026-09-19."""
+        with patch.object(frappe, "has_permission") as mock_has_perm, \
+             patch("insights.ml.breakeven_engine.BreakevenEngine") as MockEngine:
+            MockEngine.return_value.get_breakeven_summary.return_value = {}
+            breakeven_api.breakeven_summary()
+            for doctype in ("Sales Invoice", "Item", "GL Entry", "Salary Slip", "Sales Order", "Payment Entry"):
+                mock_has_perm.assert_any_call(doctype, "read", throw=True)
+
+    def test_predict_breakeven_scenario_gates_on_item_and_gl_entry_too(self):
+        """predict() recomputes calculate_item_breakeven under a scenario --
+        same read surface as item_breakeven. security-reviewer-bot finding,
+        2026-09-19."""
+        with patch.object(frappe, "has_permission") as mock_has_perm, \
+             patch("insights.ml.breakeven_engine.BreakevenEngine") as MockEngine:
+            MockEngine.return_value.predict.return_value = {}
+            breakeven_api.predict_breakeven_scenario()
+            mock_has_perm.assert_any_call("Sales Invoice", "read", throw=True)
+            mock_has_perm.assert_any_call("Item", "read", throw=True)
+            mock_has_perm.assert_any_call("GL Entry", "read", throw=True)
+
+    def test_item_lead_breakeven_ratio_gates_on_lead_too(self):
+        """get_item_lead_breakeven_ratio reads Lead directly for conversion
+        rate, on top of calculate_item_breakeven's own surface.
+        security-reviewer-bot finding, 2026-09-19."""
+        with patch.object(frappe, "has_permission") as mock_has_perm, \
+             patch("insights.ml.breakeven_engine.BreakevenEngine") as MockEngine:
+            MockEngine.return_value.get_item_lead_breakeven_ratio.return_value = {}
+            breakeven_api.item_lead_breakeven_ratio()
+            mock_has_perm.assert_any_call("Sales Invoice", "read", throw=True)
+            mock_has_perm.assert_any_call("Item", "read", throw=True)
+            mock_has_perm.assert_any_call("GL Entry", "read", throw=True)
+            mock_has_perm.assert_any_call("Lead", "read", throw=True)
 
     def test_department_insights_gates_per_requested_department(self):
         """A single fixed 'Sales Invoice' gate let a Sales-only user pass
@@ -275,3 +401,164 @@ class TestPriceIntelligenceGates(FrappeTestCase):
                 getattr(fn, "whitelisted", False),
                 f"insights.ml.price_intelligence.{name} is whitelisted -- ungated surface",
             )
+
+    def test_approval_queue_checks_own_permission(self):
+        """`_approval_queue` bypasses `ibis_source.t()` (raw `frappe.qb` against a
+        doctype not wired into the ibis registry), so unlike its sibling sections
+        it must gate itself explicitly rather than inherit row/column filtering
+        for free."""
+        import insights.ml.price_intelligence as price_ml
+
+        with patch.object(frappe, "db") as mock_db, patch.object(
+            frappe, "has_permission", return_value=False
+        ) as mock_has_perm:
+            mock_db.exists.return_value = True
+            result = price_ml._approval_queue(company=None)
+
+        mock_has_perm.assert_called_once_with("JKM Sales Pricing Request", "read")
+        self.assertEqual(result["status"], "unavailable")
+        self.assertEqual(result["rows"], [])
+
+
+class TestMarketingSourceMetricsGates(FrappeTestCase):
+    """source_metrics/cost_per_lead/territory_leads had NO permission check
+    at all -- unlike get_marketing_overview/get_crm_detail/lead_conversion
+    in the same module, which all gate on Lead read. Found during the
+    Marketing & CRM Intelligence dashboard audit (2026-09-19): orphaned
+    (unused by the current Vue frontend, confirmed via grep) but still a
+    live, reachable @frappe.whitelist() surface leaking Lead/GL Entry
+    aggregates to any authenticated user."""
+
+    def test_source_metrics_checks_lead_and_gl_entry_permission(self):
+        with patch.object(frappe, "has_permission") as mock_has_perm, patch(
+            "insights.ml.marketing_source_metrics.get_leads_by_source", return_value=[]
+        ), patch(
+            "insights.ml.marketing_source_metrics.get_hot_leads_by_source", return_value=[]
+        ), patch(
+            "insights.ml.marketing_source_metrics.get_cost_per_lead", return_value=[]
+        ), patch(
+            "insights.ml.marketing_source_metrics.get_territory_leads", return_value=[]
+        ):
+            marketing_api.source_metrics()
+            mock_has_perm.assert_any_call("Lead", "read", throw=True)
+            mock_has_perm.assert_any_call("GL Entry", "read", throw=True)
+
+    def test_source_metrics_permission_denial_propagates(self):
+        with patch.object(frappe, "has_permission", side_effect=frappe.PermissionError("denied")):
+            with self.assertRaises(frappe.PermissionError):
+                marketing_api.source_metrics()
+
+    def test_cost_per_lead_checks_lead_and_gl_entry_permission(self):
+        with patch.object(frappe, "has_permission") as mock_has_perm, patch(
+            "insights.ml.marketing_source_metrics.get_cost_per_lead", return_value=[]
+        ):
+            marketing_api.cost_per_lead()
+            mock_has_perm.assert_any_call("Lead", "read", throw=True)
+            mock_has_perm.assert_any_call("GL Entry", "read", throw=True)
+
+    def test_cost_per_lead_permission_denial_propagates(self):
+        with patch.object(frappe, "has_permission", side_effect=frappe.PermissionError("denied")):
+            with self.assertRaises(frappe.PermissionError):
+                marketing_api.cost_per_lead()
+
+    def test_territory_leads_checks_lead_permission(self):
+        with patch.object(frappe, "has_permission") as mock_has_perm, patch(
+            "insights.ml.marketing_source_metrics.get_territory_leads", return_value=[]
+        ):
+            marketing_api.territory_leads()
+            mock_has_perm.assert_called_once_with("Lead", "read", throw=True)
+
+    def test_territory_leads_permission_denial_propagates(self):
+        with patch.object(frappe, "has_permission", side_effect=frappe.PermissionError("denied")):
+            with self.assertRaises(frappe.PermissionError):
+                marketing_api.territory_leads()
+
+
+class TestStrategicFinanceAndBudgetVarianceCompanyScoping(FrappeTestCase):
+    """Regression tests for routing company resolution through
+    `permitted_company()` instead of `get_user_default`/`Global Defaults`
+    (see insights/ml/breakeven_engine.py:29,38-49 for the reference fix).
+
+    A user default or site-wide Global Default is a preference, not a
+    permission boundary; these tests confirm both intelligence classes
+    resolve `self.company` through the same permission-checked path
+    `BreakevenEngine` already uses, and that both dashboard entry points
+    are gated by `authorize_dashboard` like every other dashboard.
+    """
+
+    def test_strategic_finance_intelligence_resolves_company_via_permitted_company(self):
+        with patch(
+            "insights.ml.strategic_finance.model.permitted_company", return_value="Test Company"
+        ) as mock_permitted:
+            from insights.ml.strategic_finance.model import StrategicFinanceIntelligence
+
+            model = StrategicFinanceIntelligence()
+            mock_permitted.assert_called_once_with(None)
+            self.assertEqual(model.company, "Test Company")
+
+    def test_strategic_finance_intelligence_throws_when_no_company_permitted(self):
+        with patch("insights.ml.strategic_finance.model.permitted_company", return_value=None):
+            from insights.ml.strategic_finance.model import StrategicFinanceIntelligence
+
+            with self.assertRaises(frappe.ValidationError):
+                StrategicFinanceIntelligence()
+
+    def test_budget_variance_intelligence_resolves_company_via_permitted_company(self):
+        with patch(
+            "insights.api.ml.permissions.permitted_company", return_value="Test Company"
+        ) as mock_permitted:
+            from insights.ml.budget_variance_intelligence import BudgetVarianceIntelligence
+
+            model = BudgetVarianceIntelligence()
+            mock_permitted.assert_called_once_with(None)
+            self.assertEqual(model.company, "Test Company")
+
+    def test_budget_variance_intelligence_checks_explicit_company_against_permitted_list(self):
+        """An explicit `company=` argument must still cross `permitted_company`
+        -- passing it straight through (the pre-fix `company or default_company()`
+        shape) would let a caller request an unpermitted company directly."""
+        with patch(
+            "insights.api.ml.permissions.permitted_company", return_value="Requested Co"
+        ) as mock_permitted:
+            from insights.ml.budget_variance_intelligence import BudgetVarianceIntelligence
+
+            model = BudgetVarianceIntelligence(company="Requested Co")
+            mock_permitted.assert_called_once_with({"company": "Requested Co"})
+            self.assertEqual(model.company, "Requested Co")
+
+    def test_budget_variance_intelligence_throws_when_no_company_permitted(self):
+        with patch("insights.api.ml.permissions.permitted_company", return_value=None):
+            from insights.ml.budget_variance_intelligence import BudgetVarianceIntelligence
+
+            with self.assertRaises(frappe.ValidationError):
+                BudgetVarianceIntelligence()
+
+    def test_strategic_finance_intelligence_endpoint_gated_by_authorize_dashboard(self):
+        from insights.api.ml import strategic_finance as strategic_finance_api
+
+        with patch.object(frappe, "has_permission"), patch(
+            "insights.api.ml.strategic_finance.authorize_dashboard",
+            side_effect=frappe.PermissionError("denied"),
+        ) as mock_authorize:
+            with self.assertRaises(frappe.PermissionError):
+                strategic_finance_api.strategic_finance_intelligence()
+            mock_authorize.assert_called_once_with("strategic_finance")
+
+    def test_budget_variance_overview_endpoint_gated_by_authorize_dashboard(self):
+        from insights.api.ml import strategic_finance as strategic_finance_api
+
+        with patch.object(frappe, "has_permission"), patch(
+            "insights.api.ml.strategic_finance.authorize_dashboard",
+            side_effect=frappe.PermissionError("denied"),
+        ) as mock_authorize:
+            with self.assertRaises(frappe.PermissionError):
+                strategic_finance_api.get_budget_variance_overview()
+            mock_authorize.assert_called_once_with("budget_variance")
+
+    def test_dashboard_doctypes_lists_strategic_finance_and_budget_variance(self):
+        from insights.api.ml.permissions import DASHBOARD_DOCTYPES
+
+        self.assertIn("strategic_finance", DASHBOARD_DOCTYPES)
+        self.assertIn("budget_variance", DASHBOARD_DOCTYPES)
+        self.assertIn("GL Entry", DASHBOARD_DOCTYPES["strategic_finance"])
+        self.assertIn("GL Entry", DASHBOARD_DOCTYPES["budget_variance"])

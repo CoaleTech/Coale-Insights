@@ -15,14 +15,12 @@ from insights.api.ml.marketing import _build_marketing_funnel, _generate_marketi
 class TestBuildMarketingFunnel(FrappeTestCase):
     def test_funnel_stage_counts_and_values(self):
         lead_totals = {"at_opportunity": 10, "at_quotation": 5, "converted": 3}
-        quote_totals = [{"count": 8}, {"count": 4}]
+        quote_totals = [{"count": 8, "value": 1800.0}, {"count": 4, "value": 1200.0}]
         won = {"count": 3}
         funnel = _build_marketing_funnel(
             lead_totals=lead_totals,
             quote_totals=quote_totals,
             won=won,
-            open_value=1000.0,
-            decided_value=2000.0,
             won_value=1500.0,
             total=100,
             converted=3,
@@ -45,8 +43,6 @@ class TestBuildMarketingFunnel(FrappeTestCase):
             lead_totals=lead_totals,
             quote_totals=quote_totals,
             won=won,
-            open_value=0.0,
-            decided_value=0.0,
             won_value=0.0,
             total=20,
             converted=0,
@@ -67,8 +63,6 @@ class TestBuildMarketingFunnel(FrappeTestCase):
             lead_totals=lead_totals,
             quote_totals=quote_totals,
             won=won,
-            open_value=0.0,
-            decided_value=0.0,
             won_value=0.0,
             total=0,
             converted=0,

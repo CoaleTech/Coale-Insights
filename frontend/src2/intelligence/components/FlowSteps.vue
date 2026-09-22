@@ -29,7 +29,7 @@
       :class="orientation === 'vertical' ? 'flex-col' : 'flex-1 flex-row items-center'"
     >
       <div class="min-w-0 flex-1">
-        <p class="text-xs font-semibold uppercase tracking-wide text-ink-gray-5">
+        <p class="text-xs font-semibold uppercase tracking-wide text-ink-gray-6">
           {{ step.label }}
         </p>
         <p class="mt-1 text-sm font-semibold text-ink-gray-9">{{ step.title }}</p>

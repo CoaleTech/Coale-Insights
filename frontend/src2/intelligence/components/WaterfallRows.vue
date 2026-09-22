@@ -66,16 +66,26 @@ const props = withDefaults(
   defineProps<{
     rows: WaterfallRow[]
     currency?: string | null
+    /**
+     * Largest absolute amount to scale bars against, when that scale is not
+     * this instance's own. Two waterfalls sitting side by side each normalise
+     * to their own largest row otherwise, so a 50k line renders exactly as
+     * long as a 500k line one panel over and length stops carrying magnitude
+     * across the pair. Callers rendering a single set leave it unset.
+     */
+    scaleMax?: number | null
   }>(),
-  { currency: null },
+  { currency: null, scaleMax: null },
 )
 
-const maxAbs = computed(() =>
-  props.rows.reduce(
+const maxAbs = computed(() => {
+  const shared = props.scaleMax
+  if (typeof shared === 'number' && Number.isFinite(shared) && shared > 0) return shared
+  return props.rows.reduce(
     (max, row) => (Number.isFinite(row.amount) ? Math.max(max, Math.abs(row.amount as number)) : max),
     0,
-  ),
-)
+  )
+})
 
 /** `null` means "draw no bar at all", which is distinct from a 0% bar. */
 function width(row: WaterfallRow): number | null {

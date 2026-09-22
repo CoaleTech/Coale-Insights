@@ -9,7 +9,7 @@
 				<template v-for="group in navGroups" :key="group.label">
 					<div
 						v-if="!collapsed"
-						class="px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-ink-gray-5"
+						class="px-4 pb-1 pt-3 text-xs font-medium uppercase tracking-wide text-ink-gray-6"
 					>
 						{{ group.label }}
 					</div>

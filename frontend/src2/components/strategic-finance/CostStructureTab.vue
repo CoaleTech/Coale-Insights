@@ -34,7 +34,7 @@
         <KpiCard label="Gross Profit (YTD)" :amount="data.figures.gross_profit ?? undefined" :currency="currency" />
         <KpiCard label="Net Profit (YTD)" :amount="data.figures.net_profit" :currency="currency" />
         <KpiCard label="Salary Cost (YTD)" :amount="data.figures.salary_cost" :currency="currency" />
-        <KpiCard label="Fixed Cost (YTD)" :amount="data.figures.fixed_cost" :currency="currency" />
+        <KpiCard label="Fixed Cost (YTD)" :amount="data.figures.fixed_cost" :currency="currency" :clickable="true" @click="drillDown.open(finEndpoint, 'Fixed Costs', { metric: 'cost_structure_accounts' })" />
       </div>
 
       <!-- Ratio cards -->
@@ -126,12 +126,14 @@ import { severityBadge, severityFill, severityAria, type Severity } from '../../
 import { formatMoney, NO_VALUE } from '../../utils/format'
 import { formatPeriod } from '../financial/format'
 import { themeColor } from '../../utils/chartTheme'
+import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import type { CostStructureData, CostRatioCard, CostRatioStatus, ExpenseForecastData } from './types'
-
 const props = defineProps<{
   data: CostStructureData | null | undefined
   forecast?: ExpenseForecastData | null
   currency: string
+  finEndpoint: string
+  drillDown: ReturnType<typeof useDrillDown>
 }>()
 
 // ── Status vocabulary ───────────────────────────────────────────────────────

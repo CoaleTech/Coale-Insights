@@ -716,7 +716,17 @@ const performSearch = async () => {
       }
     })
 
-    searchResults.value = response.search_results
+    // perform_cross_dashboard_search puts total_results/summary at the
+    // response top level (see api/ml/search.py docstring), not inside
+    // search_results -- merge them in so the template's
+    // searchResults.total_results / searchResults.summary reads (results
+    // count badge, summary card, and the total_results === 0 "no results"
+    // branch) see the real numbers instead of always-undefined.
+    searchResults.value = {
+      ...response.search_results,
+      total_results: response.total_results,
+      summary: response.summary,
+    }
     agentResponse.value = response.agent_response || ''
     navigationSuggestions.value = response.search_results?.navigation
     navigationRecommendations.value = response.navigation_recommendations

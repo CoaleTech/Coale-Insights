@@ -410,12 +410,24 @@ class HRIntelligence:
         voluntary_exits = c["voluntary_exits"]
         involuntary_exits = c["involuntary_exits"]
 
-        # Attrition rate denominator is total employees, not just active
-        # (industry-standard formula: exits / average headcount). The
-        # site has 26 employees, so use the snapshot total.
-        employee = t("Employee")
-        total_employees = _scalar(employee.aggregate(n=employee.count()))
-        attrition_rate = (total_exits / total_employees * 100) if total_employees else 0
+        # Industry-standard formula: exits / average headcount over the
+        # period, where average headcount = (start + end) / 2.
+        # `total_active` is the end-of-period (current) active headcount;
+        # the start-of-period headcount is derived by reversing this
+        # period's net change (removing this period's hires, adding back
+        # this period's exits).
+        #
+        # Previously this divided by a count of every Employee record ever
+        # created on the site (any status, no date bound at all) -- a
+        # denominator that only grows as terminated employees accumulate
+        # over the years, silently deflating the reported rate on every
+        # later period even though the comment here already named the
+        # correct formula and never implemented it.
+        end_headcount = c["total_active"]
+        net_change = c["new_hires"] - total_exits
+        start_headcount = end_headcount - net_change
+        avg_headcount = (start_headcount + end_headcount) / 2
+        attrition_rate = (total_exits / avg_headcount * 100) if avg_headcount > 0 else 0
 
         voluntary_rate = (voluntary_exits / total_exits * 100) if total_exits else 0
         involuntary_rate = (involuntary_exits / total_exits * 100) if total_exits else 0

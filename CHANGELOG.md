@@ -4,6 +4,122 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-09-22
+
+### Changed — Risk Overview tab rebuilt around money, not scores
+
+The Overview tab led with an abstract 0–100 score and four disconnected KPI
+blocks ("Exposure base": counts of customers/suppliers/items with no ₹ figure
+anywhere). Rebuilt as four money-first tiles: Overall Risk Score (with which
+component drives it, e.g. "Cash Flow drives 53% of it"), Overdue receivables
+(₹10,560,465 / 107 of ₹19.7M), Cash position (₹-246,351), Overdue payables
+(₹10,084,875 / 196 of ₹19.1M) — no fabricated severity chip on a figure the
+backend doesn't grade. Header caption states the real base ("Across 1,278
+customers · 986 suppliers · 576 stock items"); the "Exposure base" block is
+gone. The four risk-component weight blocks (credit/cashflow/operational/
+compliance, each hand-copied) collapsed into one `v-for` reading `WEIGHTS`,
+so the displayed percentages cannot drift from the scoring code again.
+
+Added `_exposure_trend` (`insights/ml/risk_intelligence.py`): month-end GL
+balances on `Receivable`/`Payable` leaf accounts, 12 months, cumulated from
+the first ledger entry — the L2 trend chart the tab never had. Rejected
+`avg_days_overdue` (drifts ~30 days/month by calendar arithmetic, not a real
+trend) and `month_end_outstanding` (survivorship-biased: only invoices still
+open today) as the basis before landing on ledger balances.
+
+L2 reordered to Risk Component Breakdown → Exposure Trend → Risk Assessment
+Matrix → Act on This (merged into one 9-row action queue, "2 CRITICAL OF 9").
+The queue and the three other action lists still built from `<div v-for>` +
+cards (ESG Recommendations, Manufacturing Recommendations, Risk Predictive
+anomalies/warnings, Customer Detail Next Best Actions) are now frappe-ui
+`ListView` tables with a real numeric `amount` column added server-side to
+every risk-alert source.
+
+### Fixed — aging-bucket drill totals didn't reconcile to the chart
+
+`risk_intelligence.py`'s aging buckets and the drill-down's date window used
+different bucket boundaries, so opening a bucket could show a different
+customer count than the chart bar. Both now share one `AGING_BUCKETS`
+definition and `_due_date_window()`; live-verified 10/10 buckets reconcile
+(107 = 67 + 18 + 12 + 10).
+
+### Fixed — Next Best Actions was empty for every customer
+
+`compute_customer_360` hardcoded `"recommendations": []` in both of its
+per-customer row builders, so the Customer Detail page's Next Best Actions
+section rendered its empty state unconditionally — the same five rules the
+Revenue & Customers list dashboard applies (churn prevention, upsell,
+payment follow-up, re-engagement, new-customer nurture) were never run for
+the single-customer view. Extracted the rules into `_customer_recommendations`
+and wired them into both the bulk and single-customer paths; server-side
+check found 25 of 25 sampled customers now yield at least one action.
+
+### Fixed — pure-black body text on 13 dashboards in one theme or the other
+
+`body` had no `color` rule, so every element that didn't set its own text
+colour inherited the UA default (`rgb(0,0,0)`) — invisible or near-invisible
+depending on theme and background. Added `color: var(--ink-gray-8)` to
+`body` in `index.css`; live-verified 0 pure-black and 0 sub-4.5:1 text
+across 13 routes × 2 themes. Also fixed a `ListHeaderItem.vue` hardcoded
+`text-ink-gray-5` (2.3:1 in light mode) via a scoped `.list-ink-fix`
+override, an invalid `:show=` binding on a frappe-ui `Dialog` in
+`MarketingCRMIntelligence.vue`, and an `oee_rating: null` defaulting to the
+"high" (red) severity instead of "not measured" in `ManufacturingIntelligence.vue`.
+
+## [Unreleased] — 2026-09-21
+
+### Changed — Cash tab rebuilt around the deposit that holds the cash
+
+On the Finance dashboard's Actuals → Cash tab, a fixed deposit was one row in an
+account list and an unexplained share of "Total Cash". On the JKM ledger that
+deposit is INR 9,821,496 against INR 9,575,145 of total cash — 102.6%, because
+the operating bank account sits at INR -842,390 — so the tab reported the whole
+cash position as healthy while saying nothing about the instrument holding it:
+no movement, no interest, no turnover, no bank reference. It also printed
+`account_type || 'Fixed Deposit'` as a row's type, which labelled *any*
+account with a blank `account_type` a deposit.
+
+`_calculate_cash_flow` now classifies each account server-side
+(`account_class`, `is_fd`, `share_pct`) and splits the position into
+`bank_balance` / `cash_on_hand` / `fd_balance` / `liquid_cash`, so the name
+match that stands in for ERPNext's missing deposit `account_type` lives in one
+place. Added `_fixed_deposit_analysis`: principal, 12-month placed/released with
+closing balance per month, placement count and average lot, last placement and
+release, the account the principal is swept to and from, the bank's own deposit
+receipt number parsed out of the journal remarks for each recent movement, plus
+interest booked this fiscal year, the accrual balance, and an annualised implied
+yield. Added `_monthly_cash_movement` (GL-based, so it reconciles to the account
+balances — the existing Payment Entry series misses every journal-posted sweep,
+contra and bank charge) and `_post_dated_cash`.
+
+`CashFlowTab.vue` was reordered to match: position strip (total, in deposits,
+bank, hand, free cash, runway) → post-dated notice → the deposit section →
+cash in/out and where it is held → where cash came from and went → large
+transactions. Live-verified on jkm: deposit principal INR 9,821,496 at 102.6%
+of cash, 253 lots placed / 602 released over 12 months, receipt numbers
+(e.g. 50301417445901) on every recent movement, monthly closings reconciling
+to the ledger balance, zero console errors.
+
+### Fixed — a negative bank balance was reported as if it were today's
+
+ERPNext posts a post-dated cheque on the day it is written, so INR 1,014,004 of
+payments dated 3 Oct – 7 Nov 2026 were already in the balance the tab showed on
+21 Sep 2026. The Cash tab now states both figures: the book total (INR
+9,575,145) and the balance on the books today (INR 10,589,149), with the entry
+count and the latest future date.
+
+### Fixed — receipts and payments by source were computed and never rendered
+
+`inflow_by_source` and `outflow_by_use` (3 months, by party type) were in the
+payload and on no screen, so "where did the money come from and go" was
+unanswerable on the tab that held the answer. Both now render as
+share-of-total rows: Customer INR 55.4M in, Supplier INR 55.3M out on jkm.
+
+### Fixed — deposit and cash charts read their secondary axis from a non-zero base
+
+The balance and closing-balance lines sit on `y2`, which ECharts had scaled to
+the data range (6M–15M), overstating every swing. Both now pass `yMin: 0`.
+
 ## [Unreleased] — 2026-09-07
 
 ### Changed — Expense Breakdown redesigned from donut to ranked bar list

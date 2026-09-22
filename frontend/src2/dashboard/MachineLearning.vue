@@ -262,7 +262,7 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
           <!-- Libraries -->
           <div class="bg-surface-white border border-outline-gray-1 rounded-lg p-4">
             <SectionHeader title="ML libraries" variant="caption" :level="3" />
-            <div v-if="librariesMissing.length" class="text-sm text-ink-red-6 mt-2">
+            <div v-if="librariesMissing.length" class="text-sm text-ink-red-4 mt-2">
               <p>
                 Not importable on this host: {{ librariesMissing.join(', ') }}. Models needing
                 them cannot train.
@@ -286,7 +286,7 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
                 <dt class="text-sm text-ink-gray-7">{{ lib.name }}</dt>
                 <dd
                   class="text-sm text-right tabular-nums"
-                  :class="lib.version ? 'text-ink-gray-9' : 'text-ink-red-6 font-medium'"
+                  :class="lib.version ? 'text-ink-gray-9' : 'text-ink-red-4 font-medium'"
                 >
                   {{ lib.version ?? 'missing' }}
                 </dd>

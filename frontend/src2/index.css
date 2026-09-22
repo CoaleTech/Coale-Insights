@@ -141,6 +141,35 @@
 }
 
 /**
+ * Correct frappe-ui's inactive tab label contrast to meet WCAG AA.
+ *
+ * frappe-ui's TabList paints inactive tab labels with `--ink-gray-5`, which
+ * measures 3.98:1 (dark) / 3.93:1 (light) against the surface — both below AA's
+ * 4.5:1 threshold for 14px text. Using `--ink-gray-6` (6.73:1 dark / 7.81:1
+ * light) fixes it. The markup is frappe-ui-internal and unreachable from
+ * component classes, so the override lives here.
+ */
+[role='tablist'] > button[role='tab'][aria-selected='false'] {
+	color: var(--ink-gray-6);
+}
+
+/**
+ * Same defect, different frappe-ui component: `ListHeaderItem.vue:8` hardcodes
+ * `text-ink-gray-5` on every column label, measuring 3.76:1 (light) / 3.59:1
+ * (dark) — below AA for 14px text. The class sits in `node_modules`, so the
+ * only reachable fix is an override keyed on a wrapper class the consumer
+ * passes to `ListView`.
+ *
+ * Deliberately scoped to `.list-ink-fix` rather than applied to every
+ * `ListView`: the settings and data-source lists carry the same failure, but
+ * silently restyling four unrelated screens is a bigger change than the one
+ * being made here. Add the class where the contrast is being fixed on purpose.
+ */
+.list-ink-fix .text-ink-gray-5 {
+	color: var(--ink-gray-6);
+}
+
+/**
  * Touch target floor on phones.
  *
  * Measured at 375px, the primary controls on every dashboard were 26-31px tall:
@@ -217,8 +246,20 @@
 	}
 }
 
+/*
+ * `body` shipped with no `color`, so anything without an explicit `text-ink-*`
+ * class inherited the UA default -- pure black. In light mode that passes
+ * unnoticed; under `data-theme="dark"` it measures 1.1:1 on the dark surface,
+ * i.e. invisible. 172 `<td>`/`<th>` cells across 24 files carry only spacing
+ * classes, and which of them are on screen depends on the active tab and
+ * whether the payload had rows -- so the same page read clean or broken from
+ * one visit to the next. Inheriting `--ink-gray-8` (11.7:1 dark / 13.1:1
+ * light) fixes every present and future unclassed node in one rule instead of
+ * annotating 172 call sites.
+ */
 body {
 	@apply text-base;
+	color: var(--ink-gray-8);
 }
 
 .tnum {

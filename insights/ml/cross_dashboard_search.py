@@ -38,17 +38,42 @@ logger = logging.getLogger(__name__)
 # "top customers this quarter" never sees an HR record even if the search
 # happens to match a department name. This is the IDOR fix the previous
 # rewrite missed.
+#
+# Keys MUST match the searchable ids in frontend/src2/helpers/dashboards.ts
+# (INTELLIGENCE_DASHBOARDS, filtered by `searchable !== false`) -- that is
+# the single source of truth for what dashboards exist. `price` and
+# `machine_learning` are excluded there (searchable: false) and must stay
+# excluded here.
 _DOMAIN_DOCTYPE = {
     "executive": "Sales Invoice",
+    "revenue-customers": "Sales Invoice",
     "financial": "GL Entry",
-    "sales": "Sales Invoice",
-    "customer": "Customer",
-    "operations": "Purchase Order",
+    "tax": "GL Entry",
+    "procurement": "Purchase Order",
+    "inventory": "Item",
     "hr": "Employee",
     "manufacturing": "Work Order",
     "marketing": "Lead",
     "esg": "Sales Invoice",
-    "budget": "Budget",
+    "risk": "GL Entry",
+}
+
+# Real route paths from frontend/src2/router.ts, matching
+# helpers/dashboards.ts's `route` name -> path. Do NOT derive this by
+# convention (f"/{domain_id}-intelligence") -- several ids don't follow it
+# (executive -> /executive-dashboard, marketing -> /marketing-crm-intelligence).
+_DOMAIN_ROUTE_PATH = {
+    "executive": "/executive-dashboard",
+    "revenue-customers": "/revenue-customers-intelligence",
+    "financial": "/financial-intelligence",
+    "tax": "/tax-intelligence",
+    "procurement": "/procurement-intelligence",
+    "inventory": "/inventory-intelligence",
+    "hr": "/hr-intelligence",
+    "manufacturing": "/manufacturing-intelligence",
+    "marketing": "/marketing-crm-intelligence",
+    "esg": "/esg-intelligence",
+    "risk": "/risk-intelligence",
 }
 
 
@@ -72,16 +97,35 @@ class CrossDashboardSearchService:
                 "search_fields": ["summary", "kpis", "alerts", "recommendations"],
                 "weight": 1.2,
             },
+            "revenue-customers": {
+                "name": "Revenue & Customers Intelligence",
+                "keywords": ["sales", "revenue", "pipeline", "customer", "client", "deal", "quota",
+                             "territory", "churn", "retention", "lifetime value"],
+                "search_fields": ["sales_summary", "pipeline_analysis", "customer_summary", "churn_analysis"],
+                "weight": 1.0,
+            },
             "financial": {
                 "name": "Financial Intelligence",
-                "keywords": ["financial", "profit", "revenue", "cost", "budget", "cash", "margin"],
+                "keywords": ["financial", "profit", "revenue", "cost", "budget", "cash", "margin", "variance"],
                 "search_fields": ["financial_summary", "ratios", "cash_flow", "profitability"],
                 "weight": 1.0,
             },
-            "budget": {
-                "name": "Budget Variance Intelligence",
-                "keywords": ["budget", "variance", "forecast", "actual", "planning", "allocation"],
-                "search_fields": ["variance_summary", "departmental_analysis", "recommendations"],
+            "tax": {
+                "name": "Tax Intelligence",
+                "keywords": ["tax", "vat", "gst", "rcm", "liability", "compliance", "filing"],
+                "search_fields": ["tax_summary", "liability_analysis"],
+                "weight": 1.0,
+            },
+            "procurement": {
+                "name": "Procurement Intelligence",
+                "keywords": ["procurement", "purchase", "supplier", "vendor", "sourcing", "spend"],
+                "search_fields": ["procurement_summary", "supplier_analysis"],
+                "weight": 1.0,
+            },
+            "inventory": {
+                "name": "Inventory Intelligence",
+                "keywords": ["inventory", "stock", "item", "warehouse", "reorder", "low stock"],
+                "search_fields": ["inventory_summary", "stock_analysis"],
                 "weight": 1.0,
             },
             "hr": {
@@ -96,22 +140,22 @@ class CrossDashboardSearchService:
                 "search_fields": ["production_summary", "oee_analysis", "quality_metrics"],
                 "weight": 1.0,
             },
-            "sales": {
-                "name": "Sales Intelligence",
-                "keywords": ["sales", "revenue", "pipeline", "customer", "deal", "quota", "territory"],
-                "search_fields": ["sales_summary", "pipeline_analysis", "performance_metrics"],
-                "weight": 1.0,
-            },
-            "customer": {
-                "name": "Customer Intelligence",
-                "keywords": ["customer", "client", "retention", "churn", "satisfaction", "lifetime value"],
-                "search_fields": ["customer_summary", "churn_analysis", "segmentation"],
+            "marketing": {
+                "name": "Marketing & CRM Intelligence",
+                "keywords": ["marketing", "campaign", "lead", "opportunity", "conversion", "crm"],
+                "search_fields": ["marketing_summary", "campaign_analysis"],
                 "weight": 1.0,
             },
             "esg": {
                 "name": "ESG Intelligence",
                 "keywords": ["esg", "environmental", "social", "governance", "sustainability", "carbon"],
                 "search_fields": ["esg_summary", "environmental_metrics", "social_metrics"],
+                "weight": 1.0,
+            },
+            "risk": {
+                "name": "Risk Intelligence",
+                "keywords": ["risk", "exposure", "credit", "overdue", "default", "fraud"],
+                "search_fields": ["risk_summary", "exposure_analysis"],
                 "weight": 1.0,
             },
         }
@@ -341,7 +385,7 @@ class CrossDashboardSearchService:
                 options.append({
                     "domain_id": domain_id,
                     "domain_name": cfg["name"],
-                    "route": f"/{domain_id.replace('_', '-')}-intelligence",
+                    "route": _DOMAIN_ROUTE_PATH.get(domain_id, f"/{domain_id.replace('_', '-')}-intelligence"),
                     "confidence": self._calculate_domain_relevance(domain_id, query_analysis),
                     "context_transfer": True,
                     "search_context": target_query,
@@ -455,8 +499,21 @@ class CrossDashboardSearchService:
             score = self._calculate_domain_relevance(domain_id, query_analysis)
             if score > 0:
                 scored.append((score, domain_id))
-        scored.sort(reverse=True)
-        return [d for _, d in scored]
+        if scored:
+            scored.sort(reverse=True)
+            return [d for _, d in scored]
+
+        # No domain's *topic* keywords (sales, revenue, hr...) matched the
+        # query, but that doesn't mean there's nothing to find: the search
+        # help text tells users to search by customer name, item code or
+        # invoice number -- literal data values that don't overlap any
+        # domain's topic list. Fall back to every visible domain so
+        # _search_domain's real frappe.get_all + content match still runs
+        # (each call is bounded to 25 rows, same cost as the topic-matched
+        # path). An empty query still returns [] -- nothing to search.
+        if not query_analysis.get("keywords"):
+            return []
+        return [d for d in self.dashboard_domains if self._user_can_see_domain(d)]
 
     def _user_can_see_domain(self, domain_id: str) -> bool:
         doctype = _DOMAIN_DOCTYPE.get(domain_id)
@@ -534,14 +591,7 @@ class CrossDashboardSearchService:
         limit = 25
         if domain_id == "executive":
             return []
-        if domain_id == "financial":
-            return frappe.get_all(
-                "GL Entry",
-                fields=["name", "account", "voucher_type", "posting_date"],
-                limit_page_length=limit,
-                order_by="posting_date desc",
-            )
-        if domain_id == "sales":
+        if domain_id == "revenue-customers":
             return frappe.get_all(
                 "Sales Invoice",
                 fields=["name", "customer", "customer_name", "posting_date"],
@@ -549,20 +599,27 @@ class CrossDashboardSearchService:
                 limit_page_length=limit,
                 order_by="posting_date desc",
             )
-        if domain_id == "customer":
+        if domain_id in ("financial", "tax", "risk"):
             return frappe.get_all(
-                "Customer",
-                fields=["name", "customer_name", "customer_group", "territory"],
-                filters={"disabled": 0},
+                "GL Entry",
+                fields=["name", "account", "voucher_type", "posting_date"],
                 limit_page_length=limit,
+                order_by="posting_date desc",
             )
-        if domain_id == "operations":
+        if domain_id == "procurement":
             return frappe.get_all(
                 "Purchase Order",
                 fields=["name", "supplier", "supplier_name", "transaction_date"],
                 filters={"docstatus": 1},
                 limit_page_length=limit,
                 order_by="transaction_date desc",
+            )
+        if domain_id == "inventory":
+            return frappe.get_all(
+                "Item",
+                fields=["name", "item_name", "item_group", "stock_uom"],
+                filters={"disabled": 0},
+                limit_page_length=limit,
             )
         if domain_id == "hr":
             return frappe.get_all(
@@ -580,13 +637,20 @@ class CrossDashboardSearchService:
                 filters={"docstatus": 1},
                 limit_page_length=limit,
             )
-        if domain_id == "budget":
-            if not frappe.db.table_exists("Budget"):
-                return []
+        if domain_id == "marketing":
             return frappe.get_all(
-                "Budget",
-                fields=["name", "budget_amount", "fiscal_year", "company"],
+                "Lead",
+                fields=["name", "lead_name", "company_name", "status"],
                 limit_page_length=limit,
+                order_by="modified desc",
+            )
+        if domain_id == "esg":
+            return frappe.get_all(
+                "Sales Invoice",
+                fields=["name", "customer", "customer_name", "posting_date"],
+                filters={"docstatus": 1},
+                limit_page_length=limit,
+                order_by="posting_date desc",
             )
         return []
 
@@ -596,7 +660,7 @@ class CrossDashboardSearchService:
         keywords: List[str],
         domain_id: str,
     ) -> Optional[Dict[str, Any]]:
-        title_keys = ("name", "customer_name", "employee_name", "supplier_name", "account")
+        title_keys = ("name", "customer_name", "employee_name", "supplier_name", "account", "lead_name", "item_name")
         title = next(
             (str(v) for k, v in row.items() if k in title_keys and v),
             str(row.get("name", "")),
@@ -653,7 +717,7 @@ class CrossDashboardSearchService:
         return "metrics"
 
     def _generate_navigation_url(self, domain_id: str, match: Dict) -> str:
-        base_url = f"/{domain_id.replace('_', '-')}-intelligence"
+        base_url = _DOMAIN_ROUTE_PATH.get(domain_id, f"/{domain_id.replace('_', '-')}-intelligence")
         source = match.get("source", "")
         if source:
             return f"{base_url}?section={source}&highlight={match.get('id', '')}"
@@ -723,7 +787,7 @@ class CrossDashboardSearchService:
                 "id": domain_id,
                 "name": cfg["name"],
                 "relevance": self._calculate_domain_relevance(domain_id, query_analysis),
-                "url": f"/{domain_id.replace('_', '-')}-intelligence",
+                "url": _DOMAIN_ROUTE_PATH.get(domain_id, f"/{domain_id.replace('_', '-')}-intelligence"),
             })
 
         for cat in self._get_top_result_categories(search_results):
@@ -758,7 +822,7 @@ class CrossDashboardSearchService:
             suggestions.append({
                 "dashboard_id": domain_id,
                 "dashboard_name": cfg["name"],
-                "url": f"/{domain_id.replace('_', '-')}-intelligence",
+                "url": _DOMAIN_ROUTE_PATH.get(domain_id, f"/{domain_id.replace('_', '-')}-intelligence"),
                 "relevance": self._calculate_domain_relevance(domain_id, query_analysis),
             })
         return {
