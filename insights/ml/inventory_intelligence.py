@@ -20,7 +20,7 @@ fork, and no in-process ML library import.
 """
 
 import math
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Iterable
 
 import frappe
@@ -109,6 +109,15 @@ class InventoryIntelligence:
 
     def __init__(self, date_filter: str = "12m"):
         self.date_filter = date_filter
+        self.start, self.end, self.days = resolve_window(date_filter)
+        self.company = frappe.defaults.get_user_default("Company") or frappe.db.get_single_value(
+            "Global Defaults", "default_company"
+        )
+        self.base_currency = (
+            (self.company and frappe.db.get_value("Company", self.company, "default_currency"))
+            or frappe.db.get_single_value("Global Defaults", "default_currency")
+            or "USD"
+        )
 
     # --- public entry points -------------------------------------------------
 
@@ -121,7 +130,13 @@ class InventoryIntelligence:
             return {
                 "status": "success",
                 "generated_at": datetime.now().isoformat(),
+                "company": self.company,
+                "base_currency": self.base_currency,
                 "date_filter": self.date_filter,
+                "period": {
+                    "start": self.start.isoformat() if self.start else None,
+                    "end": self.end.isoformat(),
+                },
                 "stock_overview": self._stock_overview(),
                 "turnover_analysis": self._turnover_analysis(),
                 "aging_analysis": self._aging_analysis(),
@@ -167,9 +182,9 @@ class InventoryIntelligence:
             .iloc[0]
         )
 
-        # Per-item average daily sales (last 90 days), so we can compare to
-        # current stock for over/low-stock detection in one pass.
-        sales_90d = _per_item_avg_daily_sales(90)
+        # Per-item average daily sales over the selected window, so we can
+        # compare to current stock for over/low-stock detection in one pass.
+        sales_90d = _per_item_avg_daily_sales(self.start, self.end, self.days)
 
         # Bring the sales figure back to Bin via a left join
         Bin_with_sales = Bin.left_join(
@@ -254,38 +269,32 @@ class InventoryIntelligence:
         Bin = t("Bin")
         Item = t("Item")
         sii = t("Sales Invoice Item")
-        cutoff_12m = (datetime.now() - timedelta(days=365)).date()
-        cutoff_90d = (datetime.now() - timedelta(days=90)).date()
         # Filter the parent table BEFORE semi-join: a semi-join returns
         # the LEFT-side columns only, so any predicate on `si.*` after
         # the join references a relation no longer in scope.
         si = t("Sales Invoice").filter(
-            lambda x: (x.docstatus == 1) & (x.posting_date >= cutoff_12m)
+            lambda x: (x.docstatus == 1) & _between(x.posting_date, self.start, self.end)
         )
-        si_90 = t("Sales Invoice").filter(
-            lambda x: (x.docstatus == 1) & (x.posting_date >= cutoff_90d)
-        )
+        # Ratios are annualised so "turns per year" keeps its meaning for
+        # any window; DSI = 365 / annual turnover = days_in_window * stock / COGS.
+        annualise = 365 / self.days
 
-        # True COGS last 12 months comes from Stock Ledger Entry
+        # True COGS in the window comes from Stock Ledger Entry
         # stock_value_difference (the canonical ERPNext cost-of-goods-sold
-        # field) summed over outbound vouchers. Pre-fix: code summed
-        # `Sales Invoice Item.amount`, which is **selling-price * qty**
-        # (revenue) and labelled it `cogs_12m` -- a 30x overstatement for
-        # any business with non-trivial margin. Both metrics are returned
-        # so the dashboard can show GM% alongside turnover.
+        # field) summed over outbound vouchers. Cancelled entries are
+        # excluded (is_cancelled keeps both the original and reversal rows).
+        # Stock Entry vouchers are not COGS (transfers/issues), so excluded.
         SLE = t("Stock Ledger Entry")
-        cogs_real_expr = (
-            SLE.filter(
-                (SLE.posting_date >= cutoff_12m)
-                & (SLE.stock_value_difference < 0)
-                & (SLE.voucher_type.isin(["Delivery Note", "Sales Invoice", "Stock Entry"]))
-            )
-            .aggregate(cogs_12m=(-SLE.stock_value_difference).sum())
+        outbound = SLE.filter(
+            _between(SLE.posting_date, self.start, self.end)
+            & (SLE.is_cancelled == 0)
+            & (SLE.stock_value_difference < 0)
+            & SLE.voucher_type.isin(["Delivery Note", "Sales Invoice"])
         )
-        cogs_real_df = cogs_real_expr.execute()
-        cogs = float(cogs_real_df.iloc[0]["cogs_12m"] or 0)
-        # Also keep revenue separate from COGS (Sales Invoice Item.amount
-        # is selling-price * qty, i.e. revenue, NOT cost).
+        cogs_df = outbound.aggregate(cogs_12m=(-outbound.stock_value_difference).sum()).execute()
+        cogs = float(cogs_df.iloc[0]["cogs_12m"] or 0)
+        # Revenue is kept separate from COGS (Sales Invoice Item.amount is
+        # selling-price * qty, i.e. revenue, NOT cost).
         rev_expr = (
             sii.join(si, sii.parent == si.name, how="semi")
             .select(sii.amount)
@@ -294,31 +303,20 @@ class InventoryIntelligence:
         rev_df = rev_expr.execute()
         revenue_12m = float(rev_df.iloc[0]["revenue_12m"] or 0)
 
-        # Current stock value (positive stock only) -- average inventory
-        # for the turnover ratio denominator.
+        # Current stock value (positive stock only) -- the turnover denominator.
         inv_expr = Bin.filter(Bin.actual_qty > 0).aggregate(
-            avg_inventory=(Bin.actual_qty * Bin.valuation_rate).sum()
+            current_inventory=(Bin.actual_qty * Bin.valuation_rate).sum()
         )
         inv_df = inv_expr.execute()
-        avg_inventory = float(inv_df.iloc[0]["avg_inventory"] or 1)
-        turnover_ratio = cogs / avg_inventory if avg_inventory > 0 else 0
+        current_inventory = float(inv_df.iloc[0]["current_inventory"] or 0)
+        turnover_ratio = cogs / current_inventory * annualise if current_inventory > 0 else 0
         days_sales_inventory = 365 / turnover_ratio if turnover_ratio > 0 else 0
-        # Per-item-group: real COGS (from SLE) and revenue (from SI) per
-        # item_group. SLE-based COGS is the canonical ERPNext cost-of-goods
-        # field and gives a meaningful turnover ratio; revenue is kept so
-        # the dashboard can also surface GM% per group. Per-item outbound
-        # SVD (from SLE) -> per-item-group COGS. No SI join needed: SLE
-        # .stock_value_difference already carries the item-level cost,
-        # grouped by item_code then by item_group via Item master.
+        # Per-item-group COGS: outbound SLE value difference grouped by the
+        # Item master's item_group.
         by_group_cogs_df = (
-            SLE.filter(
-                (SLE.posting_date >= cutoff_12m)
-                & (SLE.stock_value_difference < 0)
-                & (SLE.voucher_type.isin(["Delivery Note", "Sales Invoice", "Stock Entry"]))
-            )
-            .left_join(Item, SLE.item_code == Item.name)
+            outbound.left_join(Item, outbound.item_code == Item.name)
             .group_by(Item.item_group)
-            .aggregate(cogs_12m=(-SLE.stock_value_difference).sum())
+            .aggregate(cogs_12m=(-outbound.stock_value_difference).sum())
             .mutate(item_group=ibis.coalesce(Item.item_group, ibis.literal("Uncategorized")))
             .execute()
         )
@@ -356,12 +354,13 @@ class InventoryIntelligence:
             # Use real COGS for turnover (the denominator a procurement
             # planner cares about: how fast does cost flow through stock?).
             ratio_basis = cogs_v if cogs_v > 0 else sales
-            if stock_val > 0 and ratio_basis > 0:
-                ratio = round(ratio_basis / stock_val, 2)
-                dsi = round(365 / ratio, 0) if ratio > 0 else 999
+            # No stock on hand -> turnover/DSI are undefined, not 0 / 999.
+            if stock_val > 0:
+                ratio = round(ratio_basis / stock_val * annualise, 2)
+                dsi = round(365 / ratio, 0) if ratio > 0 else None
             else:
-                ratio = 0
-                dsi = 999
+                ratio = None
+                dsi = None
             by_group.append(
                 {
                     "item_group": group,
@@ -373,12 +372,12 @@ class InventoryIntelligence:
                 }
             )
 
-        # Fast-moving items (last 90 days, using the date-restricted SI)
+        # Fast-moving items over the selected window (stock-UOM qty)
         fast_moving = (
-            sii.join(si_90, sii.parent == si_90.name, how="semi")
+            sii.join(si, sii.parent == si.name, how="semi")
             .group_by(sii.item_code, sii.item_name)
             .aggregate(
-                qty_sold=sii.qty.sum(),
+                qty_sold=sii.stock_qty.sum(),
                 sales_value=sii.amount.sum(),
             )
             .order_by(ibis.desc("qty_sold"))
@@ -399,12 +398,13 @@ class InventoryIntelligence:
             for r in fast_moving:
                 r["current_stock"] = float(stock_map_fm.get(r["item_code"], 0) or 0)
 
-        # Slow-moving: positive stock, low sales over 90 days. Build the
-        # base per-item-sales table first, THEN mutate to add a 90-day
-        # qty column -- referencing the table inside its own definition
-        # is the classic forward-ref bug.
-        base_sales = _per_item_avg_daily_sales(90)
-        sales_90d = base_sales.mutate(qty_sold_90d=base_sales.avg_daily_sales * 90)
+        # Slow-moving: positive stock, low sales over the window. Build the
+        # base per-item-sales table first, THEN mutate to add a window qty
+        # column -- referencing the table inside its own definition is the
+        # classic forward-ref bug. (`qty_sold_90d` is the historical key;
+        # it now holds the qty sold in the selected window.)
+        base_sales = _per_item_avg_daily_sales(self.start, self.end, self.days)
+        sales_90d = base_sales.mutate(qty_sold_90d=base_sales.avg_daily_sales * self.days)
         slow_moving = (
             Bin.filter(Bin.actual_qty > 0)
             .left_join(Item, Bin.item_code == Item.name)
@@ -433,12 +433,7 @@ class InventoryIntelligence:
             "cogs_12m": cogs,
             "revenue_12m": revenue_12m,
             "gross_margin_pct": round((revenue_12m - cogs) / revenue_12m * 100, 2) if revenue_12m > 0 else 0,
-            "avg_inventory_value": avg_inventory,
-            # Computed above (per-item-group sales/COGS/turnover_ratio/dsi)
-            # but dropped from this dict during the COGS-vs-revenue fix --
-            # the frontend's Turnover tab renders this table from
-            # `turnover_analysis.by_product_group` and was silently empty.
-            # Fixed 2026-08-17.
+            "current_inventory_value": current_inventory,
             "by_product_group": by_group,
             "fast_moving": fast_moving,
             "slow_moving": slow_moving,
@@ -623,6 +618,20 @@ class InventoryIntelligence:
             .to_dict("records")
         )
 
+        # Per-warehouse qty for those items (one query, positive-qty bins only).
+        if multi:
+            dist_rows = (
+                Bin.filter(Bin.item_code.isin([m["item_code"] for m in multi]) & (Bin.actual_qty > 0))
+                .select(Bin.item_code, Bin.warehouse, Bin.actual_qty)
+                .execute()
+            )
+            per_item: dict[str, list[tuple[float, str]]] = {}
+            for code, wh, qty in zip(dist_rows["item_code"], dist_rows["warehouse"], dist_rows["actual_qty"]):
+                per_item.setdefault(code, []).append((float(qty), wh))
+            for m in multi:
+                parts = sorted(per_item.get(m["item_code"], []), key=lambda p: -p[0])
+                m["distribution"] = " / ".join(f"{wh}: {_fmt_qty(q)}" for q, wh in parts)
+
         return {
             "by_warehouse": by_warehouse,
             "total_warehouses": len(by_warehouse),
@@ -638,25 +647,28 @@ class InventoryIntelligence:
         Bin = t("Bin")
         Item = t("Item")
         sii = t("Sales Invoice Item")
-        si = t("Sales Invoice").filter(lambda x: x.docstatus == 1)
-        today = datetime.now().date()
-        cutoff = (today - timedelta(days=90)).isoformat()
+        si = t("Sales Invoice").filter(
+            lambda x: (x.docstatus == 1) & _between(x.posting_date, self.start, self.end)
+        )
 
-        # Per (item, warehouse) demand from Sales Invoice via set_warehouse
-        # on the SI header. The original SQL used si.set_warehouse; we
-        # honour that here.
+        # Per (item, warehouse) demand from the invoice LINE warehouse,
+        # falling back to the invoice header's set_warehouse only when the
+        # line has none. Narrow both sides first -- joining full doctype
+        # tables collides on shared base-Document columns.
+        si_slim = si.select(si.name.name("si_name"), si.set_warehouse)
+        sii_slim = sii.select(sii.item_code, sii.parent, sii.warehouse, sii.stock_qty)
+        joined = sii_slim.join(si_slim, sii_slim.parent == si_slim.si_name, how="inner")
+        demand_proj = joined.select(
+            item_code=joined.item_code,
+            warehouse=ibis.coalesce(joined.warehouse, joined.set_warehouse),
+            stock_qty=joined.stock_qty,
+        )
         per_wh_demand = (
-            si.filter(si.posting_date >= cutoff)
-            .select(si.name, si.set_warehouse, si.posting_date)
-            .join(sii, sii.parent == si.name, how="inner")
-            .select(sii.item_code, si.set_warehouse, sii.qty)
-            .group_by("item_code", "set_warehouse")
-            .aggregate(qty_90d=sii.qty.sum())
-            .mutate(avg_daily_sales=lambda t: t.qty_90d / 90.0)
+            demand_proj.group_by(["item_code", "warehouse"])
+            .aggregate(qty_window=demand_proj.stock_qty.sum())
             .execute()
         )
 
-        # Bring to Bin via left join on (item_code, warehouse == set_warehouse)
         bin_df = (
             Bin.filter(Bin.actual_qty > 0)
             .left_join(Item, Bin.item_code == Item.name)
@@ -667,7 +679,7 @@ class InventoryIntelligence:
             return []
 
         demand_map = {
-            (r["item_code"], r["set_warehouse"]): float(r["avg_daily_sales"] or 0)
+            (r["item_code"], r["warehouse"]): float(r["qty_window"] or 0) / self.days
             for _, r in per_wh_demand.iterrows()
         }
 
@@ -678,20 +690,22 @@ class InventoryIntelligence:
             for _, row in group.iterrows():
                 wh = row["warehouse"]
                 qty = float(row["actual_qty"] or 0)
-                daily = demand_map.get((item_code, wh), 0.0) or 0.01
+                daily = demand_map.get((item_code, wh), 0.0)
                 warehouses.append(
                     {
                         "warehouse": wh,
                         "qty": qty,
                         "daily_demand": daily,
-                        "days_of_supply": qty / daily,
+                        "days_of_supply": qty / daily if daily > 0 else math.inf,
                     }
                 )
             if len(warehouses) < 2:
                 continue
             sorted_wh = sorted(warehouses, key=lambda w: w["days_of_supply"])
-            low_stock_wh = [w for w in sorted_wh if w["days_of_supply"] < 14 and w["daily_demand"] > 0.01]
-            high_stock_wh = [w for w in sorted_wh if w["days_of_supply"] > 60]
+            # Both sides need a real demand signal: no demand -> no days-of-supply
+            # to compare, so no fabricated source/destination.
+            low_stock_wh = [w for w in sorted_wh if w["daily_demand"] > 0.01 and w["days_of_supply"] < 14]
+            high_stock_wh = [w for w in sorted_wh if w["daily_demand"] > 0.01 and w["days_of_supply"] > 60]
             for low in low_stock_wh:
                 for high in high_stock_wh:
                     target_days = 30
@@ -722,7 +736,10 @@ class InventoryIntelligence:
 
     # --- dead stock ----------------------------------------------------------
 
-    def _dead_stock(self) -> dict[str, Any]:
+    def _dead_stock_rows(self) -> list[dict[str, Any]]:
+        """Every positive-stock Bin row whose item has no sale in the last
+        180 days (or ever), largest stock value first. The 180-day cutoff is
+        the definition of dead stock, so it does not follow `date_filter`."""
         from insights.api.ml.ibis_source import t
 
         Bin = t("Bin")
@@ -731,11 +748,10 @@ class InventoryIntelligence:
         si = t("Sales Invoice").filter(lambda x: x.docstatus == 1)
         today = datetime.now().date()
 
-        # Last sale date per item (any SI, all-time). A semi-join only
-        # exposes LEFT-side (sii) columns in the projection -- `si` is
-        # gone from scope afterward -- so this needs a real inner join
-        # to select `si.posting_date`. Safe: `si.name` is a primary key,
-        # so the join can't multiply `sii` rows.
+        # Last sale date per item (any SI, all-time), one aggregate. A
+        # semi-join only exposes LEFT-side (sii) columns in the projection,
+        # so this needs a real inner join to select `si.posting_date`.
+        # Safe: `si.name` is a primary key, so the join can't multiply rows.
         last_sale_proj = (
             sii.join(si, sii.parent == si.name, how="inner")
             .select(sii.item_code.name("item_code"), si.posting_date.name("posting_date"))
@@ -747,14 +763,13 @@ class InventoryIntelligence:
             .execute()
         )
         # MariaDB DATE columns come back from .execute() as pandas
-        # Timestamp, not datetime.date; `today - Timestamp` raises
-        # TypeError, so normalize to plain date here.
+        # Timestamp, not datetime.date; normalize to plain date.
         last_sale_map = {
             k: (v.date() if hasattr(v, "date") else v)
             for k, v in zip(last_sale["item_code"], last_sale["last_sale_date"])
         }
 
-        # Positive stock
+        # Positive stock (every bin; the 180-day test runs below)
         stock = (
             Bin.filter(Bin.actual_qty > 0)
             .left_join(Item, Bin.item_code == Item.name)
@@ -768,7 +783,6 @@ class InventoryIntelligence:
             )
             .mutate(stock_value=Bin.actual_qty * Bin.valuation_rate)
             .order_by(ibis.desc("stock_value"))
-            .limit(50)
             .execute()
         )
 
@@ -789,7 +803,10 @@ class InventoryIntelligence:
                         "days_since_last_sale": days,
                     }
                 )
+        return rows
 
+    def _dead_stock(self) -> dict[str, Any]:
+        rows = self._dead_stock_rows()
         total_value = sum(float(r["stock_value"] or 0) for r in rows)
 
         # By group
@@ -811,27 +828,122 @@ class InventoryIntelligence:
 
     # --- procurement insights (for inventory dashboard) ----------------------
 
+    def _pending_orders(self, limit: int | None = None) -> tuple[int, list[dict[str, Any]]]:
+        """(true count, rows) of submitted POs not Completed/Closed/Cancelled,
+        oldest first. Current-state backlog, so deliberately NOT windowed.
+        Amounts are base currency."""
+        from insights.api.ml.ibis_source import t
+
+        PO = t("Purchase Order")
+        Supplier = t("Supplier")
+        open_po = PO.filter(
+            (PO.docstatus == 1) & ~PO.status.isin(["Completed", "Closed", "Cancelled"])
+        )
+        count = int(open_po.count().execute())
+        slim = open_po.select(
+            PO.name.name("name"),
+            PO.supplier,
+            PO.transaction_date,
+            PO.base_grand_total.name("grand_total"),
+            PO.status,
+        )
+        supplier_slim = Supplier.select(Supplier.name.name("supplier_key"), Supplier.supplier_name)
+        q = (
+            slim.left_join(supplier_slim, slim.supplier == supplier_slim.supplier_key)
+            .select(
+                slim["name"],
+                slim.supplier,
+                supplier_slim.supplier_name,
+                slim.transaction_date,
+                slim.grand_total,
+                slim.status,
+            )
+            .order_by("transaction_date")
+        )
+        if limit:
+            q = q.limit(limit)
+        today = datetime.now().date()
+        rows = q.execute().to_dict("records")
+        for r in rows:
+            d = r["transaction_date"]
+            d = d.date() if hasattr(d, "date") else d
+            r["transaction_date"] = str(d)
+            r["days_pending"] = (today - d).days
+            r["grand_total"] = float(r["grand_total"] or 0)
+        return count, rows
+
+    def _reorder_candidates(self) -> list[dict[str, Any]]:
+        """Every item with positive demand in the window whose stock is at or
+        below max(reorder_level, 14 days of demand), highest demand first."""
+        from insights.api.ml.ibis_source import t
+
+        Bin = t("Bin")
+        Item = t("Item")
+        ItemReorder = t("Item Reorder")
+
+        sales_window = _per_item_avg_daily_sales(self.start, self.end, self.days).execute()
+        reorder_levels = (
+            ItemReorder.group_by(ItemReorder.parent)
+            .aggregate(reorder_level=ItemReorder.warehouse_reorder_level.max())
+            .execute()
+        )
+        rl_map = dict(zip(reorder_levels["parent"], reorder_levels["reorder_level"]))
+
+        stock_per_item = (
+            Bin.group_by(Bin.item_code)
+            .aggregate(current_stock=Bin.actual_qty.sum())
+            .execute()
+        )
+        si_map = dict(zip(stock_per_item["item_code"], stock_per_item["current_stock"]))
+
+        candidates = []
+        for _, r in sales_window.iterrows():
+            item = r["item_code"]
+            avg_daily = float(r["avg_daily_sales"] or 0)
+            if avg_daily <= 0:
+                continue
+            current = float(si_map.get(item, 0) or 0)
+            rl = float(rl_map.get(item, 0) or 0)
+            if current <= max(rl, avg_daily * 14):
+                candidates.append(
+                    {
+                        "item_code": item,
+                        "current_stock": current,
+                        "reorder_level": rl,
+                        "avg_daily_demand": avg_daily,
+                    }
+                )
+        candidates.sort(key=lambda x: x["avg_daily_demand"], reverse=True)
+
+        # One Item lookup for the names (no per-row query)
+        if candidates:
+            names = Item.filter(Item.name.isin([c["item_code"] for c in candidates])).select(
+                Item.name, Item.item_name
+            ).execute()
+            name_map = dict(zip(names["name"], names["item_name"]))
+            for c in candidates:
+                c["item_name"] = name_map.get(c["item_code"])
+        return candidates
+
     def _procurement_insights(self) -> dict[str, Any]:
         from insights.api.ml.ibis_source import t
 
         PO = t("Purchase Order").filter(lambda x: x.docstatus == 1)
         Supplier = t("Supplier")
         PR = t("Purchase Receipt").filter(lambda x: x.docstatus == 1)
-        Bin = t("Bin")
-        ItemReorder = t("Item Reorder")
 
-        # Supplier performance (last 12 months): count + value + avg lead time.
+        # Supplier performance (selected window): count + value + avg lead time.
         # Pre-narrow every side to just the needed (uniquely-named) columns
         # -- joining full doctype tables collides on shared base-Document
         # fields (name, owner, modified, ...) plus overlapping business
-        # fields (tax_category, gst_category, ...).
-        po_365 = (
-            PO.filter(PO.transaction_date >= (datetime.now() - timedelta(days=365)).date())
+        # fields (tax_category, gst_category, ...). Values are base currency.
+        po_win = (
+            PO.filter(_between(PO.transaction_date, self.start, self.end))
             .select(
                 PO.name.name("po_name"),
                 PO.supplier,
                 PO.transaction_date,
-                PO.grand_total,
+                PO.base_grand_total,
             )
         )
         supplier_slim = Supplier.select(
@@ -840,12 +952,12 @@ class InventoryIntelligence:
 
         # order_count/total_value: pure PO properties, no receipt join needed.
         supplier_totals = (
-            po_365
-            .left_join(supplier_slim, po_365.supplier == supplier_slim.supplier_key)
-            .group_by(po_365.supplier, supplier_slim.supplier_name)
+            po_win
+            .left_join(supplier_slim, po_win.supplier == supplier_slim.supplier_key)
+            .group_by(po_win.supplier, supplier_slim.supplier_name)
             .aggregate(
-                order_count=po_365.po_name.nunique(),
-                total_value=po_365.grand_total.sum(),
+                order_count=po_win.po_name.nunique(),
+                total_value=po_win.base_grand_total.sum(),
             )
             .order_by(ibis.desc("total_value"))
             .limit(15)
@@ -856,22 +968,19 @@ class InventoryIntelligence:
         # Lead time via the direct Purchase Receipt Item.purchase_order link
         # back to its originating PO -- NOT a same-supplier/any-later-receipt
         # heuristic, which fans a PO out against every other receipt from the
-        # same supplier. Confirmed on this site's data: that heuristic
-        # inflated avg_lead_time 240x-760x (e.g. reporting ~120 days for
-        # suppliers whose real, PO-linked receipts land same-day). Two-stage
-        # aggregate: per-PO first (a PO with several lines or partial
-        # receipts gets ONE lead-time value, so it isn't overweighted), then
-        # averaged per supplier. Fixed 2026-08-17.
+        # same supplier. Two-stage aggregate: per-PO first (a PO with several
+        # lines or partial receipts gets ONE lead-time value, so it isn't
+        # overweighted), then averaged per supplier.
         PRI = t("Purchase Receipt Item")
         pri_slim = PRI.select(PRI.purchase_order, PRI.parent)
         pr_slim = PR.select(PR.name.name("pr_name"), PR.posting_date.name("pr_posting_date"))
         po_lead_time = (
-            po_365.select(po_365.po_name, po_365.supplier, po_365.transaction_date)
-            .inner_join(pri_slim, po_365.po_name == pri_slim.purchase_order)
+            po_win.select(po_win.po_name, po_win.supplier, po_win.transaction_date)
+            .inner_join(pri_slim, po_win.po_name == pri_slim.purchase_order)
             .inner_join(pr_slim, pri_slim.parent == pr_slim.pr_name)
-            .group_by(po_365.po_name, po_365.supplier)
+            .group_by(po_win.po_name, po_win.supplier)
             .aggregate(
-                lead_time=((pr_slim.pr_posting_date - po_365.transaction_date).cast("int32")).mean()
+                lead_time=((pr_slim.pr_posting_date - po_win.transaction_date).cast("int32")).mean()
             )
         )
         supplier_lead = (
@@ -887,69 +996,14 @@ class InventoryIntelligence:
             lt = lead_time_map.get(row["supplier"])
             row["avg_lead_time"] = round(float(lt), 2) if lt is not None and not math.isnan(float(lt)) else None
 
-
-        # Pending POs
-        pending = (
-            PO.filter(
-                ~PO.status.isin(["Completed", "Closed", "Cancelled"])
-            )
-            .select(PO.name, PO.supplier, PO.transaction_date, PO.grand_total, PO.status)
-            .mutate(
-                days_pending=(datetime.now().date() - PO.transaction_date).cast("int32")
-            )
-            .order_by(ibis.desc("days_pending"))
-            .limit(20)
-            .execute()
-            .to_dict("records")
-        )
-
-        # Reorder-needed items: positive daily demand, current stock below
-        # the larger of (reorder_level, 14 days of demand).
-        # Step 1: per-item demand from Sales Invoice (last 90 days)
-        sales_90d = _per_item_avg_daily_sales(90).execute()
-        # Step 2: max reorder level per item (Item Reorder child)
-        reorder_levels = (
-            ItemReorder.group_by(ItemReorder.parent)
-            .aggregate(reorder_level=ItemReorder.warehouse_reorder_level.max())
-            .execute()
-        )
-        rl_map = dict(zip(reorder_levels["parent"], reorder_levels["reorder_level"]))
-
-        # Step 3: per-item current stock
-        stock_per_item = (
-            Bin.group_by(Bin.item_code)
-            .aggregate(current_stock=Bin.actual_qty.sum())
-            .execute()
-        )
-        si_map = dict(zip(stock_per_item["item_code"], stock_per_item["current_stock"]))
-
-        # Step 4: candidates
-        candidates = []
-        for _, r in sales_90d.iterrows():
-            item = r["item_code"]
-            avg_daily = float(r["avg_daily_sales"] or 0)
-            if avg_daily <= 0:
-                continue
-            current = float(si_map.get(item, 0) or 0)
-            rl = float(rl_map.get(item, 0) or 0)
-            threshold = max(rl, avg_daily * 14)
-            if current <= threshold:
-                candidates.append(
-                    {
-                        "item_code": item,
-                        "current_stock": current,
-                        "reorder_level": rl,
-                        "avg_daily_demand": avg_daily,
-                    }
-                )
-        candidates.sort(key=lambda x: x["avg_daily_demand"], reverse=True)
-        reorder_needed = candidates[:20]
+        pending_count, pending = self._pending_orders(limit=20)
+        candidates = self._reorder_candidates()
 
         return {
             "supplier_performance": supplier_perf,
             "pending_orders": pending,
-            "pending_orders_count": len(pending),
-            "reorder_needed": reorder_needed,
+            "pending_orders_count": pending_count,
+            "reorder_needed": candidates[:20],
             "reorder_count": len(candidates),
         }
 
@@ -983,8 +1037,9 @@ class ABCXYZClassification:
     the frontend keeps working without changes.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, date_filter: str = "12m"):
+        self.date_filter = date_filter
+        self.start, self.end, _ = resolve_window(date_filter)
 
     def train(self) -> dict[str, Any]:
         from insights.api.ml.ibis_source import t
@@ -992,20 +1047,19 @@ class ABCXYZClassification:
         Item = t("Item")
         Bin = t("Bin")
         sii = t("Sales Invoice Item")
-        cutoff_12m = (datetime.now() - timedelta(days=365)).date()
         # Filter the parent table BEFORE semi-join; predicates on `si.*`
         # after the join reference a relation no longer in scope.
         si = t("Sales Invoice").filter(
-            lambda x: (x.docstatus == 1) & (x.posting_date >= cutoff_12m)
+            lambda x: (x.docstatus == 1) & _between(x.posting_date, self.start, self.end)
         )
 
         # Per-item: total sales value (12 months)
         per_item_sales = (
             sii.join(si, sii.parent == si.name, how="semi")
-            .select(sii.item_code, sii.qty, sii.amount)
+            .select(sii.item_code, sii.stock_qty, sii.amount)
             .group_by(sii.item_code)
             .aggregate(
-                total_qty=sii.qty.sum(),
+                total_qty=sii.stock_qty.sum(),
                 total_value=sii.amount.sum(),
             )
             .execute()
@@ -1016,13 +1070,13 @@ class ABCXYZClassification:
         # instead; safe since `si.name` is a primary key.
         per_item_monthly_proj = (
             sii.join(si, sii.parent == si.name, how="inner")
-            .select(sii.item_code, sii.qty, si.posting_date.name("posting_date"))
+            .select(sii.item_code, sii.stock_qty, si.posting_date.name("posting_date"))
         )
         per_item_monthly = (
             per_item_monthly_proj
             .mutate(period=per_item_monthly_proj.posting_date.strftime("%Y-%m"))
             .group_by(["item_code", "period"])
-            .aggregate(monthly_qty=sii.qty.sum())
+            .aggregate(monthly_qty=sii.stock_qty.sum())
             .execute()
         )
         # MariaDB SUM() returns Decimal; pandas .std()/.mean() on an
@@ -1044,11 +1098,16 @@ class ABCXYZClassification:
             for _, r in per_item_stock.iterrows()
         }
 
-        # Item metadata
-        items = Item.filter(Item.disabled == 0).select(
-            Item.name, Item.item_name, Item.item_group
-        ).execute()
-        item_meta = {r["name"]: r for _, r in items.iterrows()}
+        # Item metadata for exactly the items that sold (a disabled item can
+        # still have sales; filtering on disabled would leave name/group None).
+        sold_codes = per_item_sales["item_code"].tolist()
+        if sold_codes:
+            items = Item.filter(Item.name.isin(sold_codes)).select(
+                Item.name, Item.item_name, Item.item_group
+            ).execute()
+            item_meta = {r["name"]: r for _, r in items.iterrows()}
+        else:
+            item_meta = {}
 
         # Build rows
         rows: list[dict[str, Any]] = []
@@ -1171,38 +1230,44 @@ class ABCXYZClassification:
 class DemandForecasting:
     """Per-item demand forecast based on monthly quantity buckets.
 
-    The forecast is a weighted recent average (last 3 months, weighted
-    50/30/20) with a linear trend extrapolated 3 months forward -- the
-    same pattern the Sales domain uses. No statsmodels / Prophet.
+    The forecast is a weighted recent average of the last 3 *completed*
+    months (weights 20/30/50, oldest to newest -- see `_weighted_forecast`).
+    The in-progress calendar month is excluded: a partial month would
+    understate demand. No statsmodels / Prophet.
     """
+
+    def __init__(self, date_filter: str = "12m"):
+        self.date_filter = date_filter
+        self.start, self.end, _ = resolve_window(date_filter)
+
     def train(self) -> dict[str, Any]:
         from insights.api.ml.ibis_source import t
 
         sii = t("Sales Invoice Item")
-        cutoff_24m = (datetime.now() - timedelta(days=730)).date()
         # Filter parent BEFORE semi-join (see inventory_intelligence notes).
         si = t("Sales Invoice").filter(
-            lambda x: (x.docstatus == 1) & (x.posting_date >= cutoff_24m)
+            lambda x: (x.docstatus == 1) & _between(x.posting_date, self.start, self.end)
         )
-        # Per-item monthly qty, last 24 months. Needs `si.posting_date`,
-        # which a semi-join can't expose -- inner join instead (safe:
-        # `si.name` is a primary key, so no row multiplication).
+        # Per-item monthly stock-UOM qty over the window. Needs
+        # `si.posting_date`, which a semi-join can't expose -- inner join
+        # instead (safe: `si.name` is a primary key).
         monthly_proj = (
             sii.join(si, sii.parent == si.name, how="inner")
-            .select(sii.item_code, sii.qty, si.posting_date.name("posting_date"))
+            .select(sii.item_code, sii.stock_qty, si.posting_date.name("posting_date"))
         )
         monthly = (
             monthly_proj
             .mutate(period=monthly_proj.posting_date.strftime("%Y-%m"))
             .group_by(["item_code", "period"])
-            .aggregate(qty=sii.qty.sum())
+            .aggregate(qty=sii.stock_qty.sum())
             .order_by(["item_code", "period"])
             .execute()
         )
         # MariaDB SUM() returns Decimal; mixing it with a Python float
-        # weight below (`v * w`) raises TypeError. Cast once, up front.
+        # weight below raises TypeError. Cast once, up front.
         if len(monthly):
             monthly["qty"] = monthly["qty"].astype(float)
+            monthly = monthly[monthly["period"] != datetime.now().strftime("%Y-%m")]
 
         if len(monthly) == 0:
             return {
@@ -1226,16 +1291,13 @@ class DemandForecasting:
 
         reorder_alerts: list[dict[str, Any]] = []
         for item_code, group in monthly.groupby("item_code"):
-            qty = list(group["qty"])
-            last_3 = qty[-3:] if len(qty) >= 3 else qty
-            weights = [0.5, 0.3, 0.2][: len(last_3)]
-            if sum(weights) > 0:
-                forecast = sum(v * w for v, w in zip(last_3, weights)) / sum(weights)
-            else:
-                forecast = 0
+            forecast = _weighted_forecast(list(group["qty"]))
             stock = float(stock_map.get(item_code, 0) or 0)
-            months_cover = stock / forecast if forecast > 0 else 999
-            if months_cover < 1.5:
+            # No forecast demand -> cover is undefined (null), not a sentinel.
+            months_cover = stock / forecast if forecast > 0 else None
+            if months_cover is None:
+                status = "adequate"
+            elif months_cover < 1.5:
                 status = "reorder_now"
             elif months_cover < 3:
                 status = "monitor"
@@ -1246,16 +1308,21 @@ class DemandForecasting:
                     "item_code": item_code,
                     "monthly_forecast": round(forecast, 1),
                     "current_stock": stock,
-                    "months_cover": round(months_cover, 1),
+                    "months_cover": round(months_cover, 1) if months_cover is not None else None,
                     "status": status,
                 }
             )
 
+        # Counts are over the full population; the list is the 20 most urgent
+        # (null cover = no demand, least urgent, sorted last).
+        reorder_alerts.sort(
+            key=lambda r: (r["months_cover"] is None, r["months_cover"] or 0, r["item_code"])
+        )
         return {
             "status": "success",
             "forecast_date": datetime.now().isoformat(),
             "total_items_analyzed": len(reorder_alerts),
-            "reorder_alerts": reorder_alerts[:10],
+            "reorder_alerts": reorder_alerts[:20],
             "reorder_now_count": sum(1 for r in reorder_alerts if r["status"] == "reorder_now"),
             "monitor_count": sum(1 for r in reorder_alerts if r["status"] == "monitor"),
             "adequate_count": sum(1 for r in reorder_alerts if r["status"] == "adequate"),
@@ -1282,23 +1349,64 @@ def _t(doctype: str):
     return t(doctype)
 
 
-def _per_item_avg_daily_sales(days: int):
-    """Return an Ibis table expression (item_code, avg_daily_sales) for
-    the given lookback window from posted sales invoices."""
+def resolve_window(date_filter: str) -> tuple[date | None, date, int]:
+    """(start, end, days) for a `date_filter`. `start` is None for "all";
+    `days` (>= 1) is then measured from the first posted sale, so per-day
+    rates stay meaningful."""
+    from frappe.query_builder import functions as fn
+
+    from insights.api.ml.utils import parse_date_filter
+
+    start_dt, end_dt = parse_date_filter(date_filter)
+    end = (end_dt or datetime.now()).date()
+    start = start_dt.date() if start_dt else None
+    first = start
+    if first is None:
+        SI = frappe.qb.DocType("Sales Invoice")
+        row = frappe.qb.from_(SI).select(fn.Min(SI.posting_date)).where(SI.docstatus == 1).run()
+        first = row[0][0] if row and row[0][0] else end - timedelta(days=365)
+    return start, end, max((end - first).days, 1)
+
+
+def _between(col, start, end):
+    """`col <= end`, and `col >= start` when the window has a start."""
+    cond = col <= end
+    return (cond & (col >= start)) if start else cond
+
+
+def _fmt_qty(q: float) -> str:
+    return str(int(q)) if q == int(q) else str(round(q, 2))
+
+
+_FORECAST_WEIGHTS = (0.2, 0.3, 0.5)  # oldest -> newest
+
+
+def _weighted_forecast(monthly_qty: list[float]) -> float:
+    """Weighted mean of the last (up to) 3 chronologically-ascending monthly
+    quantities; the most recent month always carries the highest weight."""
+    last = monthly_qty[-3:]
+    if not last:
+        return 0.0
+    weights = _FORECAST_WEIGHTS[-len(last):]
+    return sum(v * w for v, w in zip(last, weights)) / sum(weights)
+
+
+def _per_item_avg_daily_sales(start: date | None, end: date, days: int):
+    """Return an Ibis table expression (item_code, avg_daily_sales) of
+    stock-UOM qty per day over the window from posted sales invoices."""
     sii = _t("Sales Invoice Item")
-    cutoff = (datetime.now() - timedelta(days=days)).date()
     # Filter the parent table first so the date predicate references the
     # relation we're filtering -- semi_join returns the LEFT side, so
     # filtering the joined result on a SI column would error out.
     si = _t("Sales Invoice").filter(
-        lambda x: (x.docstatus == 1) & (x.posting_date >= cutoff)
+        lambda x: (x.docstatus == 1) & _between(x.posting_date, start, end)
     )
     return (
         sii.join(si, sii.parent == si.name, how="semi")
-        .select(sii.item_code, sii.qty)
+        .select(sii.item_code, sii.stock_qty)
         .group_by(sii.item_code)
-        .aggregate(qty_90d=sii.qty.sum())
-        .mutate(avg_daily_sales=lambda t: t.qty_90d / days)
+        .aggregate(qty_window=sii.stock_qty.sum())
+        .mutate(avg_daily_sales=lambda t: t.qty_window / days)
         .select("item_code", "avg_daily_sales")
     )
 
@@ -1393,5 +1501,5 @@ def run_inventory_intelligence(refresh: bool = False, date_filter: str = "12m") 
     return InventoryIntelligence(date_filter=date_filter).train()
 
 
-def run_abc_xyz_classification() -> dict[str, Any]:
-    return ABCXYZClassification().train()
+def run_abc_xyz_classification(date_filter: str = "12m") -> dict[str, Any]:
+    return ABCXYZClassification(date_filter=date_filter).train()

@@ -15,7 +15,8 @@ import {
   scoreSeverity, severityBadge, severityFill, severityAria,
   ragSeverity, deltaInk, deltaGlyph, prioritySeverity, type Severity,
 } from '../utils/status'
-import { formatDate, formatDateTime, formatCount, asNumber, NO_VALUE } from '../utils/format'
+import { formatDate, formatDateTime, formatCount, formatMoney, formatPercent, asNumber, NO_VALUE } from '../utils/format'
+import { isCustomRange } from '../utils/dateRangePresets'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
@@ -61,6 +62,7 @@ const itemwiseBeError = ref<string | null>(null)
 
 /** Shape of the inventory_intelligence endpoint payload. */
 interface InventoryIntelligenceData {
+  base_currency?: string
   stock_overview?: Record<string, unknown>
   turnover_analysis?: Record<string, unknown>
   aging_analysis?: Record<string, unknown>
@@ -102,13 +104,15 @@ async function trainInventoryIntelligence() {
   trainingStatus.value = ''
 
   try {
-    const result = await apiCall<Record<string, unknown>>('insights.api.ml.train_inventory_intelligence')
+    const result = await apiCall<Record<string, unknown>>('insights.api.ml.train_inventory_intelligence', {
+      date_filter: dateFilter.value,
+    })
     trainingStatus.value = 'Analysis complete'
     trainingSuccess.value = true
     const stockOverview = (result.stock_overview as Record<string, unknown>) || {}
     createToast({
       title: 'Analysis Complete',
-      message: `Analyzed ${stockOverview.total_skus || 0} SKUs across ${stockOverview.warehouse_count || 0} warehouses`,
+      message: `Analyzed ${formatCount(stockOverview.total_skus as number)} SKUs across ${formatCount(stockOverview.warehouse_count as number)} warehouses`,
       variant: 'success',
     })
     // Refetch the primary payload through the composable so the UI sees the
@@ -136,10 +140,11 @@ async function trainAbcXyz() {
   try {
     const result = await apiCall('insights.api.ml.inventory_classification', {
       refresh: true,
+      date_filter: dateFilter.value,
     })
     createToast({
       title: 'ABC/XYZ Classification Complete',
-      message: `Classified ${(result as Record<string, unknown>)?.total_items || 0} items`,
+      message: `Classified ${formatCount((result as Record<string, unknown>)?.total_items as number)} items`,
       variant: 'success',
     })
     ignoreRejection(reload())
@@ -189,17 +194,54 @@ const maxAgeBucketValue = computed(() => {
 })
 
 // Format helpers
-function formatCurrency(value: number): string {
-  if (value === undefined || value === null) return NO_VALUE
-  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}K`
-  return value?.toFixed(0) || '0'
+const baseCurrency = computed(() => inventoryData.value?.base_currency)
+const money = (value: number | null | undefined) => formatMoney(value, baseCurrency.value)
+
+// Windowed sections follow the selected filter. Dead stock (180d no-sale) and
+// aging buckets are fixed by definition and keep their own labels.
+const windowText = computed(() =>
+  isCustomRange(dateFilter.value) ? 'selected range' : dateFilter.value === 'all' ? 'all time' : dateFilter.value,
+)
+
+function openDetail(title: string, metric: string, extra: Record<string, unknown> = {}) {
+  drillDown.open(INV_ENDPOINT, title, { metric, date_filter: dateFilter.value, ...extra })
+}
+function openWarehouse(wh: unknown) {
+  const name = (wh as Record<string, unknown>).warehouse as string
+  openDetail(`${name} Stock`, 'warehouse_stock', { warehouse: name })
 }
 
-
-function formatPercent(value: number): string {
-  return `${value?.toFixed(1) || 0}%`
+/** `${value}${suffix}` only for a real number; null renders NO_VALUE, never a fake 0. */
+function suffixed(value: unknown, suffix: string): string {
+  const n = asNumber(value)
+  return n === undefined ? NO_VALUE : `${n}${suffix}`
 }
+
+function leadTimeDays(supplier: unknown): number | undefined {
+  const n = asNumber((supplier as Record<string, unknown>).avg_lead_time)
+  return n === undefined ? undefined : Math.round(n)
+}
+function leadTimeInk(supplier: unknown): string {
+  const days = leadTimeDays(supplier)
+  return days === undefined ? 'text-ink-gray-6' : deltaInk(days - 14, { higherIsBetter: false })
+}
+
+function coveragePct(item: unknown): number | undefined {
+  const c = asNumber((item as Record<string, unknown>).coverage)
+  return c === undefined ? undefined : c * 100
+}
+function coverageInk(item: unknown): string {
+  const c = asNumber((item as Record<string, unknown>).coverage)
+  return c === undefined ? 'text-ink-gray-6' : deltaInk(c >= 1 ? 1 : -1, { higherIsBetter: true })
+}
+
+const reorderRows = computed(() => (procurementInsights.value.reorder_needed as Record<string, unknown>[] | undefined) ?? [])
+const reorderTotal = computed(() => asNumber(procurementInsights.value.reorder_count))
+const pendingRows = computed(() => (procurementInsights.value.pending_orders as Record<string, unknown>[] | undefined) ?? [])
+const pendingTotal = computed(() => asNumber(procurementInsights.value.pending_orders_count))
+const demandSummary = computed(() => demandPlanning.value?.summary as Record<string, unknown> | undefined)
+const demandAlerts = computed(() => (demandPlanning.value?.reorder_alerts as Record<string, unknown>[] | undefined) ?? [])
+const demandTotal = computed(() => asNumber(demandSummary.value?.total_items))
 
 
 // Age bucket: severity by bucket name
@@ -346,12 +388,13 @@ function handleDashboardRedirect(target: string) {
           :value="formatCount(stockOverview.total_skus as number)"
           :clickable="true"
           :loading="!hasData"
-          @click="drillDown.open(INV_ENDPOINT, 'Active SKUs', { metric: 'total_skus' })"
+          @click="openDetail('Active SKUs', 'total_skus')"
         />
         <!-- Stock Value -->
         <KpiCard
           label="Stock Value"
-          :value="formatCurrency(stockOverview.total_value as number)"
+          :amount="asNumber(stockOverview.total_value)"
+          :currency="baseCurrency"
           :loading="!hasData"
         />
         <!-- Out of Stock -->
@@ -359,7 +402,9 @@ function handleDashboardRedirect(target: string) {
           label="Out of Stock"
           :value="formatCount(stockOverview.out_of_stock_count as number)"
           :severity="(stockOverview.out_of_stock_count as number) > 0 ? 'high' : 'none'"
+          :clickable="true"
           :loading="!hasData"
+          @click="openDetail('Out of Stock Items', 'out_of_stock_items')"
         />
         <!-- Low Stock -->
         <KpiCard
@@ -368,14 +413,16 @@ function handleDashboardRedirect(target: string) {
           :severity="(stockOverview.low_stock_count as number) > 0 ? 'medium' : 'none'"
           :clickable="true"
           :loading="!hasData"
-          @click="drillDown.open(INV_ENDPOINT, 'Low Stock Items', { metric: 'low_stock_items' })"
+          @click="openDetail('Low Stock Items', 'low_stock_items')"
         />
         <!-- Overstock -->
         <KpiCard
           label="Overstock"
           :value="formatCount(stockOverview.overstock_count as number)"
           :severity="(stockOverview.overstock_count as number) > 0 ? 'low' : 'none'"
+          :clickable="true"
           :loading="!hasData"
+          @click="openDetail('Overstock Items', 'overstock_items')"
         />
       </div>
 
@@ -411,7 +458,7 @@ function handleDashboardRedirect(target: string) {
                         <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).item_count as number) }}</td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).total_qty as number) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((group as Record<string, unknown>).stock_value as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money((group as Record<string, unknown>).stock_value as number) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -424,9 +471,12 @@ function handleDashboardRedirect(target: string) {
                 <div class="mt-4 grid grid-cols-2 gap-4 mb-4">
                   <KpiCard
                     label="Total Dead Stock Value"
-                    :value="formatCurrency(deadStock.total_value as number)"
-                    severity="high"
+                    :amount="asNumber(deadStock.total_value)"
+                    :currency="baseCurrency"
+                    :severity="(deadStock.total_value as number) > 0 ? 'high' : 'none'"
                     variant="tile"
+                    :clickable="true"
+                    @click="openDetail('Dead Stock Items', 'dead_stock_items')"
                   />
                   <KpiCard
                     label="Items"
@@ -451,7 +501,7 @@ function handleDashboardRedirect(target: string) {
                       >
                         <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).count as number) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((group as Record<string, unknown>).value as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money((group as Record<string, unknown>).value as number) }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -463,27 +513,23 @@ function handleDashboardRedirect(target: string) {
           <!-- Turnover Tab -->
           <div v-if="activeTab === 'turnover'">
             <!-- Turnover Summary - KpiCards replace the banned gradient blocks -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-6">
               <KpiCard
-                label="Turnover Ratio"
+                :label="`Turnover Ratio (${windowText})`"
                 :value="asNumber(turnoverAnalysis.overall_turnover_ratio)"
                 unit="x"
                 :loading="!hasData"
               />
               <KpiCard
-                label="Days Sales Inventory"
+                :label="`Days Sales Inventory (${windowText})`"
                 :value="asNumber(turnoverAnalysis.days_sales_inventory)"
                 unit=" days"
                 :loading="!hasData"
               />
               <KpiCard
-                label="COGS (12m)"
-                :value="formatCurrency(turnoverAnalysis.cogs_12m as number)"
-                :loading="!hasData"
-              />
-              <KpiCard
-                label="Avg Inventory Value"
-                :value="formatCurrency(turnoverAnalysis.avg_inventory_value as number)"
+                :label="`COGS (${windowText})`"
+                :amount="asNumber(turnoverAnalysis.cogs_12m)"
+                :currency="baseCurrency"
                 :loading="!hasData"
               />
             </div>
@@ -497,7 +543,7 @@ function handleDashboardRedirect(target: string) {
                     <thead class="bg-surface-gray-1">
                       <tr>
                         <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item Group</th>
-                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Sales 12m</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Sales ({{ windowText }})</th>
                         <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Turnover</th>
                         <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">DSI</th>
                       </tr>
@@ -509,9 +555,9 @@ function handleDashboardRedirect(target: string) {
                         class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
                         <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
-                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((group as Record<string, unknown>).sales_12m as number) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ (group as Record<string, unknown>).turnover_ratio }}x</td>
-                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ (group as Record<string, unknown>).dsi }} days</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((group as Record<string, unknown>).sales_12m as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ suffixed((group as Record<string, unknown>).turnover_ratio, 'x') }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ suffixed((group as Record<string, unknown>).dsi, ' days') }}</td>
                       </tr>
                     </tbody>
                   </table>
@@ -522,7 +568,7 @@ function handleDashboardRedirect(target: string) {
               <div class="space-y-6">
                 <!-- Fast Moving -->
                 <div>
-                  <SectionHeader variant="caption" title="Fast Moving Items (90d)" :level="3" />
+                  <SectionHeader variant="caption" :title="`Fast Moving Items (${windowText})`" :level="3" />
                   <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
                       <thead class="bg-surface-gray-1">
@@ -534,7 +580,7 @@ function handleDashboardRedirect(target: string) {
                       </thead>
                       <tbody>
                         <tr
-                          v-for="(item, idx) in (turnoverAnalysis.fast_moving as unknown[])?.slice(0, 5)"
+                          v-for="(item, idx) in (turnoverAnalysis.fast_moving as unknown[])"
                           :key="idx"
                           class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                         >
@@ -552,7 +598,7 @@ function handleDashboardRedirect(target: string) {
 
                 <!-- Slow Moving -->
                 <div>
-                  <SectionHeader variant="caption" title="Slow Moving Items (90d)" :level="3" />
+                  <SectionHeader variant="caption" :title="`Slow Moving Items (${windowText})`" :level="3" />
                   <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                     <table class="w-full text-sm">
                       <thead class="bg-surface-gray-1">
@@ -564,7 +610,7 @@ function handleDashboardRedirect(target: string) {
                       </thead>
                       <tbody>
                         <tr
-                          v-for="(item, idx) in (turnoverAnalysis.slow_moving as unknown[])?.slice(0, 5)"
+                          v-for="(item, idx) in (turnoverAnalysis.slow_moving as unknown[])"
                           :key="idx"
                           class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                         >
@@ -573,7 +619,7 @@ function handleDashboardRedirect(target: string) {
                             {{ (item as Record<string, unknown>).item_code }}
                           </td>
                           <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).current_stock as number) }}</td>
-                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((item as Record<string, unknown>).stock_value as number) }}</td>
+                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money((item as Record<string, unknown>).stock_value as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -630,8 +676,8 @@ function handleDashboardRedirect(target: string) {
                             )" :label="String((item as Record<string, unknown>).class)" size="sm" />
                           </td>
                           <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).item_count as number) }}</td>
-                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).sales_value as number) }}</td>
-                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).stock_value as number) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).sales_value as number) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).stock_value as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -658,7 +704,7 @@ function handleDashboardRedirect(target: string) {
                             )" :label="String((item as Record<string, unknown>).class)" size="sm" />
                           </td>
                           <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).item_count as number) }}</td>
-                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).total_value as number) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).total_value as number) }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -674,8 +720,9 @@ function handleDashboardRedirect(target: string) {
                         <tr>
                           <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Item</th>
                           <th scope="col" class="px-3 py-2 text-center text-ink-gray-6">Class</th>
-                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Sales</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Sales value</th>
                           <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Stock</th>
+                          <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Strategy</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -704,8 +751,9 @@ function handleDashboardRedirect(target: string) {
                               (item as Record<string, unknown>).xyz_class === 'Y' ? 'medium' : 'low'
                             )" :label="String((item as Record<string, unknown>).xyz_class)" size="sm" class="ml-1" />
                           </td>
-                          <td class="px-3 py-2 text-right text-xs text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).total_value as number) }}</td>
+                          <td class="px-3 py-2 text-right text-xs text-ink-gray-6">{{ money((item as Record<string, unknown>).total_value as number) }}</td>
                           <td class="px-3 py-2 text-right text-xs text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).stock_qty as number) }}</td>
+                          <td class="px-3 py-2 text-xs text-ink-gray-6">{{ (item as Record<string, unknown>).strategy || NO_VALUE }}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -767,14 +815,14 @@ function handleDashboardRedirect(target: string) {
                       <br>
                       <span class="text-xs text-ink-gray-6">{{ (item as Record<string, unknown>).item_name }}</span>
                     </td>
-                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).selling_price as number) }}</td>
-                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).variable_cost as number) }}</td>
-                    <td class="px-4 py-3 text-sm text-right font-medium text-ink-gray-9">{{ formatCurrency((item as Record<string, unknown>).contribution_margin as number) }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).selling_price as number) }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).variable_cost as number) }}</td>
+                    <td class="px-4 py-3 text-sm text-right font-medium text-ink-gray-9">{{ money((item as Record<string, unknown>).contribution_margin as number) }}</td>
                     <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ ((item as Record<string, unknown>).be_qty as number)?.toLocaleString() }}</td>
                     <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ ((item as Record<string, unknown>).actual_qty as number)?.toLocaleString() }}</td>
                     <td class="px-4 py-3 text-sm text-right font-medium"
-                        :class="deltaInk((item as Record<string, unknown>).coverage as number >= 1 ? 1 : -1, { higherIsBetter: true })">
-                      {{ (((item as Record<string, unknown>).coverage as number) * 100)?.toFixed(1) }}%
+                        :class="coverageInk(item)">
+                      {{ formatPercent(coveragePct(item)) }}
                     </td>
                     <td class="px-4 py-3 text-center">
                       <Badge v-bind="severityBadge(ragSeverity((item as Record<string, unknown>).rag as string))"
@@ -804,13 +852,13 @@ function handleDashboardRedirect(target: string) {
                     <div class="w-24 text-sm font-medium text-ink-gray-6">{{ name }}</div>
                     <div class="flex-1 bg-surface-gray-2 rounded-full h-6 overflow-hidden"
                          role="img"
-                         :aria-label="severityAria(String(name), ageBucketSeverity(String(name)), formatCurrency(bucket.value))">
+                         :aria-label="severityAria(String(name), ageBucketSeverity(String(name)), money(bucket.value))">
                       <div
                         :class="['h-full rounded-full', severityFill(ageBucketSeverity(String(name)))]"
                         :style="{ width: `${Math.min(100, (bucket.value / maxAgeBucketValue) * 100)}%` }"
                       ></div>
                     </div>
-                    <div class="w-20 text-right text-sm font-bold text-ink-gray-9">{{ formatCurrency(bucket.value) }}</div>
+                    <div class="w-20 text-right text-sm font-bold text-ink-gray-9">{{ money(bucket.value) }}</div>
                     <div class="w-16 text-right text-xs text-ink-gray-6">{{ bucket.count }} items</div>
                   </div>
                 </div>
@@ -818,6 +866,9 @@ function handleDashboardRedirect(target: string) {
                 <div class="mt-6 p-4 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
                   <p class="text-sm text-ink-gray-6">
                     <strong class="text-ink-gray-8">Total Items Analyzed:</strong> {{ formatCount(agingAnalysis.total_items_analyzed as number) }}
+                  </p>
+                  <p class="text-xs text-ink-gray-6 mt-1">
+                    Items with positive stock only; {{ formatCount(stockOverview.out_of_stock_count as number) }} out-of-stock items excluded
                   </p>
                   <p class="text-xs text-ink-gray-6 mt-1">
                     Age calculation based on FIFO (First-In-First-Out) valuation method
@@ -846,7 +897,7 @@ function handleDashboardRedirect(target: string) {
                       >
                         <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (group as Record<string, unknown>).item_group }}</td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((group as Record<string, unknown>).item_count as number) }}</td>
-                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((group as Record<string, unknown>).total_value as number) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((group as Record<string, unknown>).total_value as number) }}</td>
                         <td class="px-4 py-2 text-right">
                           <!-- Age: good <= 30, warn <= 90, higherIsBetter: false -->
                           <span :class="['font-bold', deltaInk((group as Record<string, unknown>).avg_age_days as number - 90, { higherIsBetter: false })]">
@@ -885,7 +936,7 @@ function handleDashboardRedirect(target: string) {
                       <td class="px-4 py-2 text-ink-gray-6 truncate max-w-[200px]">{{ (item as Record<string, unknown>).item_name }}</td>
                       <td class="px-4 py-2 text-ink-gray-6">{{ (item as Record<string, unknown>).item_group }}</td>
                       <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).total_qty as number) }}</td>
-                      <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCurrency((item as Record<string, unknown>).total_value as number) }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).total_value as number) }}</td>
                       <td class="px-4 py-2 text-right font-bold" :class="deltaInk(-1, { higherIsBetter: true })">
                         {{ (item as Record<string, unknown>).avg_age_days }} days
                       </td>
@@ -917,20 +968,22 @@ function handleDashboardRedirect(target: string) {
                         v-for="(wh, idx) in warehouseAnalysis.by_warehouse as unknown[]"
                         :key="idx"
                         class="border-b border-outline-gray-1 hover:bg-surface-gray-1 cursor-pointer"
+                        role="button"
                         tabindex="0"
-                        @click="drillDown.open(INV_ENDPOINT, (wh as Record<string, unknown>).warehouse + ' Stock', { metric: 'warehouse_stock', warehouse: (wh as Record<string, unknown>).warehouse })"
-                        @keydown.enter="drillDown.open(INV_ENDPOINT, (wh as Record<string, unknown>).warehouse + ' Stock', { metric: 'warehouse_stock', warehouse: (wh as Record<string, unknown>).warehouse })"
+                        @click="openWarehouse(wh)"
+                        @keydown.enter="openWarehouse(wh)"
+                        @keydown.space.prevent="openWarehouse(wh)"
                       >
                         <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[200px]">{{ (wh as Record<string, unknown>).warehouse }}</td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((wh as Record<string, unknown>).item_count as number) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((wh as Record<string, unknown>).stock_value as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money((wh as Record<string, unknown>).stock_value as number) }}</td>
                         <td class="px-4 py-2 text-right">
                           <div class="flex items-center justify-end gap-2">
                             <div class="w-16 bg-surface-gray-2 rounded-full h-2">
                               <div class="bg-surface-blue-3 h-2 rounded-full"
                                    :style="{ width: `${(wh as Record<string, unknown>).pct_of_total}%` }"
                                    role="img"
-                                   :aria-label="`${(wh as Record<string, unknown>).pct_of_total}% of total`"></div>
+                                   :aria-label="`${formatPercent((wh as Record<string, unknown>).pct_of_total as number)} of total`"></div>
                             </div>
                             <span class="text-xs text-ink-gray-6">{{ formatPercent((wh as Record<string, unknown>).pct_of_total as number) }}</span>
                           </div>
@@ -949,7 +1002,8 @@ function handleDashboardRedirect(target: string) {
                   />
                   <KpiCard
                     label="Total Stock Value"
-                    :value="formatCurrency(warehouseAnalysis.total_stock_value as number)"
+                    :amount="asNumber(warehouseAnalysis.total_stock_value)"
+                    :currency="baseCurrency"
                     variant="tile"
                   />
                 </div>
@@ -1026,8 +1080,8 @@ function handleDashboardRedirect(target: string) {
                       </td>
                       <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).total_qty as number) }}</td>
                       <td class="px-4 py-2 text-xs text-ink-gray-6 truncate max-w-[200px]"
-                          :title="(item as Record<string, unknown>).distribution as string">
-                        {{ (item as Record<string, unknown>).distribution }}
+                          :title="((item as Record<string, unknown>).distribution as string) || undefined">
+                        {{ (item as Record<string, unknown>).distribution || NO_VALUE }}
                       </td>
                     </tr>
                   </tbody>
@@ -1041,7 +1095,7 @@ function handleDashboardRedirect(target: string) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Supplier Performance -->
               <div>
-                <SectionHeader variant="caption" title="Supplier Performance (12m)" :level="3" />
+                <SectionHeader variant="caption" :title="`Supplier Performance (${windowText})`" :level="3" />
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
                     <thead class="bg-surface-gray-1">
@@ -1063,11 +1117,11 @@ function handleDashboardRedirect(target: string) {
                           {{ (supplier as Record<string, unknown>).supplier_name || (supplier as Record<string, unknown>).supplier }}
                         </td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((supplier as Record<string, unknown>).order_count as number) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((supplier as Record<string, unknown>).total_value as number) }}</td>
+                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money((supplier as Record<string, unknown>).total_value as number) }}</td>
                         <td class="px-4 py-2 text-right">
                           <!-- Lead time: good <= 7, warn <= 14, higherIsBetter: false -->
-                          <span :class="['font-medium', deltaInk(Math.round((supplier as Record<string, unknown>).avg_lead_time as number || 0) - 14, { higherIsBetter: false })]">
-                            {{ Math.round((supplier as Record<string, unknown>).avg_lead_time as number || 0) }} days
+                          <span :class="['font-medium', leadTimeInk(supplier)]">
+                            {{ leadTimeDays(supplier) === undefined ? NO_VALUE : `${leadTimeDays(supplier)} days` }}
                           </span>
                         </td>
                       </tr>
@@ -1080,8 +1134,11 @@ function handleDashboardRedirect(target: string) {
               <div>
                 <SectionHeader variant="caption" title="Items Needing Reorder" :level="3">
                   <template #actions>
-                    <Badge v-bind="severityBadge(scoreSeverity(procurementInsights.reorder_count as number, { good: 0, warn: 5, higherIsBetter: false }))"
-                           :label="String(procurementInsights.reorder_count)" size="sm" />
+                    <div class="flex items-center gap-2">
+                      <Badge v-bind="severityBadge(scoreSeverity(reorderTotal as number, { good: 0, warn: 5, higherIsBetter: false }))"
+                             :label="formatCount(reorderTotal)" size="sm" />
+                      <Button size="sm" variant="subtle" @click="openDetail('Items Needing Reorder', 'reorder_items')">View all</Button>
+                    </div>
                   </template>
                 </SectionHeader>
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
@@ -1096,7 +1153,7 @@ function handleDashboardRedirect(target: string) {
                     </thead>
                     <tbody>
                       <tr
-                        v-for="(item, idx) in (procurementInsights.reorder_needed as unknown[])?.slice(0, 10)"
+                        v-for="(item, idx) in reorderRows"
                         :key="idx"
                         class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                       >
@@ -1108,11 +1165,14 @@ function handleDashboardRedirect(target: string) {
                           {{ formatCount((item as Record<string, unknown>).current_stock as number) }}
                         </td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).reorder_level as number) }}</td>
-                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ ((item as Record<string, unknown>).avg_daily_demand as number || 0).toFixed(1) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount(asNumber(item.avg_daily_demand), { decimals: 1 }) }}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
+                <p v-if="reorderTotal !== undefined && reorderRows.length < reorderTotal" class="mt-2 text-xs text-ink-gray-6">
+                  Showing {{ reorderRows.length }} of {{ formatCount(reorderTotal) }} items needing reorder
+                </p>
               </div>
             </div>
 
@@ -1120,8 +1180,11 @@ function handleDashboardRedirect(target: string) {
             <div class="mt-6">
               <SectionHeader variant="caption" title="Pending Purchase Orders" :level="3">
                 <template #actions>
-                  <Badge v-bind="severityBadge(scoreSeverity(procurementInsights.pending_orders_count as number, { good: 0, warn: 10, higherIsBetter: false }))"
-                         :label="String(procurementInsights.pending_orders_count)" size="sm" />
+                  <div class="flex items-center gap-2">
+                    <Badge v-bind="severityBadge(scoreSeverity(pendingTotal as number, { good: 0, warn: 10, higherIsBetter: false }))"
+                           :label="formatCount(pendingTotal)" size="sm" />
+                    <Button size="sm" variant="subtle" @click="openDetail('Pending Purchase Orders', 'pending_orders')">View all</Button>
+                  </div>
                 </template>
               </SectionHeader>
               <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
@@ -1138,14 +1201,14 @@ function handleDashboardRedirect(target: string) {
                   </thead>
                   <tbody>
                     <tr
-                      v-for="(order, idx) in procurementInsights.pending_orders as unknown[]"
+                      v-for="(order, idx) in pendingRows"
                       :key="idx"
                       class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
                       <td class="px-4 py-2 font-medium text-ink-gray-9">{{ (order as Record<string, unknown>).name }}</td>
-                      <td class="px-4 py-2 text-ink-gray-6 truncate max-w-[150px]">{{ (order as Record<string, unknown>).supplier }}</td>
-                      <td class="px-4 py-2 text-ink-gray-6">{{ (order as Record<string, unknown>).transaction_date }}</td>
-                      <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCurrency((order as Record<string, unknown>).grand_total as number) }}</td>
+                      <td class="px-4 py-2 text-ink-gray-6 truncate max-w-[150px]">{{ order.supplier_name || order.supplier }}</td>
+                      <td class="px-4 py-2 text-ink-gray-6">{{ formatDate(order.transaction_date as string) }}</td>
+                      <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money(asNumber(order.grand_total)) }}</td>
                       <td class="px-4 py-2 text-right">
                         <!-- Days pending: good <= 7, warn <= 14, higherIsBetter: false -->
                         <Badge v-bind="severityBadge(scoreSeverity((order as Record<string, unknown>).days_pending as number, { good: 7, warn: 14, higherIsBetter: false }))"
@@ -1159,23 +1222,56 @@ function handleDashboardRedirect(target: string) {
                   </tbody>
                 </table>
               </div>
+              <p v-if="pendingTotal !== undefined && pendingRows.length < pendingTotal" class="mt-2 text-xs text-ink-gray-6">
+                Showing {{ pendingRows.length }} of {{ formatCount(pendingTotal) }} pending orders
+              </p>
             </div>
 
             <!-- Demand Planning Integration -->
-            <div v-if="demandPlanning" class="mt-6">
+            <div class="mt-6">
               <SectionHeader variant="caption" title="Demand Planning Summary" :level="3" />
-              <div class="mt-4 grid grid-cols-4 gap-4 mb-4">
-                <KpiCard label="Total Items"
-                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.total_items)" />
-                <KpiCard label="Reorder Now"
-                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.reorder_now_count)"
-                         :severity="Number((demandPlanning.summary as Record<string, unknown>)?.reorder_now_count) > 0 ? 'high' : 'none'" />
-                <KpiCard label="Monitor"
-                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.monitor_count)"
-                         :severity="Number((demandPlanning.summary as Record<string, unknown>)?.monitor_count) > 0 ? 'medium' : 'none'" />
-                <KpiCard label="Adequate"
-                         :value="asNumber((demandPlanning.summary as Record<string, unknown>)?.adequate_count)" />
-              </div>
+              <p v-if="!demandPlanning" class="mt-4 text-sm text-ink-gray-6">Demand planning not available</p>
+              <template v-else>
+                <div class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                  <KpiCard label="Total Items" :value="demandTotal" />
+                  <KpiCard label="Reorder Now"
+                           :value="asNumber(demandSummary?.reorder_now_count)"
+                           :severity="Number(demandSummary?.reorder_now_count) > 0 ? 'high' : 'none'" />
+                  <KpiCard label="Monitor"
+                           :value="asNumber(demandSummary?.monitor_count)"
+                           :severity="Number(demandSummary?.monitor_count) > 0 ? 'medium' : 'none'" />
+                  <KpiCard label="Adequate" :value="asNumber(demandSummary?.adequate_count)" />
+                </div>
+                <div v-if="demandAlerts.length" class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
+                  <table class="w-full text-sm">
+                    <thead class="bg-surface-gray-1">
+                      <tr>
+                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Item</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Stock</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Monthly Forecast</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Months Cover</th>
+                        <th scope="col" class="px-4 py-2 text-center text-ink-gray-6">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(alert, idx) in demandAlerts" :key="idx"
+                          class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
+                        <td class="px-4 py-2 font-medium text-ink-gray-9">{{ alert.item_code }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount(asNumber(alert.current_stock)) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount(asNumber(alert.monthly_forecast), { decimals: 1 }) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount(asNumber(alert.months_cover), { decimals: 1 }) }}</td>
+                        <td class="px-4 py-2 text-center">
+                          <Badge v-bind="severityBadge(alert.status === 'reorder_now' ? 'high' : alert.status === 'monitor' ? 'medium' : 'none')"
+                                 :label="String(alert.status ?? NO_VALUE).replace('_', ' ')" size="sm" />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-if="demandTotal !== undefined && demandAlerts.length < demandTotal" class="mt-2 text-xs text-ink-gray-6">
+                  Showing {{ demandAlerts.length }} of {{ formatCount(demandTotal) }} items analyzed
+                </p>
+              </template>
             </div>
           </div>
         </div>
