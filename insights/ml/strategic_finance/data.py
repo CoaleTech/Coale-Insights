@@ -9,9 +9,11 @@ All _get_*() methods, _format_currency(), and sanitize_for_json().
 
 import frappe
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 from frappe.query_builder import Case, DocType
-from frappe.query_builder.functions import Abs, Coalesce, Count, DateFormat, Sum
+from frappe.query_builder.functions import Abs, Coalesce, Count, DateFormat, Min, Sum
+from frappe.utils import add_months, get_first_day
 
 if TYPE_CHECKING:
     import numpy as np
@@ -25,6 +27,8 @@ def sanitize_for_json(obj):
         return {k: sanitize_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, list):
         return [sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, Decimal):
+        return float(obj)
     elif isinstance(obj, np.bool_):
         return bool(obj)
     elif isinstance(obj, np.integer):
@@ -87,6 +91,7 @@ def get_cash_balance(intelligence) -> float:
         .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("balance"))
         .where(acc.account_type.isin(["Cash", "Bank"]))
         .where(gle.company == intelligence.company)
+        .where(gle.posting_date <= datetime.now().strftime('%Y-%m-%d'))
         .where(gle.is_cancelled == 0)
         .run(as_dict=True)
     )
@@ -99,11 +104,11 @@ def get_monthly_financial_trends(intelligence) -> List[Dict]:
     gle = DocType("GL Entry")
     acc = DocType("Account")
 
-    # Anchor on a Python-side date so PyPika emits a literal bound parameter
-    # rather than CURDATE()/DATE_SUB() server-side functions which the query
-    # builder does not natively express. Equivalent semantics: last 12 months
-    # of data through `today` (inclusive).
-    twelve_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    # Anchor on Python-side dates so PyPika emits literal bound parameters.
+    # Window: 12 calendar months ending with the current month, starting on
+    # the 1st; bounded above by today so future-dated postings never leak.
+    today = datetime.now().strftime('%Y-%m-%d')
+    twelve_months_ago = str(add_months(get_first_day(today), -11))
 
     period_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
     revenue_expr = Abs(
@@ -126,7 +131,7 @@ def get_monthly_financial_trends(intelligence) -> List[Dict]:
         .join(acc)
         .on(gle.account == acc.name)
         .select(period_expr, revenue_expr, expense_expr)
-        .where(gle.posting_date >= twelve_months_ago)
+        .where(gle.posting_date.between(twelve_months_ago, today))
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
         .where(acc.root_type.isin(["Income", "Expense"]))
@@ -144,7 +149,7 @@ def get_monthly_financial_trends(intelligence) -> List[Dict]:
             "revenue": revenue,
             "expenses": expenses,
             "net_income": revenue - expenses,
-            "margin": round((revenue - expenses) / revenue * 100, 1) if revenue > 0 else 0
+            "margin": round((revenue - expenses) / revenue * 100, 1) if revenue > 0 else None
         })
     return result
 
@@ -167,6 +172,7 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
             gle.account.as_("account"),
             Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"),
         )
+        .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
         .where(gle.posting_date.between(fy_start, today))
         .groupby(gle.account)
@@ -199,7 +205,7 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
     result = []
     for exp in expenses:
         amount = float(exp.get('amount') or 0)
-        pct = round((amount / total * 100), 1) if total > 0 else 0
+        pct = round((amount / total * 100), 1) if total > 0 else None
         result.append({
             "category": exp.get('category') or 'Unknown',
             "amount": amount,
@@ -437,9 +443,33 @@ def get_payroll_for_week(intelligence, week_start, payroll_pattern: Dict) -> flo
     return 0
 
 
+def _weeks_of_history(intelligence, today: str) -> int:
+    """Weeks (1..12) of Cash/Bank GL history available up to `today`, so a
+    young ledger is not averaged over 12 mostly-empty weeks."""
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(Min(gle.posting_date).as_("first_date"))
+        .where(gle.company == intelligence.company)
+        .where(gle.posting_date <= today)
+        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    first = rows[0].first_date if rows else None
+    if not first:
+        return 12
+    days = (frappe.utils.getdate(today) - frappe.utils.getdate(first)).days
+    return max(1, min(12, -(-days // 7)))
+
+
 def estimate_other_receipts(intelligence, week_start: datetime) -> float:
-    """Estimate other receipts (non-AR) based on historical average"""
-    # Get average weekly other receipts from last 12 weeks
+    """Estimate other receipts (non-AR): average weekly total over the last
+    12 weeks, divided by the weeks of history that actually exist."""
+    today = datetime.now().strftime('%Y-%m-%d')
     twelve_weeks_ago = (datetime.now() - timedelta(weeks=12)).strftime('%Y-%m-%d')
 
     gle = DocType("GL Entry")
@@ -448,22 +478,22 @@ def estimate_other_receipts(intelligence, week_start: datetime) -> float:
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select((Coalesce(Sum(gle.debit - gle.credit), 0) / 12).as_("weekly_avg"))
+        .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("total"))
         .where(gle.company == intelligence.company)
-        .where(gle.posting_date >= twelve_weeks_ago)
+        .where(gle.posting_date.between(twelve_weeks_ago, today))
         .where(acc.account_type.isin(["Cash", "Bank"]))
         .where(gle.is_cancelled == 0)
         .where((gle.debit - gle.credit) > 0)
         .where(gle.voucher_type.notin(["Sales Invoice", "Payment Entry"]))
         .run(as_dict=True)
     )
-    other_receipts = float(rows[0].weekly_avg or 0) if rows else 0.0
-
-    return other_receipts
+    total = float(rows[0].total or 0) if rows else 0.0
+    return total / _weeks_of_history(intelligence, today)
 
 
 def estimate_operating_expenses(intelligence, week_start: datetime) -> float:
     """Estimate operating expenses based on historical average"""
+    today = datetime.now().strftime('%Y-%m-%d')
     twelve_weeks_ago = (datetime.now() - timedelta(weeks=12)).strftime('%Y-%m-%d')
 
     gle = DocType("GL Entry")
@@ -472,9 +502,9 @@ def estimate_operating_expenses(intelligence, week_start: datetime) -> float:
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select((Coalesce(Abs(Sum(gle.debit - gle.credit)), 0) / 12).as_("weekly_avg"))
+        .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("total"))
         .where(gle.company == intelligence.company)
-        .where(gle.posting_date >= twelve_weeks_ago)
+        .where(gle.posting_date.between(twelve_weeks_ago, today))
         .where(acc.account_type.isin(["Cash", "Bank"]))
         .where(gle.is_cancelled == 0)
         .where((gle.debit - gle.credit) < 0)
@@ -485,9 +515,8 @@ def estimate_operating_expenses(intelligence, week_start: datetime) -> float:
         .where(~gle.against.like("%VAT%"))
         .run(as_dict=True)
     )
-    operating_exp = float(rows[0].weekly_avg or 0) if rows else 0.0
-
-    return abs(operating_exp)
+    total = abs(float(rows[0].total or 0)) if rows else 0.0
+    return total / _weeks_of_history(intelligence, today)
 
 
 def get_scheduled_taxes(intelligence, week_start, week_end) -> float:

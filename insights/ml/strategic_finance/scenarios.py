@@ -13,6 +13,9 @@ from typing import Dict, Any, List, TYPE_CHECKING
 
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Abs, DateFormat, Sum
+from frappe.utils import add_months, get_first_day, getdate
+
+from .cost_ratios import _get_fixed_cost
 
 if TYPE_CHECKING:
     import numpy as np
@@ -97,15 +100,21 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
                 "expenses": adj_expenses,
                 "net_income": adj_net,
                 "net_after_tax": adj_net_after_tax,
-                "margin": round(adj_net / adj_revenue * 100, 1) if adj_revenue > 0 else 0
+                "margin": round(adj_net / adj_revenue * 100, 1) if adj_revenue > 0 else None
             })
 
-    # Break-even analysis
-    fixed_costs_ratio = 0.4  # Assume 40% of expenses are fixed
-    fixed_costs = base_expenses * fixed_costs_ratio
-    variable_cost_ratio = (base_expenses * (1 - fixed_costs_ratio)) / base_revenue if base_revenue > 0 else 0.5
-    contribution_margin = 1 - variable_cost_ratio
-    break_even_revenue = fixed_costs / contribution_margin if contribution_margin > 0 else 0
+    # Break-even: configured fixed cost centers when available, else assume
+    # 40% of expenses are fixed (reported via `fixed_cost_basis`).
+    configured_fixed = _get_fixed_cost(
+        intelligence.company, fy_start, today, frappe.get_cached_doc("Insights Settings")
+    )
+    fixed_cost_basis = "assumed_40pct" if configured_fixed is None else "configured"
+    fixed_costs = base_expenses * 0.4 if configured_fixed is None else configured_fixed
+    if base_revenue > 0:
+        contribution_margin = 1 - max(base_expenses - fixed_costs, 0) / base_revenue
+        break_even_revenue = fixed_costs / contribution_margin if contribution_margin > 0 else None
+    else:
+        contribution_margin = break_even_revenue = None
 
     # =====================
     # MONTE CARLO SIMULATION
@@ -116,7 +125,11 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     # The legacy SQL used DATE_SUB(CURDATE(), INTERVAL 12 MONTH); we
     # resolve the boundary on the Python side so PyPika emits a literal
     # bound parameter.
-    twelve_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    # Last 12 complete months (current month is partial and would inflate
+    # the std dev); lower bound is the 1st of a month, upper bound <= today.
+    month_start = get_first_day(getdate())
+    twelve_months_ago = add_months(month_start, -12).strftime('%Y-%m-%d')
+    last_month_end = (month_start - timedelta(days=1)).strftime('%Y-%m-%d')
     gle = DocType("GL Entry")
     acc = DocType("Account")
     month_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
@@ -129,7 +142,7 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
             Abs(Sum(gle.credit - gle.debit)).as_("revenue"),
         )
         .where(acc.root_type == "Income")
-        .where(gle.posting_date >= twelve_months_ago)
+        .where(gle.posting_date.between(twelve_months_ago, last_month_end))
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
         .groupby(month_expr)
@@ -222,7 +235,7 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
             "net_income": base_net_income,
             "tax": base_tax,
             "net_after_tax": base_net_after_tax,
-            "margin": round(base_net_income / base_revenue * 100, 1) if base_revenue > 0 else 0
+            "margin": round(base_net_income / base_revenue * 100, 1) if base_revenue > 0 else None
         },
         "sensitivity": {
             "scenarios": sensitivity_scenarios,
@@ -232,9 +245,10 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
         "break_even": {
             "revenue": break_even_revenue,
             "current_revenue": base_revenue,
-            "margin_of_safety": round((base_revenue - break_even_revenue) / base_revenue * 100, 1) if base_revenue > 0 else 0,
+            "margin_of_safety": round((base_revenue - break_even_revenue) / base_revenue * 100, 1) if (base_revenue > 0 and break_even_revenue is not None) else None,
             "fixed_costs": fixed_costs,
-            "contribution_margin": round(contribution_margin * 100, 1)
+            "fixed_cost_basis": fixed_cost_basis,
+            "contribution_margin": round(contribution_margin * 100, 1) if contribution_margin is not None else None
         },
         "monte_carlo": {
             "simulations": num_simulations,
@@ -251,92 +265,79 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     }
 
 
-def compare_periods(intelligence) -> Dict[str, Any]:
-    """Compare financial performance across periods"""
-    today = datetime.now()
+def calc_change(current: float, prior: float):
+    """Percent change; None when there is no prior base (not a fake 100/0)."""
+    if not prior:
+        return None
+    return round((current - prior) / abs(prior) * 100, 1)
 
-    # Define periods
-    periods = {
-        "current_month": {
-            "start": today.replace(day=1).strftime('%Y-%m-%d'),
-            "end": today.strftime('%Y-%m-%d'),
-            "label": today.strftime('%b %Y')
-        },
-        "prior_month": {
-            "start": (today.replace(day=1) - timedelta(days=1)).replace(day=1).strftime('%Y-%m-%d'),
-            "end": (today.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d'),
-            "label": (today.replace(day=1) - timedelta(days=1)).strftime('%b %Y')
-        },
-        "current_quarter": {
-            "start": datetime(today.year, ((today.month - 1) // 3) * 3 + 1, 1).strftime('%Y-%m-%d'),
-            "end": today.strftime('%Y-%m-%d'),
-            "label": f"Q{((today.month - 1) // 3) + 1} {today.year}"
-        },
-        "prior_quarter": {
-            "start": (datetime(today.year, ((today.month - 1) // 3) * 3 + 1, 1) - timedelta(days=1)).replace(day=1).strftime('%Y-%m-%d'),
-            "end": (datetime(today.year, ((today.month - 1) // 3) * 3 + 1, 1) - timedelta(days=1)).strftime('%Y-%m-%d'),
-            "label": f"Q{(((today.month - 1) // 3) or 4)} {today.year if (today.month - 1) // 3 > 0 else today.year - 1}"
-        },
-        "current_ytd": {
-            "start": intelligence.fiscal_year["start_date"],
-            "end": today.strftime('%Y-%m-%d'),
-            "label": f"YTD {today.year}"
-        },
-        "prior_ytd": {
-            "start": (datetime.strptime(intelligence.fiscal_year["start_date"], '%Y-%m-%d') - timedelta(days=365)).strftime('%Y-%m-%d'),
-            "end": (today - timedelta(days=365)).strftime('%Y-%m-%d'),
-            "label": f"YTD {today.year - 1}"
-        }
+
+def _fy_label(start, end) -> str:
+    return f"FY{start.year % 100:02d}-{end.year % 100:02d}" if end.year != start.year else f"FY{start.year}"
+
+
+def build_periods(today, fy_start, fy_end) -> Dict[str, Dict[str, Any]]:
+    """Period windows (date objects) keyed like `period_data`. `partial` marks
+    a still-open current period that started <15 days ago. The prior quarter
+    is the full previous calendar quarter, not 'the month before the quarter'."""
+    month_start = today.replace(day=1)
+    q_start = month_start.replace(month=(today.month - 1) // 3 * 3 + 1)
+    pq_start = add_months(q_start, -3)
+    pm_start = add_months(month_start, -1)
+    pfy_start, pfy_end = add_months(fy_start, -12), add_months(fy_end, -12)
+    return {
+        "current_month": {"start": month_start, "end": today, "label": today.strftime('%b %Y'),
+                          "partial": (today - month_start).days < 15},
+        "prior_month": {"start": pm_start, "end": month_start - timedelta(days=1), "label": pm_start.strftime('%b %Y'),
+                        "partial": False},
+        "current_quarter": {"start": q_start, "end": today, "label": f"Q{(today.month - 1) // 3 + 1} {today.year}",
+                            "partial": (today - q_start).days < 15},
+        "prior_quarter": {"start": pq_start, "end": q_start - timedelta(days=1),
+                          "label": f"Q{(pq_start.month - 1) // 3 + 1} {pq_start.year}", "partial": False},
+        "current_ytd": {"start": fy_start, "end": today, "label": f"YTD {_fy_label(fy_start, fy_end)}",
+                        "partial": False},
+        "prior_ytd": {"start": pfy_start, "end": add_months(today, -12), "label": f"YTD {_fy_label(pfy_start, pfy_end)}",
+                      "partial": False},
     }
 
-    def get_period_financials(start, end):
-        breakdown = _period_root_type_breakdown(intelligence.company, start, end)
-        revenue = breakdown["revenue"]
-        expenses = breakdown["expenses"]
-        return {
+
+def compare_periods(intelligence) -> Dict[str, Any]:
+    """Compare financial performance across periods"""
+    periods = build_periods(
+        getdate(),
+        getdate(intelligence.fiscal_year["start_date"]),
+        getdate(intelligence.fiscal_year["end_date"]),
+    )
+
+    period_data = {}
+    for key, p in periods.items():
+        breakdown = _period_root_type_breakdown(intelligence.company, p["start"].isoformat(), p["end"].isoformat())
+        revenue, expenses = breakdown["revenue"], breakdown["expenses"]
+        period_data[key] = {
             "revenue": revenue,
             "expenses": expenses,
             "net_income": revenue - expenses,
-            "margin": round((revenue - expenses) / revenue * 100, 1) if revenue > 0 else 0
+            "margin": round((revenue - expenses) / revenue * 100, 1) if revenue > 0 else None,
+            "label": p["label"],
+            # An open period with a few days (or no postings) must not be
+            # read as a real decline against a full prior period.
+            "is_partial": key.startswith("current") and (p["partial"] or not (revenue or expenses)),
         }
 
-    # Calculate for each period
-    period_data = {}
-    for key, period in periods.items():
-        period_data[key] = {
-            **get_period_financials(period["start"], period["end"]),
-            "label": period["label"]
+    def comparison(cur_key, prior_key, null_if_partial):
+        cur, prior = period_data[cur_key], period_data[prior_key]
+        skip = null_if_partial and cur["is_partial"]
+        return {
+            "current": cur,
+            "prior": prior,
+            **{key: None if skip else calc_change(cur[f], prior[f])
+               for key, f in (("revenue_change", "revenue"), ("expense_change", "expenses"),
+                              ("net_income_change", "net_income"))},
         }
 
-    # Calculate comparisons
-    def calc_change(current, prior):
-        if prior == 0:
-            return 100 if current > 0 else 0
-        return round((current - prior) / abs(prior) * 100, 1)
-
-    mom_comparison = {
-        "current": period_data["current_month"],
-        "prior": period_data["prior_month"],
-        "revenue_change": calc_change(period_data["current_month"]["revenue"], period_data["prior_month"]["revenue"]),
-        "expense_change": calc_change(period_data["current_month"]["expenses"], period_data["prior_month"]["expenses"]),
-        "net_income_change": calc_change(period_data["current_month"]["net_income"], period_data["prior_month"]["net_income"])
-    }
-
-    qoq_comparison = {
-        "current": period_data["current_quarter"],
-        "prior": period_data["prior_quarter"],
-        "revenue_change": calc_change(period_data["current_quarter"]["revenue"], period_data["prior_quarter"]["revenue"]),
-        "expense_change": calc_change(period_data["current_quarter"]["expenses"], period_data["prior_quarter"]["expenses"]),
-        "net_income_change": calc_change(period_data["current_quarter"]["net_income"], period_data["prior_quarter"]["net_income"])
-    }
-
-    yoy_comparison = {
-        "current": period_data["current_ytd"],
-        "prior": period_data["prior_ytd"],
-        "revenue_change": calc_change(period_data["current_ytd"]["revenue"], period_data["prior_ytd"]["revenue"]),
-        "expense_change": calc_change(period_data["current_ytd"]["expenses"], period_data["prior_ytd"]["expenses"]),
-        "net_income_change": calc_change(period_data["current_ytd"]["net_income"], period_data["prior_ytd"]["net_income"])
-    }
+    mom_comparison = comparison("current_month", "prior_month", True)
+    qoq_comparison = comparison("current_quarter", "prior_quarter", True)
+    yoy_comparison = comparison("current_ytd", "prior_ytd", False)
 
     return {
         "period_data": period_data,
@@ -345,22 +346,15 @@ def compare_periods(intelligence) -> Dict[str, Any]:
         "yoy": yoy_comparison,
         "summary": [
             {
-                "comparison": "Month over Month",
-                "revenue_change": mom_comparison["revenue_change"],
-                "expense_change": mom_comparison["expense_change"],
-                "net_income_change": mom_comparison["net_income_change"]
-            },
-            {
-                "comparison": "Quarter over Quarter",
-                "revenue_change": qoq_comparison["revenue_change"],
-                "expense_change": qoq_comparison["expense_change"],
-                "net_income_change": qoq_comparison["net_income_change"]
-            },
-            {
-                "comparison": "Year over Year",
-                "revenue_change": yoy_comparison["revenue_change"],
-                "expense_change": yoy_comparison["expense_change"],
-                "net_income_change": yoy_comparison["net_income_change"]
+                "comparison": name,
+                "revenue_change": c["revenue_change"],
+                "expense_change": c["expense_change"],
+                "net_income_change": c["net_income_change"],
             }
+            for name, c in (
+                ("Month over Month", mom_comparison),
+                ("Quarter over Quarter", qoq_comparison),
+                ("Year over Year", yoy_comparison),
+            )
         ]
     }

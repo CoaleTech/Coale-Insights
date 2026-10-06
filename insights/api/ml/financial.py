@@ -213,10 +213,10 @@ def get_finance_detail(metric: str, filters: str) -> dict:
                 {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
             ],
             "rows": rows,
-            "total": len(frappe.get_list(
+            "total": frappe.get_list(
                 "Account", filters=acct_filters, or_filters=acct_or_filters,
-                pluck="name", limit_page_length=0,
-            )),
+                fields=[{"COUNT": "name", "as": "c"}],
+            )[0].c,
         }
 
     if metric == "working_capital_components":
@@ -304,6 +304,44 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": columns,
             "rows": rows,
             "total": frappe.db.count("Account", filters=db_filters),
+        }
+
+    if metric in ("top_customers_ar", "top_suppliers_ap", "overdue_ap_90"):
+        # One party's open invoices (top_*), or Purchase Invoices > 90 days past due.
+        is_ar = metric == "top_customers_ar"
+        doctype = "Sales Invoice" if is_ar else "Purchase Invoice"
+        party_field = "customer" if is_ar else "supplier"
+        frappe.has_permission(doctype, throw=True)
+        db_filters = {"docstatus": 1, "outstanding_amount": (">", 0)}
+        if company:
+            db_filters["company"] = company
+        if metric == "overdue_ap_90":
+            db_filters["due_date"] = ("<", frappe.utils.add_days(frappe.utils.today(), -90))
+            order_by = "due_date asc"
+        else:
+            party = f.get(party_field)
+            if not party or not isinstance(party, str):
+                frappe.throw(_("{0} is required").format(_(party_field.title())), frappe.ValidationError)
+            db_filters[party_field] = party
+            order_by = "outstanding_amount desc"
+        rows = frappe.get_list(
+            doctype,
+            filters=db_filters,
+            fields=["name", party_field, "posting_date", "due_date", "grand_total", "outstanding_amount"],
+            start=start, page_length=page_size, order_by=order_by,
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": _("Invoice") if is_ar else _("Bill"), "fieldname": "name", "fieldtype": "Link", "options": doctype},
+                {"label": _(party_field.title()), "fieldname": party_field, "fieldtype": "Link", "options": party_field.title()},
+                {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": _("Due Date"), "fieldname": "due_date", "fieldtype": "Date"},
+                {"label": _("Total"), "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": _("Outstanding"), "fieldname": "outstanding_amount", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count(doctype, filters=db_filters),
         }
 
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

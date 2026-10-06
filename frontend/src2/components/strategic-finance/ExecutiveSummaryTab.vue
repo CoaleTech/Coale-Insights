@@ -120,7 +120,7 @@
                       class="py-2 text-right font-medium px-2"
                       :class="deltaInk(trend.margin)"
                     >
-                      {{ trend.margin }}%
+                      {{ formatPercent(trend.margin) }}
                     </td>
                   </tr>
                 </tbody>
@@ -336,6 +336,8 @@ interface Props {
       efficiency: number
       efficiency_status: string
     }
+    /** Interest and depreciation add-backs behind EBITDA; both 0 means EBITDA equals net income. */
+    ebitda_addbacks?: { interest?: number; depreciation?: number }
     key_insights?: Array<{
       type: string
       title: string
@@ -380,7 +382,7 @@ const runwayLabel = computed(() => {
  * the current one, because 1554% off a 6% base is not a performance signal
  * (`summary.py:84-92`). But suppressing the ratio and saying nothing would hide
  * a real change, which is under-reporting rather than accuracy. Naming the base
- * lets the reader discount it themselves: "vs KES 27.3M last year" is honest
+ * lets the reader discount it themselves: "vs ₹27.3M last year" is honest
  * whether the jump is growth or an incomplete prior year.
  */
 const revenueComparisonLabel = computed(() => {
@@ -408,13 +410,21 @@ const CARDS_ALREADY_SHOW = new Set([
   'revenue growth',
 ])
 
-const extraKpis = computed(() =>
-  (props.data?.kpis ?? []).filter(
-    (k) => !CARDS_ALREADY_SHOW.has(String(k?.label ?? '').trim().toLowerCase()),
-  ),
-)
+const extraKpis = computed(() => {
+  // EBITDA = net income + interest + depreciation. When neither add-back was
+  // posted this FY the two figures are identical, which reads as a bug unless said.
+  const addbacks = props.data?.ebitda_addbacks
+  const ebitdaIsNetIncome = !!addbacks && !addbacks.interest && !addbacks.depreciation
+  return (props.data?.kpis ?? [])
+    .filter((k) => !CARDS_ALREADY_SHOW.has(String(k?.label ?? '').trim().toLowerCase()))
+    .map((k) =>
+      ebitdaIsNetIncome && String(k.label).trim().toLowerCase() === 'ebitda'
+        ? { ...k, subtitle: 'EBITDA = net income: no interest/depreciation postings this FY' }
+        : k,
+    )
+})
 
-import { formatCount, formatMoney, NO_VALUE } from '../../utils/format'
+import { formatCount, formatMoney, formatPercent, NO_VALUE } from '../../utils/format'
 
 const formatCurrency = (value: number | null | undefined) => formatMoney(value, getCurrency())
 
@@ -451,7 +461,7 @@ const formatMonthLabel = (period: string) => {
   if (!period) return ''
   const [year, month] = period.split('-')
   const date = new Date(parseInt(year), parseInt(month) - 1)
-  return date.toLocaleDateString('en-KE', { month: 'short' })
+  return date.toLocaleDateString('en-IN', { month: 'short' })
 }
 
 const trendConfig = computed(() => ({

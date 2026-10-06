@@ -12,39 +12,45 @@
     <!-- Period Selector: frappe-ui Tabs replaces hand-rolled button group -->
     <Tabs v-model="selectedPeriodIndex" :tabs="periodTabs" />
 
+    <!-- Partial period: the current month/quarter is still open, so changes are withheld -->
+    <div v-if="currentPeriodData?.is_partial" class="flex items-center gap-2 text-sm text-ink-gray-6">
+      <Badge label="Partial period" variant="subtle" theme="orange" size="sm" />
+      <span>{{ currentPeriodData.current_label }} is still in progress; changes vs {{ currentPeriodData.prior_label }} are not shown.</span>
+    </div>
+
     <!-- Comparison Summary Cards -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
       <KpiCard
         label="Revenue"
-        :amount="currentPeriodData?.current_revenue ?? 0"
+        :amount="currentPeriodData?.current_revenue"
         :currency="currencyVal"
         :delta="currentPeriodData?.revenue_change"
         :delta-higher-is-better="true"
-        :sublabel="`vs ${formatCurrency(currentPeriodData?.previous_revenue ?? 0)}`"
+        :sublabel="`vs ${formatCurrency(currentPeriodData?.previous_revenue)}`"
         :loading="!data"
       />
       <KpiCard
         label="Expenses"
-        :amount="currentPeriodData?.current_expenses ?? 0"
+        :amount="currentPeriodData?.current_expenses"
         :currency="currencyVal"
         :delta="currentPeriodData?.expense_change"
         :delta-higher-is-better="false"
-        :sublabel="`vs ${formatCurrency(currentPeriodData?.previous_expenses ?? 0)}`"
+        :sublabel="`vs ${formatCurrency(currentPeriodData?.previous_expenses)}`"
         :loading="!data"
       />
       <KpiCard
         label="Net Profit"
-        :amount="currentPeriodData?.current_profit ?? 0"
+        :amount="currentPeriodData?.current_profit"
         :currency="currencyVal"
         :delta="currentPeriodData?.profit_change"
         :delta-higher-is-better="true"
-        :sublabel="`vs ${formatCurrency(currentPeriodData?.previous_profit ?? 0)}`"
+        :sublabel="`vs ${formatCurrency(currentPeriodData?.previous_profit)}`"
         :loading="!data"
       />
       <KpiCard
         label="Margin"
-        :value="`${(currentPeriodData?.current_margin ?? 0).toFixed(1)}%`"
-        :sublabel="`${formatBps(currentPeriodData?.margin_change)}`"
+        :percent="currentPeriodData?.current_margin ?? null"
+        :sublabel="formatBps(currentPeriodData?.margin_change)"
         :loading="!data"
       />
     </div>
@@ -83,7 +89,8 @@
                 {{ formatCurrency(item.change) }}
               </td>
               <td class="px-4 py-3 text-sm text-right">
-                <span :class="deltaInk(item.percentChange, { higherIsBetter: !item.invertColors })">
+                <span v-if="item.percentChange === null" class="text-ink-gray-6">{{ NO_VALUE }}</span>
+                <span v-else :class="deltaInk(item.percentChange, { higherIsBetter: !item.invertColors })">
                   {{ deltaGlyph(item.percentChange) }}{{ formatChange(item.percentChange) }}
                 </span>
               </td>
@@ -162,7 +169,7 @@
             <component :is="getInsightIcon(insight.type)" class="h-5 w-5 text-ink-gray-5 flex-shrink-0 mt-0.5" />
             <div class="flex items-start gap-2">
               <Badge v-bind="insightBadge(insight.type)" :label="insightBadge(insight.type).label" size="sm" />
-              <p class="text-ink-gray-7">{{ insight.message }}</p>
+              <p class="text-ink-gray-7">{{ insight.message || insight.description }}</p>
             </div>
           </div>
         </div>
@@ -194,7 +201,7 @@ import {
 } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
-import type { PeriodComparisonData, PeriodComparison, PeriodComparisonSummaryRow } from './types'
+import type { PeriodComparisonData, PeriodComparison, PeriodMetrics } from './types'
 
 interface InsightItem {
   type: string
@@ -235,19 +242,27 @@ const currentPeriodData = computed(() => {
   // keeps the template bindings unchanged.
   const current = periodData.current ?? {}
   const prior = periodData.prior ?? {}
+  const isPartial = !!(periodData.is_partial ?? current.is_partial)
+  // Percent changes are withheld (null) for a partial period; never coerced to 0.
+  const pct = (v: number | null | undefined) => (isPartial ? null : (v ?? null))
+  // Margin is meaningless on zero revenue: show it as absent, not 0.0%.
+  const margin = (m: PeriodMetrics) => (m.revenue ? (m.margin ?? null) : null)
+  const curMargin = margin(current)
+  const priorMargin = margin(prior)
   return {
-    current_revenue: current.revenue || 0,
-    previous_revenue: prior.revenue || 0,
-    current_expenses: current.expenses || 0,
-    previous_expenses: prior.expenses || 0,
-    current_profit: current.net_income || 0,
-    previous_profit: prior.net_income || 0,
-    current_margin: current.margin || 0,
-    previous_margin: prior.margin || 0,
-    revenue_change: periodData.revenue_change || 0,
-    expense_change: periodData.expense_change || 0,
-    profit_change: periodData.net_income_change || 0,
-    margin_change: (current.margin || 0) - (prior.margin || 0),
+    is_partial: isPartial,
+    current_revenue: current.revenue ?? null,
+    previous_revenue: prior.revenue ?? null,
+    current_expenses: current.expenses ?? null,
+    previous_expenses: prior.expenses ?? null,
+    current_profit: current.net_income ?? null,
+    previous_profit: prior.net_income ?? null,
+    current_margin: curMargin,
+    previous_margin: priorMargin,
+    revenue_change: pct(periodData.revenue_change),
+    expense_change: pct(periodData.expense_change),
+    profit_change: pct(periodData.net_income_change),
+    margin_change: isPartial || curMargin === null || priorMargin === null ? null : curMargin - priorMargin,
     current_label: current.label || 'Current',
     prior_label: prior.label || 'Prior',
     insights: periodData.insights,
@@ -259,12 +274,16 @@ const summaryRows = computed(() => props.data?.summary ?? [])
 const comparisonItems = computed(() => {
   const d = currentPeriodData.value
   if (!d) return []
+  // A partial period is still open: its absolute and % change against a full
+  // prior period would be a "decline" that is only the calendar.
+  const diff = (cur: number | null, prev: number | null) =>
+    d.is_partial || cur === null || prev === null ? null : cur - prev
   return [
     {
       label: 'Revenue',
       current: d.current_revenue,
       previous: d.previous_revenue,
-      change: d.current_revenue - d.previous_revenue,
+      change: diff(d.current_revenue, d.previous_revenue),
       percentChange: d.revenue_change,
       invertColors: false,
     },
@@ -272,7 +291,7 @@ const comparisonItems = computed(() => {
       label: 'Total Expenses',
       current: d.current_expenses,
       previous: d.previous_expenses,
-      change: d.current_expenses - d.previous_expenses,
+      change: diff(d.current_expenses, d.previous_expenses),
       percentChange: d.expense_change,
       invertColors: true,
     },
@@ -280,7 +299,7 @@ const comparisonItems = computed(() => {
       label: 'Net Profit',
       current: d.current_profit,
       previous: d.previous_profit,
-      change: d.current_profit - d.previous_profit,
+      change: diff(d.current_profit, d.previous_profit),
       percentChange: d.profit_change,
       invertColors: false,
     },
@@ -291,18 +310,13 @@ import { formatMoney, NO_VALUE } from '../../utils/format'
 
 const formatCurrency = (value: number | null | undefined) => formatMoney(value, getCurrency())
 
-const formatPercent = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return NO_VALUE
-  return `${value.toFixed(1)}%`
-}
-
 const formatChange = (value: number | null | undefined) => {
   if (value === null || value === undefined) return NO_VALUE
   return `${Math.abs(value).toFixed(1)}%`
 }
 
 const formatBps = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return NO_VALUE
+  if (value === null || value === undefined) return undefined
   const sign = value > 0 ? '+' : ''
   return `${sign}${(value * 100).toFixed(0)} bps`
 }

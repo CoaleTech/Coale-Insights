@@ -77,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { NO_VALUE } from '../../utils/format'
+import { formatMoney, NO_VALUE } from '../../utils/format'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
 
 import { computed } from 'vue'
@@ -120,7 +120,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const currency = useCurrency()
+const currency = useCurrency('')
 
 const hasData = computed(() => {
   return props.data?.weeks && props.data.weeks.length > 0
@@ -240,17 +240,5 @@ const formatCompact = (value: number | null | undefined) => {
   return `${sign}${absValue.toFixed(0)}`
 }
 
-const formatCurrency = (value: number) => {
-  // Absent is not zero: this returned `${currency} 0`, reporting zero money
-  // for a field the server never sent. Notation is unchanged -- exact
-  // `en-KE` grouping is a deliberate choice for this surface, and
-  // switching it is a separate product decision.
-  if (value === null || value === undefined) return NO_VALUE
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: currency.value,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value)
-}
+const formatCurrency = (value: number | null | undefined) => formatMoney(value, currency.value)
 </script>

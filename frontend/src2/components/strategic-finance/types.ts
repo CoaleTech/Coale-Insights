@@ -43,6 +43,8 @@ export interface ExecutiveSummaryData {
 		efficiency_status: string
 	}
 	key_insights?: Array<{ type: string; title: string; description: string }>
+	/** Interest and depreciation add-backs behind `ytd_ebitda`; both 0 means EBITDA equals net income. */
+	ebitda_addbacks?: { interest?: number; depreciation?: number }
 }
 
 // ---------------------------------------------------------------------------
@@ -123,34 +125,40 @@ export interface ThirteenWeekData {
 // Capital planning
 // ---------------------------------------------------------------------------
 
-export interface AssetCategoryRow {
+export interface CapitalCategoryRow {
+	category: string
+	asset_count: number
+	gross_value: number
+	net_value: number
+	accumulated_depreciation: number
+}
+
+export interface CapitalTopAsset {
 	name: string
-	value: number
-	percentage: number
+	asset_name?: string
+	category?: string
+	gross_value: number
+	net_value: number
+	status?: string
 }
 
-export interface AssetAgeRow {
-	bucket: string
-	count: number
-	percentage: number
-	value?: number
-}
-
-export interface DepreciationForecastRow {
+export interface CapitalDepreciationRow {
 	period: string
 	amount: number
 }
 
 export interface CapitalPlanningData {
-	total_assets?: number
+	total_gross_assets?: number
+	register_gross_assets?: number
+	total_net_assets?: number
+	total_accumulated_depreciation?: number
+	asset_count?: number
 	ytd_capex?: number
-	annual_depreciation?: number
-	maintenance_costs?: number
-	asset_categories?: AssetCategoryRow[]
-	age_distribution?: AssetAgeRow[]
-	depreciation_forecast?: DepreciationForecastRow[]
-	attention_required?: Array<{ asset_name: string; reason: string; value?: number }>
-	recommendations?: Array<{ title: string; description: string; priority?: string }>
+	prior_year_capex?: number
+	capex_change_pct?: number | null
+	category_summary?: CapitalCategoryRow[]
+	top_assets?: CapitalTopAsset[]
+	upcoming_depreciation?: CapitalDepreciationRow[]
 }
 
 // ---------------------------------------------------------------------------
@@ -160,7 +168,7 @@ export interface CapitalPlanningData {
 export interface WorkingCapitalTrendRow {
 	month: string
 	working_capital?: number
-	current_ratio?: number
+	current_ratio?: number | null
 	dso?: number
 	dio?: number
 	dpo?: number
@@ -171,8 +179,8 @@ export interface WorkingCapitalData {
 	dio?: number
 	dpo?: number
 	cash_conversion_cycle?: number
-	current_ratio?: number
-	quick_ratio?: number
+	current_ratio?: number | null
+	quick_ratio?: number | null
 	working_capital?: number
 	cash?: number
 	receivables?: number
@@ -188,8 +196,8 @@ export interface WorkingCapitalData {
 
 export interface RatioCard {
 	name: string
-	value?: number
-	benchmark?: number
+	value?: number | null
+	benchmark?: number | null
 	status?: string
 }
 
@@ -215,8 +223,6 @@ export interface RatioTrendRow {
 export interface FinancialRatiosData {
 	ratio_cards?: RatioCard[]
 	trends?: RatioTrendRow[]
-	cash_ratio?: number
-	cash_ratio_trend?: number
 	current_ratios?: RatioTrendRow
 }
 
@@ -272,6 +278,7 @@ export interface PeriodMetrics {
 	net_income?: number
 	margin?: number
 	label?: string
+	is_partial?: boolean
 }
 
 /**
@@ -284,9 +291,11 @@ export interface PeriodMetrics {
 export interface PeriodComparison {
 	current?: PeriodMetrics
 	prior?: PeriodMetrics
-	revenue_change?: number
-	expense_change?: number
-	net_income_change?: number
+	/** True while the current period is still open; the `*_change` values are then null. */
+	is_partial?: boolean
+	revenue_change?: number | null
+	expense_change?: number | null
+	net_income_change?: number | null
 	/**
 	 * Read by the tab template but NOT emitted by `compare_periods` today, so the
 	 * insights block never renders. Kept optional rather than dropped so the
@@ -298,9 +307,9 @@ export interface PeriodComparison {
 /** Rows of the `summary` array built at `scenarios.py:306-325`. */
 export interface PeriodComparisonSummaryRow {
 	comparison: string
-	revenue_change?: number
-	expense_change?: number
-	net_income_change?: number
+	revenue_change?: number | null
+	expense_change?: number | null
+	net_income_change?: number | null
 }
 
 /**
@@ -441,6 +450,7 @@ export interface BudgetDepartmentVariance {
 	variance?: number
 	variance_percentage?: number
 	status?: BudgetVarianceStatus
+	favorable?: boolean | null
 	trend?: string
 	key_accounts?: BudgetKeyAccount[]
 }
@@ -454,6 +464,8 @@ export interface BudgetAccountVariance {
 	variance?: number
 	variance_percentage?: number
 	status?: BudgetVarianceStatus
+	/** Backend verdict: income actual>budget, expense actual<=budget; null when no budget. */
+	favorable?: boolean | null
 }
 
 /** One row of `_get_variance_recommendations` (`budget_variance_intelligence.py:460`). */
@@ -491,6 +503,10 @@ export interface BudgetPerformanceMetrics {
 
 /** Response of `get_budget_variance_overview` (`budget_variance_intelligence.py:96`), the Budget Variance tab's data prop. */
 export interface BudgetVarianceData {
+	/** False when no submitted Budget exists for the company/FY; `summary` is then not meaningful. */
+	has_budget?: boolean
+	/** Sub-method failures surfaced by the backend instead of silent `{}`. */
+	errors?: string[]
 	summary?: BudgetVarianceSummary
 	departmental_analysis?: BudgetDepartmentVariance[]
 	account_analysis?: BudgetAccountVariance[]

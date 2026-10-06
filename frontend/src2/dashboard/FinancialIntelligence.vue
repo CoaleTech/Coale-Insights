@@ -120,18 +120,26 @@
 				-->
 				<TabButtons v-model="activeGroup" :buttons="GROUP_BUTTONS" class="self-start" />
 				<Tabs v-model="tabIndex" :tabs="tabDefs" />
+				<!--
+					The date filter drives the actuals endpoint only. The planning
+					engines run on fixed windows, so say so rather than let the filter
+					imply otherwise.
+				-->
+				<p v-if="activeGroup === 'planning'" class="text-xs text-ink-gray-6">
+					Planning tabs use fixed windows: current fiscal year / trailing 13 weeks. The date filter does not apply.
+				</p>
 			</div>
 
 			<!-- Tab Content -->
 			<div class="flex-1 p-6 overflow-auto">
 				<!--
 					One inline error panel for the planning engine only. The actuals
-					engine's failure is now handled by the shell above, so this branch
-					is scoped to `activeGroup === 'planning'`: a planning outage must
-					not blank the actuals tabs or vice versa.
+					engine's failure is handled by the shell above, so this branch is
+					scoped to the tabs that read the planning payload (`usesStrategic`):
+					a planning outage must not blank the other actuals tabs or vice versa.
 				-->
 				<div
-					v-if="activeGroup === 'planning' && strategicPermissionError"
+					v-if="usesStrategic && strategicPermissionError"
 					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
 				>
 					<Lock class="h-8 w-8 text-ink-gray-5" aria-hidden="true" />
@@ -139,7 +147,7 @@
 					<p class="max-w-md text-sm text-ink-gray-6">{{ strategicError }}</p>
 				</div>
 				<div
-					v-else-if="activeGroup === 'planning' && strategicError"
+					v-else-if="usesStrategic && strategicError"
 					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
 				>
 					<AlertTriangle class="h-8 w-8 text-warn-fill" aria-hidden="true" />
@@ -154,7 +162,7 @@
 					that reads as "the company has no working capital".
 				-->
 				<div
-					v-else-if="activeGroup === 'planning' && strategicWarming && !strategicData"
+					v-else-if="usesStrategic && strategicWarming && !strategicData"
 					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
 				>
 					<LoadingIndicator class="h-6 w-6 text-ink-gray-5" />
@@ -176,7 +184,7 @@
 
 				<!-- Actuals: Overview -->
 				<div v-if="activeTab === 'overview'" class="space-y-6">
-					<ExecutiveSummaryTab :data="strategicTyped?.executive_summary ?? null" :expense-breakdown="strategicTyped?.expense_breakdown" />
+					<ExecutiveSummaryTab :data="strategicTyped?.executive_summary ?? null" :expense-breakdown="executiveExpenseBreakdown" />
 					<OverviewTab :data="overviewData" :currency="baseCurrency" />
 				</div>
 
@@ -202,7 +210,7 @@
 
 				<!-- Actuals: Ratios & Trends -->
 				<div v-if="activeTab === 'ratios'">
-					<FinancialRatiosTab :data="strategicTyped?.ratio_trends" />
+					<FinancialRatiosTab :data="strategicTyped?.ratio_trends" :working-capital="strategicTyped?.working_capital ?? null" />
 				</div>
 
 				<!-- Actuals: Cost Structure -->
@@ -365,7 +373,9 @@ interface FinancialPayload {
 	payables?: PayablesData
 	forex?: ForexData
 	generated_at?: string
+	company?: string
 	base_currency?: string
+	date_filter?: string
 }
 
 // Mirrors BreakEvenOverviewTab.vue's local interfaces; declared here so beData
@@ -449,8 +459,19 @@ const {
 /** Template and chat context key off the id, as they did before. */
 const activeTab = computed(() => activeTabDef.value?.id ?? 'overview')
 
+/**
+ * Tabs fed by the planning payload: the three strategic-backed actuals tabs
+ * plus every planning tab except Budget / Break-Even (own feeds). Scopes the
+ * planning error / warming panels so those actuals tabs don't render blank.
+ */
+const usesStrategic = computed(
+	() =>
+		['working', 'ratios', 'costratios'].includes(activeTab.value) ||
+		(activeGroup.value === 'planning' && !['budget', 'beOverview'].includes(activeTab.value)),
+)
+
 const dateFilter = ref('12m')
-const baseCurrency = ref('KES')
+const baseCurrency = ref('')
 provide('currency', baseCurrency)
 
 const FIN_ENDPOINT = 'insights.api.ml.financial.get_finance_detail'
@@ -541,11 +562,14 @@ const summary = computed(() => ({
 }))
 
 /**
- * Runway in the units the server measures it in, and never as a sentinel --
- * see `cashRunwayLabel` in `utils/format.ts` for the sentinel contract
- * (`financial_intelligence.py:272` returns `999` for "not consuming cash").
+ * Runway in the units the server measures it in. The server sends `null` when
+ * the company is not consuming cash; the shared helper handles a real number.
  */
-const cashRunwayLabel = computed(() => sharedCashRunwayLabel(summary.value.cashRunwayMonths))
+const cashRunwayLabel = computed(() =>
+	cashFlowData.value.runway_months === null
+		? 'Cash positive'
+		: sharedCashRunwayLabel(summary.value.cashRunwayMonths),
+)
 
 // Planning data (from insights.api.ml.strategic_finance_intelligence) —
 // kept as a raw `createResource` because the planning engine is a secondary,
@@ -564,6 +588,10 @@ const strategicData = ref<Record<string, unknown> | null>(null)
 const strategicError = ref<string | null>(null)
 const strategicPermissionError = ref(false)
 const strategicTyped = computed<StrategicFinanceData | null>(() => strategicData.value as unknown as StrategicFinanceData | null)
+// The strategic type declares this as `unknown[]`; the tab's prop wants rows.
+const executiveExpenseBreakdown = computed(
+	() => strategicTyped.value?.expense_breakdown as Record<string, number | string | boolean | null | undefined>[] | undefined,
+)
 
 const strategicResource = createResource({
 	url: 'insights.api.ml.strategic_finance_intelligence',
@@ -622,6 +650,9 @@ const fetchStrategicData = (refresh = false) => {
  * Financial page load would be a regression. The watcher below fetches on
  * first visit, exactly as break-even already does.
  */
+// Company is only known once the actuals payload lands. The composable
+// refetches on any change to these params, so the first load of the budget tab
+// sets them (which triggers the one fetch) instead of fetching twice.
 const budgetParams = ref<Record<string, unknown>>({})
 const {
 	data: budgetData,
@@ -640,9 +671,10 @@ const {
 const refreshData = () => {
 	reload()
 	fetchStrategicData(true)
-	// Only if it has been loaded at all; refreshing an unvisited tab would
-	// defeat the lazy fetch above.
+	// Only if each has been loaded at all; refreshing an unvisited tab would
+	// defeat the lazy fetch.
 	if (budgetData.value) reloadBudget()
+	if (beData.value) fetchBreakEvenData()
 }
 
 /**
@@ -662,13 +694,8 @@ onBeforeUnmount(() => {
 	}
 })
 
-/**
- * The composable's reactive `params` already refetches the primary on filter
- * change, so only the secondary needs a manual watcher here.
- */
-watch(dateFilter, () => {
-	fetchStrategicData(false)
-})
+// The date filter reaches only the actuals endpoint (reactive `params` above);
+// planning, budget and break-even use fixed windows and are not refetched.
 
 // Break-even state — lazy-loaded on first visit to that tab, same as the
 // pre-merge Strategic Finance dashboard.
@@ -715,7 +742,12 @@ watch(activeTab, (tabId) => {
 
 // Same lazy-on-first-visit contract as break-even above.
 watch(activeTab, (tabId) => {
-	if (tabId === 'budget' && !budgetData.value) {
+	if (tabId !== 'budget' || budgetData.value) return
+	const company = financialData.value?.company
+	if (company && budgetParams.value.company !== company) {
+		// Param change refetches inside the composable.
+		budgetParams.value = { company }
+	} else {
 		reloadBudget()
 	}
 })

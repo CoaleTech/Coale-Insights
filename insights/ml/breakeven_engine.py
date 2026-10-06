@@ -25,6 +25,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Coalesce, Count, DateFormat, Sum
+from frappe.utils import flt, nowdate
 
 from insights.api.ml.permissions import permitted_company
 
@@ -72,8 +73,16 @@ class BreakevenEngine:
         if getattr(settings_doc, "variable_cost_centers", None):
             self.variable_cost_centers = [c.strip() for c in settings_doc.variable_cost_centers.split("\n") if c.strip()]
 
-        self.corporate_tax_rate = getattr(settings_doc, "corporate_tax_rate", 0.30) or 0.30
-        self.roce_target = getattr(settings_doc, "roce_target", 0.15) or 0.15
+        # Insights Settings stores both as Percent fields (25 / 15); work in decimals internally.
+        self.corporate_tax_rate = (flt(getattr(settings_doc, "corporate_tax_rate", 0)) or 25) / 100
+        self.roce_target = (flt(getattr(settings_doc, "roce_target", 0)) or 15) / 100
+        # Without fixed/variable cost centers every BE figure would be a made-up number.
+        self.configured = bool(self.fixed_cost_centers or self.variable_cost_centers)
+
+    @staticmethod
+    def _upto(end: str) -> str:
+        """Clamp a period end to today so future-dated postings never leak into actuals."""
+        return min(end, nowdate())
 
     def _get_fiscal_dates(self) -> tuple:
         """Returns (start_date, end_date) for the selected fiscal year. Result cached on instance."""
@@ -114,55 +123,48 @@ class BreakevenEngine:
         self._fiscal_dates = (str(start), str(end))
         return self._fiscal_dates
 
-    def _get_fixed_costs(self, start: str, end: str) -> float:
-        """Sum GL entries from fixed cost centers. Result cached on instance per date range."""
-        if hasattr(self, "_fixed_costs_result"):
-            return self._fixed_costs_result
-
-        if not self.fixed_cost_centers:
-            self._fixed_costs_result = 0.0
+    def _get_cost_center_costs(self, centers: list[str], start: str, end: str) -> float:
+        """Net GL debit of the given cost centers over the period. Cached per (centers, range)."""
+        if not centers:
             return 0.0
+        cache = self.__dict__.setdefault("_cc_cost_cache", {})
+        key = (tuple(centers), start, end)
+        if key not in cache:
+            GLEntry = DocType("GL Entry")
+            costs = (
+                frappe.qb.from_(GLEntry)
+                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total"))
+                .where(GLEntry.company == self.company)
+                .where(GLEntry.posting_date.between(start, self._upto(end)))
+                .where(GLEntry.cost_center.isin(centers))
+                .where(GLEntry.is_cancelled == 0)
+                .run(as_dict=True)
+            )
+            cache[key] = round(float(costs[0].total or 0), 2)
+        return cache[key]
 
-        GLEntry = DocType("GL Entry")
-        costs = (
-            frappe.qb.from_(GLEntry)
-            .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total"))
-            .where(GLEntry.company == self.company)
-            .where(GLEntry.posting_date.between(start, end))
-            .where(GLEntry.cost_center.isin(self.fixed_cost_centers))
-            .where(GLEntry.is_cancelled == 0)
-            .run(as_dict=True)
-        )
-        self._fixed_costs_result = round(float(costs[0].total or 0), 2)
-        return self._fixed_costs_result
+    def _get_fixed_costs(self, start: str, end: str) -> float:
+        """Sum GL entries from fixed cost centers."""
+        return self._get_cost_center_costs(self.fixed_cost_centers, start, end)
 
     def _get_variable_costs(self, start: str, end: str) -> float:
         """Sum GL entries from variable cost centers."""
-        if not self.variable_cost_centers:
-            return 0.0
+        return self._get_cost_center_costs(self.variable_cost_centers, start, end)
 
-        GLEntry = DocType("GL Entry")
-        costs = (
-            frappe.qb.from_(GLEntry)
-            .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total"))
-            .where(GLEntry.company == self.company)
-            .where(GLEntry.posting_date.between(start, end))
-            .where(GLEntry.cost_center.isin(self.variable_cost_centers))
-            .where(GLEntry.is_cancelled == 0)
-            .run(as_dict=True)
-        )
-        return round(float(costs[0].total or 0), 2)
-
-    def _rag_coverage(self, coverage: float) -> str:
-        """RAG for coverage ratio."""
+    def _rag_coverage(self, coverage: float | None) -> str | None:
+        """RAG for coverage ratio; None when coverage is not computable."""
+        if coverage is None:
+            return None
         if coverage > 1.2:
             return "green"
         elif coverage >= 1.0:
             return "amber"
         return "red"
 
-    def _rag_roce(self, roce: float) -> str:
-        """RAG for ROCE vs target."""
+    def _rag_roce(self, roce: float | None) -> str | None:
+        """RAG for ROCE vs target; both are decimals (0.15 == 15%)."""
+        if roce is None:
+            return None
         if roce > self.roce_target:
             return "green"
         elif roce > self.roce_target * 0.8:
@@ -212,7 +214,7 @@ class BreakevenEngine:
             )
             .where(SalesInvoice.docstatus == 1)
             .where(SalesInvoice.company == self.company)
-            .where(SalesInvoice.posting_date.between(start, end))
+            .where(SalesInvoice.posting_date.between(start, self._upto(end)))
             .groupby(SalesInvoiceItem.item_code)
             .run(as_dict=True)
         )
@@ -264,7 +266,7 @@ class BreakevenEngine:
             )
             .where(SalesInvoice.docstatus == 1)
             .where(SalesInvoice.company == self.company)
-            .where(SalesInvoice.posting_date.between(start, end))
+            .where(SalesInvoice.posting_date.between(start, self._upto(end)))
             .groupby(SalesInvoiceItem.item_code)
             .run(as_dict=True)
         )
@@ -313,8 +315,8 @@ class BreakevenEngine:
                 allocated_fixed = round(total_fixed * (cm * actual_qty / total_contribution), 2)
 
             be_qty = round(allocated_fixed / cm, 2) if cm > 0 else 0.0
-            coverage = round(actual_qty / be_qty, 2) if be_qty > 0 else 0.0
-            safety_margin = round((actual_qty - be_qty) / actual_qty * 100, 2) if actual_qty > 0 else 0.0
+            coverage = round(actual_qty / be_qty, 2) if be_qty > 0 else None
+            safety_margin = round((actual_qty - be_qty) / actual_qty * 100, 2) if be_qty > 0 and actual_qty > 0 else None
 
             results.append({
                 "item_code": item.item_code,
@@ -352,7 +354,7 @@ class BreakevenEngine:
             )
             .where(SalarySlip.docstatus == 1)
             .where(SalarySlip.company == self.company)
-            .where(SalarySlip.posting_date.between(start, end))
+            .where(SalarySlip.posting_date.between(start, self._upto(end)))
             .groupby(SalarySlip.department)
             .run(as_dict=True)
         )
@@ -369,7 +371,7 @@ class BreakevenEngine:
             )
             .where(SalesOrder.docstatus == 1)
             .where(SalesOrder.company == self.company)
-            .where(SalesOrder.transaction_date.between(start, end))
+            .where(SalesOrder.transaction_date.between(start, self._upto(end)))
             .run(as_dict=True)
         )[0]
 
@@ -386,7 +388,7 @@ class BreakevenEngine:
             .on(GLEntry.account == Account.name)
             .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("cogs"))
             .where(GLEntry.company == self.company)
-            .where(GLEntry.posting_date.between(start, end))
+            .where(GLEntry.posting_date.between(start, self._upto(end)))
             .where(Account.account_type == "Cost of Goods Sold")
             .where(GLEntry.is_cancelled == 0)
             .run(as_dict=True)
@@ -395,8 +397,11 @@ class BreakevenEngine:
 
         cogs = float(cogs)
         net_revenue = total_revenue - total_tax
-        variable_cost_ratio = (cogs / net_revenue) if net_revenue > 0 else 0.6
-        avg_contribution_per_order = round((net_revenue / order_count) * (1 - variable_cost_ratio), 2) if order_count > 0 else 0.0
+        variable_cost_ratio = (cogs / net_revenue) if net_revenue > 0 else None
+        avg_contribution_per_order = (
+            round((net_revenue / order_count) * (1 - variable_cost_ratio), 2)
+            if order_count > 0 and variable_cost_ratio is not None else 0.0
+        )
 
         # Actual orders per department (proxy: count by department of creator)
         Employee = DocType("Employee")
@@ -410,7 +415,7 @@ class BreakevenEngine:
             )
             .where(SalesOrder.docstatus == 1)
             .where(SalesOrder.company == self.company)
-            .where(SalesOrder.transaction_date.between(start, end))
+            .where(SalesOrder.transaction_date.between(start, self._upto(end)))
             .groupby(Employee.department)
             .run(as_dict=True)
         )
@@ -430,7 +435,7 @@ class BreakevenEngine:
             payroll_cost = payroll_map.get(dept, 0.0)
             orders_needed = round(payroll_cost / avg_contribution_per_order, 2) if avg_contribution_per_order > 0 else 0.0
             actual_orders = orders_map.get(dept, 0)
-            coverage = round(actual_orders / orders_needed, 2) if orders_needed > 0 else 0.0
+            coverage = round(actual_orders / orders_needed, 2) if orders_needed > 0 else None
 
             results.append({
                 "department": dept,
@@ -455,26 +460,28 @@ class BreakevenEngine:
 
         PaymentEntry = DocType("Payment Entry")
         month_expr = DateFormat(PaymentEntry.posting_date, "%Y-%m").as_("month")
+        # Alias AFTER Coalesce: aliasing only the inner Sum leaves the outer column
+        # unnamed, so row.cash_in/cash_out were always None and every month read 0.
         cash_in_expr = Sum(
             Case()
             .when(PaymentEntry.payment_type == "Receive", PaymentEntry.paid_amount)
             .else_(0)
-        ).as_("cash_in")
+        )
         cash_out_expr = Sum(
             Case()
             .when(PaymentEntry.payment_type == "Pay", PaymentEntry.paid_amount)
             .else_(0)
-        ).as_("cash_out")
+        )
         monthly = (
             frappe.qb.from_(PaymentEntry)
             .select(
                 month_expr,
-                Coalesce(cash_in_expr, 0),
-                Coalesce(cash_out_expr, 0),
+                Coalesce(cash_in_expr, 0).as_("cash_in"),
+                Coalesce(cash_out_expr, 0).as_("cash_out"),
             )
             .where(PaymentEntry.docstatus == 1)
             .where(PaymentEntry.company == self.company)
-            .where(PaymentEntry.posting_date.between(start, end))
+            .where(PaymentEntry.posting_date.between(start, self._upto(end)))
             .groupby(month_expr)
             .orderby(month_expr)
             .run(as_dict=True)
@@ -505,7 +512,7 @@ class BreakevenEngine:
 
         total_in = round(cumulative_in, 2)
         total_out = round(cumulative_out, 2)
-        coverage = round(total_in / total_out, 2) if total_out > 0 else 0.0
+        coverage = round(total_in / total_out, 2) if total_out > 0 else None
 
         return {
             "period": self.period,
@@ -532,7 +539,7 @@ class BreakevenEngine:
             .on(GLEntry.account == Account.name)
             .select(Coalesce(Sum(GLEntry.credit - GLEntry.debit), 0).as_("amount"))
             .where(GLEntry.company == self.company)
-            .where(GLEntry.posting_date.between(start, end))
+            .where(GLEntry.posting_date.between(start, self._upto(end)))
             .where(Account.root_type == "Income")
             .where(GLEntry.is_cancelled == 0)
             .run(as_dict=True)
@@ -545,7 +552,7 @@ class BreakevenEngine:
             .on(GLEntry.account == Account.name)
             .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("amount"))
             .where(GLEntry.company == self.company)
-            .where(GLEntry.posting_date.between(start, end))
+            .where(GLEntry.posting_date.between(start, self._upto(end)))
             .where(Account.root_type == "Expense")
             .where(Account.account_type.notin(["Tax", "Interest"]))
             .where(GLEntry.is_cancelled == 0)
@@ -563,6 +570,7 @@ class BreakevenEngine:
             .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("amount"))
             .where(GLEntry.company == self.company)
             .where(Account.root_type == "Asset")
+            .where(GLEntry.posting_date <= self._upto(end))
             .where(Account.is_group == 0)
             .where(GLEntry.is_cancelled == 0)
             .run(as_dict=True)
@@ -574,6 +582,7 @@ class BreakevenEngine:
             .select(Coalesce(Sum(GLEntry.credit - GLEntry.debit), 0).as_("amount"))
             .where(GLEntry.company == self.company)
             .where(Account.root_type == "Liability")
+            .where(GLEntry.posting_date <= self._upto(end))
             .where(Account.is_group == 0)
             .where(Account.account_type.isin(["Payable", "Tax", "Stock Liability"]))
             .where(GLEntry.is_cancelled == 0)
@@ -581,13 +590,13 @@ class BreakevenEngine:
         )[0].amount or 0
 
         capital_employed = float(total_assets) - float(current_liabilities)
-        roce = round(ebit / capital_employed, 4) if capital_employed > 0 else 0.0
+        roce = round(ebit / capital_employed, 4) if capital_employed > 0 else None
 
         return {
             "ebit": round(ebit, 2),
             "capital_employed": round(capital_employed, 2),
-            "roce": round(roce * 100, 2),
-            "roce_decimal": round(roce, 4),
+            "roce": round(roce * 100, 2) if roce is not None else None,
+            "roce_decimal": roce,
             "target": round(self.roce_target * 100, 2),
             "rag": self._rag_roce(roce),
         }
@@ -610,14 +619,15 @@ class BreakevenEngine:
         net_cash_expr = Sum(
             Case()
             .when(PaymentEntry.payment_type == "Receive", PaymentEntry.paid_amount)
-            .else_(-PaymentEntry.paid_amount)
-        ).as_("net_cash")
+            .when(PaymentEntry.payment_type == "Pay", -PaymentEntry.paid_amount)
+            .else_(0)
+        )
         monthly = (
             frappe.qb.from_(PaymentEntry)
-            .select(month_expr, Coalesce(net_cash_expr, 0))
+            .select(month_expr, Coalesce(net_cash_expr, 0).as_("net_cash"))
             .where(PaymentEntry.docstatus == 1)
             .where(PaymentEntry.company == self.company)
-            .where(PaymentEntry.posting_date.between(start, end))
+            .where(PaymentEntry.posting_date.between(start, self._upto(end)))
             .groupby(month_expr)
             .orderby(month_expr)
             .run(as_dict=True)
@@ -652,24 +662,24 @@ class BreakevenEngine:
 
         total_leads = int(lead_stats.total_leads or 0)
         converted = int(lead_stats.converted or 0)
-        conversion_rate = round(converted / total_leads, 4) if total_leads > 0 else 0.05
+        conversion_rate = round(converted / total_leads, 4) if total_leads > 0 else None
 
         results = []
         for item in item_data.get("items", []):
             be_qty = item.get("be_qty", 0)
-            leads_needed = round(be_qty / conversion_rate, 2) if conversion_rate > 0 else 0.0
+            leads_needed = round(be_qty / conversion_rate, 2) if conversion_rate else None
             results.append({
                 "item_code": item["item_code"],
                 "item_name": item["item_name"],
                 "be_qty": be_qty,
-                "conversion_rate": round(conversion_rate * 100, 2),
+                "conversion_rate": round(conversion_rate * 100, 2) if conversion_rate is not None else None,
                 "leads_needed": leads_needed,
             })
 
         return {
             "period": self.period,
             "fiscal_year": self.fiscal_year,
-            "conversion_rate": round(conversion_rate * 100, 2),
+            "conversion_rate": round(conversion_rate * 100, 2) if conversion_rate is not None else None,
             "items": results,
         }
 
@@ -692,16 +702,20 @@ class BreakevenEngine:
         total_qty = sum(i.get("actual_qty", 0) for i in item_data.get("items", []))
         avg_cm = round(total_cm / total_qty, 2) if total_qty > 0 else 0.0
 
-        overall_be_qty = round(total_fixed / avg_cm, 2) if avg_cm > 0 else 0.0
-        overall_be_revenue = round(total_fixed + total_variable, 2)
+        overall_be_qty = round(total_fixed / avg_cm, 2) if self.configured and avg_cm > 0 else 0.0
         actual_revenue = sum(i.get("actual_revenue", 0) for i in item_data.get("items", []))
-        coverage = round(actual_revenue / overall_be_revenue, 2) if overall_be_revenue > 0 else 0.0
-        safety_margin = round((actual_revenue - overall_be_revenue) / actual_revenue * 100, 2) if actual_revenue > 0 else 0.0
+        overall_be_revenue = _be_revenue(total_fixed, total_variable, actual_revenue) if self.configured else None
+        coverage = round(actual_revenue / overall_be_revenue, 2) if overall_be_revenue else None
+        safety_margin = (
+            round((actual_revenue - overall_be_revenue) / actual_revenue * 100, 2)
+            if overall_be_revenue is not None and actual_revenue > 0 else None
+        )
 
         return {
             "period": self.period,
             "fiscal_year": self.fiscal_year,
             "date_range": {"start": start, "end": end},
+            "configured": self.configured,
             "fixed_costs": total_fixed,
             "variable_costs": total_variable,
             "be_revenue": overall_be_revenue,
@@ -791,8 +805,8 @@ class BreakevenEngine:
                 if total_contribution > 0 and cm > 0:
                     allocated_fixed = round(scenario_fixed * (cm * qty / total_contribution), 2)
                 be_qty = round(allocated_fixed / cm, 2) if cm > 0 else 0.0
-                coverage = round(qty / be_qty, 2) if be_qty > 0 else 0.0
-                safety_margin = round((qty - be_qty) / qty * 100, 2) if qty > 0 else 0.0
+                coverage = round(qty / be_qty, 2) if be_qty > 0 else None
+                safety_margin = round((qty - be_qty) / qty * 100, 2) if be_qty > 0 and qty > 0 else None
                 results.append({
                     **item,
                     "revenue": round(item["selling_price"] * qty, 2),
@@ -804,17 +818,17 @@ class BreakevenEngine:
 
             projected_revenue = round(sum(r["revenue"] for r in results), 2)
             projected_qty = round(sum(r["qty"] for r in results), 2)
-            overall_be_revenue = round(scenario_fixed + scenario_variable, 2)
-            overall_coverage = round(projected_revenue / overall_be_revenue, 2) if overall_be_revenue > 0 else 0.0
+            overall_be_revenue = _be_revenue(scenario_fixed, scenario_variable, projected_revenue) if self.configured else None
+            overall_coverage = round(projected_revenue / overall_be_revenue, 2) if overall_be_revenue else None
             overall_safety_margin = (
                 round((projected_revenue - overall_be_revenue) / projected_revenue * 100, 2)
-                if projected_revenue > 0 else 0.0
+                if overall_be_revenue is not None and projected_revenue > 0 else None
             )
 
             current_qty = round(sum(i.get("actual_qty", 0) for i in baseline["items"]), 2)
             current_revenue = round(sum(i.get("actual_revenue", 0) for i in baseline["items"]), 2)
-            current_be_revenue = round(base_fixed + base_variable, 2)
-            current_coverage = round(current_revenue / current_be_revenue, 2) if current_be_revenue > 0 else 0.0
+            current_be_revenue = _be_revenue(base_fixed, base_variable, current_revenue) if self.configured else None
+            current_coverage = round(current_revenue / current_be_revenue, 2) if current_be_revenue else None
 
             return {
                 "status": "success",
@@ -827,6 +841,7 @@ class BreakevenEngine:
                 },
                 "items": results,
                 "overall": {
+                    "configured": self.configured,
                     "fixed_costs": scenario_fixed,
                     "variable_costs": scenario_variable,
                     "be_revenue": overall_be_revenue,
@@ -850,6 +865,16 @@ class BreakevenEngine:
             return {"status": "error", "message": str(e)}
 
 
+def _be_revenue(fixed: float, variable: float, revenue: float) -> float | None:
+    """Break-even revenue = fixed / contribution-margin ratio, CM ratio = (revenue - variable) / revenue.
+
+    None when revenue or the margin ratio is not positive (no break-even exists).
+    """
+    if revenue <= 0 or revenue - variable <= 0:
+        return None
+    return round(fixed / ((revenue - variable) / revenue), 2)
+
+
 def _polynomial_irr(cash_flows: list[float]) -> float | None:
     """Internal rate of return via the roots of the cash-flow polynomial.
 
@@ -865,6 +890,13 @@ def _polynomial_irr(cash_flows: list[float]) -> float | None:
     which, substituting X = (1 + r), is a plain polynomial in X whose
     decreasing-power coefficients are exactly ``cash_flows`` in order.
     """
+    # An IRR only exists for an investment profile: the first non-zero flow must be an
+    # outlay and a later flow must recover it. Operating cash flows that start positive
+    # still have mathematical roots (e.g. -97%) that mean nothing.
+    nonzero = [v for v in cash_flows if v]
+    if not nonzero or nonzero[0] >= 0 or max(nonzero) <= 0:
+        return None
+
     import numpy as np
 
     try:

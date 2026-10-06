@@ -177,7 +177,8 @@
             <span class="w-16 text-xs text-ink-gray-7">Base</span>
             <div class="flex-1 h-6 bg-surface-gray-2 rounded-lg overflow-hidden relative">
               <div
-                class="h-full bg-surface-blue-3 rounded-lg motion-reduce:transition-none"
+                class="h-full rounded-lg motion-reduce:transition-none"
+                :class="(scenarios?.base_ending_balance || 0) < 0 ? 'bg-surface-red-5' : 'bg-surface-blue-3'"
                 :style="{ width: getBarWidth(scenarios?.base_ending_balance || 0) + '%', transition: 'width 0.3s ease' }"
               ></div>
               <span class="absolute right-2 top-1 text-xs font-medium text-ink-gray-8">
@@ -190,7 +191,7 @@
             <div class="flex-1 h-6 bg-surface-gray-2 rounded-lg overflow-hidden relative">
               <div
                 class="h-full rounded-lg motion-reduce:transition-none"
-                :class="selectedScenario.impact >= 0 ? 'bg-surface-green-3' : 'bg-surface-red-5'"
+                :class="selectedScenario.ending_balance < 0 || selectedScenario.impact < 0 ? 'bg-surface-red-5' : 'bg-surface-green-3'"
                 :style="{ width: getBarWidth(selectedScenario.ending_balance) + '%', transition: 'width 0.3s ease' }"
               ></div>
               <span class="absolute right-2 top-1 text-xs font-medium text-ink-gray-8">
@@ -332,13 +333,15 @@ const selectRow = (row: ScenarioRow) => {
   selectedScenario.value = selectedScenario.value?.id === row.id ? null : row
 }
 
+// Scale on the largest magnitude so all-negative balances still get distinct widths;
+// the sign is shown by bar colour, not width.
 const getBarWidth = (value: number) => {
   const max = Math.max(
-    props.scenarios?.base_ending_balance || 0,
-    ...((props.scenarios?.scenarios || []).map((s) => s.ending_balance)),
+    Math.abs(props.scenarios?.base_ending_balance || 0),
+    ...((props.scenarios?.scenarios || []).map((s) => Math.abs(s.ending_balance || 0))),
   )
-  if (max <= 0) return 10
-  return Math.max(10, Math.min(100, (value / max) * 100))
+  if (max <= 0) return 2
+  return Math.max(2, Math.min(100, (Math.abs(value) / max) * 100))
 }
 
 const iconMap: Record<string, unknown> = {

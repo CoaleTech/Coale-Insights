@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, TYPE_CHECKING
 
 from frappe.query_builder import Case, DocType
-from frappe.query_builder.functions import Coalesce, Count, Sum
+from frappe.query_builder.functions import Coalesce, Sum
 
 if TYPE_CHECKING:
     import numpy as np
@@ -33,6 +33,33 @@ from .data import (
 from .analysis import detect_payroll_pattern, generate_variance_analysis
 
 
+def _outstanding_by_due_day(intelligence, doctype: str, today: str, horizon_end: str):
+    """Outstanding invoice amounts due on/before `horizon_end`, bucketed by
+    days from `today`. Returns (overdue_total, {day: amount}, total).
+    Invoices due today or earlier count as overdue."""
+    inv = DocType(doctype)
+    rows = (
+        frappe.qb.from_(inv)
+        .select(inv.due_date, Coalesce(Sum(inv.outstanding_amount), 0).as_("total"))
+        .where(inv.company == intelligence.company)
+        .where(inv.docstatus == 1)
+        .where(inv.outstanding_amount > 0)
+        .where(inv.due_date <= horizon_end)
+        .groupby(inv.due_date)
+        .run(as_dict=True)
+    )
+    today_date = frappe.utils.getdate(today)
+    overdue, by_day = 0.0, {}
+    for r in rows:
+        amount = float(r.total or 0)
+        days = (frappe.utils.getdate(r.due_date) - today_date).days
+        if days <= 0:
+            overdue += amount
+        else:
+            by_day[days] = by_day.get(days, 0.0) + amount
+    return overdue, by_day, overdue + sum(by_day.values())
+
+
 def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     """Generate 90-day cash flow forecast with scenarios"""
     import numpy as np
@@ -41,6 +68,7 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     # Get historical daily cash flows (last 90 days). The legacy SQL used
     # DATE_SUB(CURDATE(), INTERVAL 90 DAY); we resolve that on the Python
     # side so PyPika can emit the bound parameter directly.
+    today = datetime.now().strftime('%Y-%m-%d')
     ninety_days_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
 
     gle = DocType("GL Entry")
@@ -57,7 +85,7 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
                 .else_(0)
             ).as_("net_flow"),
         )
-        .where(gle.posting_date >= ninety_days_ago)
+        .where(gle.posting_date.between(ninety_days_ago, today))
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
         .groupby(gle.posting_date)
@@ -74,38 +102,14 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
         avg_daily_flow = 0
         std_daily_flow = 0
 
-    # Expected receivables (outstanding invoices)
-    si = DocType("Sales Invoice")
-    expected_inflows_rows = (
-        frappe.qb.from_(si)
-        .select(
-            Coalesce(Sum(si.outstanding_amount), 0).as_("total"),
-            Count("*").as_("count"),
-        )
-        .where(si.company == intelligence.company)
-        .where(si.docstatus == 1)
-        .where(si.outstanding_amount > 0)
-        .run(as_dict=True)
-    )
-    expected_inflows = expected_inflows_rows[0] if expected_inflows_rows else {"total": 0, "count": 0}
-
-    # Expected payables (outstanding bills)
-    pi = DocType("Purchase Invoice")
-    expected_outflows_rows = (
-        frappe.qb.from_(pi)
-        .select(
-            Coalesce(Sum(pi.outstanding_amount), 0).as_("total"),
-            Count("*").as_("count"),
-        )
-        .where(pi.company == intelligence.company)
-        .where(pi.docstatus == 1)
-        .where(pi.outstanding_amount > 0)
-        .run(as_dict=True)
-    )
-    expected_outflows = expected_outflows_rows[0] if expected_outflows_rows else {"total": 0, "count": 0}
-
-    # Generate 90-day forecast
+    # Expected receivables/payables due inside the forecast horizon only.
+    # Assumption: invoices already overdue are spread evenly over the first
+    # 45 days (AR) / 30 days (AP); invoices not yet due land on their due date.
     forecast_days = 90
+    horizon_end = (datetime.now() + timedelta(days=forecast_days)).strftime('%Y-%m-%d')
+    ar_overdue, ar_by_day, ar_total = _outstanding_by_due_day(intelligence, "Sales Invoice", today, horizon_end)
+    ap_overdue, ap_by_day, ap_total = _outstanding_by_due_day(intelligence, "Purchase Invoice", today, horizon_end)
+
     base_forecast = []
     optimistic_forecast = []
     pessimistic_forecast = []
@@ -114,17 +118,12 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     optimistic_balance = current_cash
     pessimistic_balance = current_cash
 
-    # Distribute expected receivables over 45 days (average collection)
-    daily_ar_inflow = float(expected_inflows.total or 0) / 45
-    # Distribute payables over 30 days
-    daily_ap_outflow = float(expected_outflows.total or 0) / 30
-
     for day in range(1, forecast_days + 1):
         date = (datetime.now() + timedelta(days=day)).strftime('%Y-%m-%d')
 
         # Base case: average historical + AR/AP adjustments
-        ar_adjustment = daily_ar_inflow if day <= 45 else 0
-        ap_adjustment = daily_ap_outflow if day <= 30 else 0
+        ar_adjustment = ar_by_day.get(day, 0.0) + (ar_overdue / 45 if day <= 45 else 0)
+        ap_adjustment = ap_by_day.get(day, 0.0) + (ap_overdue / 30 if day <= 30 else 0)
 
         base_flow = avg_daily_flow + ar_adjustment - ap_adjustment
         running_balance += base_flow
@@ -158,7 +157,7 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
         for i, f in enumerate(forecast):
             if f["balance"] <= 0:
                 return i
-        return 999  # More than forecast period
+        return None  # Balance stays positive for the whole forecast period
 
     base_runway = calculate_runway(base_forecast)
     opt_runway = calculate_runway(optimistic_forecast)
@@ -180,9 +179,9 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     return {
         "current_cash": current_cash,
         "avg_daily_flow": round(avg_daily_flow, 2),
-        "expected_ar_inflows": float(expected_inflows.total or 0),
-        "expected_ap_outflows": float(expected_outflows.total or 0),
-        "net_expected": float(expected_inflows.total or 0) - float(expected_outflows.total or 0),
+        "expected_ar_inflows": ar_total,
+        "expected_ap_outflows": ap_total,
+        "net_expected": ar_total - ap_total,
         "base_forecast": base_forecast,
         "optimistic_forecast": optimistic_forecast,
         "pessimistic_forecast": pessimistic_forecast,
@@ -412,7 +411,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     scenarios = []
 
     # Scenario 1: AR Collections Delayed 2 weeks
-    ar_delayed = apply_scenario(intelligence, forecast_weeks, ar_delay_weeks=2)
+    ar_delayed = apply_scenario(intelligence, forecast_weeks, threshold, ar_delay_weeks=2)
     scenarios.append({
         'id': 'ar_delay_2w',
         'name': 'AR Collections Delayed 2 Weeks',
@@ -427,7 +426,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     })
 
     # Scenario 2: AR Collections Improved 20%
-    ar_improved = apply_scenario(intelligence, forecast_weeks, ar_change_pct=20)
+    ar_improved = apply_scenario(intelligence, forecast_weeks, threshold, ar_change_pct=20)
     scenarios.append({
         'id': 'ar_improve_20',
         'name': 'AR Collections +20%',
@@ -442,7 +441,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     })
 
     # Scenario 3: AP Payments Accelerated (paid early)
-    ap_accelerated = apply_scenario(intelligence, forecast_weeks, ap_delay_weeks=-1)
+    ap_accelerated = apply_scenario(intelligence, forecast_weeks, threshold, ap_delay_weeks=-1)
     scenarios.append({
         'id': 'ap_accelerate',
         'name': 'AP Payments Accelerated',
@@ -457,7 +456,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     })
 
     # Scenario 4: AP Payments Delayed 2 weeks
-    ap_delayed = apply_scenario(intelligence, forecast_weeks, ap_delay_weeks=2)
+    ap_delayed = apply_scenario(intelligence, forecast_weeks, threshold, ap_delay_weeks=2)
     scenarios.append({
         'id': 'ap_delay_2w',
         'name': 'AP Payments Delayed 2 Weeks',
@@ -472,7 +471,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     })
 
     # Scenario 5: Revenue/Inflows Drop 30%
-    revenue_drop = apply_scenario(intelligence, forecast_weeks, ar_change_pct=-30)
+    revenue_drop = apply_scenario(intelligence, forecast_weeks, threshold, ar_change_pct=-30)
     scenarios.append({
         'id': 'revenue_drop_30',
         'name': 'Revenue Drop 30%',
@@ -487,7 +486,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     })
 
     # Scenario 6: Operating Expenses Increase 20%
-    opex_increase = apply_scenario(intelligence, forecast_weeks, opex_change_pct=20)
+    opex_increase = apply_scenario(intelligence, forecast_weeks, threshold, opex_change_pct=20)
     scenarios.append({
         'id': 'opex_increase_20',
         'name': 'Operating Expenses +20%',
@@ -502,7 +501,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     })
 
     # Scenario 7: Best Case (AR +20%, AP delayed, OpEx -10%)
-    best_case = apply_scenario(intelligence, forecast_weeks, ar_change_pct=20, ap_delay_weeks=1, opex_change_pct=-10)
+    best_case = apply_scenario(intelligence, forecast_weeks, threshold, ar_change_pct=20, ap_delay_weeks=1, opex_change_pct=-10)
     scenarios.append({
         'id': 'best_case',
         'name': 'Best Case Scenario',
@@ -517,7 +516,7 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     })
 
     # Scenario 8: Worst Case (AR -30%, AR delayed, OpEx +20%)
-    worst_case = apply_scenario(intelligence, forecast_weeks, ar_change_pct=-30, ar_delay_weeks=2, opex_change_pct=20)
+    worst_case = apply_scenario(intelligence, forecast_weeks, threshold, ar_change_pct=-30, ar_delay_weeks=2, opex_change_pct=20)
     scenarios.append({
         'id': 'worst_case',
         'name': 'Worst Case Scenario',
@@ -571,9 +570,22 @@ def generate_cashflow_scenarios(intelligence, base_weeks: List[Dict], current_ca
     }
 
 
+def _shift_weeks(series: List[float], delay: int) -> List[float]:
+    """Move each week's amount `delay` weeks later (earlier if negative).
+    Amounts shifted past the horizon drop out; amounts shifted before week 0
+    land in week 0 -- a timing shift, not a loss."""
+    shifted = [0.0] * len(series)
+    for i, amount in enumerate(series):
+        target = max(0, i + delay)
+        if target < len(series):
+            shifted[target] += amount
+    return shifted
+
+
 def apply_scenario(
     intelligence,
     base_weeks: List[Dict],
+    threshold: float = 0,
     ar_change_pct: float = 0,
     ar_delay_weeks: int = 0,
     ap_change_pct: float = 0,
@@ -585,51 +597,21 @@ def apply_scenario(
     if not base_weeks:
         return {'ending_balance': 0, 'min_balance': 0, 'weeks_below_threshold': 0}
 
+    ar_series = [w['inflows'].get('ar_collections', 0) * (1 + ar_change_pct / 100) for w in base_weeks]
+    ap_series = [w['outflows'].get('ap_payments', 0) * (1 + ap_change_pct / 100) for w in base_weeks]
+    ar_series = _shift_weeks(ar_series, ar_delay_weeks)
+    ap_series = _shift_weeks(ap_series, ap_delay_weeks)
+
     adjusted_weeks = []
     running_balance = base_weeks[0]['opening_balance']
 
     for i, week in enumerate(base_weeks):
-        # Get base values
-        ar = week['inflows'].get('ar_collections', 0)
         other_receipts = week['inflows'].get('other_receipts', 0)
-        ap = week['outflows'].get('ap_payments', 0)
-        payroll = week['outflows'].get('payroll', 0)
-        opex = week['outflows'].get('operating_expenses', 0)
+        payroll = week['outflows'].get('payroll', 0) * (1 + payroll_change_pct / 100)
+        opex = week['outflows'].get('operating_expenses', 0) * (1 + opex_change_pct / 100)
         taxes = week['outflows'].get('taxes', 0)
 
-        # Apply AR changes
-        if ar_change_pct != 0:
-            ar = ar * (1 + ar_change_pct / 100)
-
-        # Apply AR delay (shift collections forward)
-        if ar_delay_weeks > 0 and i < ar_delay_weeks:
-            # Early weeks lose some AR
-            ar = ar * 0.3
-        elif ar_delay_weeks < 0 and i < len(base_weeks) + ar_delay_weeks:
-            # Early weeks gain AR from future
-            ar = ar * 1.3
-
-        # Apply AP changes
-        if ap_change_pct != 0:
-            ap = ap * (1 + ap_change_pct / 100)
-
-        # Apply AP delay (shift payments forward)
-        if ap_delay_weeks > 0 and i < ap_delay_weeks:
-            ap = ap * 0.3  # Early weeks pay less
-        elif ap_delay_weeks < 0 and i < len(base_weeks) + ap_delay_weeks:
-            ap = ap * 1.5  # Early weeks pay more
-
-        # Apply OpEx changes
-        if opex_change_pct != 0:
-            opex = opex * (1 + opex_change_pct / 100)
-
-        # Apply payroll changes
-        if payroll_change_pct != 0:
-            payroll = payroll * (1 + payroll_change_pct / 100)
-
-        total_inflows = ar + other_receipts
-        total_outflows = ap + payroll + opex + taxes
-        net_flow = total_inflows - total_outflows
+        net_flow = (ar_series[i] + other_receipts) - (ap_series[i] + payroll + opex + taxes)
         closing = running_balance + net_flow
 
         adjusted_weeks.append({
@@ -638,9 +620,8 @@ def apply_scenario(
         })
         running_balance = closing
 
-    min_balance = min(w['closing_balance'] for w in adjusted_weeks) if adjusted_weeks else 0
-    ending_balance = adjusted_weeks[-1]['closing_balance'] if adjusted_weeks else 0
-    threshold = base_weeks[0].get('threshold', 0) if base_weeks else 0
+    min_balance = min(w['closing_balance'] for w in adjusted_weeks)
+    ending_balance = adjusted_weeks[-1]['closing_balance']
 
     return {
         'ending_balance': round(ending_balance, 2),

@@ -13,6 +13,14 @@
     </div>
 
     <template v-else>
+      <div
+        v-if="data.configured === false"
+        class="flex items-start gap-2 rounded-lg border border-outline-amber-2 bg-surface-amber-1 p-4 text-sm text-ink-gray-8"
+        role="status"
+      >
+        Break-even is not computed: configure fixed and variable cost centers in Insights Settings.
+      </div>
+
       <!-- Summary KPI Cards -->
       <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <KpiCard
@@ -48,9 +56,9 @@
             <p class="text-xs text-ink-gray-6">Cash Coverage</p>
             <p
               class="text-base font-semibold mt-0.5"
-              :class="cashData.coverage >= 1 ? 'text-ink-gray-9' : 'text-ink-red-4'"
+              :class="cashData.coverage != null && cashData.coverage < 1 ? 'text-ink-red-4' : 'text-ink-gray-9'"
             >
-              {{ ((cashData.coverage ?? 0) * 100).toFixed(1) }}%
+              {{ fraction(cashData.coverage) }}
             </p>
             <Badge v-bind="severityBadge(ragSeverity(cashData.rag))" size="sm" class="mt-1" />
           </div>
@@ -79,19 +87,19 @@
               </div>
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Orders Needed</span>
-                <span class="font-medium text-ink-gray-9">{{ dept.orders_needed?.toLocaleString() }}</span>
+                <span class="font-medium text-ink-gray-9">{{ formatCount(dept.orders_needed) }}</span>
               </div>
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Actual Orders</span>
-                <span class="font-medium text-ink-gray-9">{{ dept.actual_orders?.toLocaleString() }}</span>
+                <span class="font-medium text-ink-gray-9">{{ formatCount(dept.actual_orders) }}</span>
               </div>
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Coverage</span>
                 <span
                   class="font-medium"
-                  :class="dept.coverage >= 1 ? 'text-ink-gray-9' : 'text-ink-red-4'"
+                  :class="dept.coverage != null && dept.coverage < 1 ? 'text-ink-red-4' : 'text-ink-gray-9'"
                 >
-                  {{ ((dept.coverage ?? 0) * 100).toFixed(1) }}%
+                  {{ fraction(dept.coverage) }}
                 </span>
               </div>
             </div>
@@ -108,9 +116,9 @@
           <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
             <p class="text-xs text-ink-gray-6">ROCE</p>
             <p class="text-2xl font-bold mt-1 text-ink-gray-9">
-              {{ data.roce?.roce?.toFixed(2) || 0 }}%
+              {{ percent(data.roce?.roce) }}
             </p>
-            <p class="text-xs text-ink-gray-6 mt-1">Target: {{ data.roce?.target?.toFixed(2) || 0 }}%</p>
+            <p class="text-xs text-ink-gray-6 mt-1">Target: {{ percent(data.roce?.target) }}</p>
             <Badge v-bind="severityBadge(ragSeverity(data.roce?.rag))" size="sm" class="mt-2" />
           </div>
           <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
@@ -140,6 +148,7 @@ import { Badge } from 'frappe-ui'
 import { ragSeverity, severityBadge, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
+import { formatCount, formatMoney, NO_VALUE } from '../../utils/format'
 
 defineOptions({ name: 'BreakEvenOverviewTab' })
 
@@ -173,14 +182,16 @@ interface IrrData {
 }
 
 interface BreakevenSummary {
+  /** False when no fixed/variable cost centers are configured; BE figures are then null. */
+  configured?: boolean
   fixed_costs: number
   variable_costs: number
-  be_revenue: number
+  be_revenue: number | null
   be_qty: number
   actual_revenue: number
-  coverage: number
-  safety_margin: number
-  rag: string
+  coverage: number | null
+  safety_margin: number | null
+  rag: string | null
   cash_flow_breakeven?: CashFlowBreakeven
   employee_breakeven?: { departments: Department[] }
   roce?: RoceData
@@ -197,39 +208,44 @@ interface KpiCardData {
 
 const props = defineProps<{ data: BreakevenSummary | null }>()
 
-const currency = useCurrency()
-const getCurrency = (): string => currency.value
+const currency = useCurrency('')
 
 const cashData = computed<CashFlowBreakeven | null>(() => props.data?.cash_flow_breakeven ?? null)
 const departments = computed<Department[]>(() => props.data?.employee_breakeven?.departments ?? [])
 
 const kpiCards = computed<KpiCardData[]>(() => {
-  if (!props.data) return []
+  const d = props.data
+  if (!d) return []
+  // Unconfigured: the server withholds BE figures; show "-" rather than 0% coverage / 100% margin.
+  const unconfigured = d.configured === false
   return [
-    { label: 'Fixed Costs', value: formatCurrency(props.data.fixed_costs) },
-    { label: 'Variable Costs', value: formatCurrency(props.data.variable_costs) },
-    { label: 'BE Revenue', value: formatCurrency(props.data.be_revenue) },
-    { label: 'Actual Revenue', value: formatCurrency(props.data.actual_revenue) },
-    { label: 'BE Quantity', value: (props.data.be_qty ?? 0).toLocaleString() },
+    { label: 'Fixed Costs', value: formatCurrency(d.fixed_costs) },
+    { label: 'Variable Costs', value: formatCurrency(d.variable_costs) },
+    { label: 'BE Revenue', value: formatCurrency(d.be_revenue) },
+    { label: 'Actual Revenue', value: formatCurrency(d.actual_revenue) },
+    { label: 'BE Quantity', value: unconfigured ? NO_VALUE : formatCount(d.be_qty) },
     {
       label: 'Coverage',
-      value: `${((props.data.coverage ?? 0) * 100).toFixed(1)}%`,
-      severity: ragSeverity(props.data.rag),
+      value: fraction(d.coverage),
+      severity: d.coverage == null ? 'none' : ragSeverity(d.rag),
     },
     {
       label: 'Safety Margin',
-      value: `${(props.data.safety_margin ?? 0).toFixed(1)}%`,
-      delta: props.data.safety_margin ?? 0,
+      value: d.safety_margin == null ? NO_VALUE : `${d.safety_margin.toFixed(1)}%`,
+      delta: d.safety_margin ?? undefined,
       deltaHigherIsBetter: true,
     },
   ]
 })
 
-function formatCurrency(value: number | null | undefined): string {
-  const n = value ?? 0
-  const curr = getCurrency()
-  if (Math.abs(n) >= 1_000_000) return `${curr} ${(n / 1_000_000).toFixed(2)}M`
-  if (Math.abs(n) >= 1_000) return `${curr} ${(n / 1_000).toFixed(1)}K`
-  return `${curr} ${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
+const formatCurrency = (value: number | null | undefined): string =>
+  formatMoney(value, currency.value, { compact: true })
+
+/** A 0-1 ratio as a percent; null stays "-" rather than becoming 0.0%. */
+const fraction = (value: number | null | undefined): string =>
+  value == null ? NO_VALUE : `${(value * 100).toFixed(1)}%`
+
+/** A value the server already sends in percent units (ROCE 15.0 = 15%). */
+const percent = (value: number | null | undefined): string =>
+  value == null ? NO_VALUE : `${value.toFixed(2)}%`
 </script>

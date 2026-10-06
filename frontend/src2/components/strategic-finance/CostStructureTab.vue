@@ -118,7 +118,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Badge } from 'frappe-ui'
-import { CheckCircle2, AlertTriangle, AlertOctagon } from 'lucide-vue-next'
+import { CheckCircle2, AlertTriangle, AlertOctagon, Info } from 'lucide-vue-next'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
@@ -162,18 +162,21 @@ function cardBorderClass(status: CostRatioStatus): string {
 function bannerClass(status: CostRatioStatus): string {
   if (status === 'risky') return 'border-outline-red-2 bg-surface-red-1'
   if (status === 'moderate') return 'border-outline-amber-2 bg-surface-amber-1'
+  if (status === 'unknown') return 'border-outline-gray-1 bg-surface-gray-1'
   return 'border-outline-green-2 bg-surface-green-1'
 }
 
 function bannerIcon(status: CostRatioStatus) {
   if (status === 'risky') return AlertOctagon
   if (status === 'moderate') return AlertTriangle
+  if (status === 'unknown') return Info
   return CheckCircle2
 }
 
 function bannerSubtitle(status: CostRatioStatus): string {
   if (status === 'risky') return 'At least one cost ratio is past its risk threshold. Review the flagged cards below and act on the recommended step.'
   if (status === 'moderate') return 'Every ratio is contained, but one or more sit above their ideal target. Worth a closer look before it drifts further.'
+  if (status === 'unknown') return 'No ratio could be graded yet: the cards below have no data for this fiscal year to date.'
   return 'Every cost ratio is within its ideal target for the current fiscal year to date.'
 }
 

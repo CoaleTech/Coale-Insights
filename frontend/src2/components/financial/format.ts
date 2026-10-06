@@ -2,14 +2,11 @@ import { NO_VALUE } from '../../utils/format'
 /**
  * Date/period formatters and helpers for the Financial actuals tabs.
  *
- * The `formatCurrency` this file used to export (en-KE exact grouping,
- * "Ksh 1,234,567") was a deliberate historical fork from `utils/format.ts`'s
- * `formatMoney` (en-US, "KES 1,234,567") preserved through a merge. Both
- * formatted the same figures differently depending which tab you were on
- * within the same dashboard. Retired: every consumer now imports
- * `formatMoney` from `../../utils/format` directly (aliased to
- * `formatCurrency` at the import site where the shorter name reads better),
- * so one currency vocabulary is used everywhere on this surface.
+ * The old `formatCurrency` this file exported (a different locale and symbol
+ * style) was retired: every consumer now imports `formatMoney` from
+ * `../../utils/format` directly (aliased to `formatCurrency` at the import site
+ * where the shorter name reads better), so one currency vocabulary is used
+ * everywhere on this surface.
  *
  * `formatForeignCurrency` is unrelated to that fork — it renders a value
  * that is already in a *different* currency (e.g. USD exposure on an INR
@@ -46,3 +43,11 @@ export const get90PlusOverdue = (buckets: Array<{ bucket: string; amount: number
 	const bucket90Plus = buckets.find(b => b.bucket === '90+ Days' || b.bucket === '90+')
 	return bucket90Plus?.amount || 0
 }
+
+/** Whole-day label for an average that may be absent (no overdue invoices, no data). */
+export const formatDays = (value: number | null | undefined) =>
+	Number.isFinite(value) ? `${Math.round(value as number)} days` : NO_VALUE
+
+/** GL control-account balance worth showing: only when it parts from the invoice total. */
+export const glBalanceDiffers = (gl: number | null | undefined, total: number | undefined) =>
+	Number.isFinite(gl) && Math.abs((gl as number) - (total ?? 0)) >= 1

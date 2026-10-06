@@ -9,6 +9,7 @@ working capital analysis, and financial ratio trends.
 """
 
 import frappe
+from frappe.utils import add_months, get_first_day, getdate
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, TYPE_CHECKING
 
@@ -20,6 +21,16 @@ if TYPE_CHECKING:
 
 
 from .data import format_currency
+
+
+def _cash_like(acc):
+    """Cash / Bank by account_type plus name-matched Fixed Deposit accounts.
+
+    ERPNext has no term-deposit account_type, so an FD is identifiable only by
+    name -- same convention as `financial_intelligence.FD_PREFIX`, which the
+    Cash tab uses; keeping both on one definition stops the tabs disagreeing.
+    """
+    return acc.account_type.isin(["Cash", "Bank"]) | acc.account_name.like("Fixed Deposit%")
 
 
 def generate_variance_analysis(intelligence, weeks: List[Dict]) -> Dict[str, Any]:
@@ -53,7 +64,7 @@ def generate_variance_analysis(intelligence, weeks: List[Dict]) -> Dict[str, Any
     )
     total_actual_inflows = sum(w['inflows']['total'] for w in actual_weeks)
 
-    inflow_accuracy = (1 - abs(total_inflow_variance) / total_forecast_inflows * 100) if total_forecast_inflows > 0 else 100
+    inflow_accuracy = ((1 - abs(total_inflow_variance) / total_forecast_inflows) * 100) if total_forecast_inflows > 0 else 100
 
     total_forecast_outflows = sum(
         w['outflows']['total'] - w['variance'].get('outflows', 0)
@@ -61,7 +72,7 @@ def generate_variance_analysis(intelligence, weeks: List[Dict]) -> Dict[str, Any
     )
     total_actual_outflows = sum(w['outflows']['total'] for w in actual_weeks)
 
-    outflow_accuracy = (1 - abs(total_outflow_variance) / total_forecast_outflows * 100) if total_forecast_outflows > 0 else 100
+    outflow_accuracy = ((1 - abs(total_outflow_variance) / total_forecast_outflows) * 100) if total_forecast_outflows > 0 else 100
 
     # Generate insights
     insights = []
@@ -185,7 +196,7 @@ def _fetch_payroll_entries(intelligence, six_months_ago: str) -> List[Dict[str, 
         )
         .where(pe.company == intelligence.company)
         .where(pe.docstatus == 1)
-        .where(pe.posting_date >= six_months_ago)
+        .where(pe.posting_date.between(six_months_ago, datetime.now().strftime('%Y-%m-%d')))
         .where(pe.payment_type == "Pay")
         .where(keyword_filter_pe)
         .run(as_dict=True)
@@ -224,7 +235,7 @@ def _fetch_payroll_entries(intelligence, six_months_ago: str) -> List[Dict[str, 
         )
         .where(je.company == intelligence.company)
         .where(je.docstatus == 1)
-        .where(je.posting_date >= six_months_ago)
+        .where(je.posting_date.between(six_months_ago, datetime.now().strftime('%Y-%m-%d')))
         .where(keyword_filter_je)
         .run(as_dict=True)
     )
@@ -258,7 +269,7 @@ def _fetch_gl_payroll_entries(intelligence, six_months_ago: str) -> List[Dict[st
             Abs(gle.debit - gle.credit).as_("paid_amount"),
         )
         .where(gle.company == intelligence.company)
-        .where(gle.posting_date >= six_months_ago)
+        .where(gle.posting_date.between(six_months_ago, datetime.now().strftime('%Y-%m-%d')))
         .where(gle.is_cancelled == 0)
         .where(name_filter)
         .where(Abs(gle.debit - gle.credit) > 10000)
@@ -402,7 +413,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
             Asset.name,
             Asset.asset_name,
             Asset.asset_category,
-            Asset.purchase_amount,
+            Asset.net_purchase_amount,
             Asset.purchase_date,
             Asset.available_for_use_date,
             Asset.status,
@@ -414,7 +425,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.status.notin(["Sold", "Scrapped"]))
-        .orderby(Asset.purchase_amount, order=frappe.qb.desc)
+        .orderby(Asset.net_purchase_amount, order=frappe.qb.desc)
         .run(as_dict=True)
     )
 
@@ -435,7 +446,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
                 "accumulated_depreciation": 0
             }
 
-        gross = float(asset.purchase_amount or 0)
+        gross = float(asset.net_purchase_amount or 0)
         net = float(asset.value_after_depreciation or gross)
         dep = float(asset.accumulated_depreciation or 0)
 
@@ -452,19 +463,19 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     fy_start = intelligence.fiscal_year["start_date"]
     ytd_capex_rows = (
         frappe.qb.from_(Asset)
-        .select(Coalesce(Sum(Asset.purchase_amount), 0).as_("amount"))
+        .select(Coalesce(Sum(Asset.net_purchase_amount), 0).as_("amount"))
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
-        .where(Asset.purchase_date >= fy_start)
+        .where(Asset.purchase_date.between(fy_start, today_str))
         .run(as_dict=True)
     )
     ytd_capex = float(ytd_capex_rows[0].amount or 0) if ytd_capex_rows else 0.0
 
     # Prior year CAPEX for comparison
-    prior_fy_start = (datetime.strptime(fy_start, '%Y-%m-%d') - timedelta(days=365)).strftime('%Y-%m-%d')
+    prior_fy_start = add_months(fy_start, -12)
     prior_capex_rows = (
         frappe.qb.from_(Asset)
-        .select(Coalesce(Sum(Asset.purchase_amount), 0).as_("amount"))
+        .select(Coalesce(Sum(Asset.net_purchase_amount), 0).as_("amount"))
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.purchase_date >= prior_fy_start)
@@ -472,6 +483,39 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
         .run(as_dict=True)
     )
     prior_capex = float(prior_capex_rows[0].amount or 0) if prior_capex_rows else 0.0
+
+    # Fixed Asset / Accumulated Depreciation accounts are the book of record.
+    # The Asset register can lag it (opening balances, assets never registered),
+    # so the headline comes from GL when GL has any fixed assets; the register
+    # only supplies the category / top-asset detail and its coverage is exposed.
+    register_gross = total_gross
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    fa = acc.account_type == "Fixed Asset"
+    ad = acc.account_type == "Accumulated Depreciation"
+    net_dr = gle.debit - gle.credit
+    row = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            Coalesce(Sum(Case().when(fa, net_dr).else_(0)), 0).as_("gross"),
+            Coalesce(Sum(Case().when(ad, -net_dr).else_(0)), 0).as_("accdep"),
+            Coalesce(Sum(Case().when(fa & (gle.posting_date >= fy_start), gle.debit).else_(0)), 0).as_("ytd"),
+            Coalesce(Sum(Case().when(fa & (gle.posting_date >= prior_fy_start) & (gle.posting_date < fy_start), gle.debit).else_(0)), 0).as_("prior"),
+        )
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .where(gle.posting_date <= today_str)
+        .where(acc.account_type.isin(["Fixed Asset", "Accumulated Depreciation"]))
+        .run(as_dict=True)
+    )[0]
+    if float(row.gross) > 0:
+        total_gross = float(row.gross)
+        total_depreciation = float(row.accdep)
+        total_net = total_gross - total_depreciation
+        ytd_capex = float(row.ytd)
+        prior_capex = float(row.prior)
 
     # Upcoming depreciation (next 12 months). Legacy SQL bounded with
     # `BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 12 MONTH)`;
@@ -497,12 +541,13 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
 
     return {
         "total_gross_assets": total_gross,
+        "register_gross_assets": register_gross,
         "total_net_assets": total_net,
         "total_accumulated_depreciation": total_depreciation,
         "asset_count": len(assets),
         "ytd_capex": float(ytd_capex),
         "prior_year_capex": float(prior_capex),
-        "capex_change_pct": round(((float(ytd_capex) - float(prior_capex)) / float(prior_capex) * 100), 1) if prior_capex > 0 else 0,
+        "capex_change_pct": round(((float(ytd_capex) - float(prior_capex)) / float(prior_capex) * 100), 1) if prior_capex > 0 else None,
         "category_summary": list(category_summary.values()),
         "upcoming_depreciation": [{"period": d.period, "amount": float(d.amount)} for d in upcoming_depreciation],
         "top_assets": [
@@ -510,8 +555,8 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
                 "name": a.name,
                 "asset_name": a.asset_name,
                 "category": a.asset_category,
-                "gross_value": float(a.purchase_amount or 0),
-                "net_value": float(a.value_after_depreciation or a.purchase_amount or 0),
+                "gross_value": float(a.net_purchase_amount or 0),
+                "net_value": float(a.value_after_depreciation or a.net_purchase_amount or 0),
                 "status": a.status
             }
             for a in assets[:10]
@@ -528,7 +573,7 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     cash_expr = Coalesce(
         Sum(
             Case()
-            .when(acc.account_type.isin(["Cash", "Bank"]), gle.debit - gle.credit)
+            .when(_cash_like(acc), gle.debit - gle.credit)
             .else_(0)
         ),
         0,
@@ -557,6 +602,7 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
         .select(cash_expr, receivables_expr, inventory_expr)
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
+        .where(gle.posting_date <= datetime.now().strftime('%Y-%m-%d'))
         .run(as_dict=True)
     )
     current_assets = current_assets_rows[0] if current_assets_rows else {}
@@ -575,6 +621,7 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
         .where(acc.account_type == "Payable")
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
+        .where(gle.posting_date <= datetime.now().strftime('%Y-%m-%d'))
         .run(as_dict=True)
     )
     current_liabilities = float(current_liabilities_rows[0].payables or 0) if current_liabilities_rows else 0.0
@@ -583,24 +630,22 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
 
     # Working Capital
     working_capital = total_current_assets - total_current_liabilities
-    # Use absolute values for ratios, with reasonable caps
-    current_ratio = round(total_current_assets / total_current_liabilities, 2) if total_current_liabilities > 1000 else 0
-    quick_ratio = round((cash + receivables) / total_current_liabilities, 2) if total_current_liabilities > 1000 else 0
-
-    # Cap ratios to reasonable values
-    current_ratio = min(current_ratio, 10.0) if current_ratio > 0 else 0
-    quick_ratio = min(quick_ratio, 10.0) if quick_ratio > 0 else 0
+    # No meaningful current liabilities -> ratio is unavailable, not 0.
+    # Capped at 10 like the legacy display.
+    current_ratio = min(round(total_current_assets / total_current_liabilities, 2), 10.0) if total_current_liabilities > 1000 else None
+    quick_ratio = min(round((cash + receivables) / total_current_liabilities, 2), 10.0) if total_current_liabilities > 1000 else None
 
     # DSO, DPO, DIO calculations
     # Average daily revenue (last 90 days)
     ninety_days_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+    today_bound = datetime.now().strftime('%Y-%m-%d')
     si = DocType("Sales Invoice")
     avg_daily_revenue_rows = (
         frappe.qb.from_(si)
         .select((Coalesce(Sum(si.grand_total), 0) / 90).as_("daily_avg"))
         .where(si.company == intelligence.company)
         .where(si.docstatus == 1)
-        .where(si.posting_date >= ninety_days_ago)
+        .where(si.posting_date.between(ninety_days_ago, today_bound))
         .run(as_dict=True)
     )
     avg_daily_revenue = float(avg_daily_revenue_rows[0].daily_avg or 1) if avg_daily_revenue_rows else 1.0
@@ -612,7 +657,7 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
         .select((Coalesce(Sum(pi.grand_total), 0) / 90).as_("daily_avg"))
         .where(pi.company == intelligence.company)
         .where(pi.docstatus == 1)
-        .where(pi.posting_date >= ninety_days_ago)
+        .where(pi.posting_date.between(ninety_days_ago, today_bound))
         .run(as_dict=True)
     )
     avg_daily_cogs = float(avg_daily_cogs_rows[0].daily_avg or 1) if avg_daily_cogs_rows else 1.0
@@ -625,12 +670,15 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     ccc = max(min(ccc, 365), -365)  # Cap CCC to reasonable range
 
     # Monthly working capital trends
-    twelve_months_ago = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    # Balance-sheet series: running balance at each month-end through the
+    # current month (nothing after today), not that month's net movement.
+    today_str = getdate().strftime('%Y-%m-%d')
+    periods = [add_months(get_first_day(today_str), -n).strftime('%Y-%m') for n in range(11, -1, -1)]
     period_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
     ca_trend_expr = Sum(
         Case()
         .when(
-            acc.account_type.isin(["Cash", "Bank", "Receivable", "Stock"]),
+            _cash_like(acc) | (acc.account_type.isin(["Receivable", "Stock"])),
             gle.debit - gle.credit,
         )
         .else_(0)
@@ -641,12 +689,12 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
         .else_(0)
     ).as_("current_liabilities")
 
-    wc_trends = (
+    wc_rows = (
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
         .select(period_expr, ca_trend_expr, cl_trend_expr)
-        .where(gle.posting_date >= twelve_months_ago)
+        .where(gle.posting_date <= today_str)
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
         .groupby(period_expr)
@@ -655,15 +703,19 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     )
 
     trends = []
-    for t in wc_trends:
-        ca = float(t.current_assets or 0)
-        cl = float(t.current_liabilities or 0)
+    ca = cl = 0.0
+    i = 0
+    for period in periods:
+        while i < len(wc_rows) and wc_rows[i].period <= period:
+            ca += float(wc_rows[i].current_assets or 0)
+            cl += float(wc_rows[i].current_liabilities or 0)
+            i += 1
         trends.append({
-            "period": t.period,
+            "period": period,
             "current_assets": ca,
             "current_liabilities": cl,
             "working_capital": ca - cl,
-            "current_ratio": round(ca / cl, 2) if cl > 0 else 999
+            "current_ratio": round(ca / cl, 2) if cl > 0 else None
         })
 
     return {
@@ -673,8 +725,8 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
         "total_current_assets": total_current_assets,
         "total_current_liabilities": total_current_liabilities,
         "working_capital": working_capital,
-        "current_ratio": round(current_ratio, 2),
-        "quick_ratio": round(quick_ratio, 2),
+        "current_ratio": current_ratio,
+        "quick_ratio": quick_ratio,
         "dso": round(dso, 1),
         "dpo": round(dpo, 1),
         "dio": round(dio, 1),
@@ -733,12 +785,26 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             )
             .else_(0)
         )).as_("interest_expense")
+        # Same COGS definition as summary.py / cost_ratios.py; no COGS booked
+        # means gross margin is unknown, not equal to net margin.
+        cogs_q = Abs(Sum(
+            Case()
+            .when(
+                (
+                    (acc.account_type == "Cost of Goods Sold")
+                    | acc.name.like("%Cost of Goods%")
+                    | acc.name.like("%COGS%")
+                ) & (acc.root_type == "Expense"),
+                gle.debit - gle.credit,
+            )
+            .else_(0)
+        )).as_("cogs")
 
         financials_rows = (
             frappe.qb.from_(gle)
             .join(acc)
             .on(gle.account == acc.name)
-            .select(revenue_q, expenses_q, depreciation_q, interest_q)
+            .select(revenue_q, expenses_q, depreciation_q, interest_q, cogs_q)
             .where(gle.posting_date.between(q["start"], q["end"]))
             .where(gle.company == intelligence.company)
             .where(gle.is_cancelled == 0)
@@ -771,7 +837,7 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         ).as_("equity")
         cash_bs = Sum(
             Case()
-            .when(acc.account_type.isin(["Cash", "Bank"]), gle.debit - gle.credit)
+            .when(_cash_like(acc), gle.debit - gle.credit)
             .else_(0)
         ).as_("cash")
         receivables_bs = Sum(
@@ -824,6 +890,7 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         expenses = float(financials.get("expenses") or 0)
         depreciation = float(financials.get("depreciation") or 0)
         interest_expense = float(financials.get("interest_expense") or 0)
+        cogs = float(financials.get("cogs") or 0)
         assets = abs(float(balance_sheet.get("assets") or 0))
         liabilities = abs(float(balance_sheet.get("liabilities") or 0))
         equity = abs(float(balance_sheet.get("equity") or 0))
@@ -853,12 +920,12 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
 
         ratio_trends.append({
             "period": q["label"],
-            "gross_margin": round((revenue - expenses) / revenue * 100, 1) if revenue > 0 else 0,
-            "net_margin": round(net_income / revenue * 100, 1) if revenue > 0 else 0,
-            "roe": round(net_income / equity * 100, 1) if equity > 1000 else 0,
-            "roa": round(net_income / assets * 100, 1) if assets > 1000 else 0,
-            "debt_to_equity": round(liabilities / equity, 2) if equity > 1000 else 0,
-            "asset_turnover": round(revenue / assets, 2) if assets > 1000 else 0,
+            "gross_margin": round((revenue - cogs) / revenue * 100, 1) if revenue > 0 and cogs > 0 else None,
+            "net_margin": round(net_income / revenue * 100, 1) if revenue > 0 else None,
+            "roe": round(net_income / equity * 100, 1) if equity > 1000 else None,
+            "roa": round(net_income / assets * 100, 1) if assets > 1000 else None,
+            "debt_to_equity": round(liabilities / equity, 2) if equity > 1000 else None,
+            "asset_turnover": round(revenue / assets, 2) if assets > 1000 else None,
             "ebitda": round(ebitda, 2),
             "ebitda_margin": round(ebitda / revenue * 100, 1) if revenue > 0 else None,
             # Capped like `current_ratio`/`dso`/`ccc` above: a turnover or
@@ -888,78 +955,39 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         "dscr": 1.25,
     }
 
-    def _status(value, benchmark):
+    def _status(value, benchmark, higher_is_better=True):
         """'unavailable' (neutral, not a red flag) when the ratio has no
-        meaningful denominator -- e.g. no debt to service -- rather than
-        forcing it through the good/warning split with a fabricated 0."""
+        meaningful denominator -- e.g. no equity or no debt to service --
+        rather than forcing it through the good/warning split with a
+        fabricated 0."""
         if value is None:
             return "unavailable"
-        return "good" if value >= benchmark else "warning"
+        ok = value >= benchmark if higher_is_better else value <= benchmark
+        return "good" if ok else "warning"
+
+    def _card(name, key, higher_is_better=True):
+        value = current.get(key)
+        return {
+            "name": name,
+            "value": value,
+            "benchmark": benchmarks[key],
+            "status": _status(value, benchmarks[key], higher_is_better),
+        }
 
     return {
         "current_ratios": current,
         "trends": ratio_trends,
         "benchmarks": benchmarks,
         "ratio_cards": [
-            {
-                "name": "Gross Margin",
-                "value": current.get("gross_margin", 0),
-                "benchmark": benchmarks["gross_margin"],
-                "status": "good" if current.get("gross_margin", 0) >= benchmarks["gross_margin"] else "warning"
-            },
-            {
-                "name": "Net Margin",
-                "value": current.get("net_margin", 0),
-                "benchmark": benchmarks["net_margin"],
-                "status": "good" if current.get("net_margin", 0) >= benchmarks["net_margin"] else "warning"
-            },
-            {
-                "name": "ROE",
-                "value": current.get("roe", 0),
-                "benchmark": benchmarks["roe"],
-                "status": "good" if current.get("roe", 0) >= benchmarks["roe"] else "warning"
-            },
-            {
-                "name": "ROA",
-                "value": current.get("roa", 0),
-                "benchmark": benchmarks["roa"],
-                "status": "good" if current.get("roa", 0) >= benchmarks["roa"] else "warning"
-            },
-            {
-                "name": "Debt/Equity",
-                "value": current.get("debt_to_equity", 0),
-                "benchmark": benchmarks["debt_to_equity"],
-                "status": "good" if current.get("debt_to_equity", 0) <= benchmarks["debt_to_equity"] else "warning"
-            },
-            {
-                "name": "Asset Turnover",
-                "value": current.get("asset_turnover", 0),
-                "benchmark": benchmarks["asset_turnover"],
-                "status": "good" if current.get("asset_turnover", 0) >= benchmarks["asset_turnover"] else "warning"
-            },
-            {
-                "name": "EBITDA Margin",
-                "value": current.get("ebitda_margin"),
-                "benchmark": benchmarks["ebitda_margin"],
-                "status": _status(current.get("ebitda_margin"), benchmarks["ebitda_margin"])
-            },
-            {
-                "name": "Working Capital Turnover",
-                "value": current.get("working_capital_turnover"),
-                "benchmark": benchmarks["working_capital_turnover"],
-                "status": _status(current.get("working_capital_turnover"), benchmarks["working_capital_turnover"])
-            },
-            {
-                "name": "Interest Coverage",
-                "value": current.get("interest_coverage"),
-                "benchmark": benchmarks["interest_coverage"],
-                "status": _status(current.get("interest_coverage"), benchmarks["interest_coverage"])
-            },
-            {
-                "name": "DSCR",
-                "value": current.get("dscr"),
-                "benchmark": benchmarks["dscr"],
-                "status": _status(current.get("dscr"), benchmarks["dscr"])
-            }
+            _card("Gross Margin", "gross_margin"),
+            _card("Net Margin", "net_margin"),
+            _card("ROE", "roe"),
+            _card("ROA", "roa"),
+            _card("Debt/Equity", "debt_to_equity", higher_is_better=False),
+            _card("Asset Turnover", "asset_turnover"),
+            _card("EBITDA Margin", "ebitda_margin"),
+            _card("Working Capital Turnover", "working_capital_turnover"),
+            _card("Interest Coverage", "interest_coverage"),
+            _card("DSCR", "dscr"),
         ]
     }

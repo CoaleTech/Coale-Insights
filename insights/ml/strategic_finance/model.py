@@ -11,6 +11,7 @@ from typing import Any
 
 import frappe
 from frappe import _
+from frappe.utils import flt
 
 from insights.api.ml.permissions import permitted_company
 from insights.ml.strategic_finance.analysis import (
@@ -56,7 +57,7 @@ class StrategicFinanceIntelligence:
     other intelligence domain in this app).
     """
 
-    CORPORATE_TAX_RATE = 30  # 30% — used as percentage (divide by 100 for decimal)
+    CORPORATE_TAX_RATE = 25.0  # percent; overridden per instance from Insights Settings
 
     def __init__(self):
         self.model_name = "StrategicFinanceIntelligence"
@@ -88,6 +89,10 @@ class StrategicFinanceIntelligence:
             or "USD"
         )
         self.fiscal_year = get_current_fiscal_year(self)
+        # Insights Settings stores a percent (25 = 25%); 25 when unset/zero.
+        self.CORPORATE_TAX_RATE = (
+            flt(frappe.db.get_single_value("Insights Settings", "corporate_tax_rate")) or 25.0
+        )
 
     def train(self) -> dict[str, Any]:
         """Generate comprehensive strategic finance intelligence"""

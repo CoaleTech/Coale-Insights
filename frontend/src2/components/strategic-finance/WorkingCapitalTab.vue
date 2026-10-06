@@ -10,25 +10,25 @@
       -->
       <KpiCard
         label="Days Sales Outstanding"
-        :value="`${data?.dso?.toFixed(1) ?? '0'} days`"
+        :value="data?.dso == null ? NO_VALUE : `${days(data.dso)} days`"
         :severity="dsoSeverity"
         :loading="!data"
       />
       <KpiCard
         label="Days Inventory Outstanding"
-        :value="`${data?.dio?.toFixed(1) ?? '0'} days`"
+        :value="data?.dio == null ? NO_VALUE : `${days(data.dio)} days`"
         :severity="dioSeverity"
         :loading="!data"
       />
       <KpiCard
         label="Days Payables Outstanding"
-        :value="`${data?.dpo?.toFixed(1) ?? '0'} days`"
+        :value="data?.dpo == null ? NO_VALUE : `${days(data.dpo)} days`"
         :severity="dpoSeverity"
         :loading="!data"
       />
       <KpiCard
         label="Cash Conversion Cycle"
-        :value="`${data?.cash_conversion_cycle?.toFixed(1) ?? '0'} days`"
+        :value="data?.cash_conversion_cycle == null ? NO_VALUE : `${days(data.cash_conversion_cycle)} days`"
         :severity="cccSeverity"
         :loading="!data"
       />
@@ -42,11 +42,11 @@
         <div class="text-center">
           <div
             class="w-24 h-24 rounded-full bg-surface-gray-2 flex items-center justify-center mx-auto"
-            :aria-label="severityAria('DSO', dsoSeverity, data?.dso?.toFixed(0))"
+            :aria-label="severityAria('DSO', dsoSeverity, days(data?.dso, 0))"
             role="img"
           >
             <div>
-              <p class="text-xl font-bold text-ink-gray-9">{{ data?.dso?.toFixed(0) || 0 }}</p>
+              <p class="text-xl font-bold text-ink-gray-9">{{ days(data?.dso, 0) }}</p>
               <p class="text-xs text-ink-gray-6">days</p>
             </div>
           </div>
@@ -60,11 +60,11 @@
         <div class="text-center">
           <div
             class="w-24 h-24 rounded-full bg-surface-gray-2 flex items-center justify-center mx-auto"
-            :aria-label="severityAria('DIO', dioSeverity, data?.dio?.toFixed(0))"
+            :aria-label="severityAria('DIO', dioSeverity, days(data?.dio, 0))"
             role="img"
           >
             <div>
-              <p class="text-xl font-bold text-ink-gray-9">{{ data?.dio?.toFixed(0) || 0 }}</p>
+              <p class="text-xl font-bold text-ink-gray-9">{{ days(data?.dio, 0) }}</p>
               <p class="text-xs text-ink-gray-6">days</p>
             </div>
           </div>
@@ -78,11 +78,11 @@
         <div class="text-center">
           <div
             class="w-24 h-24 rounded-full bg-surface-gray-2 flex items-center justify-center mx-auto"
-            :aria-label="severityAria('DPO', dpoSeverity, data?.dpo?.toFixed(0))"
+            :aria-label="severityAria('DPO', dpoSeverity, days(data?.dpo, 0))"
             role="img"
           >
             <div>
-              <p class="text-xl font-bold text-ink-gray-9">{{ data?.dpo?.toFixed(0) || 0 }}</p>
+              <p class="text-xl font-bold text-ink-gray-9">{{ days(data?.dpo, 0) }}</p>
               <p class="text-xs text-ink-gray-6">days</p>
             </div>
           </div>
@@ -96,12 +96,12 @@
         <div class="text-center">
           <div
             :class="['w-24 h-24 rounded-full flex items-center justify-center mx-auto', severityFill(cccSeverity)]"
-            :aria-label="severityAria('Cash Conversion Cycle', cccSeverity, data?.cash_conversion_cycle?.toFixed(0))"
+            :aria-label="severityAria('Cash Conversion Cycle', cccSeverity, days(data?.cash_conversion_cycle, 0))"
             role="img"
           >
             <div>
               <p :class="['text-xl font-bold', cccSeverity === 'high' || cccSeverity === 'critical' ? 'text-ink-red-4' : 'text-ink-gray-9']">
-                {{ data?.cash_conversion_cycle?.toFixed(0) || 0 }}
+                {{ days(data?.cash_conversion_cycle, 0) }}
               </p>
               <p class="text-xs text-ink-gray-6">days</p>
             </div>
@@ -124,23 +124,24 @@
         <div class="space-y-4 mt-4">
           <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg">
             <span class="text-sm font-medium text-ink-gray-7">Cash &amp; Bank</span>
-            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.cash || 0) }}</span>
+            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.cash) }}</span>
           </div>
           <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg">
             <span class="text-sm font-medium text-ink-gray-7">Accounts Receivable</span>
-            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.receivables || 0) }}</span>
+            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.receivables) }}</span>
           </div>
           <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg">
             <span class="text-sm font-medium text-ink-gray-7">Inventory</span>
-            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.inventory || 0) }}</span>
+            <span class="text-sm font-semibold text-ink-gray-9">{{ formatCurrency(data?.inventory) }}</span>
           </div>
           <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2 cursor-pointer hover:bg-surface-gray-2 transition-colors"
             :tabindex="0"
             role="button"
             @click="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })"
-            @keydown.enter="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })">
+            @keydown.enter="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })"
+            @keydown.space.prevent="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })">
             <span class="text-sm font-bold text-ink-gray-9">Total Current Assets</span>
-            <span class="text-sm font-bold text-ink-gray-9">{{ formatCurrency(data?.total_current_assets || 0) }}</span>
+            <span class="text-sm font-bold text-ink-gray-9">{{ formatCurrency(data?.total_current_assets) }}</span>
           </div>
         </div>
       </div>
@@ -156,7 +157,7 @@
           <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2">
             <span class="text-sm font-bold text-ink-gray-9">Total Current Liabilities</span>
             <span class="text-sm font-bold text-ink-gray-9">
-              {{ formatCurrency(data?.total_current_liabilities || 0) }}
+              {{ formatCurrency(data?.total_current_liabilities) }}
             </span>
           </div>
         </div>
@@ -171,13 +172,13 @@
         </div>
         <div class="text-center md:text-right">
           <p
-            :class="['text-3xl font-bold', (data?.working_capital || 0) >= 0 ? 'text-ink-gray-9' : 'text-ink-red-4']"
+            :class="['text-3xl font-bold', (data?.working_capital ?? 0) >= 0 ? 'text-ink-gray-9' : 'text-ink-red-4']"
           >
-            {{ formatCurrency(data?.working_capital || 0) }}
+            {{ formatCurrency(data?.working_capital) }}
           </p>
           <p class="text-sm text-ink-gray-6 mt-1">
-            Current Ratio: <span class="font-semibold">{{ data?.current_ratio?.toFixed(2) || '0' }}</span>
-            | Quick Ratio: <span class="font-semibold">{{ data?.quick_ratio?.toFixed(2) || '0' }}</span>
+            Current Ratio: <span class="font-semibold">{{ ratio(data?.current_ratio) }}</span>
+            | Quick Ratio: <span class="font-semibold">{{ ratio(data?.quick_ratio) }}</span>
           </p>
         </div>
       </div>
@@ -228,7 +229,7 @@
                 :key="'cl-' + month.period"
                 class="px-4 py-3 text-sm text-right text-ink-red-4 whitespace-nowrap"
               >
-                {{ formatCompactCurrency(Math.abs(month.current_liabilities || 0)) }}
+                {{ formatCompactCurrency(absOrNull(month.current_liabilities)) }}
               </td>
             </tr>
             <tr class="hover:bg-surface-gray-1 font-semibold">
@@ -250,7 +251,7 @@
                 class="px-4 py-3 text-sm text-right whitespace-nowrap"
                 :class="ratioInk(month.current_ratio)"
               >
-                {{ (month.current_ratio ?? 0) >= 999 ? '∞' : month.current_ratio?.toFixed(2) }}
+                {{ ratio(month.current_ratio) }}
               </td>
             </tr>
           </tbody>
@@ -263,7 +264,7 @@
 </template>
 
 <script setup lang="ts">
-import { NO_VALUE } from '../../utils/format'
+import { formatCount, formatMoney, NO_VALUE } from '../../utils/format'
 import { computed, type Ref } from 'vue'
 import { useCurrency } from '../../composables/useCurrency'
 import {
@@ -295,8 +296,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const currency = useCurrency()
-const getCurrency = () => currency.value
+const currency = useCurrency('')
 
 // DSO: higherIsBetter=false (fewer days to collect is better).
 // Thresholds carried from original getDSOHealthClass: <=30 good, <=45 fair, <=60 warn, >60 high
@@ -323,11 +323,8 @@ const cccSeverity = computed((): Severity =>
 )
 
 // Current ratio ink: below 1 is bad (red), 1-2 is neutral, >=2 is good (neutral)
-const ratioInk = (ratio: number | null | undefined): string => {
-  if (!ratio || ratio >= 999) return 'text-ink-gray-9'
-  if (ratio >= 1) return 'text-ink-gray-9'
-  return 'text-ink-red-4'
-}
+const ratioInk = (value: number | null | undefined): string =>
+  value !== null && value !== undefined && value < 1 ? 'text-ink-red-4' : 'text-ink-gray-9'
 
 // API trend rows include display fields (period, current_assets, current_liabilities) beyond the
 // shared minimal contract; cast once at this computed boundary.
@@ -340,28 +337,15 @@ const formatPeriod = (period: string | undefined): string => {
   return `${monthNames[parseInt(month) - 1]} ${year.slice(2)}`
 }
 
-const formatCompactCurrency = (value: number | undefined): string => {
-  // Absent is not zero, same as the exact formatter below.
-  if (value === undefined || value === null) return NO_VALUE
-  const absValue = Math.abs(value)
-  const sign = value < 0 ? '-' : ''
-  const c = getCurrency()
-  if (absValue >= 1_000_000) return `${sign}${c} ${(absValue / 1_000_000).toFixed(1)}M`
-  if (absValue >= 1_000) return `${sign}${c} ${(absValue / 1_000).toFixed(0)}K`
-  return `${sign}${c} ${absValue.toFixed(0)}`
-}
+const formatCompactCurrency = (value: number | null | undefined): string =>
+  formatMoney(value, currency.value, { compact: true })
 
-const formatCurrency = (value: number): string => {
-  // Absent is not zero: this returned `${getCurrency()} 0`, reporting zero money
-  // for a field the server never sent. Notation is unchanged -- exact
-  // `en-KE` grouping is a deliberate choice for this surface, and
-  // switching it is a separate product decision.
-  if (value === null || value === undefined) return NO_VALUE
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: getCurrency(),
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value)
-}
+const formatCurrency = (value: number | null | undefined): string => formatMoney(value, currency.value)
+
+// Absent is not zero: null renders "-" rather than "0 days" / "0.00".
+const days = (value: number | null | undefined, decimals = 1): string =>
+  formatCount(value, { decimals })
+const ratio = (value: number | null | undefined): string => formatCount(value, { decimals: 2 })
+const absOrNull = (value: number | null | undefined): number | null =>
+  value === null || value === undefined ? null : Math.abs(value)
 </script>

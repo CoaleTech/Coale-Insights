@@ -25,7 +25,8 @@ export interface OverviewData {
 	ytd_revenue?: number
 	ytd_expenses?: number
 	ytd_profit?: number
-	ytd_gross_profit?: number
+	ytd_ebitda?: number | null
+	ebitda_margin?: number | null
 	net_margin?: number
 	monthly_trend?: MonthlyTrendRow[]
 	expense_breakdown?: ExpenseRow[]
@@ -137,7 +138,8 @@ export interface CashFlowData {
 	avg_monthly_inflow?: number
 	avg_monthly_outflow?: number
 	net_burn_rate?: number
-	runway_months?: number
+	/** `null` when the company is not consuming cash (cash positive). */
+	runway_months?: number | null
 	cash_accounts?: CashAccountRow[]
 	monthly_cash_movement?: CashMovementRow[]
 	post_dated?: PostDatedCash | null
@@ -163,14 +165,26 @@ export interface OverdueCustomerRow {
 	total_outstanding: number
 	invoice_count: number
 	max_overdue_days: number
+	oldest_due_date?: string | null
+}
+
+/** One month of receipts against sales invoices. */
+export interface CollectionTrendRow {
+	period: string
+	collected: number
 }
 
 export interface ReceivablesData {
 	total_outstanding?: number
+	/** GL Receivable control-account balance; can differ from the invoice sum. */
+	gl_balance?: number | null
 	current_dso?: number
 	invoice_count?: number
+	avg_open_receivable_age_days?: number | null
+	avg_overdue_days?: number | null
 	aging_buckets?: AgingBucket[]
 	overdue_customers?: OverdueCustomerRow[]
+	collection_trend?: CollectionTrendRow[]
 }
 
 /** One top supplier row. */
@@ -181,12 +195,36 @@ export interface TopSupplierRow {
 	invoice_count: number
 }
 
+/** One bill falling due soon. */
+export interface UpcomingPaymentRow {
+	name: string
+	supplier: string
+	supplier_name?: string
+	posting_date?: string
+	due_date: string
+	outstanding_amount: number
+	days_until_due: number
+}
+
+/** One period bucket of the payment schedule (Overdue, This Week, ...). */
+export interface PaymentScheduleRow {
+	period: string
+	count: number
+	amount: number
+}
+
 export interface PayablesData {
 	total_outstanding?: number
+	/** GL Payable control-account balance; can differ from the invoice sum. */
+	gl_balance?: number | null
 	current_dpo?: number
 	invoice_count?: number
+	avg_open_payable_age_days?: number | null
+	avg_overdue_days?: number | null
 	aging_buckets?: AgingBucket[]
 	top_suppliers?: TopSupplierRow[]
+	upcoming_payments?: UpcomingPaymentRow[]
+	payment_schedule?: PaymentScheduleRow[]
 }
 
 /** One row of exposure_summary (forex by currency). */

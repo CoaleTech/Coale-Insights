@@ -13,6 +13,7 @@
 				role="button"
 				@click="drillDown.open(finEndpoint, 'Foreign Currency Accounts', { metric: 'forex_exposure' })"
 				@keydown.enter="drillDown.open(finEndpoint, 'Foreign Currency Accounts', { metric: 'forex_exposure' })"
+				@keydown.space.prevent="drillDown.open(finEndpoint, 'Foreign Currency Accounts', { metric: 'forex_exposure' })"
 			>
 				<div class="text-sm text-ink-gray-6">Net Forex Exposure</div>
 				<div class="text-xl font-bold"

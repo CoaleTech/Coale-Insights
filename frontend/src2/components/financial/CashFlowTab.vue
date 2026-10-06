@@ -47,7 +47,7 @@
 				-->
 				<KpiCard label="Free Cash" :amount="data.liquid_cash" :currency="currency"
 					:severity="freeCashSeverity" sublabel="bank + hand, excl. deposits" />
-				<KpiCard label="Cash Runway" :value="cashRunwayLabel(data.runway_months)"
+				<KpiCard label="Cash Runway" :value="runwayLabel"
 					:severity="runwaySeverity(data.runway_months)" :sublabel="burnLabel" />
 			</div>
 		</div>
@@ -193,9 +193,11 @@
 				<div class="mt-4 max-h-72 space-y-2 overflow-auto">
 					<div v-for="acc in data.cash_accounts" :key="acc.account"
 						 class="flex cursor-pointer items-center justify-between rounded bg-surface-gray-1 p-2 transition-colors hover:bg-surface-gray-2 motion-reduce:transition-none"
+						 role="button"
 						 tabindex="0"
 						 @click="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })"
-						 @keydown.enter="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })">
+						 @keydown.enter="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })"
+						 @keydown.space.prevent="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })">
 						<div class="min-w-0">
 							<div class="truncate text-sm font-medium text-ink-gray-9">{{ acc.account_name }}</div>
 							<div class="text-xs text-ink-gray-6">
@@ -338,10 +340,15 @@ const freeCashSeverity = computed<Severity>(() => {
 	return free < (props.data.avg_monthly_outflow ?? 0) ? 'medium' : 'low'
 })
 
-/** Runway is months of cash left at the current burn; 999 is the backend's
- * sentinel for "not burning cash" (see cashRunwayLabel), not a real number. */
-function runwaySeverity(months: number | undefined): Severity {
-	if (months == null || months >= 999) return 'none'
+/** Runway is months of cash left at the current burn; the server sends `null`
+ * when the company is not burning cash. */
+const runwayLabel = computed(() =>
+	props.data.runway_months === null ? 'Cash positive' : cashRunwayLabel(props.data.runway_months),
+)
+
+function runwaySeverity(months: number | null | undefined): Severity {
+	if (months === null) return 'low'
+	if (months === undefined) return 'none'
 	if (months < 3) return 'critical'
 	return months < 6 ? 'medium' : 'low'
 }
@@ -414,7 +421,7 @@ const depositConfig = computed(() => {
 			Balance: r.closing ?? 0,
 		})),
 		xAxis: { key: 'period', type: 'category' as const },
-		yAxis: { title: props.currency },
+		yAxis: { title: props.currency, yMin: 0 },
 		// A line axis that does not start at zero overstates every swing on it.
 		y2Axis: { title: '', yMin: 0 },
 		series: [
@@ -443,7 +450,7 @@ const movementConfig = computed(() => {
 			Closing: r.closing ?? 0,
 		})),
 		xAxis: { key: 'period', type: 'category' as const },
-		yAxis: { title: props.currency },
+		yAxis: { title: props.currency, yMin: 0 },
 		y2Axis: { title: '', yMin: 0 },
 		series: [
 			{ name: 'In', type: 'bar' as const, color: themeColor('--app-pos-fill'), axis: 'y' as const },

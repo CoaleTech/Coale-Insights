@@ -68,15 +68,16 @@ def _category_total(company: str, start: str, end: str, keywords: List[str]) -> 
     return float(rows[0].amount or 0) if rows else 0.0
 
 
-def _get_fixed_cost(company: str, start: str, end: str, settings) -> float:
+def _get_fixed_cost(company: str, start: str, end: str, settings) -> Optional[float]:
     """Sum GL Entry postings against the cost centers the admin has marked
-    Fixed in Insights Settings (same field `breakeven_engine.py` uses)."""
+    Fixed in Insights Settings (same field `breakeven_engine.py` uses).
+    None when none are configured: unconfigured is not a zero fixed cost."""
     raw = getattr(settings, "fixed_cost_centers", None)
     if not raw or not str(raw).strip():
-        return 0.0
+        return None
     centers = [c.strip() for c in str(raw).split("\n") if c.strip()]
     if not centers:
-        return 0.0
+        return None
     gle = DocType("GL Entry")
     acc = DocType("Account")
     rows = (
@@ -293,13 +294,13 @@ def calculate_cost_structure_ratios(intelligence) -> Dict[str, Any]:
         ),
         _build_card(
             "fixed_cost_np", "Fixed Cost / Net Profit",
-            (fixed_cost / net_profit) if net_profit > 0 else None,
+            (fixed_cost / net_profit) if (fixed_cost is not None and net_profit > 0) else None,
             threshold("fixed_cost_np_ideal", 0.5), threshold("fixed_cost_np_risky", 1.5),
             higher_is_better=False, unit="x",
         ),
         _build_card(
             "fixed_cost_gp", "Fixed Cost / Gross Profit",
-            (fixed_cost / gross_profit) if (gross_profit is not None and gross_profit > 0) else None,
+            (fixed_cost / gross_profit) if (fixed_cost is not None and gross_profit is not None and gross_profit > 0) else None,
             threshold("fixed_cost_gp_ideal", 0.4), threshold("fixed_cost_gp_risky", 0.8),
             higher_is_better=False, unit="x",
         ),
@@ -375,10 +376,9 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
 
     gle = DocType("GL Entry")
     acc = DocType("Account")
-    # Anchor on a Python-side date so PyPika emits a literal bound parameter
-    # rather than DATE_SUB(CURDATE(), INTERVAL ...) server-side, which is
-    # not expressible in the query builder. Equivalent semantics.
-    thirteen_months_ago = (datetime.now() - timedelta_weeks(13 * 4 + 1)).strftime('%Y-%m-%d')
+    # Python-side dates keep PyPika emitting literal bound parameters.
+    today = datetime.now().strftime('%Y-%m-%d')
+    twelve_months_start = (datetime.now().replace(day=1) - relativedelta(months=12)).strftime('%Y-%m-%d')
     month_expr = DateFormat(gle.posting_date, "%Y-%m").as_("month")
 
     rows = (
@@ -391,7 +391,7 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
         )
         .where(acc.root_type == "Expense")
         .where(gle.company == company)
-        .where(gle.posting_date >= thirteen_months_ago)
+        .where(gle.posting_date.between(twelve_months_start, today))
         .where(gle.is_cancelled == 0)
         .groupby(month_expr)
         .orderby(month_expr)
@@ -442,9 +442,3 @@ def forecast_expenses(intelligence, periods: int = 3) -> Dict[str, Any]:
         "monthly_change": round(float(slope), 2),
         "note": f"Projected from a linear trend over the last {len(window)} complete months. Not seasonally adjusted.",
     }
-
-
-def timedelta_weeks(weeks: int):
-    """Local helper — equivalent to datetime.timedelta(weeks=...)."""
-    from datetime import timedelta
-    return timedelta(weeks=weeks)

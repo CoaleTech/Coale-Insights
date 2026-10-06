@@ -8,10 +8,10 @@
 <template>
   <div class="space-y-6">
 
-    <!-- Key Ratio Summary Cards -->
+    <!-- Key Ratio Summary Cards: headline six only; every ratio is in the benchmark list below -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <KpiCard
-        v-for="card in ratioCards"
+        v-for="card in headlineCards"
         :key="card.name"
         :label="card.name"
         :value="card.value"
@@ -23,16 +23,19 @@
 
     <!-- Ratio Categories -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Liquidity Ratios -->
-      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader variant="caption" title="Liquidity Ratios" :level="3">
+      <div
+        v-for="group in ratioGroups"
+        :key="group.title"
+        class="rounded-lg border border-outline-gray-1 bg-surface-white p-6"
+      >
+        <SectionHeader variant="caption" :title="group.title" :level="3">
           <template #actions>
-            <Droplets class="h-5 w-5 text-ink-gray-5" />
+            <component :is="group.icon" class="h-5 w-5 text-ink-gray-5" />
           </template>
         </SectionHeader>
         <div class="space-y-4 mt-4">
           <div
-            v-for="ratio in liquidityRatios"
+            v-for="ratio in group.rows"
             :key="ratio.name"
             class="flex justify-between items-center"
           >
@@ -40,93 +43,7 @@
               <p class="text-sm font-medium text-ink-gray-7">{{ ratio.name }}</p>
               <p class="text-xs text-ink-gray-6">{{ ratio.description }}</p>
             </div>
-            <div class="text-right">
-              <p class="font-semibold text-ink-gray-9">{{ ratio.value }}</p>
-              <p :class="['text-xs', deltaInk(ratio.trend)]">
-                {{ deltaGlyph(ratio.trend) }}{{ Math.abs(ratio.trend).toFixed(1) }}%
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Profitability Ratios -->
-      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader variant="caption" title="Profitability Ratios" :level="3">
-          <template #actions>
-            <TrendingUp class="h-5 w-5 text-ink-gray-5" />
-          </template>
-        </SectionHeader>
-        <div class="space-y-4 mt-4">
-          <div
-            v-for="ratio in profitabilityRatios"
-            :key="ratio.name"
-            class="flex justify-between items-center"
-          >
-            <div>
-              <p class="text-sm font-medium text-ink-gray-7">{{ ratio.name }}</p>
-              <p class="text-xs text-ink-gray-6">{{ ratio.description }}</p>
-            </div>
-            <div class="text-right">
-              <p class="font-semibold text-ink-gray-9">{{ ratio.value }}</p>
-              <p :class="['text-xs', deltaInk(ratio.trend)]">
-                {{ deltaGlyph(ratio.trend) }}{{ Math.abs(ratio.trend).toFixed(1) }}%
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Efficiency Ratios -->
-      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader variant="caption" title="Efficiency Ratios" :level="3">
-          <template #actions>
-            <Gauge class="h-5 w-5 text-ink-gray-5" />
-          </template>
-        </SectionHeader>
-        <div class="space-y-4 mt-4">
-          <div
-            v-for="ratio in efficiencyRatios"
-            :key="ratio.name"
-            class="flex justify-between items-center"
-          >
-            <div>
-              <p class="text-sm font-medium text-ink-gray-7">{{ ratio.name }}</p>
-              <p class="text-xs text-ink-gray-6">{{ ratio.description }}</p>
-            </div>
-            <div class="text-right">
-              <p class="font-semibold text-ink-gray-9">{{ ratio.value }}</p>
-              <p :class="['text-xs', deltaInk(ratio.trend)]">
-                {{ deltaGlyph(ratio.trend) }}{{ Math.abs(ratio.trend).toFixed(1) }}%
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Debt & Coverage Ratios -->
-      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-        <SectionHeader variant="caption" title="Debt & Coverage Ratios" :level="3">
-          <template #actions>
-            <ShieldCheck class="h-5 w-5 text-ink-gray-5" />
-          </template>
-        </SectionHeader>
-        <div class="space-y-4 mt-4">
-          <div
-            v-for="ratio in debtCoverageRatios"
-            :key="ratio.name"
-            class="flex justify-between items-center"
-          >
-            <div>
-              <p class="text-sm font-medium text-ink-gray-7">{{ ratio.name }}</p>
-              <p class="text-xs text-ink-gray-6">{{ ratio.description }}</p>
-            </div>
-            <div class="text-right">
-              <p class="font-semibold text-ink-gray-9">{{ ratio.value }}</p>
-              <p :class="['text-xs', deltaInk(ratio.trend)]">
-                {{ deltaGlyph(ratio.trend) }}{{ Math.abs(ratio.trend).toFixed(1) }}%
-              </p>
-            </div>
+            <p class="font-semibold text-ink-gray-9">{{ ratio.value }}</p>
           </div>
         </div>
       </div>
@@ -170,7 +87,7 @@
                 class="px-4 py-3 text-sm text-right whitespace-nowrap"
                 :class="ratioTrendInk(quarter.gross_margin, 35)"
               >
-                {{ quarter.gross_margin?.toFixed(1) }}%
+                {{ formatPercent(quarter.gross_margin) }}
               </td>
             </tr>
             <tr class="hover:bg-surface-gray-1">
@@ -183,7 +100,7 @@
                 class="px-4 py-3 text-sm text-right whitespace-nowrap"
                 :class="ratioTrendInk(quarter.net_margin, 10)"
               >
-                {{ quarter.net_margin?.toFixed(1) }}%
+                {{ formatPercent(quarter.net_margin) }}
               </td>
             </tr>
             <tr class="hover:bg-surface-gray-1">
@@ -196,7 +113,7 @@
                 class="px-4 py-3 text-sm text-right whitespace-nowrap"
                 :class="ratioTrendInk(quarter.roa, 8)"
               >
-                {{ quarter.roa?.toFixed(1) }}%
+                {{ formatPercent(quarter.roa) }}
               </td>
             </tr>
             <tr class="hover:bg-surface-gray-1">
@@ -209,7 +126,7 @@
                 class="px-4 py-3 text-sm text-right whitespace-nowrap"
                 :class="ratioTrendInk(quarter.asset_turnover, 1.2)"
               >
-                {{ quarter.asset_turnover?.toFixed(2) }}x
+                {{ formatMultiple(quarter.asset_turnover) }}
               </td>
             </tr>
           </tbody>
@@ -263,27 +180,21 @@
 import { NO_VALUE } from '../../utils/format'
 import { computed } from 'vue'
 import {
-  Droplets,
   TrendingUp,
+  Droplets,
   Gauge,
   ShieldCheck,
   LineChart as LineChartIcon,
   BarChart3,
 } from 'lucide-vue-next'
-import {
-  deltaGlyph,
-  deltaInk,
-  scoreSeverity,
-  severityFill,
-  severityAria,
-  type Severity,
-} from '../../utils/status'
+import { severityFill, severityAria, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
-import type { RatioCard, RatioTrendRow, FinancialRatiosData } from './types'
+import type { RatioCard, RatioTrendRow, FinancialRatiosData, WorkingCapitalData } from './types'
 
 interface Props {
   data?: FinancialRatiosData
+  workingCapital?: WorkingCapitalData | null
 }
 
 const props = defineProps<Props>()
@@ -305,9 +216,10 @@ const formatPercent = (value: number | null | undefined) => {
   return `${value.toFixed(1)}%`
 }
 
-// Map API status string to Severity
+// Map API status string to Severity. `unavailable` (value could not be
+// computed) stays neutral: a verdict about a missing figure is a false verdict.
 function ratioStatusSeverity(status: string | undefined): Severity {
-  if (status === 'good') return 'none'
+  if (status === 'good' || status === 'unavailable') return 'none'
   if (status === 'warning') return 'medium'
   return 'high'
 }
@@ -319,117 +231,64 @@ function ratioTrendInk(value: number | null | undefined, benchmark: number): str
   return value >= benchmark ? 'text-ink-gray-9 font-medium' : 'text-ink-red-4'
 }
 
-const liquidityRatios = computed(() => {
+// The server sends no per-ratio trend, so none is shown; the quarterly table
+// below carries the history.
+const ratioGroups = computed(() => {
   if (!props.data) return []
-  const current: Partial<RatioTrendRow> = props.data.current_ratios ?? {}
+  const c: Partial<RatioTrendRow> = props.data.current_ratios ?? {}
   return [
     {
-      name: 'Asset Turnover',
-      value: formatRatio(current.asset_turnover),
-      description: 'Revenue / Total Assets',
-      trend: 0,
+      title: 'Liquidity Ratios',
+      icon: Droplets,
+      rows: [
+        { name: 'Current Ratio', value: formatMultiple(props.workingCapital?.current_ratio), description: 'Current Assets / Current Liabilities' },
+        { name: 'Quick Ratio', value: formatMultiple(props.workingCapital?.quick_ratio), description: '(Current Assets - Inventory) / Current Liabilities' },
+      ],
     },
     {
-      name: 'Debt to Equity',
-      value: formatRatio(current.debt_to_equity),
-      description: 'Total Debt / Shareholders Equity',
-      trend: 0,
+      title: 'Profitability Ratios',
+      icon: TrendingUp,
+      rows: [
+        { name: 'Gross Margin', value: formatPercent(c.gross_margin), description: 'Gross Profit / Revenue' },
+        { name: 'Net Profit Margin', value: formatPercent(c.net_margin), description: 'Net Income / Revenue' },
+        { name: 'ROE', value: formatPercent(c.roe), description: 'Net Income / Shareholders Equity' },
+        { name: 'ROA', value: formatPercent(c.roa), description: 'Net Income / Total Assets' },
+      ],
     },
     {
-      name: 'Cash Ratio',
-      value: formatRatio(props.data.cash_ratio),
-      description: 'Cash / Current Liabilities',
-      trend: props.data.cash_ratio_trend || 0,
+      title: 'Efficiency Ratios',
+      icon: Gauge,
+      rows: [
+        { name: 'Asset Turnover', value: formatMultiple(c.asset_turnover), description: 'Revenue / Total Assets' },
+        {
+          name: 'Working Capital Turnover',
+          value: formatMultiple(c.working_capital_turnover),
+          description: 'Revenue / Working Capital',
+        },
+      ],
+    },
+    {
+      title: 'Debt & Coverage Ratios',
+      icon: ShieldCheck,
+      rows: [
+        { name: 'Debt to Equity', value: formatRatio(c.debt_to_equity), description: 'Total Debt / Shareholders Equity' },
+        { name: 'Interest Coverage', value: formatMultiple(c.interest_coverage), description: 'EBIT / Interest Expense' },
+        { name: 'DSCR', value: formatMultiple(c.dscr), description: 'EBITDA / (Interest + Principal Repaid)' },
+      ],
     },
   ]
 })
 
-const profitabilityRatios = computed(() => {
-  if (!props.data) return []
-  const current: Partial<RatioTrendRow> = props.data.current_ratios ?? {}
-  return [
-    {
-      name: 'Gross Margin',
-      value: formatPercent(current.gross_margin),
-      description: 'Gross Profit / Revenue',
-      trend: 0,
-    },
-    {
-      name: 'Net Profit Margin',
-      value: formatPercent(current.net_margin),
-      description: 'Net Income / Revenue',
-      trend: 0,
-    },
-    {
-      name: 'ROE',
-      value: (current.roe ?? 0) > 0 ? formatPercent(current.roe) : 'N/A',
-      description: 'Net Income / Shareholders Equity',
-      trend: 0,
-    },
-    {
-      name: 'ROA',
-      value: formatPercent(current.roa),
-      description: 'Net Income / Total Assets',
-      trend: 0,
-    },
-  ]
-})
-
-const efficiencyRatios = computed(() => {
-  if (!props.data) return []
-  const current: Partial<RatioTrendRow> = props.data.current_ratios ?? {}
-  return [
-    {
-      name: 'Asset Turnover',
-      value: formatMultiple(current.asset_turnover),
-      description: 'Revenue / Total Assets',
-      trend: 0,
-    },
-    {
-      name: 'Working Capital Turnover',
-      value: formatMultiple(current.working_capital_turnover),
-      description: 'Revenue / Working Capital',
-      trend: 0,
-    },
-    {
-      name: 'Debt/Equity',
-      value: (current.debt_to_equity ?? 0) > 0 ? formatRatio(current.debt_to_equity) : 'N/A',
-      description: 'Total Debt / Equity',
-      trend: 0,
-    },
-  ]
-})
-
-const debtCoverageRatios = computed(() => {
-  if (!props.data) return []
-  const current: Partial<RatioTrendRow> = props.data.current_ratios ?? {}
-  return [
-    {
-      name: 'Interest Coverage',
-      value: formatMultiple(current.interest_coverage),
-      description: 'EBIT / Interest Expense',
-      trend: 0,
-    },
-    {
-      name: 'DSCR',
-      value: formatMultiple(current.dscr),
-      description: 'EBITDA / (Interest + Principal Repaid)',
-      trend: 0,
-    },
-  ]
-})
+const isPercentCard = (name: string) => name.includes('Margin') || name.includes('RO')
+const isMultipleCard = (name: string) =>
+  name.includes('Turnover') || name.includes('Coverage') || name === 'DSCR'
+const cardFormatter = (name: string) =>
+  isPercentCard(name) ? formatPercent : isMultipleCard(name) ? formatMultiple : formatRatio
 
 const ratioCards = computed(() => {
   if (!props.data?.ratio_cards) return []
   return props.data.ratio_cards.map((card: RatioCard) => {
-    // `>0`-gated formatting previously read a genuinely negative margin/
-    // return (a lossmaking period -- exactly the signal a CEO most needs to
-    // see) as "unavailable" and hid it behind 'N/A', identically to how a
-    // truly-missing value renders. `formatPercent`/`formatMultiple` already
-    // null-guard correctly; the extra `> 0` gate only ever hid real data.
-    const isPercent = card.name.includes('Margin') || card.name.includes('RO')
-    const isMultiple = card.name.includes('Turnover') || card.name.includes('Coverage') || card.name === 'DSCR'
-    const fmt = isPercent ? formatPercent : isMultiple ? formatMultiple : formatRatio
+    const fmt = cardFormatter(card.name)
     return {
       name: card.name,
       value: fmt(card.value),
@@ -440,23 +299,26 @@ const ratioCards = computed(() => {
   })
 })
 
+// Summary strip is capped at six; the benchmark list below shows every ratio.
+const headlineCards = computed(() => ratioCards.value.slice(0, 6))
+
 const quarterlyTrends = computed(() => props.data?.trends?.slice(-4) || [])
 
 const benchmarkComparison = computed(() => {
   if (!props.data?.ratio_cards) return []
   return props.data.ratio_cards.map((card: RatioCard) => {
-    const actual = card.value || 0
+    const fmt = cardFormatter(card.name)
+    const available = card.value !== null && card.value !== undefined
+    const actual = card.value ?? 0
     const benchmark = card.benchmark || 1
     const maxVal = Math.max(Math.abs(actual), benchmark) * 1.2 || 1
-    const isPercent = card.name.includes('Margin') || card.name.includes('RO')
-    const severity: Severity = ratioStatusSeverity(card.status)
     return {
       name: card.name,
-      actual: isPercent ? `${actual.toFixed(1)}%` : actual.toFixed(2),
-      benchmark: isPercent ? `${benchmark}%` : benchmark.toFixed(2),
-      actualPosition: Math.min((Math.abs(actual) / maxVal) * 100, 100),
+      actual: fmt(card.value),
+      benchmark: fmt(benchmark),
+      actualPosition: available ? Math.min((Math.abs(actual) / maxVal) * 100, 100) : 0,
       benchmarkPosition: Math.min((benchmark / maxVal) * 100, 100),
-      severity,
+      severity: ratioStatusSeverity(card.status),
     }
   })
 })

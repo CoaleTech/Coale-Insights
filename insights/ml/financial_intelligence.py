@@ -20,11 +20,13 @@ BudgetVarianceTab.vue.
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 
 import frappe
 
 from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.utils import parse_date_filter
 
 
 def _now_iso() -> str:
@@ -102,6 +104,7 @@ class FinancialIntelligence:
             "payables": self._analyze_payables(),
             "forex": self._analyze_forex_exposure(),
         }
+        result["date_filter"] = self.date_filter
         return result
 
     def predict(self) -> dict[str, Any]:
@@ -148,18 +151,39 @@ class FinancialIntelligence:
             return default
 
     def _rows(self, expr) -> list[dict[str, Any]]:
+        """Materialise an Ibis table; DECIMAL columns come back as `Decimal`,
+        which frappe serialises as a string -- the UI gets floats instead."""
         df = expr.execute()
         if df is None or len(df) == 0:
             return []
         return [
-            {k: (None if v is None else v) for k, v in row.items()}
+            {k: (float(v) if isinstance(v, Decimal) else v) for k, v in row.items()}
             for row in df.to_dict(orient="records")
         ]
+
+    def _window(self) -> tuple[str, str]:
+        """(first-of-month start, end <= today) of the `date_filter` window,
+        for time-series sections only. YTD/MTD/aging/balances stay as-of today."""
+        start, end = parse_date_filter(self.date_filter)
+        first = start.replace(day=1).date().isoformat() if start else "1900-01-01"
+        last = min(end.date().isoformat(), _today()) if end else _today()
+        return first, last
+
+    def _control_balance(self, account_type: str, sign: int) -> float:
+        """GL balance of the Receivable (sign=1: debit-credit) or Payable
+        (sign=-1) control accounts as of today."""
+        joined = self._gl_with_account()
+        return self._scalar(
+            joined.filter(
+                (joined["account_type"] == account_type) & (joined["posting_date"] <= _today())
+            ).aggregate(v=(sign * (joined["debit"] - joined["credit"])).sum())["v"]
+        )
 
     # ------------------------------------------------------------------ overview
     def _calculate_financial_overview(self) -> dict[str, Any]:
         fy_start = (self.fiscal_year or _fiscal_year_for(self.company or ""))["start_date"]
         mtd_start = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+        today = _today()
 
         joined = self._gl_with_account()
 
@@ -167,12 +191,14 @@ class FinancialIntelligence:
         mtd_inc = joined.filter(
             (joined["root_type"] == "Income")
             & (joined["posting_date"] >= mtd_start)
+            & (joined["posting_date"] <= today)
         ).aggregate(amount=(joined["credit"] - joined["debit"]).sum())
         mtd_income = self._scalar(mtd_inc["amount"].abs())
 
         mtd_exp = joined.filter(
             (joined["root_type"] == "Expense")
             & (joined["posting_date"] >= mtd_start)
+            & (joined["posting_date"] <= today)
         ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
         mtd_expenses = self._scalar(mtd_exp["amount"].abs())
 
@@ -180,12 +206,14 @@ class FinancialIntelligence:
         ytd_inc = joined.filter(
             (joined["root_type"] == "Income")
             & (joined["posting_date"] >= fy_start)
+            & (joined["posting_date"] <= today)
         ).aggregate(amount=(joined["credit"] - joined["debit"]).sum())
         ytd_income = self._scalar(ytd_inc["amount"].abs())
 
         ytd_exp = joined.filter(
             (joined["root_type"] == "Expense")
             & (joined["posting_date"] >= fy_start)
+            & (joined["posting_date"] <= today)
         ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
         ytd_expenses = self._scalar(ytd_exp["amount"].abs())
 
@@ -207,6 +235,7 @@ class FinancialIntelligence:
         ytd_interest_exp = joined.filter(
             (joined["root_type"] == "Expense")
             & (joined["posting_date"] >= fy_start)
+            & (joined["posting_date"] <= today)
             & (joined["account"].like("%Interest%"))
         ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
         ytd_interest_expense = self._scalar(ytd_interest_exp["amount"].abs())
@@ -214,6 +243,7 @@ class FinancialIntelligence:
         ytd_deprec = joined.filter(
             (joined["account_type"] == "Depreciation")
             & (joined["posting_date"] >= fy_start)
+            & (joined["posting_date"] <= today)
         ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
         ytd_depreciation = self._scalar(ytd_deprec["amount"].abs())
 
@@ -221,20 +251,23 @@ class FinancialIntelligence:
         ytd_ebitda = ytd_ebit + ytd_depreciation
         ebitda_margin = round((ytd_ebitda / ytd_revenue * 100), 1) if ytd_revenue > 0 else None
 
-        # Monthly P&L trend: aggregate by YYYY-MM over the last 12 calendar months
-        twelve_months_ago = datetime.now().replace(year=datetime.now().year - 1)
+        # Monthly P&L trend: aggregate by YYYY-MM over the `date_filter` window
+        trend_start, trend_end = self._window()
         import ibis
         period_expr = joined["posting_date"].strftime("%Y-%m").name("period")
         is_income = joined["root_type"] == "Income"
         is_expense = joined["root_type"] == "Expense"
         monthly_agg = (
             joined
-            .filter(joined["posting_date"] >= twelve_months_ago.strftime("%Y-%m-%d"))
+            .filter(
+                (joined["posting_date"] >= trend_start)
+                & (joined["posting_date"] <= trend_end)
+            )
             .filter(joined["root_type"].isin(["Income", "Expense"]))
             .group_by(period_expr)
             .aggregate(
-                revenue=ibis.ifelse(is_income, (joined["credit"] - joined["debit"]).abs(), 0).sum(),
-                expenses=ibis.ifelse(is_expense, (joined["debit"] - joined["credit"]).abs(), 0).sum(),
+                revenue=ibis.ifelse(is_income, joined["credit"] - joined["debit"], 0).sum(),
+                expenses=ibis.ifelse(is_expense, joined["debit"] - joined["credit"], 0).sum(),
             )
             .order_by("period")
         )
@@ -252,12 +285,13 @@ class FinancialIntelligence:
             })
 
         # Revenue breakdown by parent_account
-        _rev_diff = (joined["credit"] - joined["debit"]).abs()
+        _rev_diff = joined["credit"] - joined["debit"]
         rev_break = (
             joined
             .filter(
                 (joined["root_type"] == "Income")
                 & (joined["posting_date"] >= fy_start)
+                & (joined["posting_date"] <= today)
             )
             .group_by(
                 joined["parent_account"].coalesce(joined["account"]).name("category")
@@ -273,12 +307,13 @@ class FinancialIntelligence:
             r["pct"] = round((amt / ytd_revenue * 100), 1) if ytd_revenue > 0 else 0
 
         # Expense breakdown by parent_account
-        _exp_diff = (joined["debit"] - joined["credit"]).abs()
+        _exp_diff = joined["debit"] - joined["credit"]
         exp_break = (
             joined
             .filter(
                 (joined["root_type"] == "Expense")
                 & (joined["posting_date"] >= fy_start)
+                & (joined["posting_date"] <= today)
             )
             .group_by(
                 joined["parent_account"].coalesce(joined["account"]).name("category")
@@ -363,10 +398,11 @@ class FinancialIntelligence:
             r["balance"] for r in cash_rows if not r["is_fd"] and r.get("account_type") == "Cash"
         )
 
-        # Monthly inflows (Payment Entry Receive) for last 6 months
+        # Monthly inflows (Payment Entry Receive) for last 6 complete months
         pe = company_filter(t("Payment Entry"), self.company).filter(
             t("Payment Entry")["docstatus"] == 1
         )
+        today = _today()
         # last-6-months window is computed once and shared by both directions below
         six_months_ago = _months_ago(6)
 
@@ -376,6 +412,7 @@ class FinancialIntelligence:
                 .filter(
                     (pe["payment_type"] == payment_type)
                     & (pe["posting_date"] >= six_months_ago)
+                    & (pe["posting_date"] <= today)
                 )
                 .group_by(pe["posting_date"].truncate("month").name("period"))
                 .aggregate(amount=pe["paid_amount"].sum())
@@ -389,10 +426,18 @@ class FinancialIntelligence:
         cash_inflows = _pe_monthly("Receive")
         cash_outflows = _pe_monthly("Pay")
 
-        avg_outflow = sum(float(o.get("amount") or 0) for o in cash_outflows) / max(len(cash_outflows), 1)
-        avg_inflow = sum(float(i.get("amount") or 0) for i in cash_inflows) / max(len(cash_inflows), 1)
+        # Average over the 6 *complete* months in the window (the fixed
+        # denominator keeps zero-payment months in the average; the partial
+        # current month is displayed but would understate it).
+        this_month = today[:7]
+
+        def _avg6(rows: list[dict[str, Any]]) -> float:
+            return sum(r["amount"] or 0 for r in rows if r["period"] < this_month) / 6
+
+        avg_outflow = _avg6(cash_outflows)
+        avg_inflow = _avg6(cash_inflows)
         net_burn = avg_outflow - avg_inflow
-        runway_months = round(total_cash / net_burn, 1) if net_burn > 0 else 999
+        runway_months = round(total_cash / net_burn, 1) if net_burn > 0 else None
 
         # Inflow/outflow by source (party_type) for last 3 months
         three_months_ago = _months_ago(3)
@@ -402,6 +447,7 @@ class FinancialIntelligence:
             .filter(
                 (pe["payment_type"] == "Receive")
                 & (pe["posting_date"] >= three_months_ago)
+                & (pe["posting_date"] <= today)
             )
             .group_by(pe["party_type"].name("source"))
             .aggregate(amount=pe["paid_amount"].sum())
@@ -416,6 +462,7 @@ class FinancialIntelligence:
             .filter(
                 (pe["payment_type"] == "Pay")
                 & (pe["posting_date"] >= three_months_ago)
+                & (pe["posting_date"] <= today)
             )
             .group_by(pe["party_type"].name("category"))
             .aggregate(amount=pe["paid_amount"].sum())
@@ -430,7 +477,7 @@ class FinancialIntelligence:
         one_month_ago = _months_ago(1)
         large_tx = (
             pe
-            .filter(pe["posting_date"] >= one_month_ago)
+            .filter((pe["posting_date"] >= one_month_ago) & (pe["posting_date"] <= today))
             .select(
                 pe["name"],
                 pe["posting_date"],
@@ -505,15 +552,13 @@ class FinancialIntelligence:
             "last_date": str(rows[0].get("last_date") or "")[:10] or None,
         }
 
-    def _monthly_cash_movement(
-        self, joined, total_cash: float, months: int = 12
-    ) -> list[dict[str, Any]]:
+    def _monthly_cash_movement(self, joined, total_cash: float) -> list[dict[str, Any]]:
         """Monthly cash in/out from the GL, with each month's closing balance
         walked backwards from today's total so the series ties to the account
         balances instead of to an independently computed opening figure."""
         agg = (
             self._cash_accounts(joined)
-            .filter(joined["posting_date"] >= _months_ago(months - 1))
+            .filter(joined["posting_date"] >= self._window()[0])
             .group_by(joined["posting_date"].truncate("month").name("period"))
             .aggregate(inflow=joined["debit"].sum(), outflow=joined["credit"].sum())
             .order_by("period")
@@ -536,8 +581,8 @@ class FinancialIntelligence:
         for r in reversed(rows):
             r["closing"] = round(balance, 2)
             balance -= r["net"]
-        this_month = _today()[:7]
-        return [r for r in rows if r["period"] <= this_month]
+        end_month = self._window()[1][:7]
+        return [r for r in rows if r["period"] <= end_month]
 
     def _fixed_deposit_analysis(
         self, joined, fd_rows: list[dict[str, Any]], total_cash: float, months: int = 12
@@ -760,7 +805,7 @@ class FinancialIntelligence:
         dso_ar_total = float(ar_total_dict.get("total") or 0)
         current_dso = round(dso_ar_total / dso_sales_12m * 366, 1) if dso_sales_12m > 0 else None
 
-        # Average calendar age of open AR
+        # Average calendar age of open AR (days since the invoice was issued)
         avg_age_agg = si.aggregate(
             avg_age=((datetime.now().date() - si["posting_date"]).cast("int32")).mean()
         )
@@ -768,6 +813,12 @@ class FinancialIntelligence:
 
         # Top overdue customers
         si_overdue = si.filter(si["due_date"] < datetime.now().date())
+        # Days past *due date* across the overdue invoices only
+        avg_overdue_days = self._scalar(
+            si_overdue.aggregate(
+                v=((datetime.now().date() - si_overdue["due_date"]).cast("int32")).mean()
+            )["v"]
+        )
         # Positive days-overdue (today minus due date); si_overdue is already
         # filtered to due_date < today so this is always > 0. Previously
         # `due_date - today` (negative) with `.max()` picked each customer's
@@ -789,13 +840,14 @@ class FinancialIntelligence:
         )
         overdue_customers = self._rows(overdue_agg)
 
-        # Collection trend (last 6 months)
-        six_months_ago = _months_ago(6)
+        # Collection trend over the `date_filter` window
+        trend_start, trend_end = self._window()
         per = t("Payment Entry Reference")
         pe_with_company = company_filter(t("Payment Entry"), self.company).filter(
             (t("Payment Entry")["docstatus"] == 1)
             & (t("Payment Entry")["payment_type"] == "Receive")
-            & (t("Payment Entry")["posting_date"] >= six_months_ago)
+            & (t("Payment Entry")["posting_date"] >= trend_start)
+            & (t("Payment Entry")["posting_date"] <= trend_end)
         )
         coll = (
             pe_with_company
@@ -811,10 +863,14 @@ class FinancialIntelligence:
 
         return {
             "total_outstanding": dso_ar_total,
+            # GL Receivable control-account balance: differs from the invoice
+            # outstanding above by unallocated advances / credit notes.
+            "gl_balance": round(self._control_balance("Receivable", 1), 2),
             "invoice_count": int(ar_total_dict.get("invoice_count") or 0),
             "aging_buckets": aging_rows,
             "current_dso": current_dso,
             "avg_open_receivable_age_days": round(avg_open_age or 0.0, 1),
+            "avg_overdue_days": round(avg_overdue_days or 0.0, 1),
             "overdue_customers": overdue_customers,
             "collection_trend": collections,
         }
@@ -881,6 +937,12 @@ class FinancialIntelligence:
         )
         avg_open_age = self._scalar(avg_age_agg["avg_age"])
         today = datetime.now().date()
+        pi_overdue = pi.filter(pi["due_date"] < today)
+        avg_overdue_days = self._scalar(
+            pi_overdue.aggregate(
+                v=((today - pi_overdue["due_date"]).cast("int32")).mean()
+            )["v"]
+        )
 
         upcoming = (
             pi
@@ -935,10 +997,12 @@ class FinancialIntelligence:
 
         return {
             "total_outstanding": dpo_ap_total,
+            "gl_balance": round(self._control_balance("Payable", -1), 2),
             "invoice_count": int(ap_dict.get("invoice_count") or 0),
             "aging_buckets": aging_rows,
             "current_dpo": current_dpo,
             "avg_open_payable_age_days": round(avg_open_age or 0.0, 1),
+            "avg_overdue_days": round(avg_overdue_days or 0.0, 1),
             "upcoming_payments": upcoming_payments,
             "top_suppliers": top_suppliers,
             "payment_schedule": payment_schedule,

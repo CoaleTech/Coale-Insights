@@ -50,8 +50,27 @@
       <p class="text-ink-gray-6">No budget variance data available</p>
     </div>
 
+    <!-- No submitted Budget for the company / fiscal year: zero-filled cards would read as "on budget" -->
+    <div v-else-if="data?.has_budget === false" class="text-center py-12">
+      <BarChart class="w-12 h-12 text-ink-gray-5 mx-auto mb-4" />
+      <p class="text-ink-gray-6">No submitted Budget exists for this company and fiscal year.</p>
+      <p class="text-sm text-ink-gray-6 mt-1">Submit a Budget to see variance analysis.</p>
+    </div>
+
     <!-- Main Content -->
     <div v-else class="space-y-6">
+
+      <!-- Sub-method failures are surfaced, not silently shown as empty sections -->
+      <div
+        v-if="budgetData?.errors?.length"
+        class="p-4 rounded-lg border border-outline-amber-2 bg-surface-amber-1 text-sm text-ink-gray-8"
+        role="alert"
+      >
+        <p class="font-medium">Some budget sections could not be computed:</p>
+        <ul class="list-disc list-inside mt-1">
+          <li v-for="(err, i) in budgetData.errors" :key="i">{{ err }}</li>
+        </ul>
+      </div>
 
       <!-- Alerts Section: Badge replaces border-l-4 accent -->
       <div
@@ -231,12 +250,12 @@
                   <div class="bg-surface-gray-3 rounded-full h-2">
                     <div
                       class="h-2 rounded-full"
-                      :class="(dept.variance || 0) >= 0 ? 'bg-surface-red-5' : 'bg-surface-green-3'"
+                      :class="varianceBarFill(dept.variance, dept.favorable)"
                       :style="{ width: `${Math.min(Math.abs(dept.variance_percentage || 0), 100)}%` }"
                     ></div>
                   </div>
                 </div>
-                <span class="text-sm font-medium" :class="varianceInk(dept.variance_percentage || 0)">
+                <span class="text-sm font-medium" :class="varianceInk(dept.variance_percentage || 0, dept.favorable)">
                   {{ formatPercentage(dept.variance_percentage || 0) }}
                 </span>
               </div>
@@ -284,7 +303,7 @@
                     </div>
                     <div>
                       <p class="text-ink-gray-6">Variance</p>
-                      <p class="font-medium" :class="varianceInk(dept.variance_percentage)">
+                      <p class="font-medium" :class="varianceInk(dept.variance_percentage, dept.favorable)">
                         {{ formatCurrency(dept.variance) }}
                       </p>
                     </div>
@@ -340,7 +359,7 @@
                       <td class="px-6 py-4 whitespace-nowrap text-sm text-ink-gray-6">{{ account.account_type }}</td>
                       <td class="px-6 py-4 whitespace-nowrap text-sm text-ink-gray-9 text-right">{{ formatCurrency(account.budget) }}</td>
                       <td class="px-6 py-4 whitespace-nowrap text-sm text-ink-gray-9 text-right">{{ formatCurrency(account.actual) }}</td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium" :class="varianceInk(account.variance_percentage)">
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-right font-medium" :class="varianceInk(account.variance_percentage, account.favorable)">
                         {{ formatCurrency(account.variance) }}<br>
                         <span class="text-xs">{{ formatPercentage(account.variance_percentage) }}</span>
                       </td>
@@ -512,10 +531,10 @@ import type { BudgetVarianceData, BudgetVarianceStatus } from './types'
 
 /**
  * Server currency, same source the sibling planning tabs use. This tab used to
- * hardcode "KES" in its own formatter, which lied on any company reporting in
+ * hardcode a currency code in its own formatter, which lied on any company reporting in
  * another currency.
  */
-const currency = useCurrency()
+const currency = useCurrency('')
 
 /**
  * Presentational: the parent shell owns this feed. It fetched for itself
@@ -606,7 +625,7 @@ const exportReport = () => {
 }
 
 // Formatting. Delegates to the shared formatter rather than re-deriving it: the
-// previous local version hardcoded "KES" and tested `value >= 1_000_000`
+// previous local version hardcoded a currency code and tested `value >= 1_000_000`
 // without `Math.abs`, so a negative variance (the common case when actuals come
 // in under budget) matched no branch and printed raw and ungrouped. That is the
 // exact defect `utils/format.ts` was created to remove.
@@ -617,13 +636,21 @@ const formatPercentage = (value?: number | null) => {
   return `${value >= 0 ? '+' : ''}${value.toFixed(1)}%`
 }
 
-// Variance colour: high absolute variance is bad (red); low is neutral.
-// Replaces getVarianceColor which used green/yellow/red raw classes.
-const varianceInk = (percentage?: number | null) => {
+// Variance colour. The backend's `favorable` flag (income above budget / expense
+// within budget) is authoritative; without it, fall back to magnitude only.
+const varianceInk = (percentage?: number | null, favorable?: boolean | null) => {
+  if (favorable === true) return 'text-pos'
+  if (favorable === false) return 'text-neg'
   const abs = Math.abs(percentage || 0)
   if (abs <= 5) return 'text-ink-gray-9'
   if (abs <= 15) return 'text-ink-gray-7'
   return 'text-ink-red-4'
+}
+
+// Bar fill: same verdict as the ink. Flag-less rows keep the old rule (over budget = bad).
+const varianceBarFill = (variance?: number | null, favorable?: boolean | null) => {
+  const good = typeof favorable === 'boolean' ? favorable : (variance || 0) < 0
+  return good ? 'bg-surface-green-3' : 'bg-surface-red-5'
 }
 
 // Status badge: domain labels preserved, Espresso-safe themes/variants

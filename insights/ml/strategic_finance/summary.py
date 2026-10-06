@@ -12,6 +12,8 @@ from typing import Dict, Any, List, Optional
 from frappe.query_builder import DocType
 from frappe.query_builder.functions import Abs, Coalesce, Sum
 
+from frappe.utils import add_months
+
 from .data import get_cash_balance, get_monthly_financial_trends
 
 
@@ -77,7 +79,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
 
     # YTD Net Income
     ytd_net_income = ytd_revenue - ytd_expenses
-    net_margin = (ytd_net_income / ytd_revenue * 100) if ytd_revenue > 0 else 0
+    net_margin = (ytd_net_income / ytd_revenue * 100) if ytd_revenue > 0 else None
 
     # YTD Interest and Depreciation for EBITDA. Same account-matching
     # convention as `calculate_ratio_trends` (analysis.py) -- interest by
@@ -139,8 +141,8 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         gross_margin = None
 
     # Prior Year Same Period for Growth
-    prior_fy_start = (datetime.strptime(fy_start, '%Y-%m-%d') - timedelta(days=365)).strftime('%Y-%m-%d')
-    prior_today = (datetime.now() - timedelta(days=365)).strftime('%Y-%m-%d')
+    prior_fy_start = add_months(fy_start, -12)
+    prior_today = add_months(today, -12)
 
     prior_revenue = _gl_account_root_type_total(
         company=company, root_type="Income", start_date=prior_fy_start, end_date=prior_today
@@ -162,12 +164,12 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     # Monthly Burn Rate (average of last 3 months expenses)
     three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
     monthly_expenses_total = _gl_account_root_type_total(
-        company=company, root_type="Expense", start_date=three_months_ago
+        company=company, root_type="Expense", start_date=three_months_ago, end_date=today
     )
     monthly_expenses = monthly_expenses_total / 3 if monthly_expenses_total else 0
 
     # Cash Runway
-    cash_runway_months = (cash_balance / monthly_expenses) if monthly_expenses > 0 else 999
+    cash_runway_months = (cash_balance / monthly_expenses) if monthly_expenses > 0 else None
 
     # Total Assets, Liabilities, Equity from GL Entry (balance-sheet items
     # are point-in-time balances, not period-scoped; no `posting_date`
@@ -183,31 +185,27 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     # than the actual balance; on `jkm` the liability total was inflated
     # ~31x to ~94 Cr when the real leaf-account balance is ~3 Cr).
     total_assets = _gl_account_root_type_total(
-        company=company, root_type="Asset", extra_account_filter=acc.is_group == 0, apply_abs=False
+        company=company, root_type="Asset", end_date=today, extra_account_filter=acc.is_group == 0, apply_abs=False
     )
 
     # Total Liabilities (credit-normal balance: credit - debit). The shared
     # helper's non-abs branch always computes debit - credit (correct for
     # debit-normal Assets); negate it here for this credit-normal root type.
     total_liabilities = -_gl_account_root_type_total(
-        company=company, root_type="Liability", extra_account_filter=acc.is_group == 0, apply_abs=False
+        company=company, root_type="Liability", end_date=today, extra_account_filter=acc.is_group == 0, apply_abs=False
     )
 
     # Equity (credit-normal balance, same shape as liabilities).
     total_equity = -_gl_account_root_type_total(
-        company=company, root_type="Equity", apply_abs=False
+        company=company, root_type="Equity", end_date=today, apply_abs=False
     )
 
-    # ROE and ROA. Use max(0, balance) so a contra-balance (negative
-    # liabilities/equity) reads as zero rather than a negative ratio --
-    # e.g. an over-paid supplier with `credit - debit = -50000` for that
-    # account would otherwise show negative liabilities and a negative
-    # debt/equity ratio, both nonsensical.
-    roe = (ytd_net_income / max(0.0, total_equity) * 100) if max(0.0, total_equity) > 0 else 0
-    roa = (ytd_net_income / max(0.0, total_assets) * 100) if max(0.0, total_assets) > 0 else 0
-
-    # Debt to Equity
-    debt_to_equity = (max(0.0, total_liabilities) / max(0.0, total_equity)) if max(0.0, total_equity) > 0 else 0
+    # ROE / ROA / D-E. Unavailable (None), not 0, when there is no positive
+    # equity/assets to divide by; a contra-balance (negative liabilities)
+    # reads as zero debt rather than a negative ratio.
+    roe = (ytd_net_income / total_equity * 100) if total_equity > 0 else None
+    roa = (ytd_net_income / total_assets * 100) if total_assets > 0 else None
+    debt_to_equity = (max(0.0, total_liabilities) / total_equity) if total_equity > 0 else None
 
 
     # Monthly trends (last 12 months)
@@ -244,9 +242,10 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "gross_profit": gross_profit,
         "gross_margin": round(gross_margin, 2) if gross_margin is not None else None,
         "ytd_net_income": ytd_net_income,
-        "net_margin": round(net_margin, 2),
+        "net_margin": round(net_margin, 2) if net_margin is not None else None,
         "ytd_ebitda": round(ytd_ebitda, 2),
         "ebitda_margin": round(ebitda_margin, 2) if ebitda_margin is not None else None,
+        "ebitda_addbacks": {"interest": ytd_interest_expense, "depreciation": ytd_depreciation},
         "revenue_growth_yoy": round(revenue_growth, 2) if revenue_growth is not None else None,
         "revenue_growth": round(revenue_growth, 2) if revenue_growth is not None else None,  # alias for frontend compatibility
         # Exposed so a suppressed percentage is disclosed rather than concealed.
@@ -257,37 +256,38 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "prior_period_revenue": prior_revenue,
         "prior_period_start": prior_fy_start,
         "cash_balance": cash_balance,
-        "cash_runway_months": round(cash_runway_months, 1),
+        "cash_runway_months": round(cash_runway_months, 1) if cash_runway_months is not None else None,
         "monthly_burn_rate": monthly_expenses,
         "total_assets": total_assets,
         "total_liabilities": total_liabilities,
         "total_equity": total_equity,
-        "roe": round(roe, 2),
-        "roa": round(roa, 2),
-        "debt_to_equity": round(debt_to_equity, 2),
+        "roe": round(roe, 2) if roe is not None else None,
+        "roa": round(roa, 2) if roa is not None else None,
+        "debt_to_equity": round(debt_to_equity, 2) if debt_to_equity is not None else None,
         "monthly_trends": monthly_trends,
         "health_scores": health_scores,
         "key_insights": key_insights,
         "kpis": [
             {"label": "Total Revenue", "value": ytd_revenue, "format": "currency", "subtitle": "Year to Date", "trend": round(revenue_growth, 1) if revenue_growth is not None else None},
-            {"label": "Net Profit", "value": ytd_net_income, "format": "currency", "subtitle": f"{net_margin:.1f}% margin"},
+            {"label": "Net Profit", "value": ytd_net_income, "format": "currency", "subtitle": f"{net_margin:.1f}% margin" if net_margin is not None else "Year to Date"},
             {"label": "EBITDA", "value": ytd_ebitda, "format": "currency", "subtitle": f"{ebitda_margin:.1f}% margin" if ebitda_margin is not None else "Year to Date"},
             {"label": "Gross Margin", "value": gross_margin, "format": "percent", "subtitle": "Revenue - COGS"},
             {"label": "Revenue Growth", "value": revenue_growth, "format": "percent", "subtitle": "YoY"},
-            {"label": "Cash Position", "value": cash_balance, "format": "currency", "subtitle": f"{cash_runway_months:.0f} months runway"},
-            {"label": "ROE", "value": roe, "format": "percent", "subtitle": "Return on Equity"}
+            {"label": "Cash Position", "value": cash_balance, "format": "currency", "subtitle": f"{cash_runway_months:.0f} months runway" if cash_runway_months is not None else "No recent expenses"},
+            {"label": "ROE", "value": roe, "format": "percent", "subtitle": "Return on Equity" if roe is not None else "No equity recorded"}
         ]
     }
 
 
-def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: float,
-                            debt_to_equity: float, cash_runway_months: float,
+def calculate_health_scores(intelligence, net_margin: Optional[float], roe: Optional[float], roa: Optional[float],
+                            debt_to_equity: Optional[float], cash_runway_months: Optional[float],
                             revenue_growth: Optional[float]) -> Dict[str, Any]:
     """Calculate financial health scores (0-100) for liquidity, profitability, and efficiency"""
 
     # Liquidity Score (based on cash runway and debt ratio)
     liquidity_score = 0
-    if cash_runway_months >= 12:
+    # No burn (None) means no liquidity pressure, same as the old 999 score.
+    if cash_runway_months is None or cash_runway_months >= 12:
         liquidity_score = 90
     elif cash_runway_months >= 6:
         liquidity_score = 70
@@ -297,7 +297,9 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
         liquidity_score = 30
 
     # Adjust for debt level
-    if debt_to_equity < 0.5:
+    if debt_to_equity is None:
+        pass  # no equity -> leverage unavailable, no adjustment
+    elif debt_to_equity < 0.5:
         liquidity_score = min(100, liquidity_score + 10)
     elif debt_to_equity > 2:
         liquidity_score = max(0, liquidity_score - 20)
@@ -306,6 +308,7 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
 
     # Profitability Score (based on net margin and ROE)
     profitability_score = 0
+    net_margin = net_margin or 0  # unavailable (no revenue) scores as no profit
     if net_margin >= 20:
         profitability_score = 90
     elif net_margin >= 10:
@@ -318,7 +321,9 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
         profitability_score = 20
 
     # Boost for strong ROE
-    if roe >= 15:
+    if roe is None:
+        pass  # no equity -> ROE unavailable, neither boost nor penalty
+    elif roe >= 15:
         profitability_score = min(100, profitability_score + 10)
     elif roe < 5:
         profitability_score = max(0, profitability_score - 10)
@@ -327,11 +332,11 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
 
     # Efficiency Score (based on ROA and revenue growth)
     efficiency_score = 0
-    if roa >= 10:
+    if roa is not None and roa >= 10:
         efficiency_score = 85
-    elif roa >= 5:
+    elif roa is not None and roa >= 5:
         efficiency_score = 65
-    elif roa >= 2:
+    elif roa is not None and roa >= 2:
         efficiency_score = 50
     else:
         efficiency_score = 35
@@ -356,9 +361,9 @@ def calculate_health_scores(intelligence, net_margin: float, roe: float, roa: fl
 
 
 def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: float,
-                          net_margin: float, revenue_growth: Optional[float],
-                          cash_runway_months: float, debt_to_equity: float,
-                          roe: float, health_scores: Dict) -> List[Dict]:
+                          net_margin: Optional[float], revenue_growth: Optional[float],
+                          cash_runway_months: Optional[float], debt_to_equity: Optional[float],
+                          roe: Optional[float], health_scores: Dict) -> List[Dict]:
     """Generate actionable executive insights based on financial metrics"""
     insights = []
 
@@ -383,7 +388,7 @@ def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: floa
         })
 
     # Profitability insights
-    if net_margin < 0:
+    if net_margin is not None and net_margin < 0:
         insights.append({
             "type": "negative",
             "category": "profitability",
@@ -392,7 +397,7 @@ def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: floa
             "recommendation": "Review cost structure and pricing strategy urgently",
             "priority": "high"
         })
-    elif net_margin > 15:
+    elif net_margin is not None and net_margin > 15:
         insights.append({
             "type": "positive",
             "category": "profitability",
@@ -403,7 +408,9 @@ def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: floa
         })
 
     # Cash runway insights
-    if cash_runway_months < 3:
+    if cash_runway_months is None:
+        pass  # no burn -> runway is not a meaningful metric
+    elif cash_runway_months < 3:
         insights.append({
             "type": "negative",
             "category": "liquidity",
@@ -432,7 +439,7 @@ def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: floa
         })
 
     # Debt insights
-    if debt_to_equity > 2:
+    if debt_to_equity is not None and debt_to_equity > 2:
         insights.append({
             "type": "negative",
             "category": "leverage",
@@ -443,7 +450,7 @@ def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: floa
         })
 
     # ROE insights
-    if roe < 5:
+    if roe is not None and roe < 5:
         insights.append({
             "type": "warning",
             "category": "efficiency",

@@ -29,11 +29,11 @@
 			<!-- Monthly Revenue Trend -->
 			<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
 				<SectionHeader variant="caption" title="Monthly Revenue Trend" :level="3" />
-				<IntelligenceChart v-if="data.monthly_trend?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="revenueTrendConfig" />
+				<IntelligenceChart v-if="trend.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="revenueTrendConfig" />
 				<div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
 					No revenue data available
 				</div>
-				<table v-if="data.monthly_trend?.length" class="sr-only">
+				<table v-if="trend.length" class="sr-only">
 					<caption>Monthly revenue</caption>
 					<thead>
 						<tr>
@@ -42,7 +42,7 @@
 						</tr>
 					</thead>
 					<tbody>
-						<tr v-for="month in data.monthly_trend" :key="month.period">
+						<tr v-for="month in trend" :key="month.period">
 							<th scope="row">{{ formatPeriod(month.period) }}</th>
 							<td>{{ formatCurrency(month.revenue, currency) }}</td>
 						</tr>
@@ -110,10 +110,16 @@ const props = defineProps<{
 	currency: string
 }>()
 
+// A future-dated GL posting would otherwise draw a phantom month, so the trend
+// stops at the current month (periods are 'YYYY-MM', which sorts as text).
+const now = new Date()
+const currentPeriod = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+const trend = computed(() => (props.data.monthly_trend ?? []).filter(m => m.period <= currentPeriod))
+
 // Chart configs — ECharts cannot resolve CSS custom properties; use themeColor().
 const revenueTrendConfig = computed(() => ({
 	title: '',
-	data: (props.data.monthly_trend ?? []).map(m => ({
+	data: trend.value.map(m => ({
 		period: formatPeriod(m.period),
 		Revenue: m.revenue,
 	})),

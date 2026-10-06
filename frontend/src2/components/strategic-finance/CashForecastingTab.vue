@@ -22,7 +22,7 @@
           label="Net Expected"
           :amount="data.net_expected"
           :currency="currency"
-          :severity="(data.net_expected || 0) < 0 ? 'critical' : 'none'"
+          :severity="data.net_expected != null && data.net_expected < 0 ? 'critical' : 'none'"
         />
       </div>
 
@@ -54,18 +54,18 @@
             <div class="flex justify-between">
               <span class="text-sm text-ink-gray-6">End Position</span>
               <span class="font-medium text-ink-gray-9">
-                {{ formatCurrency(data.end_of_period?.optimistic || 0) }}
+                {{ formatCurrency(data.end_of_period?.optimistic) }}
               </span>
             </div>
             <div class="flex justify-between">
               <span class="text-sm text-ink-gray-6">Cash Runway</span>
               <span class="font-medium text-ink-gray-9">
-                {{ (data.optimistic_runway_days ?? 0) >= 90 ? '90+ days' : data.optimistic_runway_days + ' days' }}
+                {{ runwayLabel(data.optimistic_runway_days) }}
               </span>
             </div>
           </div>
           <div class="mt-4 pt-4 border-t border-outline-gray-1">
-            <p class="text-xs text-ink-gray-6">Assumes 20% higher inflows</p>
+            <p class="text-xs text-ink-gray-6">Assumes net daily flow 20% better than base</p>
           </div>
         </div>
 
@@ -79,19 +79,19 @@
             <div class="flex justify-between">
               <span class="text-sm text-ink-gray-6">End Position</span>
               <span class="font-medium text-ink-gray-9">
-                {{ formatCurrency(data.end_of_period?.base || 0) }}
+                {{ formatCurrency(data.end_of_period?.base) }}
               </span>
             </div>
             <div class="flex justify-between">
               <span class="text-sm text-ink-gray-6">Cash Runway</span>
               <span class="font-medium text-ink-gray-9">
-                {{ (data.base_runway_days ?? 0) >= 90 ? '90+ days' : data.base_runway_days + ' days' }}
+                {{ runwayLabel(data.base_runway_days) }}
               </span>
             </div>
             <div class="flex justify-between">
               <span class="text-sm text-ink-gray-6">Avg Daily Flow</span>
               <span class="font-medium text-ink-gray-9">
-                {{ formatCurrency(data.avg_daily_flow || 0) }}
+                {{ formatCurrency(data.avg_daily_flow) }}
               </span>
             </div>
           </div>
@@ -110,21 +110,21 @@
             <div class="flex justify-between">
               <span class="text-sm text-ink-gray-6">End Position</span>
               <span class="font-medium text-ink-gray-9">
-                {{ formatCurrency(data.end_of_period?.pessimistic || 0) }}
+                {{ formatCurrency(data.end_of_period?.pessimistic) }}
               </span>
             </div>
             <div class="flex justify-between">
               <span class="text-sm text-ink-gray-6">Cash Runway</span>
               <span
                 class="font-medium"
-                :class="(data.pessimistic_runway_days ?? 0) < 30 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+                :class="data.pessimistic_runway_days != null && data.pessimistic_runway_days < 30 ? 'text-ink-red-4' : 'text-ink-gray-9'"
               >
-                {{ (data.pessimistic_runway_days ?? 0) >= 90 ? '90+ days' : data.pessimistic_runway_days + ' days' }}
+                {{ runwayLabel(data.pessimistic_runway_days) }}
               </span>
             </div>
           </div>
           <div class="mt-4 pt-4 border-t border-outline-gray-1">
-            <p class="text-xs text-ink-gray-6">Assumes 20% lower inflows</p>
+            <p class="text-xs text-ink-gray-6">Assumes net daily flow 20% worse than base</p>
           </div>
         </div>
       </div>
@@ -179,7 +179,7 @@
                   v-for="week in data.weekly_summary"
                   :key="'p-' + week.week"
                   class="px-3 py-3 text-sm text-right font-medium whitespace-nowrap"
-                  :class="week.pessimistic_balance < 0 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+                  :class="week.pessimistic_balance != null && week.pessimistic_balance < 0 ? 'text-ink-red-4' : 'text-ink-gray-9'"
                 >
                   {{ formatCompact(week.pessimistic_balance) }}
                 </td>
@@ -196,7 +196,7 @@
 </template>
 
 <script setup lang="ts">
-import { NO_VALUE } from '../../utils/format'
+import { NO_VALUE, formatCount, formatMoney } from '../../utils/format'
 import {
   TrendingUp,
   TrendingDown,
@@ -230,31 +230,15 @@ const chartForecasts = computed(() => ({
   pessimistic: (props.data?.pessimistic_forecast ?? []) as unknown as ForecastPoint[],
 }))
 
-const _currency = useCurrency()
-const getCurrency = () =>
-  (typeof _currency === 'string' ? _currency : (_currency as unknown as { value: string })?.value) || 'KES'
-const currency = getCurrency()
+// Reactive: `base_currency` arrives with the API response, after setup.
+const currency = useCurrency('')
 
-const formatCurrency = (value: number) => {
-  // Absent is not zero: this returned `${getCurrency()} 0`, reporting zero money
-  // for a field the server never sent. Notation is unchanged -- exact
-  // `en-KE` grouping is a deliberate choice for this surface, and
-  // switching it is a separate product decision.
-  if (value === null || value === undefined) return NO_VALUE
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: getCurrency(),
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value)
-}
+const formatCurrency = (value: number | null | undefined) => formatMoney(value, currency.value)
 
-const formatCompact = (value: number) => {
-  if (value === null || value === undefined) return NO_VALUE
-  const absValue = Math.abs(value)
-  const sign = value < 0 ? '-' : ''
-  if (absValue >= 1000000) return `${sign}${(absValue / 1000000).toFixed(1)}M`
-  if (absValue >= 1000) return `${sign}${(absValue / 1000).toFixed(0)}K`
-  return `${sign}${absValue.toFixed(0)}`
+const formatCompact = (value: number | null | undefined) => formatCount(value, { compact: true })
+
+const runwayLabel = (days: number | null | undefined) => {
+  if (days === null || days === undefined) return NO_VALUE
+  return days >= 90 ? '90+ days' : `${days} days`
 }
 </script>

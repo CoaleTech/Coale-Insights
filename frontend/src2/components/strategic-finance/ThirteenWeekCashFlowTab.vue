@@ -19,7 +19,7 @@
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <SectionHeader variant="caption" title="13-Week Rolling Cash Flow Forecast" :level="3"
-            hint="Week-by-week cash projections with categorized inflows and outflows" />
+            hint="Current week plus the next 13 weeks: projected inflows and outflows by week" />
         </div>
         <div class="flex items-center gap-4">
           <!-- Payroll Detection Badge -->
@@ -51,7 +51,7 @@
           label="Min Balance"
           :amount="data?.summary?.minimum_balance"
           :currency="currency"
-          :sublabel="'Week ' + data?.summary?.minimum_balance_week"
+          :sublabel="data?.summary?.minimum_balance_week != null ? 'Week ' + data.summary.minimum_balance_week : undefined"
           :severity="isMinBalanceCritical ? 'critical' : 'none'"
         />
         <KpiCard
@@ -86,7 +86,7 @@
       <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
         <SectionHeader variant="caption" title="Cash Flow Visualization" :level="4" />
         <div v-if="chartData" class="h-56 sm:h-72 lg:h-80 mt-4">
-          <ThirteenWeekChart :data="chartData" :threshold="threshold" :currency="currency" />
+          <ThirteenWeekChart :data="chartData" :threshold="threshold" />
         </div>
         <div v-else class="h-80 flex items-center justify-center text-ink-gray-6">
           No data available for chart
@@ -399,7 +399,7 @@ import {
   Users,
 } from 'lucide-vue-next'
 import { deltaInk } from '../../utils/status'
-import { formatDate, formatDateShort, NO_VALUE } from '../../utils/format'
+import { formatDate, formatDateShort, formatMoney, NO_VALUE } from '../../utils/format'
 import ThirteenWeekChart from './ThirteenWeekChart.vue'
 import CashFlowScenarioPanel from './CashFlowScenarioPanel.vue'
 import CashFlowVariancePanel from './CashFlowVariancePanel.vue'
@@ -437,7 +437,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const currency = useCurrency()
+const currency = useCurrency('')
 
 const threshold = ref(0)
 const expandedSections = ref({ inflows: false, outflows: false })
@@ -518,19 +518,7 @@ const getWeekCellClass = (week: { is_current: boolean; is_actual: boolean; below
   return classes.join(' ')
 }
 
-const formatCurrency = (value: number) => {
-  // Absent is not zero: this returned `${currency} 0`, reporting zero money
-  // for a field the server never sent. Notation is unchanged -- exact
-  // `en-KE` grouping is a deliberate choice for this surface, and
-  // switching it is a separate product decision.
-  if (value === null || value === undefined) return NO_VALUE
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: currency.value,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value)
-}
+const formatCurrency = (value: number | null | undefined) => formatMoney(value, currency.value)
 
 const formatCompact = (value: number | null | undefined) => {
   if (value === null || value === undefined) return NO_VALUE

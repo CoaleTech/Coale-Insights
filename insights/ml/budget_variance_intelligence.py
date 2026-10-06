@@ -24,9 +24,27 @@ if TYPE_CHECKING:
 
 import logging
 
-from frappe.query_builder.functions import Abs, Coalesce, Count, Sum
+from frappe.query_builder import Case
+from frappe.query_builder.functions import Abs, Coalesce, Sum
+from frappe.utils import flt, getdate
 
 logger = logging.getLogger(__name__)
+
+
+def _is_favorable(root_type: str | None, actual: float, budget: float) -> bool | None:
+    """Income beats plan when actual > budget, Expense when actual <= budget; None without a budget."""
+    if not budget:
+        return None
+    return actual > budget if root_type == "Income" else actual <= budget
+
+
+def _prorated_amount(amount: float, row_start, row_end, start, end) -> float:
+    """Share of `amount`, spread evenly over row_start..row_end (inclusive), that falls in start..end (inclusive)."""
+    lo, hi = max(row_start, start), min(row_end, end)
+    if hi < lo:
+        return 0.0
+    return flt(amount) * ((hi - lo).days + 1) / ((row_end - row_start).days + 1)
+
 
 class BudgetVarianceIntelligence:
     """
@@ -90,18 +108,26 @@ class BudgetVarianceIntelligence:
             self.fy_start_date = frappe.utils.getdate(fy["start_date"])
             self.fy_end_date = frappe.utils.getdate(fy["end_date"])
 
-        # Initialize cache
+        # Budget rows are fetched once per overview call (see _fetch_budget_data)
+        self._budget_rows = None
+        self._errors: list[str] = []
         self.cache_timeout = 3600  # 1 hour
 
     def get_budget_variance_overview(self) -> dict[str, Any]:
         """
         Get comprehensive budget variance overview
-        
+
         Returns:
-            Dict containing complete budget variance analysis
+            Dict containing complete budget variance analysis. ``has_budget`` is False
+            when no submitted Budget covers the fiscal year (the sections are then
+            empty instead of zero-filled); ``errors`` lists sections that failed.
         """
+        self._errors = []
+        self._budget_rows = None
         try:
             logger.info("Generating budget variance overview")
+
+            has_budget = bool(self._fetch_budget_data())
 
             # Get budget vs actual analysis
             variance_summary = self._get_variance_summary()
@@ -128,6 +154,8 @@ class BudgetVarianceIntelligence:
             recommendations = self._get_variance_recommendations()
 
             return {
+                "has_budget": has_budget,
+                "errors": self._errors,
                 "summary": variance_summary,
                 "departmental_analysis": dept_analysis,
                 "account_analysis": account_analysis,
@@ -147,39 +175,34 @@ class BudgetVarianceIntelligence:
             }
 
         except Exception as e:
-            logger.error(f"Error generating budget variance overview: {e}")
-            frappe.log_error(f"Budget Variance Overview Error: {str(e)}", "Budget Variance Intelligence")
-            return {}
+            self._fail("overview", e)
+            return {"has_budget": False, "errors": self._errors}
 
     def _get_variance_summary(self) -> dict[str, Any]:
         """Get high-level budget variance summary"""
         try:
-            # Get budget data
             budget_data = self._fetch_budget_data()
-            actual_data = self._fetch_actual_data()
-
-            if not budget_data or not actual_data:
+            if not budget_data:
                 return {}
 
-            # Calculate overall variances
-            total_budget = sum(item.get('budget_amount', 0) for item in budget_data)
-            total_actual = sum(item.get('actual_amount', 0) for item in actual_data)
+            # Actuals are scoped to the budgeted account/cost-center pairs so the
+            # total compares like with like (unbudgeted postings are not utilisation).
+            merged = self._merge_budget_actual(budget_data, self._fetch_actual_data())
+            total_budget = sum(item["budget_amount"] for item in merged)
+            total_actual = sum(item["actual_amount"] for item in merged)
 
             total_variance = total_actual - total_budget
             variance_percentage = (total_variance / total_budget * 100) if total_budget != 0 else 0
 
-            # Calculate variance categories
+            # Favourable: income above plan / expense below plan. Adverse is the mirror.
             favorable_variance = sum(
-                max(0, item.get('actual_amount', 0) - item.get('budget_amount', 0))
-                for item in self._merge_budget_actual(budget_data, actual_data)
-                if item.get('account_type') == 'Income Account'
-            ) + sum(
-                max(0, item.get('budget_amount', 0) - item.get('actual_amount', 0))
-                for item in self._merge_budget_actual(budget_data, actual_data)
-                if item.get('account_type') == 'Expense Account'
+                max(0, item["variance"] if item["root_type"] == "Income" else -item["variance"])
+                for item in merged
             )
-
-            adverse_variance = abs(total_variance) - favorable_variance
+            adverse_variance = sum(
+                max(0, -item["variance"] if item["root_type"] == "Income" else item["variance"])
+                for item in merged
+            )
 
             # Get variance trend
             variance_trend = self._calculate_variance_trend()
@@ -198,11 +221,11 @@ class BudgetVarianceIntelligence:
             }
 
         except Exception as e:
-            logger.error(f"Error calculating variance summary: {e}")
+            self._fail("variance summary", e)
             return {}
 
     def _get_departmental_variance(self) -> list[dict[str, Any]]:
-        """Get department-wise budget variance analysis"""
+        """Get department-wise budget variance analysis (expense budgets of the department's cost center)"""
         try:
             departments = self._get_active_departments()
             dept_variances = []
@@ -221,6 +244,7 @@ class BudgetVarianceIntelligence:
                         "actual": dept_actual,
                         "variance": variance,
                         "variance_percentage": variance_pct,
+                        "favorable": _is_favorable("Expense", dept_actual, dept_budget),
                         "status": self._get_variance_status(variance_pct),
                         "trend": self._get_department_trend(dept.name),
                         "key_accounts": self._get_department_key_accounts(dept.name)
@@ -231,52 +255,33 @@ class BudgetVarianceIntelligence:
             return dept_variances
 
         except Exception as e:
-            logger.error(f"Error calculating departmental variance: {e}")
+            self._fail("departmental variance", e)
             return []
 
     def _get_account_variance(self) -> list[dict[str, Any]]:
         """Get account-wise budget variance analysis"""
         try:
-            # Get all accounts with budget allocations
-            Budget = frappe.qb.DocType("Budget")
-            BudgetAccount = frappe.qb.DocType("Budget Account")
-            budget_accounts = (
-                frappe.qb.from_(BudgetAccount)
-                .join(Budget)
-                .on(BudgetAccount.parent == Budget.name)
-                .select(BudgetAccount.account)
-                .distinct()
-                .where(Budget.company == self.company)
-                .where(Budget.fiscal_year == self.fiscal_year)
-                .where(Budget.docstatus == 1)
-                .run(as_dict=True)
-            )
-
+            # One entry per budgeted account (any cost center)
+            budgeted = {b["account"]: b for b in self._fetch_budget_data()}
             account_variances = []
 
-            for acc in budget_accounts:
-                account = acc.account
-
-                # Get budget amount for account
+            for account, b in budgeted.items():
                 budget_amount = self._get_account_budget(account)
-
-                # Get actual amount for account
                 actual_amount = self._get_account_actual(account)
 
                 if budget_amount != 0 or actual_amount != 0:
                     variance = actual_amount - budget_amount
                     variance_pct = (variance / budget_amount * 100) if budget_amount != 0 else 0
 
-                    account_info = frappe.get_doc("Account", account)
-
                     account_variances.append({
                         "account": account,
-                        "account_type": account_info.account_type,
-                        "root_type": account_info.root_type,
+                        "account_type": b["account_type"],
+                        "root_type": b["root_type"],
                         "budget": budget_amount,
                         "actual": actual_amount,
                         "variance": variance,
                         "variance_percentage": variance_pct,
+                        "favorable": _is_favorable(b["root_type"], actual_amount, budget_amount),
                         "status": self._get_variance_status(variance_pct),
                         "monthly_breakdown": self._get_account_monthly_breakdown(account),
                         "impact_level": self._get_variance_impact_level(abs(variance), budget_amount)
@@ -287,7 +292,7 @@ class BudgetVarianceIntelligence:
             return account_variances[:20]  # Top 20 accounts by variance
 
         except Exception as e:
-            logger.error(f"Error calculating account variance: {e}")
+            self._fail("account variance", e)
             return []
 
     def _get_forecast_accuracy(self) -> dict[str, Any]:
@@ -361,7 +366,7 @@ class BudgetVarianceIntelligence:
             }
 
         except Exception as e:
-            logger.error(f"Error calculating variance trends: {e}")
+            self._fail("variance trends", e)
             return {}
 
     def _get_variance_alerts(self) -> list[dict[str, Any]]:
@@ -420,7 +425,7 @@ class BudgetVarianceIntelligence:
             return sorted(alerts, key=lambda x: {'high': 3, 'medium': 2, 'low': 1}[x['severity']], reverse=True)
 
         except Exception as e:
-            logger.error(f"Error generating variance alerts: {e}")
+            self._fail("variance alerts", e)
             return []
 
     def _get_budget_performance_metrics(self) -> dict[str, Any]:
@@ -454,7 +459,7 @@ class BudgetVarianceIntelligence:
             }
 
         except Exception as e:
-            logger.error(f"Error calculating budget performance metrics: {e}")
+            self._fail("performance metrics", e)
             return {}
 
     def _get_variance_recommendations(self) -> list[dict[str, Any]]:
@@ -543,127 +548,159 @@ class BudgetVarianceIntelligence:
             return recommendations
 
         except Exception as e:
-            logger.error(f"Error generating variance recommendations: {e}")
+            self._fail("recommendations", e)
             return []
 
     # Helper methods for data fetching and calculations
 
-    def _fetch_budget_data(self) -> list[dict[str, Any]]:
-        """Fetch budget data for the fiscal year"""
-        try:
-            Budget = frappe.qb.DocType("Budget")
-            BudgetAccount = frappe.qb.DocType("Budget Account")
-            return (
-                frappe.qb.from_(Budget)
-                .join(BudgetAccount)
-                .on(BudgetAccount.parent == Budget.name)
-                .select(
-                    Budget.name.as_("budget_name"),
-                    Budget.cost_center,
-                    BudgetAccount.account,
-                    BudgetAccount.budget_amount,
-                    Budget.monthly_distribution,
-                )
-                .where(Budget.company == self.company)
-                .where(Budget.fiscal_year == self.fiscal_year)
-                .where(Budget.docstatus == 1)
-                .orderby(BudgetAccount.budget_amount, order=frappe.qb.desc)
-                .run(as_dict=True)
-            )
+    def _fail(self, section: str, e: Exception) -> None:
+        """Record a failed section: log it once and surface it in the payload's `errors`."""
+        msg = f"{section}: {e}"
+        if msg not in self._errors:
+            self._errors.append(msg)
+            logger.error(f"Budget variance {msg}")
+            frappe.log_error(msg, "Budget Variance Intelligence")
 
-        except Exception as e:
-            logger.error(f"Error fetching budget data: {e}")
-            return []
+    def _fetch_budget_data(self) -> list[dict[str, Any]]:
+        """Submitted cost-center Budgets overlapping the fiscal year (ERPNext v16: one account per Budget).
+
+        Cached per overview call. Each row carries its `budget_distribution` rows
+        (per-period amounts) so period budgets follow the real distribution.
+        """
+        if self._budget_rows is not None:
+            return self._budget_rows
+
+        Budget = frappe.qb.DocType("Budget")
+        Account = frappe.qb.DocType("Account")
+        rows = (
+            frappe.qb.from_(Budget)
+            .join(Account)
+            .on(Account.name == Budget.account)
+            .select(
+                Budget.name.as_("budget_name"),
+                Budget.cost_center,
+                Budget.account,
+                Budget.budget_amount,
+                Budget.budget_start_date.as_("start"),
+                Budget.budget_end_date.as_("end"),
+                Budget.creation,
+                Account.root_type,
+                Account.account_type,
+            )
+            .where(Budget.company == self.company)
+            .where(Budget.docstatus == 1)
+            .where(Budget.budget_against == "Cost Center")
+            .where(Budget.budget_start_date <= self.fy_end_date)
+            .where(Budget.budget_end_date >= self.fy_start_date)
+            .run(as_dict=True)
+        )
+
+        distributions: dict[str, list] = {}
+        if rows:
+            Dist = frappe.qb.DocType("Budget Distribution")
+            for d in (
+                frappe.qb.from_(Dist)
+                .select(Dist.parent, Dist.start_date, Dist.end_date, Dist.amount)
+                .where(Dist.parent.isin([r.budget_name for r in rows]))
+                .run(as_dict=True)
+            ):
+                distributions.setdefault(d.parent, []).append(d)
+
+        for r in rows:
+            r["budget_amount"] = flt(r["budget_amount"])
+            r["distribution"] = distributions.get(r["budget_name"], [])
+        self._budget_rows = rows
+        return rows
+
+    @staticmethod
+    def _period_budget(row: dict, start, end) -> float:
+        """Budget falling in start..end: the Budget's own distribution rows, else even day pro-rating."""
+        if row.get("distribution"):
+            return sum(
+                _prorated_amount(d["amount"], d["start_date"], d["end_date"], start, end)
+                for d in row["distribution"]
+            )
+        return _prorated_amount(row["budget_amount"], row["start"], row["end"], start, end)
+
+    def _signed_actual(self, start, end):
+        """Base GL query for Income/Expense postings in [start, min(end, today)].
+
+        Excludes cancelled, opening and period-closing entries. Returns
+        (query, GLEntry, Account, signed_amount); signed_amount is credit-debit for
+        Income and debit-credit for Expense, so both read as positive activity.
+        """
+        GLEntry = frappe.qb.DocType("GL Entry")
+        Account = frappe.qb.DocType("Account")
+        signed = (
+            Case()
+            .when(Account.root_type == "Income", GLEntry.credit - GLEntry.debit)
+            .else_(GLEntry.debit - GLEntry.credit)
+        )
+        query = (
+            frappe.qb.from_(GLEntry)
+            .join(Account)
+            .on(Account.name == GLEntry.account)
+            .where(GLEntry.company == self.company)
+            .where(GLEntry.posting_date.between(start, min(getdate(end), getdate())))
+            .where(GLEntry.is_cancelled == 0)
+            .where(Coalesce(GLEntry.is_opening, "No") != "Yes")
+            .where(GLEntry.voucher_type != "Period Closing Voucher")
+            .where(Account.root_type.isin(["Income", "Expense"]))
+        )
+        return query, GLEntry, Account, signed
+
+    def _budgeted_actual(self, start, end) -> float:
+        """Actual (sign-corrected) on the budgeted account / cost-center sets over start..end."""
+        rows = self._fetch_budget_data()
+        if not rows:
+            return 0.0
+        query, GLEntry, _, signed = self._signed_actual(start, end)
+        result = (
+            query.select(Coalesce(Sum(signed), 0))
+            .where(GLEntry.account.isin(list({b["account"] for b in rows})))
+            .where(GLEntry.cost_center.isin(list({b["cost_center"] for b in rows})))
+            .run()
+        )
+        return flt(result[0][0]) if result else 0.0
 
     def _fetch_actual_data(self) -> list[dict[str, Any]]:
-        """Fetch actual expense data for comparison"""
-        try:
-            GLEntry = frappe.qb.DocType("GL Entry")
-            Account = frappe.qb.DocType("Account")
-            net_amount = Sum(GLEntry.debit - GLEntry.credit)
-            abs_amount = Sum(Abs(GLEntry.debit - GLEntry.credit))
-            return (
-                frappe.qb.from_(GLEntry)
-                .join(Account)
-                .on(Account.name == GLEntry.account)
-                .select(
-                    GLEntry.account,
-                    GLEntry.cost_center,
-                    net_amount.as_("actual_amount"),
-                )
-                .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
-                .where(GLEntry.is_cancelled == 0)
-                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
-                .groupby(GLEntry.account, GLEntry.cost_center)
-                .having(net_amount != 0)
-                .orderby(abs_amount, order=frappe.qb.desc)
-                .run(as_dict=True)
-            )
-
-        except Exception as e:
-            logger.error(f"Error fetching actual data: {e}")
-            return []
+        """Fetch sign-corrected actuals per account / cost center for the fiscal year"""
+        query, GLEntry, _, signed = self._signed_actual(self.fy_start_date, self.fy_end_date)
+        net_amount = Sum(signed)
+        rows = (
+            query.select(GLEntry.account, GLEntry.cost_center, net_amount.as_("actual_amount"))
+            .groupby(GLEntry.account, GLEntry.cost_center)
+            .having(net_amount != 0)
+            .orderby(Abs(net_amount), order=frappe.qb.desc)
+            .run(as_dict=True)
+        )
+        for r in rows:
+            r["actual_amount"] = flt(r["actual_amount"])
+        return rows
 
     def _merge_budget_actual(self, budget_data: list, actual_data: list) -> list[dict[str, Any]]:
-        """Merge budget and actual data for comparison"""
-        try:
-            merged_data = []
+        """Merge each budget row with its account / cost-center actual"""
+        actual_lookup = {(a["account"], a["cost_center"]): flt(a["actual_amount"]) for a in actual_data}
 
-            # Create lookup for actual data
-            actual_lookup = {}
-            for item in actual_data:
-                key = f"{item.get('account', '')}|{item.get('cost_center', '')}"
-                actual_lookup[key] = item.get('actual_amount', 0)
-
-            # Merge with budget data
-            for budget_item in budget_data:
-                key = f"{budget_item.get('account', '')}|{budget_item.get('cost_center', '')}"
-                actual_amount = actual_lookup.get(key, 0)
-
-                # Get account info
-                account_info = frappe.get_cached_doc("Account", budget_item.get('account'))
-
-                merged_data.append({
-                    "account": budget_item.get('account'),
-                    "cost_center": budget_item.get('cost_center'),
-                    "budget_amount": budget_item.get('budget_amount', 0),
-                    "actual_amount": actual_amount,
-                    "variance": actual_amount - budget_item.get('budget_amount', 0),
-                    "account_type": account_info.account_type,
-                    "root_type": account_info.root_type
-                })
-
-            return merged_data
-
-        except Exception as e:
-            logger.error(f"Error merging budget and actual data: {e}")
-            return []
+        merged_data = []
+        for b in budget_data:
+            budget = self._period_budget(b, self.fy_start_date, self.fy_end_date)
+            actual = actual_lookup.get((b["account"], b["cost_center"]), 0.0)
+            merged_data.append({
+                "account": b["account"],
+                "cost_center": b["cost_center"],
+                "budget_amount": budget,
+                "actual_amount": actual,
+                "variance": actual - budget,
+                "favorable": _is_favorable(b["root_type"], actual, budget),
+                "account_type": b["account_type"],
+                "root_type": b["root_type"],
+            })
+        return merged_data
 
     def _calculate_variance_trend(self) -> str:
-        """Calculate overall variance trend direction"""
-        try:
-            # Get last 6 months of variance data
-            monthly_variances = self._get_monthly_variances()
-
-            if len(monthly_variances) < 3:
-                return "insufficient_data"
-
-            recent_variances = [item['variance_percentage'] for item in monthly_variances[-3:]]
-
-            if len(recent_variances) >= 2:
-                if recent_variances[-1] > recent_variances[0]:
-                    return "improving" if recent_variances[-1] > 0 else "deteriorating"
-                elif recent_variances[-1] < recent_variances[0]:
-                    return "deteriorating" if recent_variances[-1] < 0 else "improving"
-                else:
-                    return "stable"
-
-            return "stable"
-
-        except Exception as e:
-            logger.error(f"Error calculating variance trend: {e}")
-            return "unknown"
+        """Calculate overall variance trend direction (over months that have a budget)"""
+        return self._calculate_trend_direction(self._get_monthly_variances())
 
     def _get_ytd_performance(self) -> dict[str, Any]:
         """Get year-to-date budget performance"""
@@ -727,61 +764,12 @@ class BudgetVarianceIntelligence:
             return []
 
     def _get_department_budget(self, department: str) -> float:
-        """Get total budget amount for a department"""
-        try:
-            cost_center = frappe.db.get_value("Department", department, "payroll_cost_center")
-
-            if not cost_center:
-                return 0
-
-            Budget = frappe.qb.DocType("Budget")
-            BudgetAccount = frappe.qb.DocType("Budget Account")
-            result = (
-                frappe.qb.from_(Budget)
-                .join(BudgetAccount)
-                .on(BudgetAccount.parent == Budget.name)
-                .select(Coalesce(Sum(BudgetAccount.budget_amount), 0).as_("total_budget"))
-                .where(Budget.company == self.company)
-                .where(Budget.fiscal_year == self.fiscal_year)
-                .where(Budget.cost_center == cost_center)
-                .where(Budget.docstatus == 1)
-                .run()
-            )
-
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error getting department budget for {department}: {e}")
-            return 0
+        """Total expense budget for a department's cost center over the fiscal year"""
+        return self._get_department_budget_for_period(department, self.fy_start_date, self.fy_end_date)
 
     def _get_department_actual(self, department: str) -> float:
-        """Get total actual amount for a department"""
-        try:
-            cost_center = frappe.db.get_value("Department", department, "payroll_cost_center")
-
-            if not cost_center:
-                return 0
-
-            GLEntry = frappe.qb.DocType("GL Entry")
-            Account = frappe.qb.DocType("Account")
-            result = (
-                frappe.qb.from_(GLEntry)
-                .join(Account)
-                .on(Account.name == GLEntry.account)
-                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total_actual"))
-                .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
-                .where(GLEntry.cost_center == cost_center)
-                .where(GLEntry.is_cancelled == 0)
-                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
-                .run()
-            )
-
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error getting department actual for {department}: {e}")
-            return 0
+        """Total expense actual for a department's cost center over the fiscal year"""
+        return self._get_department_actual_for_period(department, self.fy_start_date, self.fy_end_date)
 
     def _get_department_trend(self, department: str) -> str:
         """Get variance trend for a department"""
@@ -823,27 +811,22 @@ class BudgetVarianceIntelligence:
             if not cost_center:
                 return []
 
-            GLEntry = frappe.qb.DocType("GL Entry")
-            Account = frappe.qb.DocType("Account")
-            abs_total = Abs(Sum(GLEntry.debit - GLEntry.credit))
+            query, GLEntry, Account, signed = self._signed_actual(self.fy_start_date, self.fy_end_date)
             account_data = (
-                frappe.qb.from_(GLEntry)
-                .join(Account)
-                .on(Account.name == GLEntry.account)
-                .select(
+                query.select(
                     GLEntry.account,
-                    Sum(GLEntry.debit - GLEntry.credit).as_("actual_amount"),
+                    Sum(signed).as_("actual_amount"),
                     Account.account_type,
+                    Account.root_type,
                 )
-                .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
                 .where(GLEntry.cost_center == cost_center)
-                .where(GLEntry.is_cancelled == 0)
-                .groupby(GLEntry.account)
-                .orderby(abs_total, order=frappe.qb.desc)
+                .groupby(GLEntry.account, Account.account_type, Account.root_type)
+                .orderby(Abs(Sum(signed)), order=frappe.qb.desc)
                 .limit(5)
                 .run(as_dict=True)
             )
+            for row in account_data:
+                row["actual_amount"] = flt(row["actual_amount"])
 
             return account_data
 
@@ -852,78 +835,40 @@ class BudgetVarianceIntelligence:
             return []
 
     def _get_account_budget(self, account: str) -> float:
-        """Get budget amount for specific account"""
-        try:
-            Budget = frappe.qb.DocType("Budget")
-            BudgetAccount = frappe.qb.DocType("Budget Account")
-            result = (
-                frappe.qb.from_(Budget)
-                .join(BudgetAccount)
-                .on(BudgetAccount.parent == Budget.name)
-                .select(Coalesce(Sum(BudgetAccount.budget_amount), 0).as_("total_budget"))
-                .where(Budget.company == self.company)
-                .where(Budget.fiscal_year == self.fiscal_year)
-                .where(BudgetAccount.account == account)
-                .where(Budget.docstatus == 1)
-                .run()
-            )
+        """Get fiscal-year budget amount for specific account"""
+        return sum(
+            self._period_budget(b, self.fy_start_date, self.fy_end_date)
+            for b in self._fetch_budget_data()
+            if b["account"] == account
+        )
 
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error getting account budget: {e}")
-            return 0
+    def _account_actual(self, account: str, start, end) -> float:
+        """Sign-corrected actual for one account over start..end"""
+        query, GLEntry, _, signed = self._signed_actual(start, end)
+        result = query.select(Coalesce(Sum(signed), 0)).where(GLEntry.account == account).run()
+        return flt(result[0][0]) if result else 0.0
 
     def _get_account_actual(self, account: str) -> float:
         """Get actual amount for specific account"""
-        try:
-            GLEntry = frappe.qb.DocType("GL Entry")
-            result = (
-                frappe.qb.from_(GLEntry)
-                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("total_actual"))
-                .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
-                .where(GLEntry.account == account)
-                .where(GLEntry.is_cancelled == 0)
-                .run()
-            )
-
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error getting account actual: {e}")
-            return 0
+        return self._account_actual(account, self.fy_start_date, self.fy_end_date)
 
     def _get_account_monthly_breakdown(self, account: str) -> list[dict[str, Any]]:
         """Get monthly breakdown for account"""
         try:
             monthly_data = []
             current_date = self.fy_start_date
+            rows = [b for b in self._fetch_budget_data() if b["account"] == account]
 
             while current_date <= self.fy_end_date:
-                month_start = current_date
                 month_end = min(
                     frappe.utils.get_last_day(current_date),
                     self.fy_end_date
                 )
 
-                # Get actual for the month
-                GLEntry = frappe.qb.DocType("GL Entry")
-                result = (
-                    frappe.qb.from_(GLEntry)
-                    .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("monthly_actual"))
-                    .where(GLEntry.company == self.company)
-                    .where(GLEntry.posting_date.between(month_start, month_end))
-                    .where(GLEntry.account == account)
-                    .where(GLEntry.is_cancelled == 0)
-                    .run()
-                )
-
-                monthly_actual = result[0][0] if result and result[0][0] else 0
-
                 monthly_data.append({
-                    "month": month_start.strftime("%Y-%m"),
-                    "actual": monthly_actual
+                    "month": current_date.strftime("%Y-%m"),
+                    "actual": self._account_actual(account, current_date, month_end),
+                    "budget": sum(self._period_budget(b, current_date, month_end) for b in rows),
                 })
 
                 current_date = frappe.utils.add_months(current_date, 1)
@@ -1092,6 +1037,7 @@ class BudgetVarianceIntelligence:
     def _calculate_trend_direction(self, monthly_data: list) -> str:
         """Calculate overall trend direction from monthly data"""
         try:
+            monthly_data = [m for m in monthly_data if m.get("has_budget")]
             if len(monthly_data) < 3:
                 return "insufficient_data"
 
@@ -1268,13 +1214,13 @@ class BudgetVarianceIntelligence:
                 frappe.qb.from_(GLEntry)
                 .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("net_cash_flow"))
                 .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(self.fy_start_date, self.fy_end_date))
+                .where(GLEntry.posting_date.between(self.fy_start_date, min(self.fy_end_date, getdate())))
                 .where(GLEntry.account.isin(account_names))
                 .where(GLEntry.is_cancelled == 0)
                 .run()
             )
 
-            actual_cash_flow = result[0][0] if result and result[0][0] else 0
+            actual_cash_flow = flt(result[0][0]) if result else 0.0
 
             # For this example, assume budgeted cash flow is 80% of revenue budget
             # In practice, this should come from a proper cash flow budget
@@ -1450,30 +1396,12 @@ class BudgetVarianceIntelligence:
     # Additional utility methods
 
     def _get_revenue_budget(self) -> float:
-        """Get total revenue budget"""
-        try:
-            Budget = frappe.qb.DocType("Budget")
-            BudgetAccount = frappe.qb.DocType("Budget Account")
-            Account = frappe.qb.DocType("Account")
-            result = (
-                frappe.qb.from_(Budget)
-                .join(BudgetAccount)
-                .on(BudgetAccount.parent == Budget.name)
-                .join(Account)
-                .on(Account.name == BudgetAccount.account)
-                .select(Coalesce(Sum(BudgetAccount.budget_amount), 0).as_("revenue_budget"))
-                .where(Budget.company == self.company)
-                .where(Budget.fiscal_year == self.fiscal_year)
-                .where(Account.root_type == "Income")
-                .where(Budget.docstatus == 1)
-                .run()
-            )
-
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error getting revenue budget: {e}")
-            return 0
+        """Get total revenue budget for the fiscal year"""
+        return sum(
+            self._period_budget(b, self.fy_start_date, self.fy_end_date)
+            for b in self._fetch_budget_data()
+            if b["root_type"] == "Income"
+        )
 
     def _needs_process_improvement(self) -> bool:
         """Determine if process improvement recommendations are needed"""
@@ -1496,46 +1424,12 @@ class BudgetVarianceIntelligence:
     # Final utility and validation methods
 
     def _get_ytd_budget_amount(self, end_date) -> float:
-        """Get year-to-date budget amount"""
-        try:
-            # Calculate proportional budget based on elapsed time
-            days_elapsed = (end_date - self.fy_start_date).days
-            days_total = (self.fy_end_date - self.fy_start_date).days
-
-            if days_total == 0:
-                return 0
-
-            proportion = days_elapsed / days_total
-            total_budget = sum(item.get('budget_amount', 0) for item in self._fetch_budget_data())
-
-            return total_budget * proportion
-
-        except Exception as e:
-            logger.error(f"Error calculating YTD budget: {e}")
-            return 0
+        """Get year-to-date budget amount (follows each Budget's distribution)"""
+        return sum(self._period_budget(b, self.fy_start_date, end_date) for b in self._fetch_budget_data())
 
     def _get_ytd_actual_amount(self, end_date) -> float:
-        """Get year-to-date actual amount"""
-        try:
-            GLEntry = frappe.qb.DocType("GL Entry")
-            Account = frappe.qb.DocType("Account")
-            result = (
-                frappe.qb.from_(GLEntry)
-                .join(Account)
-                .on(Account.name == GLEntry.account)
-                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("ytd_actual"))
-                .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(self.fy_start_date, end_date))
-                .where(GLEntry.is_cancelled == 0)
-                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
-                .run()
-            )
-
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error calculating YTD actual: {e}")
-            return 0
+        """Get year-to-date actual on the budgeted accounts"""
+        return self._budgeted_actual(self.fy_start_date, end_date)
 
     def _assess_run_rate(self, expected: float, actual: float) -> str:
         """Assess budget run rate status"""
@@ -1551,98 +1445,39 @@ class BudgetVarianceIntelligence:
             return "major_deviation"
 
     def _get_department_actual_for_period(self, department: str, start_date, end_date) -> float:
-        """Get department actual for specific period"""
-        try:
-            cost_center = frappe.db.get_value("Department", department, "payroll_cost_center")
+        """Expense actual for a department's cost center over a period"""
+        cost_center = frappe.db.get_value("Department", department, "payroll_cost_center")
+        if not cost_center:
+            return 0.0
 
-            if not cost_center:
-                return 0
-
-            GLEntry = frappe.qb.DocType("GL Entry")
-            Account = frappe.qb.DocType("Account")
-            result = (
-                frappe.qb.from_(GLEntry)
-                .join(Account)
-                .on(Account.name == GLEntry.account)
-                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("period_actual"))
-                .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(start_date, end_date))
-                .where(GLEntry.cost_center == cost_center)
-                .where(GLEntry.is_cancelled == 0)
-                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
-                .run()
-            )
-
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error getting department actual for period: {e}")
-            return 0
+        query, GLEntry, Account, signed = self._signed_actual(start_date, end_date)
+        result = (
+            query.select(Coalesce(Sum(signed), 0))
+            .where(GLEntry.cost_center == cost_center)
+            .where(Account.root_type == "Expense")
+            .run()
+        )
+        return flt(result[0][0]) if result else 0.0
 
     def _get_department_budget_for_period(self, department: str, start_date, end_date) -> float:
-        """Get department budget for specific period"""
-        try:
-            # Get total department budget and calculate proportional amount
-            total_budget = self._get_department_budget(department)
+        """Expense budget for a department's cost center over a period"""
+        cost_center = frappe.db.get_value("Department", department, "payroll_cost_center")
+        if not cost_center:
+            return 0.0
 
-            if total_budget == 0:
-                return 0
-
-            # Calculate proportion of fiscal year
-            period_days = (end_date - start_date).days
-            fy_days = (self.fy_end_date - self.fy_start_date).days
-
-            if fy_days == 0:
-                return 0
-
-            proportion = period_days / fy_days
-            return total_budget * proportion
-
-        except Exception as e:
-            logger.error(f"Error getting department budget for period: {e}")
-            return 0
+        return sum(
+            self._period_budget(b, start_date, end_date)
+            for b in self._fetch_budget_data()
+            if b["cost_center"] == cost_center and b["root_type"] == "Expense"
+        )
 
     def _get_monthly_budget_amount(self, start_date, end_date) -> float:
-        """Get proportional budget amount for month"""
-        try:
-            total_budget = sum(item.get('budget_amount', 0) for item in self._fetch_budget_data())
-
-            if total_budget == 0:
-                return 0
-
-            # Calculate proportion
-            period_days = (end_date - start_date).days + 1
-            fy_days = (self.fy_end_date - self.fy_start_date).days + 1
-
-            proportion = period_days / fy_days
-            return total_budget * proportion
-
-        except Exception as e:
-            logger.error(f"Error getting monthly budget: {e}")
-            return 0
+        """Budget falling in a month (follows each Budget's distribution)"""
+        return sum(self._period_budget(b, start_date, end_date) for b in self._fetch_budget_data())
 
     def _get_monthly_actual_amount(self, start_date, end_date) -> float:
-        """Get actual amount for month"""
-        try:
-            GLEntry = frappe.qb.DocType("GL Entry")
-            Account = frappe.qb.DocType("Account")
-            result = (
-                frappe.qb.from_(GLEntry)
-                .join(Account)
-                .on(Account.name == GLEntry.account)
-                .select(Coalesce(Sum(GLEntry.debit - GLEntry.credit), 0).as_("monthly_actual"))
-                .where(GLEntry.company == self.company)
-                .where(GLEntry.posting_date.between(start_date, end_date))
-                .where(GLEntry.is_cancelled == 0)
-                .where(Account.account_type.isin(["Expense Account", "Income Account"]))
-                .run()
-            )
-
-            return result[0][0] if result and result[0][0] else 0
-
-        except Exception as e:
-            logger.error(f"Error getting monthly actual: {e}")
-            return 0
+        """Actual on the budgeted accounts for a month"""
+        return self._budgeted_actual(start_date, end_date)
 
     def _get_performance_metrics(self) -> dict[str, Any]:
         """Get general performance metrics, derived from the variance summary"""
@@ -1731,23 +1566,11 @@ class BudgetVarianceIntelligence:
             total_accounts = frappe.db.count("Account", {
                 "company": self.company,
                 "disabled": 0,
-                "account_type": ["in", ["Income Account", "Expense Account"]]
+                "is_group": 0,
+                "root_type": ["in", ["Income", "Expense"]]
             })
 
-            Budget = frappe.qb.DocType("Budget")
-            BudgetAccount = frappe.qb.DocType("Budget Account")
-            budgeted_accounts = (
-                frappe.qb.from_(BudgetAccount)
-                .join(Budget)
-                .on(Budget.name == BudgetAccount.parent)
-                .select(Count(BudgetAccount.account).distinct())
-                .where(Budget.company == self.company)
-                .where(Budget.fiscal_year == self.fiscal_year)
-                .where(Budget.docstatus == 1)
-                .run()
-            )
-
-            budgeted_count = budgeted_accounts[0][0] if budgeted_accounts else 0
+            budgeted_count = len({b["account"] for b in self._fetch_budget_data()})
             completeness = (budgeted_count / total_accounts * 100) if total_accounts > 0 else 0
 
             return {
@@ -1764,20 +1587,10 @@ class BudgetVarianceIntelligence:
         """Assess budget preparation timeliness"""
         try:
             # Check when budgets were created relative to fiscal year start
-            Budget = frappe.qb.DocType("Budget")
-            budget_creation_dates = (
-                frappe.qb.from_(Budget)
-                .select(Budget.creation)
-                .where(Budget.company == self.company)
-                .where(Budget.fiscal_year == self.fiscal_year)
-                .where(Budget.docstatus == 1)
-                .orderby(Budget.creation)
-                .limit(1)
-                .run()
-            )
+            budget_rows = self._fetch_budget_data()
 
-            if budget_creation_dates:
-                creation_date = budget_creation_dates[0][0]
+            if budget_rows:
+                creation_date = min(b["creation"] for b in budget_rows)
                 days_before_fy = (self.fy_start_date - creation_date.date()).days
 
                 if days_before_fy >= 30:
@@ -1802,11 +1615,7 @@ class BudgetVarianceIntelligence:
         """Assess stakeholder involvement in budgeting"""
         try:
             # Check number of people involved in budget creation/approval
-            budget_count = frappe.db.count("Budget", {
-                "company": self.company,
-                "fiscal_year": self.fiscal_year,
-                "docstatus": 1
-            })
+            budget_count = len({b["budget_name"] for b in self._fetch_budget_data()})
 
             # Simplified assessment
             involvement_score = min(100, budget_count * 10)  # More budgets = more involvement

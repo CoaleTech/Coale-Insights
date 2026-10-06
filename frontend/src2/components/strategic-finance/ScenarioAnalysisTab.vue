@@ -129,23 +129,23 @@
             <div class="space-y-2 text-sm">
               <div class="flex justify-between">
                 <span class="text-ink-gray-6">Revenue</span>
-                <span class="font-medium text-ink-gray-8">{{ formatCurrency(data?.baseline?.revenue || 0) }}</span>
+                <span class="font-medium text-ink-gray-8">{{ formatCurrency(data?.baseline?.revenue) }}</span>
               </div>
               <div class="flex justify-between">
                 <span class="text-ink-gray-6">Expenses</span>
-                <span class="font-medium text-ink-gray-8">{{ formatCurrency(data?.baseline?.expenses || 0) }}</span>
+                <span class="font-medium text-ink-gray-8">{{ formatCurrency(data?.baseline?.expenses) }}</span>
               </div>
               <div class="pt-2 border-t border-outline-gray-1">
                 <div class="flex justify-between">
                   <span class="text-ink-gray-6">Net Income</span>
                   <span class="font-bold text-ink-gray-9">
-                    {{ formatCurrency(data?.baseline?.net_income || 0) }}
+                    {{ formatCurrency(data?.baseline?.net_income) }}
                   </span>
                 </div>
                 <div class="flex justify-between mt-1">
-                  <span class="text-ink-gray-6">Tax (30%)</span>
+                  <span class="text-ink-gray-6">Estimated Tax</span>
                   <span class="font-medium text-ink-gray-7">
-                    {{ formatCurrency(data?.baseline?.tax || 0) }}
+                    {{ formatCurrency(data?.baseline?.tax) }}
                   </span>
                 </div>
                 <div class="flex justify-between mt-1">
@@ -214,6 +214,12 @@
             variant="tile"
           />
         </div>
+        <p
+          v-if="data?.break_even?.fixed_cost_basis === 'assumed_40pct'"
+          class="mt-4 text-sm text-ink-gray-6"
+        >
+          Assumes 40% of expenses are fixed - configure fixed cost centers in Insights Settings.
+        </p>
       </div>
     </div>
 
@@ -228,9 +234,11 @@
           </template>
         </SectionHeader>
         <p class="text-sm text-ink-gray-6 mt-2 mb-4">
-          Based on {{ data?.monte_carlo?.simulations || 1000 }} simulations with random revenue (+/-20%) and expense (+/-15%) variations.
+          Based on {{ data?.monte_carlo?.simulations ?? NO_VALUE }} simulations with random revenue and expense variations
+          (revenue volatility {{ formatPercent(data?.monte_carlo?.revenue_volatility) }}, expense volatility
+          {{ formatPercent(data?.monte_carlo?.expense_volatility) }}), estimated from recent monthly history.
         </p>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <KpiCard
             label="Mean Net Profit"
             :amount="data?.monte_carlo?.mean"
@@ -244,15 +252,8 @@
             variant="tile"
           />
           <KpiCard
-            label="Minimum"
-            :amount="data?.monte_carlo?.min"
-            :currency="getCurrency()"
-            severity="high"
-            variant="tile"
-          />
-          <KpiCard
-            label="Maximum"
-            :amount="data?.monte_carlo?.max"
+            label="Median Net Profit"
+            :amount="data?.monte_carlo?.percentiles?.p50"
             :currency="getCurrency()"
             variant="tile"
           />
@@ -341,16 +342,16 @@
             <p class="text-sm text-ink-gray-6 mt-2">Worst expected outcome at 95% confidence</p>
           </div>
 
-          <!-- Target Achievement -->
+          <!-- Probability of beating the baseline -->
           <div class="p-4 rounded-lg border border-outline-gray-1 bg-surface-gray-1">
             <div class="flex items-center gap-2 mb-2">
               <Target class="h-5 w-5 text-ink-gray-5" />
-              <span class="font-semibold text-ink-gray-9">Target Achievement</span>
+              <span class="font-semibold text-ink-gray-9">Beat Baseline</span>
             </div>
             <p class="text-3xl font-bold text-ink-gray-9">
-              {{ formatPercent(data?.monte_carlo?.target_probability) }}
+              {{ formatPercent(data?.monte_carlo?.probability_exceed_base) }}
             </p>
-            <p class="text-sm text-ink-gray-6 mt-2">Probability of exceeding target profit</p>
+            <p class="text-sm text-ink-gray-6 mt-2">Probability of exceeding baseline net profit</p>
           </div>
         </div>
       </div>
@@ -360,7 +361,7 @@
 </template>
 
 <script setup lang="ts">
-import { NO_VALUE, formatMoney } from '../../utils/format'
+import { NO_VALUE, formatMoney, formatPercent } from '../../utils/format'
 import { ref, computed, type Ref } from 'vue'
 import { useCurrency } from '../../composables/useCurrency'
 import {
@@ -407,12 +408,12 @@ interface ScenarioData {
   monte_carlo?: {
     percentiles?: MonteCarloPercentiles
     probability_of_loss?: number
-    target_probability?: number
+    probability_exceed_base?: number
+    revenue_volatility?: number
+    expense_volatility?: number
     simulations?: number
     mean?: number
     std?: number
-    min?: number
-    max?: number
   }
   baseline?: {
     revenue?: number
@@ -426,6 +427,8 @@ interface ScenarioData {
     current_revenue?: number
     margin_of_safety?: number
     contribution_margin?: number
+    /** `'assumed_40pct'` when no fixed cost centers are configured. */
+    fixed_cost_basis?: string
   }
 }
 
@@ -435,7 +438,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const currency = useCurrency()
+const currency = useCurrency('')
 const getCurrency = () => currency.value
 
 // Tabs model: numeric index mapped to string key
@@ -451,11 +454,6 @@ const revenueChanges = [-30, -20, -10, 0, 10, 20, 30]
 const expenseChanges = [-20, -10, 0, 10, 20]
 
 const formatCurrency = (value: number | null | undefined) => formatMoney(value, getCurrency())
-
-const formatPercent = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return NO_VALUE
-  return `${value.toFixed(1)}%`
-}
 
 const formatChange = (value: number) => (value > 0 ? `+${value}%` : `${value}%`)
 

@@ -14,12 +14,11 @@ from insights.api.ml.utils import cached_run
 
 
 @frappe.whitelist()
-def strategic_finance_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[str, Any]:
+def strategic_finance_intelligence(refresh: bool = False) -> Dict[str, Any]:
     """Strategic finance intelligence: served from cache, recomputed in the background.
 
-    `date_filter` is accepted for frontend API compatibility but the
-    underlying compute does not use it (see `run_strategic_finance_intelligence`),
-    so the cache key is static, not keyed on it.
+    Fixed windows only (fiscal YTD, current/prior month and quarter, trailing
+    12 months): the payload does not take a `date_filter`, so the cache key is static.
     """
     try:
         frappe.has_permission("GL Entry", "read", throw=True)
