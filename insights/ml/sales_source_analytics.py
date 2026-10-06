@@ -23,7 +23,7 @@ import ibis
 
 from typing import Dict, Any, List
 
-from insights.api.ml.ibis_source import dn_cost, line_cogs, t
+from insights.api.ml.ibis_source import company_filter, default_company, dn_cost, line_cogs, sle_cost, t
 
 from insights.ml.source_attribution import build_source_attribution_map
 
@@ -49,7 +49,7 @@ def get_source_attributed_sales(period_start: str, period_end: str) -> List[Dict
     """
     attr_map = build_source_attribution_map(period_start, period_end)
 
-    si = t("Sales Invoice")
+    si = company_filter(t("Sales Invoice"), default_company())
     sii = t("Sales Invoice Item")
     base = (
         si.filter(si.docstatus == 1)
@@ -57,34 +57,27 @@ def get_source_attributed_sales(period_start: str, period_end: str) -> List[Dict
         .filter(si.posting_date.between(period_start, period_end))
     )
 
-    # Revenue: `grand_total` is a Sales Invoice HEADER field. Read it off
-    # `si` directly, with no join -- joining to `Sales Invoice Item` first
-    # (as the previous version did) replicates the header row once per line
-    # item, and `.sum()` over that then multiplies every invoice's total by
-    # its own line count. Measured on this site: reported revenue 242.17M
-    # against a raw `SUM(grand_total)` ground truth of 177.30M for the same
-    # 12-month window (1.37x inflation, tracking the ~1.3 lines/invoice
-    # average) -- order_count tied out exactly because that was counted in
-    # Python per DataFrame row post-`group_by(si.name)`, so only the summed
-    # currency columns were affected.
-    revenue_df = base.select(name=si.name, grand_total=si.grand_total).execute()
+    # Revenue: `base_net_total` (tax-exclusive, base currency -- the dashboard
+    # basis) is a Sales Invoice HEADER field. Read it off `si` directly, with
+    # no join: joining to `Sales Invoice Item` first replicates the header row
+    # once per line item and `.sum()` then multiplies every invoice's total by
+    # its own line count.
+    revenue_df = base.select(name=si.name, net_total=si.base_net_total).execute()
     if revenue_df.empty:
         return []
 
-    # Gross profit genuinely is line-level (`net_amount`, `incoming_rate`),
-    # so summing it per invoice across the invoice's own joined lines is
-    # correct -- unlike `grand_total`, these values are not replicated
-    # header fields.
+    # Gross profit is line-level (`base_net_amount` less SLE-booked cost, the
+    # same cost basis as analyze_margins), so summing it per invoice across
+    # its own joined lines is correct.
     dn = dn_cost()
+    sle = sle_cost()
     gp_df = (
-        si.inner_join(sii, sii.parent == si.name)
+        base.inner_join(sii, sii.parent == si.name)
         .left_join(dn, sii.dn_detail == dn.dn_name)
-        .filter(si.docstatus == 1)
-        .filter(si.is_return == 0)
-        .filter(si.posting_date.between(period_start, period_end))
+        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
         .group_by(si.name)
         .aggregate(
-            gross_profit=sii.net_amount.sum() - line_cogs(sii, dn.dn_rate).sum()
+            gross_profit=sii.base_net_amount.sum() - line_cogs(sii, dn.dn_rate, sle.svd).sum()
         )
         .execute()
     )
@@ -100,7 +93,7 @@ def get_source_attributed_sales(period_start: str, period_end: str) -> List[Dict
         bucket = source_data.setdefault(
             source, {"revenue": 0.0, "gross_profit": 0.0, "order_count": 0}
         )
-        bucket["revenue"] += float(row.get("grand_total") or 0)
+        bucket["revenue"] += float(row.get("net_total") or 0)
         bucket["gross_profit"] += gp_map.get(name, 0.0)
         bucket["order_count"] += 1
 
@@ -179,21 +172,16 @@ def get_quotation_analytics(period_start: str, period_end: str) -> Dict[str, Any
 def get_territory_performance(period_start: str, period_end: str) -> List[Dict]:
     """Sales invoices and gross profit by territory.
 
-    Territory and `grand_total` are both Sales Invoice header fields.
+    Territory and `base_net_total` are both Sales Invoice header fields.
     Revenue is aggregated straight off `si` with no join; joining to
-    `Sales Invoice Item` first (the previous version's `inner_join` ->
-    `group_by(territory)` -> `grand_total.sum()`, despite what its old
-    docstring claimed) replicates each invoice's header row once per line
-    item, so the sum multiplies every invoice's total by its own line
-    count. Measured on this site: reported revenue 239.48M against a raw
-    per-invoice ground truth of 175.24M for the same window (1.37x
-    inflation, tracking the ~1.3 lines/invoice average).
+    `Sales Invoice Item` first would replicate each invoice's header row
+    once per line item and multiply its total by its line count.
 
-    Gross profit still requires the line-level join for `incoming_rate`;
-    grouping the joined result by territory is correct there because
-    those fields are genuinely per-line, not a replicated header value.
+    Gross profit still requires the line-level join for the SLE cost
+    (same basis as analyze_margins); grouping the joined result by
+    territory is correct there because those fields are genuinely per-line.
     """
-    si = t("Sales Invoice")
+    si = company_filter(t("Sales Invoice"), default_company())
     sii = t("Sales Invoice Item")
     base = (
         si.filter(si.docstatus == 1)
@@ -205,19 +193,21 @@ def get_territory_performance(period_start: str, period_end: str) -> List[Dict]:
 
     revenue_expr = base.group_by(si.territory).aggregate(
         order_count=si.name.nunique(),
-        revenue=si.grand_total.sum(),
+        revenue=si.base_net_total.sum(),
     )
     revenue_df = revenue_expr.execute()
     if revenue_df.empty:
         return []
 
     dn = dn_cost()
+    sle = sle_cost()
     gp_expr = (
         base.inner_join(sii, sii.parent == si.name)
         .left_join(dn, sii.dn_detail == dn.dn_name)
+        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
         .group_by(si.territory)
         .aggregate(
-            gross_profit=sii.net_amount.sum() - line_cogs(sii, dn.dn_rate).sum()
+            gross_profit=sii.base_net_amount.sum() - line_cogs(sii, dn.dn_rate, sle.svd).sum()
         )
     )
     gp_df = gp_expr.execute()

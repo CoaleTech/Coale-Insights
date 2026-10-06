@@ -20,6 +20,8 @@ import {
   tierFilterOptions, rfmSegmentFilterOptions, riskFilterOptions,
   getRecentCustomers, addRecentCustomer, actionLabel,
 } from '../utils/customerUtils'
+import { asNumber, NO_VALUE } from '../utils/format'
+import { DEFAULT_DATE_RANGES, FISCAL_PERIOD_RANGES, decodeCustomRange } from '../utils/dateRangePresets'
 import { severityBadge, severityFill, scoreSeverity, ragSeverity, prioritySeverity, deltaInk, type Severity } from '../utils/status'
 import type { DrillDownParams } from '../intelligence/composables/useDrillDown'
 import KpiCard from '../intelligence/components/KpiCard.vue'
@@ -49,6 +51,11 @@ function viewCustomerDetail(customerId: string) {
   emit('view-customer', customerId)
 }
 
+// Rankings row -> that customer's invoices over the selected window (D9).
+function drillCustomerOrders(c: ScorecardRow) {
+  drillOpen(`${c.customer_name} Orders`, { metric: 'top_customers', customer: c.customer, date_filter: props.dateFilter })
+}
+
 // ── Types ──────────────────────────────────────────────────────────────────
 interface CustomerRow {
   customer_id: string
@@ -71,7 +78,7 @@ interface ScorecardRow {
   customer_name: string
   revenue: number
   gross_profit: number
-  margin_pct: number
+  margin_pct: number | null
   months_active: number
   total_months: number
   consistency_score: number
@@ -118,9 +125,14 @@ const REC_TIER_LABELS: Record<number, string> = {
 const counts = ref<any>(null)
 const scorecard = ref<ScorecardData | null>(null)
 const isLoadingRankings = ref(false)
-const purchasePatternsData = ref<any>(null)
+// Purchase patterns cached per date filter, so a window change refetches but
+// flipping back to a seen window (or between tabs) does not.
+const patternsByFilter = ref<Record<string, any>>({})
+const patternsLoadingKey = ref<string | null>(null)
+const purchasePatternsData = computed(() => patternsByFilter.value[props.dateFilter] ?? null)
+const isLoadingPatterns = computed(() => patternsLoadingKey.value === props.dateFilter && !purchasePatternsData.value)
 const activeCutoff = ref('6')
-const isLoadingPatterns = ref(false)
+
 // Rankings filters + sort — all client-side over the one scorecard list.
 const rankSearch = ref('')
 const rankTier = ref('')
@@ -138,7 +150,7 @@ const sortableCols: { key: RankSortKey; label: string }[] = [
   { key: 'gross_profit', label: 'Gross Profit' },
   { key: 'margin_pct', label: 'Margin %' },
   { key: 'months_active', label: 'Months' },
-  { key: 'consistency_score', label: 'Score' },
+  { key: 'consistency_score', label: 'Consistency' },
   { key: 'health_score', label: 'Health' },
 ]
 
@@ -152,6 +164,17 @@ const recentCustomerIds = ref<string[]>(getRecentCustomers())
 // ── Computed data accessors ────────────────────────────────────────────────
 const summary = computed(() => (props.data.summary ?? {}) as Record<string, unknown>)
 const baseCurrency = computed<string | null>(() => (props.data.base_currency as string) ?? props.currency)
+// D1: revenue on this dashboard is tax-exclusive; the payload says so at its root.
+const revenueBasisNote = computed(() =>
+  props.data.revenue_basis === 'net_of_tax'
+    ? `Revenue shown net of tax${baseCurrency.value ? ` in ${baseCurrency.value}` : ''}`
+    : null)
+const windowLabel = computed(() => {
+  const f = props.dateFilter
+  const custom = decodeCustomRange(f)
+  if (custom) return `${custom.start} to ${custom.end}`
+  return [...DEFAULT_DATE_RANGES, ...FISCAL_PERIOD_RANGES].find(r => r.value === f)?.label ?? f
+})
 const customers = computed(() => {
   let list: CustomerRow[] = (props.data.customers ?? []) as unknown as CustomerRow[]
   if (customerFilter.value) {
@@ -215,9 +238,9 @@ const scorecardRows = computed<ScorecardRow[]>(() => {
   rows = rows.filter(r =>
     gte(r.revenue, minRevenue.value) &&
     gte(r.gross_profit, minGrossProfit.value) &&
-    gte(r.margin_pct, minMargin.value) &&
+    gte(r.margin_pct ?? undefined, minMargin.value) &&
     gte(r.months_active, minMonths.value) &&
-    gte(r.consistency_score, minScore.value))
+    gte(r.consistency_score == null ? undefined : r.consistency_score * 100, minScore.value))
   const key = rankSort.value
   const dir = rankDir.value === 'asc' ? 1 : -1
   return [...rows].sort((a, b) => (Number(a[key] ?? 0) - Number(b[key] ?? 0)) * dir)
@@ -237,22 +260,23 @@ function clearRankFilters() {
   minMonths.value = ''
   minScore.value = ''
 }
-const atRiskCustomers = computed(() => (props.data.at_risk_customers ?? []) as unknown[])
-const topCustomers = computed(() => (props.data.top_customers ?? []) as unknown[])
 const geoAnalysis = computed(() => (props.data.geographic_analysis ?? {}) as any)
 const territoryGeo = computed(() => (geoAnalysis.value.territory_geo ?? {}) as Record<string, unknown>)
 const territoryWorld = computed<GeoPoint[]>(() => (territoryGeo.value.world ?? []) as GeoPoint[])
 const territoryIndia = computed<GeoPoint[]>(() => (territoryGeo.value.india ?? []) as GeoPoint[])
 const territoryUnmapped = computed<UnmappedTerritory[]>(() => (territoryGeo.value.unmapped ?? []) as UnmappedTerritory[])
 const mappedCustomers = computed(() => territoryWorld.value.reduce((s, r) => s + (Number(r.value) || 0), 0))
-const unmappedCustomers = computed(() => territoryUnmapped.value.reduce((s, r) => s + (Number(r.value) || 0), 0))
-const mapCoveragePct = computed(() => {
-  const total = mappedCustomers.value + unmappedCustomers.value
-  return total > 0 ? (mappedCustomers.value / total) * 100 : 0
-})
+// Denominator is every customer counted by the backend, not mapped + unmapped
+// territory buckets: customers with no territory are in neither bucket.
+const totalGeoCustomers = computed(() => asNumber(geoAnalysis.value.coverage?.total_customers) ?? 0)
+const unmappedCustomers = computed(() => Math.max(0, totalGeoCustomers.value - mappedCustomers.value))
+const mapCoveragePct = computed(() =>
+  totalGeoCustomers.value > 0 ? (mappedCustomers.value / totalGeoCustomers.value) * 100 : null)
 const paretoAnalysis = computed(() => (props.data.pareto_analysis ?? {}) as Record<string, unknown>)
 const cohortAnalysis = computed(() => (props.data.cohort_analysis ?? {}) as Record<string, unknown>)
 const nextActions = computed(() => (props.data.next_best_actions ?? []) as ActionItem[])
+// The payload caps next_best_actions; the true flagged count rides alongside.
+const nextActionsTotal = computed(() => asNumber(props.data.next_best_actions_total) ?? nextActions.value.length)
 
 // ── Geography breakdown (dimension-driven, drillable) ───────────────────────
 // One endpoint slices sales by territory / item group / salesperson /
@@ -362,6 +386,13 @@ const actionsSummary = computed(() => {
   return { revenueAtRisk, outstanding, upside, high, total: nextActions.value.length }
 })
 function clearActionFilters() { actionType.value = ''; actionPriority.value = '' }
+const ACTION_CARD_LIMIT = 50
+const actionsCountLabel = computed(() => {
+  const shown = Math.min(filteredActions.value.length, ACTION_CARD_LIMIT)
+  if (actionType.value || actionPriority.value)
+    return `Showing ${shown} of ${filteredActions.value.length} matching (${nextActions.value.length} loaded of ${nextActionsTotal.value} flagged)`
+  return `Showing ${shown} of ${nextActionsTotal.value} flagged customers`
+})
 // `totalCrossSellRecommendations`, `crossSellData`, `loadCrossSellData`,
 // `revenueSplit`/`loadRevenueSplit` and `variance`/`loadVariance` were removed:
 // all were computed or fetched but never rendered. The revenue-split and
@@ -399,17 +430,20 @@ function retentionSeverity(pct: number | undefined): Severity {
 
 // ── Lazy loaders ──────────────────────────────────────────────────────────
 async function loadPurchasePatterns() {
-  if (purchasePatternsData.value) return
-  isLoadingPatterns.value = true
+  const key = props.dateFilter
+  if (patternsByFilter.value[key]) return
+  patternsLoadingKey.value = key
   try {
-    purchasePatternsData.value = await apiCall('insights.api.ml.purchase_patterns', {
+    const res = await apiCall('insights.api.ml.purchase_patterns', {
       top_percentile: 20,
+      date_filter: key,
     }) as Record<string, unknown>
+    patternsByFilter.value = { ...patternsByFilter.value, [key]: res }
   } catch (e: unknown) {
     const { message } = readFrappeError(e, 'Could not load purchase patterns')
     console.error('Failed to load purchase patterns:', message)
   } finally {
-    isLoadingPatterns.value = false
+    if (patternsLoadingKey.value === key) patternsLoadingKey.value = null
   }
 }
 
@@ -500,6 +534,7 @@ watch(() => props.dateFilter, () => {
   loadCustomerCounts()
   loadRankings()
   if (props.activeTab === 'cust-geography') loadGeoOptions()
+  if (props.activeTab === 'cust-patterns') loadPurchasePatterns()
 })
 
 onMounted(() => {
@@ -548,8 +583,8 @@ onMounted(() => {
     </dl>
   </div>
 
-  <!-- Active Cutoff Selector -->
-  <div class="mb-4">
+  <!-- Active Cutoff Selector + window / revenue-basis caption -->
+  <div class="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2">
     <Select
       v-model="activeCutoff"
       :options="[
@@ -559,6 +594,9 @@ onMounted(() => {
       ]"
       class="text-sm"
     />
+    <p class="text-sm text-ink-gray-6">
+      Window: {{ windowLabel }}<template v-if="revenueBasisNote"> · {{ revenueBasisNote }}</template>
+    </p>
   </div>
 
   <!-- ═══ Overview ═══ -->
@@ -679,9 +717,10 @@ onMounted(() => {
         <tbody class="divide-y divide-outline-gray-1">
           <tr v-for="customer in customers.slice(0, 100)" :key="customer.customer_id"
             class="hover:bg-surface-gray-1 cursor-pointer transition-colors motion-reduce:transition-none"
-            tabindex="0"
+            tabindex="0" role="button"
             @click="viewCustomerDetail(customer.customer_id)"
-            @keydown.enter="viewCustomerDetail(customer.customer_id)">
+            @keydown.enter="viewCustomerDetail(customer.customer_id)"
+            @keydown.space.prevent="viewCustomerDetail(customer.customer_id)">
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
                 <div>
@@ -692,16 +731,16 @@ onMounted(() => {
             </td>
             <td class="px-4 py-3"><Badge theme="gray" variant="subtle" :label="customer.rfm_segment || '-'" size="sm" /></td>
             <td class="px-4 py-3"><Badge theme="gray" variant="subtle" :label="customer.clv_tier || '-'" size="sm" /></td>
-            <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(customer.total_clv || customer.historical_clv) }}</td>
+            <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(customer.total_clv ?? customer.historical_clv) }}</td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(customer.gross_profit) }}</td>
             <td class="px-4 py-3 text-center">
-              <Badge v-bind="severityBadge(healthSeverity(customer.health_status))" :label="String(Math.round(customer.health_score || 0))" size="sm" />
+              <Badge v-bind="severityBadge(healthSeverity(customer.health_status))" :label="customer.health_score == null ? NO_VALUE : String(Math.round(customer.health_score))" size="sm" />
             </td>
             <td class="px-4 py-3 text-center">
               <Badge v-bind="severityBadge(churnSeverity(customer.churn_risk))" :label="customer.churn_risk || '-'" size="sm" />
             </td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ customer.order_count }}</td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ Math.round(customer.recency_days || 0) }}d</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ customer.recency_days == null ? NO_VALUE : `${Math.round(customer.recency_days)}d` }}</td>
             <td class="px-4 py-3 text-center"><ChevronRight class="w-4 h-4 text-ink-gray-5 inline" aria-hidden="true" /></td>
           </tr>
         </tbody>
@@ -732,10 +771,11 @@ onMounted(() => {
       </div>
       <p v-if="unmappedCustomers > 0" class="border-t border-outline-gray-1 px-4 py-3 text-sm text-ink-gray-6">
         Shaded regions cover {{ formatNumber(mappedCustomers) }} of
-        {{ formatNumber(mappedCustomers + unmappedCustomers) }} customers
+        {{ formatNumber(totalGeoCustomers) }} customers
         ({{ formatPercent(mapCoveragePct) }}). City territories are counted
-        under their parent state, so click India to see them. The remainder
-        have no usable parent territory and are listed below the map.
+        under their parent state, so click India to see them. The remaining
+        {{ formatNumber(unmappedCustomers) }} have no usable parent territory;
+        those with a territory name are listed below the map.
       </p>
     </div>
 
@@ -813,8 +853,8 @@ onMounted(() => {
         </thead>
         <tbody class="divide-y divide-outline-gray-1">
           <tr v-for="row in geoRows.slice(0, 100)" :key="row.key || row.label"
-            class="hover:bg-surface-gray-1 cursor-pointer transition-colors motion-reduce:transition-none" tabindex="0"
-            @click="geoRowClick(row)" @keydown.enter="geoRowClick(row)">
+            class="hover:bg-surface-gray-1 cursor-pointer transition-colors motion-reduce:transition-none" tabindex="0" role="button"
+            @click="geoRowClick(row)" @keydown.enter="geoRowClick(row)" @keydown.space.prevent="geoRowClick(row)">
             <td class="px-4 py-3">
               <div class="flex items-center gap-2">
                 <MapPin v-if="effectiveGeoDim === 'territory'" class="w-4 h-4 text-ink-gray-5" aria-hidden="true" />
@@ -850,8 +890,8 @@ onMounted(() => {
         sublabel="payment follow-ups" :severity="actionsSummary.outstanding > 0 ? 'medium' : undefined" />
       <KpiCard label="Upsell + nurture upside" :amount="actionsSummary.upside" :currency="baseCurrency"
         sublabel="predicted 12-mo value" />
-      <KpiCard label="Customers flagged" :value="actionsSummary.total"
-        :sublabel="`${actionsSummary.high} high priority`" />
+      <KpiCard label="Customers flagged" :value="formatNumber(nextActionsTotal)"
+        :sublabel="`${actionsSummary.high} high priority${nextActionsTotal > nextActions.length ? ` (of top ${nextActions.length})` : ''}`" />
     </div>
 
     <!-- Filters -->
@@ -860,7 +900,7 @@ onMounted(() => {
       <Select v-model="actionType" :options="actionTypeOptions" aria-label="Filter by action type" class="text-sm" />
       <Select v-model="actionPriority" :options="actionPriorityOptions" aria-label="Filter by priority" class="text-sm" />
       <Button variant="outline" label="Clear filters" @click="clearActionFilters" />
-      <span class="ml-auto text-sm text-ink-gray-6">{{ filteredActions.length }} of {{ nextActions.length }} customers</span>
+      <span class="ml-auto text-sm text-ink-gray-6">{{ actionsCountLabel }}</span>
     </div>
 
     <!-- Empty state -->
@@ -974,7 +1014,7 @@ onMounted(() => {
     <div v-else-if="purchasePatternsData">
       <div class="p-4 bg-surface-gray-1 rounded-lg border border-outline-gray-1">
         <p class="text-sm text-ink-gray-7">
-          <strong>Analysis Scope:</strong> Top {{ purchasePatternsData.analysis_scope?.top_percentile }}% of customers by CLV
+          <strong>Analysis Scope:</strong> {{ windowLabel }} · Top {{ purchasePatternsData.analysis_scope?.top_percentile }}% of customers by CLV
           ({{ purchasePatternsData.analysis_scope?.customer_count }} customers, {{ purchasePatternsData.analysis_scope?.transaction_count }} transactions)
         </p>
       </div>
@@ -1124,7 +1164,7 @@ onMounted(() => {
       <label class="text-xs text-ink-gray-6">Min Months Active
         <FormControl v-model="minMonths" type="number" placeholder="0" aria-label="Minimum months active" class="mt-1 w-24" />
       </label>
-      <label class="text-xs text-ink-gray-6">Min Score
+      <label class="text-xs text-ink-gray-6">Min Consistency %
         <FormControl v-model="minScore" type="number" placeholder="0" aria-label="Minimum consistency score" class="mt-1 w-24" />
       </label>
       <Button variant="outline" label="Clear filters" @click="clearRankFilters" />
@@ -1160,9 +1200,10 @@ onMounted(() => {
           <tbody>
             <tr v-for="c in scorecardRows.slice(0, 200)" :key="c.customer"
               class="border-b border-outline-gray-1 last:border-0 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
-              tabindex="0"
-              @click="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })"
-              @keydown.enter="drillOpen(String(c.customer_name) + ' Orders', { metric: 'top_customers', customer: c.customer })">
+              tabindex="0" role="button"
+              @click="drillCustomerOrders(c)"
+              @keydown.enter="drillCustomerOrders(c)"
+              @keydown.space.prevent="drillCustomerOrders(c)">
               <td class="px-4 py-2 text-ink-gray-8">{{ c.customer_name }}</td>
               <td class="px-4 py-2">
                 <Badge v-if="c.clv_tier" theme="gray" variant="subtle" :label="c.clv_tier" size="sm" />
@@ -1175,9 +1216,9 @@ onMounted(() => {
               </td>
               <td class="px-4 py-2 text-right tnum font-medium text-ink-gray-9">{{ money(c.revenue) }}</td>
               <td class="px-4 py-2 text-right tnum font-medium" :class="deltaInk(c.gross_profit)">{{ money(c.gross_profit) }}</td>
-              <td class="px-4 py-2 text-right tnum" :class="deltaInk(c.margin_pct)">{{ c.margin_pct }}%</td>
+              <td class="px-4 py-2 text-right tnum" :class="deltaInk(c.margin_pct)">{{ formatPercent(c.margin_pct) }}</td>
               <td class="px-4 py-2 text-right tnum text-ink-gray-7">{{ c.months_active }}/{{ c.total_months }}</td>
-              <td class="px-4 py-2 text-right tnum text-ink-gray-9">{{ c.consistency_score }}</td>
+              <td class="px-4 py-2 text-right tnum text-ink-gray-9">{{ c.consistency_score == null ? NO_VALUE : formatPercent(c.consistency_score * 100) }}</td>
               <td class="px-4 py-2 text-right">
                 <Badge v-if="c.health_score != null" v-bind="severityBadge(healthSeverity(c.health_status))" :label="String(Math.round(c.health_score))" size="sm" />
                 <span v-else class="text-ink-gray-4">—</span>

@@ -22,7 +22,14 @@ from typing import Any, Dict, Optional
 
 import frappe
 
-from insights.api.ml.utils import cached_run, enqueue_dashboard_compute, is_cached, run
+from insights.api.ml.utils import (
+    _scoped,
+    cached_run,
+    enqueue_dashboard_compute,
+    is_cached,
+    parse_date_filter,
+    run,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -30,17 +37,20 @@ from insights.api.ml.utils import cached_run, enqueue_dashboard_compute, is_cach
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def customer_segmentation(refresh: bool = False, company: Optional[str] = None) -> Dict[str, Any]:
-    """RFM segmentation of all customers. `refresh` is accepted but no
-    longer controls any cache -- every call is fresh.
+def customer_segmentation(refresh: bool = False, date_filter: str = "12m",
+                          company: Optional[str] = None) -> Dict[str, Any]:
+    """RFM segmentation of all customers in the `date_filter` window -- the
+    same RFM the customer intelligence payload carries. `refresh` is accepted
+    but no longer controls any cache -- every call is fresh.
     """
     frappe.has_permission("Customer", "read", throw=True)
     from insights.ml.customer import compute_rfm_segmentation
-    return run(lambda: compute_rfm_segmentation(company=company), "Customer segmentation")
+    return run(lambda: compute_rfm_segmentation(date_filter=date_filter, company=company),
+               "Customer segmentation")
 
 
 @frappe.whitelist()
-def get_segment_summary() -> Dict[str, Any]:
+def get_segment_summary(date_filter: str = "12m", company: Optional[str] = None) -> Dict[str, Any]:
     """Segment counts/averages, pulled from the same RFM compute the
     segmentation endpoint uses. The previous code expected a `segment_summary`
     key shaped `{segment_name: {count, total_revenue, avg_revenue}}` -- we
@@ -51,7 +61,7 @@ def get_segment_summary() -> Dict[str, Any]:
     from insights.ml.customer import compute_rfm_segmentation
 
     def _summarize():
-        result = compute_rfm_segmentation()
+        result = compute_rfm_segmentation(date_filter=date_filter, company=company)
         seg_map: Dict[str, Dict[str, Any]] = {}
         for row in result.get("segments", []):
             seg = row.get("segment", "")
@@ -114,7 +124,7 @@ def customer_intelligence_status(date_filter: str = "12m",
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def customer_360(customer_id: str) -> Dict[str, Any]:
+def customer_360(customer_id: str, date_filter: str = "12m") -> Dict[str, Any]:
     """Convenience alias for customer_360_detail without the purchase /
     recommendation sub-objects -- the original endpoint signature.
     """
@@ -122,7 +132,8 @@ def customer_360(customer_id: str) -> Dict[str, Any]:
     from insights.ml.customer import compute_customer_360
     return run(lambda: compute_customer_360(customer_id,
                                             include_purchases=False,
-                                            include_recommendations=False),
+                                            include_recommendations=False,
+                                            date_filter=date_filter),
                "Customer 360")
 
 
@@ -130,7 +141,8 @@ def customer_360(customer_id: str) -> Dict[str, Any]:
 def customer_360_detail(customer_id: str,
                         include_purchases: bool = True,
                         include_recommendations: bool = True,
-                        company: Optional[str] = None) -> Dict[str, Any]:
+                        company: Optional[str] = None,
+                        date_filter: str = "12m") -> Dict[str, Any]:
     """Detailed 360-degree customer view. The base_currency field is
     injected at the payload root (not inside `customer`) because that's
     where the frontend reads it.
@@ -142,9 +154,11 @@ def customer_360_detail(customer_id: str,
         result = compute_customer_360(customer_id,
                                       include_purchases=include_purchases,
                                       include_recommendations=include_recommendations,
-                                      company=company)
+                                      company=company,
+                                      date_filter=date_filter)
         if isinstance(result, dict):
             result.setdefault("base_currency", _base_currency(company))
+            result.setdefault("revenue_basis", "net_of_tax")
         return result
 
     return run(_with_currency, "Customer 360 detail")
@@ -156,13 +170,15 @@ def customer_360_detail(customer_id: str,
 
 @frappe.whitelist()
 def purchase_patterns(top_percentile: int = 20,
+                      date_filter: str = "12m",
                       company: Optional[str] = None) -> Dict[str, Any]:
     """Day-of-week, monthly, and quarterly patterns for the top customers
-    by CLV.
+    by revenue in the `date_filter` window.
     """
     frappe.has_permission("Customer", "read", throw=True)
     from insights.ml.customer import compute_purchase_patterns
     return run(lambda: compute_purchase_patterns(top_percentile=int(top_percentile),
+                                                date_filter=date_filter,
                                                 company=company),
                "Purchase patterns")
 
@@ -253,18 +269,20 @@ def next_best_actions(company: Optional[str] = None) -> Dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 @frappe.whitelist()
-def refresh_scores(company: Optional[str] = None) -> Dict[str, Any]:
+def refresh_scores(date_filter: str = "12m", company: Optional[str] = None) -> Dict[str, Any]:
     """Queue a recompute of the customer intelligence payload.
 
     This used to run the compute inline, which on a full ledger is a request
     that outlives the gateway. It now queues the same job the dashboard's own
-    cache miss would, for the default `12m` window, and returns immediately.
+    cache miss would, for the caller's `date_filter` window, and returns
+    immediately.
     """
     frappe.has_permission("Customer", "write", throw=True)
     enqueue_dashboard_compute(
         "insights.api.ml.customer_intelligence",
-        {"date_filter": "12m", "company": company},
+        {"date_filter": date_filter, "company": company},
         str(frappe.session.user),
+        _scoped(f"insights_ml_customer_intelligence:{date_filter}:{company or 'all'}"),
     )
     return run(lambda: {"queued": True}, "Refresh customer scores")
 
@@ -362,6 +380,14 @@ def get_customer_detail(metric: str, filters: str) -> dict:
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
+    # Same window as the KPI the drill-down belongs to (the dashboard's filter).
+    date_filter = f.get("date_filter")
+
+    def _in_window(db_filters, default=None):
+        start_dt, end_dt = parse_date_filter(date_filter or default)
+        if start_dt and end_dt:
+            db_filters["posting_date"] = ("between", [start_dt.date(), end_dt.date()])
+        return db_filters
 
     if metric == "total_customers":
         frappe.has_permission("Customer", throw=True)
@@ -387,7 +413,8 @@ def get_customer_detail(metric: str, filters: str) -> dict:
 
     if metric == "top_customers":
         frappe.has_permission("Sales Invoice", throw=True)
-        db_filters = {"docstatus": 1}
+        # Revenue KPIs are submitted, non-return invoices in the window.
+        db_filters = _in_window({"docstatus": 1, "is_return": 0}, default="12m")
         if company:
             db_filters["company"] = company
         # The only caller (CustomerSections.vue Top/Bottom Customers by
@@ -397,17 +424,17 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         # of which customer was clicked, under a misleading "<Name> Orders"
         # title. When a customer IS scoped, order by recency (most useful
         # for a single account); the unscoped fallback keeps the original
-        # grand_total-desc browse behaviour.
+        # base_net_total-desc browse behaviour.
         customer = f.get("customer")
         if customer:
             db_filters["customer"] = customer
             order_by = "posting_date desc"
         else:
-            order_by = "grand_total desc"
+            order_by = "base_net_total desc"
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "grand_total", "outstanding_amount"],
+            fields=["name", "customer", "posting_date", "base_net_total", "grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by=order_by,
             ignore_permissions=False,
         )
@@ -416,7 +443,8 @@ def get_customer_detail(metric: str, filters: str) -> dict:
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
+                {"label": "Total (incl. tax)", "fieldname": "grand_total", "fieldtype": "Currency"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
             ],
             "rows": rows,
@@ -425,26 +453,43 @@ def get_customer_detail(metric: str, filters: str) -> dict:
 
     if metric == "new_customers":
         frappe.has_permission("Customer", throw=True)
-        period = f.get("period", "30d")
-        days = {"7d": 7, "30d": 30, "90d": 90, "12m": 365}.get(period, 30)
-        cutoff = frappe.utils.add_days(frappe.utils.today(), -days)
-        db_filters = {"disabled": 0, "creation": (">=", cutoff)}
-        rows = frappe.get_list(
-            "Customer",
-            filters=db_filters,
-            fields=["name", "customer_name", "customer_group", "territory", "creation"],
-            start=start, page_length=page_size, order_by="creation desc",
-            ignore_permissions=False,
-        )
+        from insights.api.ml.ibis_source import default_company
+        from insights.ml.customer import _si_base
+
+        # Customers whose first-ever invoice falls in the window -- exactly
+        # what the `customer_counts` "new" KPI (`new_by_first_txn`) counts.
+        start_dt, end_dt = parse_date_filter(date_filter or "12m")
+        si = _si_base(company or default_company())
+        first = si.group_by(si.customer).aggregate(first_invoice=si.posting_date.min())
+        if start_dt and end_dt:
+            first = first.filter(first.first_invoice.between(start_dt.date(), end_dt.date()))
+        first_df = first.order_by(first.first_invoice.desc(), "customer").execute()
+        total = len(first_df)
+        page_df = first_df.iloc[start:start + page_size]
+        by_name = {
+            r["name"]: r
+            for r in frappe.get_list(
+                "Customer",
+                filters={"name": ("in", page_df["customer"].tolist())},
+                fields=["name", "customer_name", "customer_group", "territory", "creation"],
+                ignore_permissions=False,
+            )
+        }
+        rows = [
+            {**by_name[c], "first_invoice": fi}
+            for c, fi in zip(page_df["customer"], page_df["first_invoice"])
+            if c in by_name
+        ]
         return {
             "columns": [
                 {"label": "Customer", "fieldname": "name", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
                 {"label": "Group", "fieldname": "customer_group", "fieldtype": "Data"},
+                {"label": "First Invoice", "fieldname": "first_invoice", "fieldtype": "Date"},
                 {"label": "Created", "fieldname": "creation", "fieldtype": "Date"},
             ],
             "rows": rows,
-            "total": frappe.db.count("Customer", filters=db_filters),
+            "total": total,
         }
 
     if metric == "customer_invoices":
@@ -453,7 +498,8 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         if not customer:
             frappe.throw(_("customer is required"), frappe.ValidationError)
         bucket = f.get("bucket", "all")  # all | outstanding | overdue
-        db_filters = {"docstatus": 1, "customer": customer}
+        # Lifetime unless the caller scopes a window (customer detail is lifetime).
+        db_filters = _in_window({"docstatus": 1, "is_return": 0, "customer": customer})
         if company:
             db_filters["company"] = company
         if bucket in ("outstanding", "overdue"):
@@ -463,7 +509,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "posting_date", "due_date", "grand_total", "outstanding_amount", "status"],
+            fields=["name", "posting_date", "due_date", "base_net_total", "grand_total", "outstanding_amount", "status"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -472,7 +518,8 @@ def get_customer_detail(metric: str, filters: str) -> dict:
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
+                {"label": "Total (incl. tax)", "fieldname": "grand_total", "fieldtype": "Currency"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
             ],

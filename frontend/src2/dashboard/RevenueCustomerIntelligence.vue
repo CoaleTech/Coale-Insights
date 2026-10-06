@@ -26,7 +26,7 @@ import KpiCard from '../intelligence/components/KpiCard.vue'
 import RevenueSections from './RevenueSections.vue'
 import CustomerSections from './CustomerSections.vue'
 import { scoreSeverity } from '../utils/status'
-import { formatMoney, formatCount, formatPercent } from '../utils/format'
+import { formatMoney, formatCount, formatPercent, asNumber } from '../utils/format'
 
 // ── Router ───────────────────────────────────────────────────────────────
 const router = useRouter()
@@ -134,14 +134,36 @@ const { activeGroup, tabItems, activeTabIndex, activeTab } = useGroupedTabs(TAB_
 // ── Computed: summary from both payloads ──────────────────────────────────
 const salesSummary = computed(() => (salesData.value?.summary ?? {}) as Record<string, number>)
 const custSummary = computed(() => (custData.value?.summary ?? {}) as Record<string, unknown>)
-const baseCurrency = computed<string | null>(() => (custData.value?.base_currency as string) ?? null)
+// Each half reads the currency its own payload declares, falling back to the
+// other only when its own is absent.
+const salesCurrency = computed<string | null>(
+  () => (salesData.value?.base_currency as string) ?? (custData.value?.base_currency as string) ?? null,
+)
+const custCurrency = computed<string | null>(
+  () => (custData.value?.base_currency as string) ?? (salesData.value?.base_currency as string) ?? null,
+)
+const revenueBasisNote = computed(() =>
+  salesData.value?.revenue_basis === 'net_of_tax'
+    ? `Revenue shown net of tax${salesCurrency.value ? ` in ${salesCurrency.value}` : ''}`
+    : null,
+)
 
 /** Unified KPI strip: 6 cards mixing revenue and customer metrics so the
  * cross-domain question ("is revenue down because customers left?") is answered
  * at a glance without navigating between tabs. */
-const atRiskCount = computed(() => {
-  const arc = (custData.value?.at_risk_customers as unknown[]) ?? []
-  return arc.length
+const atRiskCount = computed<number | null>(() => {
+  const dist = custSummary.value.churn_risk_distribution as Record<string, number> | undefined
+  return dist ? (dist.High ?? 0) + (dist.Critical ?? 0) : null
+})
+const yoyValue = computed(() => {
+  const v = asNumber(salesSummary.value.yoy_growth)
+  return v === undefined ? null : `${v >= 0 ? '+' : ''}${formatPercent(v)}`
+})
+// The in-progress month is flagged `is_partial` on the trend; a MoM against it
+// compares a part-month with a whole one, so it is not headlined.
+const currentMonthPartial = computed(() => {
+  const trend = ((salesData.value?.comparisons as Record<string, unknown> | undefined)?.monthly_trend ?? []) as { is_partial?: boolean }[]
+  return trend[trend.length - 1]?.is_partial === true
 })
 
 /**
@@ -154,7 +176,7 @@ const warming = computed(
 )
 
 function money(value: number | undefined | null): string {
-  return formatMoney(value, baseCurrency.value)
+  return formatMoney(value, salesCurrency.value)
 }
 
 
@@ -217,11 +239,11 @@ function handleDashboardRedirect(_target: string) {
       @retry="retryAll"
     >
       <!-- Unified KPI strip: 6 cards mixing revenue + customer metrics -->
-      <div class="grid grid-cols-2 gap-4 p-6 lg:grid-cols-3 xl:grid-cols-6">
+      <div class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 xl:grid-cols-6">
         <KpiCard
           label="Total Revenue"
           :value="money(salesSummary.total_revenue)"
-          :delta="salesSummary.mom_growth"
+          :delta="currentMonthPartial ? null : salesSummary.mom_growth"
           :loading="!salesData || salesWarming"
         />
         <KpiCard
@@ -236,22 +258,23 @@ function handleDashboardRedirect(_target: string) {
         />
         <KpiCard
           label="Gross Margin"
-          :value="formatPercent(salesSummary.overall_margin)"
+          :percent="salesSummary.overall_margin"
           :loading="!salesData || salesWarming"
         />
         <KpiCard
           label="At Risk"
-          :value="String(atRiskCount)"
-          :severity="atRiskCount > 0 ? 'high' : 'none'"
+          :value="atRiskCount"
+          :severity="(atRiskCount ?? 0) > 0 ? 'high' : 'none'"
           :loading="!custData || custWarming"
         />
         <KpiCard
           label="YoY Growth"
-          :value="`${(salesSummary.yoy_growth ?? 0) >= 0 ? '+' : ''}${formatPercent(salesSummary.yoy_growth)}`"
+          :value="yoyValue"
           :loading="!salesData || salesWarming"
           :severity="scoreSeverity(salesSummary.yoy_growth, { good: 0, warn: -10 })"
         />
       </div>
+      <p v-if="revenueBasisNote" class="px-6 pb-2 text-xs text-ink-gray-6">{{ revenueBasisNote }}</p>
 
       <!-- Tab strip -->
       <div class="flex flex-col gap-2 px-6">
@@ -268,7 +291,7 @@ function handleDashboardRedirect(_target: string) {
           :data="salesData"
           :active-tab="activeTab.id"
           :date-filter="dateFilter"
-          :currency="baseCurrency"
+          :currency="salesCurrency"
           :drill-down-endpoint="'insights.api.ml.sales.get_sales_detail'"
           @drill-down="drillDown.open"
         />
@@ -297,7 +320,7 @@ function handleDashboardRedirect(_target: string) {
           :data="custData"
           :active-tab="activeTab.id"
           :date-filter="dateFilter"
-          :currency="baseCurrency"
+          :currency="custCurrency"
           :drill-down-endpoint="'insights.api.ml.customer.get_customer_detail'"
           @drill-down="drillDown.open"
           @view-customer="(id: string) => router.push(`/customer/${id}`)"

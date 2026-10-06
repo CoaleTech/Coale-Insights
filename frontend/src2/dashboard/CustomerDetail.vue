@@ -23,8 +23,7 @@ import {
 } from '../utils/status'
 import {
   formatCurrency as formatCurrencyFull, formatCurrencyCompact, formatNumber,
-  formatDate, formatPercent,
-  addRecentCustomer,
+  formatDate,
 } from '../utils/customerUtils'
 
 const route = useRoute()
@@ -48,6 +47,7 @@ const customer = ref<Record<string, unknown> | null>(null)
  */
 const payloadCurrency = ref<string | null>(null)
 const baseCurrency = computed<string | null>(() => payloadCurrency.value)
+const revenueBasis = ref<string | null>(null)
 function money(value: number | undefined | null): string {
   return formatCurrencyFull(value, baseCurrency.value)
 }
@@ -149,6 +149,7 @@ async function loadCustomerData(refresh = false) {
     // `base_currency` sits at the payload root, not inside `customer`, so it has
     // to be captured here. Missing it rendered every figure with no currency at all.
     payloadCurrency.value = (result.base_currency as string | undefined) ?? null
+    revenueBasis.value = (result.revenue_basis as string | undefined) ?? null
     purchaseHistory.value = (result.purchase_history as Record<string, unknown>[]) || []
     crossSellRecommendations.value = (result.cross_sell as Record<string, unknown>[]) || []
     purchasePatterns.value = (result.purchase_patterns as Record<string, unknown>) || null
@@ -164,24 +165,32 @@ function goBack() {
   router.push('/revenue-customers-intelligence')
 }
 
-function navigateToRelated(relatedCustomerId: string) {
-  addRecentCustomer(relatedCustomerId)
-  router.push(`/customer/${relatedCustomerId}`)
+// Purchase rows open the customer's invoice drill-down (the same
+// `customer_invoices` metric the KPI cards use).
+function openInvoices() {
+  drillDown.open(CUSTOMER_ENDPOINT, 'Invoices', { metric: 'customer_invoices', customer: customerId.value, bucket: 'all' })
 }
 
-// Computed values
+// Nullable figures stay undefined (rendered as NO_VALUE) -- never imputed to 0.
+const num = (key: string) => asNumber(customer.value?.[key])
+const pct0 = (v: number | undefined) => (v === undefined ? NO_VALUE : `${v.toFixed(0)}%`)
 const clvTier = computed(() => (customer.value?.clv_tier as string) || 'Unknown')
-const healthScore = computed(() => (customer.value?.health_score as number) || 0)
+const healthScore = computed(() => num('health_score'))
 const healthStatus = computed(() => (customer.value?.health_status as string) || 'Unknown')
 const churnRisk = computed(() => (customer.value?.churn_risk as string) || 'Unknown')
-const churnScore = computed(() => (customer.value?.churn_score as number) || 0)
+const churnScore = computed(() => num('churn_score'))
+// Segment/score are the server's real RFM result (same definition as the dashboard payload).
 const rfmSegment = computed(() => (customer.value?.rfm_segment as string) || 'Unknown')
+const rfmScore = computed(() => {
+  const s = customer.value?.rfm_score
+  return s === null || s === undefined || s === '' ? NO_VALUE : String(s)
+})
 
-const totalOrders = computed(() => (customer.value?.order_count as number) || 0)
-const totalRevenue = computed(() => (customer.value?.historical_clv as number) || 0)
-const avgOrderValue = computed(() => (customer.value?.avg_order_value as number) || 0)
-const daysSincePurchase = computed(() => (customer.value?.days_since_last_purchase as number) || 0)
-const predictedClv = computed(() => (customer.value?.predicted_12m_clv as number) || 0)
+const totalOrders = computed(() => num('order_count'))
+const totalRevenue = computed(() => num('historical_clv'))
+const avgOrderValue = computed(() => num('avg_order_value'))
+const daysSincePurchase = computed(() => num('days_since_last_purchase'))
+const predictedClv = computed(() => num('predicted_12m_clv'))
 
 const nextBestActions = computed(() => (customer.value?.recommendations as Record<string, unknown>[]) || [])
 
@@ -189,7 +198,6 @@ const nextBestActions = computed(() => (customer.value?.recommendations as Recor
 const healthSeverity = computed(() =>
   scoreSeverity(healthScore.value, HEALTH_SCORE_THRESHOLDS),
 )
-const churnSeverity = computed(() => severityBadge(churnRisk.value))
 
 // Credit limit: recommended exposure ceiling vs the current ERPNext limit
 const recommendedCreditLimit = computed(() => (customer.value?.recommended_credit_limit as number) || 0)
@@ -252,6 +260,9 @@ watch(customerId, () => {
             />
           </div>
           <p class="text-sm text-ink-gray-6">Customer ID: {{ customerId }}</p>
+          <p v-if="revenueBasis === 'net_of_tax'" class="text-xs text-ink-gray-5">
+            Lifetime revenue shown net of tax{{ baseCurrency ? ` in ${baseCurrency}` : '' }}
+          </p>
         </div>
       </div>
 
@@ -299,7 +310,7 @@ watch(customerId, () => {
               <span class="text-sm text-ink-gray-6">Health</span>
               <Badge
                 v-bind="severityBadge(healthSeverity)"
-                :label="`${healthScore.toFixed(0)}%`"
+                :label="pct0(healthScore)"
                 size="sm"
               />
             </div>
@@ -374,7 +385,7 @@ watch(customerId, () => {
               />
               <KpiCard
                 label="Last Purchase"
-                :value="String(daysSincePurchase)"
+                :value="formatNumber(daysSincePurchase)"
                 sublabel="days ago"
                 :severity="scoreSeverity(daysSincePurchase, { good: 30, warn: 90, higherIsBetter: false })"
                 :loading="!hasData"
@@ -429,12 +440,16 @@ watch(customerId, () => {
                     <Badge theme="gray" variant="subtle" :label="rfmSegment" />
                   </div>
                   <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
+                    <span class="text-sm text-ink-gray-6">RFM Score</span>
+                    <span class="text-sm font-medium text-ink-gray-8">{{ rfmScore }}</span>
+                  </div>
+                  <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
                     <span class="text-sm text-ink-gray-6">Health Status</span>
                     <Badge v-bind="severityBadge(healthSeverity)" :label="healthStatus" />
                   </div>
                   <div class="flex justify-between items-center py-2">
                     <span class="text-sm text-ink-gray-6">Churn Risk</span>
-                    <Badge v-bind="severityBadge(churnRisk)" :label="`${churnRisk} (${churnScore.toFixed(0)}%)`" />
+                    <Badge v-bind="severityBadge(churnRisk)" :label="`${churnRisk} (${pct0(churnScore)})`" />
                   </div>
                 </div>
               </div>
@@ -465,9 +480,12 @@ watch(customerId, () => {
                     <tr
                       v-for="purchase in purchaseHistory.slice(0, 20)"
                       :key="purchase.invoice_id as string"
-                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
+                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1 cursor-pointer"
                       tabindex="0"
-                      @keydown.enter.prevent="navigateToRelated(purchase.invoice_id as string)"
+                      role="button"
+                      @click="openInvoices()"
+                      @keydown.enter.prevent="openInvoices()"
+                      @keydown.space.prevent="openInvoices()"
                     >
                       <td class="px-4 py-3 font-medium text-ink-gray-8">{{ purchase.invoice_id }}</td>
                       <td class="px-4 py-3 text-ink-gray-6">{{ formatDate(purchase.posting_date as string) }}</td>
@@ -696,10 +714,10 @@ watch(customerId, () => {
                 <div class="text-center py-6">
                   <div
                     :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(churnRisk)]"
-                    :aria-label="severityAria('Churn Risk', churnRisk, `${churnScore.toFixed(0)}%`)"
+                    :aria-label="severityAria('Churn Risk', churnRisk, pct0(churnScore))"
                     role="img"
                   >
-                    {{ churnScore.toFixed(0) }}%
+                    {{ pct0(churnScore) }}
                   </div>
                   <div class="mt-4 flex items-center justify-center gap-2">
                     <p class="text-lg font-semibold text-ink-gray-8">{{ churnRisk }} Risk</p>
@@ -734,10 +752,10 @@ watch(customerId, () => {
                 <div class="text-center py-6">
                   <div
                     :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(healthSeverity)]"
-                    :aria-label="severityAria('Health Score', healthSeverity, healthScore.toFixed(0))"
+                    :aria-label="severityAria('Health Score', healthSeverity, healthScore === undefined ? NO_VALUE : healthScore.toFixed(0))"
                     role="img"
                   >
-                    {{ healthScore.toFixed(0) }}
+                    {{ healthScore === undefined ? NO_VALUE : healthScore.toFixed(0) }}
                   </div>
                   <div class="mt-4 flex items-center justify-center gap-2">
                     <p class="text-lg font-semibold text-ink-gray-8">{{ healthStatus }}</p>

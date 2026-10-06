@@ -5,6 +5,8 @@
 Sales Intelligence API Endpoints
 """
 
+from datetime import datetime
+
 import frappe
 from frappe import _
 from typing import Dict, Any, List
@@ -80,13 +82,13 @@ def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[
 
 
 @frappe.whitelist()
-def payment_mix() -> Dict[str, Any]:
+def payment_mix(date_filter: str = '12m') -> Dict[str, Any]:
     """Analyze payment method mix"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import calculate_payment_mix
 
-        return success(calculate_payment_mix())
+        return success(calculate_payment_mix(date_filter))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -94,13 +96,13 @@ def payment_mix() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def sales_rep_performance() -> Dict[str, Any]:
+def sales_rep_performance(date_filter: str = '12m') -> Dict[str, Any]:
     """Get sales representative performance analysis"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import analyze_sales_reps
 
-        return success(analyze_sales_reps())
+        return success(analyze_sales_reps(date_filter))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -108,13 +110,13 @@ def sales_rep_performance() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def revenue_breakdown() -> Dict[str, Any]:
+def revenue_breakdown(date_filter: str = '12m') -> Dict[str, Any]:
     """Get revenue breakdown by various dimensions"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import analyze_by_dimensions
 
-        return success(analyze_by_dimensions())
+        return success(analyze_by_dimensions(date_filter))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -122,13 +124,13 @@ def revenue_breakdown() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def margin_analysis() -> Dict[str, Any]:
+def margin_analysis(date_filter: str = '12m') -> Dict[str, Any]:
     """Analyze profit margins"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import analyze_margins
 
-        return success(analyze_margins())
+        return success(analyze_margins(date_filter))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -136,13 +138,13 @@ def margin_analysis() -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def sales_comparisons() -> Dict[str, Any]:
+def sales_comparisons(date_filter: str = '12m') -> Dict[str, Any]:
     """Compare sales across periods and dimensions"""
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_intelligence import calculate_comparisons
 
-        return success(calculate_comparisons())
+        return success(calculate_comparisons(date_filter))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -169,7 +171,7 @@ def train_forecast_models(model_type: str = 'all') -> Dict[str, Any]:
 
 
 @frappe.whitelist()
-def get_historical_and_forecast_by_dimension(dimension: str = 'product_group') -> Dict[str, Any]:
+def get_historical_and_forecast_by_dimension(dimension: str = 'product_group', date_filter: str = '12m') -> Dict[str, Any]:
     """Monthly actuals plus a short projection, by product group and territory.
 
     `dimension` is accepted for backward compatibility and ignored: the Revenue
@@ -180,7 +182,7 @@ def get_historical_and_forecast_by_dimension(dimension: str = 'product_group') -
         frappe.has_permission("Sales Invoice", "read", throw=True)
         from insights.ml.sales_forecasting import get_dimensional_history_and_forecast
 
-        return success(get_dimensional_history_and_forecast())
+        return success(get_dimensional_history_and_forecast(date_filter=date_filter))
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -243,6 +245,29 @@ def territory_performance(date_filter: str = '12m') -> Dict[str, Any]:
     """Alias for territory_sales_performance."""
     return territory_sales_performance(date_filter=date_filter)
 
+
+def _period_bound(period_value: str):
+    """A `frappe.get_list` ``("between", [start, end])`` filter for `period_value`,
+    or ``None`` for "all". Same `parse_date_filter` window (start AND end,
+    incl. ``custom:`` ranges) as the KPI payloads, so a drill-down's row count
+    matches the number the user clicked."""
+    start_dt, end_dt = parse_date_filter(period_value)
+    if start_dt is None:
+        return None
+    return ("between", [start_dt.strftime("%Y-%m-%d"), (end_dt or datetime.now()).strftime("%Y-%m-%d")])
+
+
+def _net_invoice_filters(company, period_value: str) -> Dict[str, Any]:
+    """Filters for the invoices behind a revenue KPI: submitted, credit notes
+    excluded, same window -- exactly what `calculate_revenue_metrics` counts."""
+    filters: Dict[str, Any] = {"docstatus": 1, "is_return": 0}
+    if bound := _period_bound(period_value):
+        filters["posting_date"] = bound
+    if company:
+        filters["company"] = company
+    return filters
+
+
 # ─── Drill-Down ───────────────────────────────────────────────────────────────
 
 @frappe.whitelist()
@@ -254,32 +279,13 @@ def get_sales_detail(metric: str, filters: str) -> dict:
     company = f.get("company") or frappe.defaults.get_user_default("company")
     period = f.get("period", "30d")
 
-    def _period_bound(period_value: str):
-        """A `frappe.get_list` filter-tuple for `period_value`, or ``None`` for
-        "all"/unbounded. Uses the same `parse_date_filter` as the KPI-card
-        payloads (`sales_intelligence`, `quotation_analytics`, ...) so a
-        drill-down's row count always matches the number the user clicked --
-        the old hardcoded `{"7d":7,...}` map silently fell back to 30 days for
-        "6m" and "all" (both real options on the shared date filter), which
-        would have shown a 30-day list under a 6-month or all-time total.
-        """
-        start_dt, _end_dt = parse_date_filter(period_value)
-        if start_dt is None:
-            return None
-        return (">=", start_dt.strftime("%Y-%m-%d"))
-
     if metric == "total_orders":
         frappe.has_permission("Sales Invoice", throw=True)
-        db_filters: Dict[str, Any] = {"docstatus": 1}
-        bound = _period_bound(period)
-        if bound:
-            db_filters["posting_date"] = bound
-        if company:
-            db_filters["company"] = company
+        db_filters = _net_invoice_filters(company, period)
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "grand_total", "currency", "territory"],
+            fields=["name", "customer", "posting_date", "base_net_total", "territory"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -288,7 +294,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
                 {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
             ],
             "rows": rows,
@@ -323,18 +329,15 @@ def get_sales_detail(metric: str, filters: str) -> dict:
     if metric == "sales_by_territory":
         frappe.has_permission("Sales Invoice", throw=True)
         territory = f.get("territory")
-        db_filters: Dict[str, Any] = {"docstatus": 1}
-        bound = _period_bound(period)
-        if bound:
-            db_filters["posting_date"] = bound
-        if company:
-            db_filters["company"] = company
-        if territory:
+        db_filters = _net_invoice_filters(company, period)
+        if territory == "Unassigned":  # the dashboard's label for invoices with no territory
+            db_filters["territory"] = ("is", "not set")
+        elif territory:
             db_filters["territory"] = territory
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "territory", "posting_date", "grand_total"],
+            fields=["name", "customer", "territory", "posting_date", "base_net_total"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -344,7 +347,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
             ],
             "rows": rows,
             "total": frappe.db.count("Sales Invoice", filters=db_filters),
@@ -392,15 +395,10 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         if not source:
             frappe.throw(_("Source is required"), frappe.ValidationError)
         from insights.ml.source_attribution import build_source_attribution_map
-        bound = _period_bound(period)
-        start_iso = bound[1] if bound else "2000-01-01"
-        end_iso = frappe.utils.nowdate()
+        db_filters = _net_invoice_filters(company, period)
+        bound = db_filters.get("posting_date")
+        start_iso, end_iso = bound[1] if bound else ("2000-01-01", frappe.utils.nowdate())
         attr_map = build_source_attribution_map(start_iso, end_iso)
-        db_filters: Dict[str, Any] = {"docstatus": 1, "is_return": 0}
-        if bound:
-            db_filters["posting_date"] = bound
-        if company:
-            db_filters["company"] = company
         if source == "Unattributed":
             excluded = list(attr_map.keys())
             if excluded:
@@ -411,7 +409,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "grand_total", "territory"],
+            fields=["name", "customer", "posting_date", "base_net_total", "territory"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -420,7 +418,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
                 {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
             ],
             "rows": rows,

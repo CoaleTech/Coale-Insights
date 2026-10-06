@@ -28,12 +28,29 @@ and ``get_sales_intelligence`` for backward compatibility.
 from datetime import datetime, timedelta
 from typing import Any
 
+import frappe
 import ibis
 
 from insights.api.ml.ibis_source import company_filter, default_company, dn_cost, line_cogs, sle_cost, t
 from insights.api.ml.utils import parse_date_filter
 from insights.ml.inventory_intelligence import DemandForecasting
-from insights.ml.sales_forecasting import get_sales_forecast
+from insights.ml.sales_forecasting import _is_partial, get_sales_forecast
+
+# Every revenue figure in this payload is tax-exclusive (base_net_total /
+# base_net_amount), in the company base currency, with credit notes
+# (is_return) excluded. Receivables / DSO are the one deliberate exception.
+REVENUE_BASIS = "net_of_tax"
+
+
+def _base_currency(company: str | None) -> str:
+    company = company or default_company()
+    return (
+        (company and frappe.db.get_value("Company", company, "default_currency"))
+        or frappe.db.get_single_value("Global Defaults", "default_currency")
+        or "USD"
+    )
+
+
 
 # ---------------------------------------------------------------------------
 # Revenue metrics
@@ -66,7 +83,7 @@ def calculate_revenue_metrics(
 
     # One aggregate for the headline numbers.
     overall_df = si.aggregate(
-        total_revenue=si.grand_total.sum(),
+        total_revenue=si.base_net_total.sum(),
         total_transactions=si.count(),
         unique_customers=si.customer.nunique(),
     ).execute()
@@ -82,7 +99,7 @@ def calculate_revenue_metrics(
     daily_df = (
         si_daily.group_by(si_daily.posting_date)
         .aggregate(
-            revenue=si_daily.grand_total.sum(),
+            revenue=si_daily.base_net_total.sum(),
             transactions=si_daily.count(),
         )
         .order_by("posting_date")
@@ -104,7 +121,7 @@ def calculate_revenue_metrics(
     weekly_df = (
         si_weekly.group_by(["year_week"])
         .aggregate(
-            revenue=si_weekly.grand_total.sum(),
+            revenue=si_weekly.base_net_total.sum(),
             transactions=si_weekly.count(),
         )
         .order_by("year_week")
@@ -124,7 +141,7 @@ def calculate_revenue_metrics(
     monthly_df = (
         si_monthly.group_by("period")
         .aggregate(
-            revenue=si_monthly.grand_total.sum(),
+            revenue=si_monthly.base_net_total.sum(),
             transactions=si_monthly.count(),
             unique_customers=si_monthly.customer.nunique(),
         )
@@ -137,6 +154,7 @@ def calculate_revenue_metrics(
             "revenue": float(r["revenue"] or 0),
             "transactions": int(r["transactions"] or 0),
             "unique_customers": int(r["unique_customers"] or 0),
+            "is_partial": _is_partial(r["period"], start, end),
         }
         for _, r in monthly_df.iterrows()
     ]
@@ -148,9 +166,8 @@ def calculate_revenue_metrics(
     # company (base) currency -- matching the base-currency valuation the cost
     # is booked in (incoming_rate / DN incoming_rate), so foreign-currency
     # invoices don't mix a transaction-currency numerator against a
-    # base-currency cost. Gross margin % is therefore on net sales (the
-    # Margins/rankings convention), not the tax-inclusive grand_total shown in
-    # the Revenue row.
+    # base-currency cost. Gross margin % is therefore on the same tax-exclusive
+    # base as the Revenue row above.
     sii = t("Sales Invoice Item")
     dn = dn_cost()
     sle = sle_cost()
@@ -263,11 +280,14 @@ def calculate_payment_mix(
     if end is not None:
         si = si.filter(si.posting_date <= end.date())
 
+    # Split on the net-of-tax base so cash_total + credit_total equals
+    # summary.total_revenue; `outstanding_amount == 0` only classifies an
+    # invoice as settled.
     is_cash = si.outstanding_amount == 0
     overall_df = si.aggregate(
-        total=si.grand_total.sum(),
-        cash_total=ibis.ifelse(is_cash, si.grand_total, 0).sum(),
-        credit_total=ibis.ifelse(is_cash, 0, si.grand_total).sum(),
+        total=si.base_net_total.sum(),
+        cash_total=ibis.ifelse(is_cash, si.base_net_total, 0).sum(),
+        credit_total=ibis.ifelse(is_cash, 0, si.base_net_total).sum(),
     ).execute().iloc[0]
     total = float(overall_df["total"] or 0)
     cash_total = float(overall_df["cash_total"] or 0)
@@ -283,8 +303,8 @@ def calculate_payment_mix(
     daily_df = (
         si_daily.group_by(si_daily.posting_date)
         .aggregate(
-            Cash=ibis.ifelse(is_cash_daily, si_daily.grand_total, 0).sum(),
-            Credit=ibis.ifelse(is_cash_daily, 0, si_daily.grand_total).sum(),
+            Cash=ibis.ifelse(is_cash_daily, si_daily.base_net_total, 0).sum(),
+            Credit=ibis.ifelse(is_cash_daily, 0, si_daily.base_net_total).sum(),
         )
         .order_by("posting_date")
         .execute()
@@ -306,32 +326,6 @@ def calculate_payment_mix(
             }
         )
 
-    # Monthly mix.
-    si_monthly = si.mutate(period=si.posting_date.strftime("%Y-%m"))
-    is_cash_monthly = si_monthly.outstanding_amount == 0
-    monthly_df = (
-        si_monthly.group_by("period")
-        .aggregate(
-            Cash=ibis.ifelse(is_cash_monthly, si_monthly.grand_total, 0).sum(),
-            Credit=ibis.ifelse(is_cash_monthly, 0, si_monthly.grand_total).sum(),
-        )
-        .order_by("period")
-        .execute()
-    )
-    monthly_mix: list[dict[str, Any]] = []
-    for _, r in monthly_df.iterrows():
-        cash = float(r["Cash"] or 0)
-        credit = float(r["Credit"] or 0)
-        total_p = cash + credit
-        monthly_mix.append(
-            {
-                "period": r["period"],
-                "Cash": cash,
-                "Credit": credit,
-                "total": total_p,
-                "cash_pct": round(cash / total_p * 100, 1) if total_p > 0 else 0,
-            }
-        )
     # Today's numbers.
     today = datetime.now().date().isoformat()
     today_total = next((d["total"] for d in daily_mix if d["sale_date"] == today), 0)
@@ -346,7 +340,6 @@ def calculate_payment_mix(
         "today_cash_pct": today_cash_pct,
         "today_total": today_total,
         "daily_mix": daily_mix,
-        "monthly_mix": monthly_mix,
     }
 
 
@@ -390,7 +383,7 @@ def analyze_sales_reps(
     if end is not None:
         si = si.filter(si.posting_date <= end.date())
 
-    total_invoice_revenue = float(si.grand_total.sum().execute() or 0)
+    total_invoice_revenue = float(si.base_net_total.sum().execute() or 0)
 
     si_p = si.select(invoice=si["name"], customer=si.customer)
 
@@ -414,6 +407,27 @@ def analyze_sales_reps(
         .order_by(ibis.desc("total_revenue"))
     )
     df = expr.execute()
+
+    # Per-rep gross profit, allocated to each sales person by their share of
+    # the invoice (allocated_amount / base_net_total -- ERPNext allocates off
+    # base_net_total), so margin reconciles with the allocated revenue shown.
+    # Cost is the same Stock-Ledger-booked COGS `analyze_margins` uses, so
+    # sum(rep GP) + unattributed_gross_profit == margins.total_profit.
+    sii = t("Sales Invoice Item")
+    dn = dn_cost()
+    sle = sle_cost()
+    inv_gp_df = (
+        si.inner_join(sii, sii.parent == si.name)
+        .left_join(dn, sii.dn_detail == dn.dn_name)
+        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
+        .group_by(invoice=si.name)
+        .aggregate(
+            invoice_gp=sii.base_net_amount.sum() - line_cogs(sii, dn.dn_rate, sle.svd).sum(),
+            net_total=si.base_net_total.max(),
+        )
+        .execute()
+    )
+    total_gp = float(inv_gp_df["invoice_gp"].astype(float).sum()) if not inv_gp_df.empty else 0.0
     if df.empty:
         return {
             "reps": [],
@@ -422,30 +436,14 @@ def analyze_sales_reps(
             "total_team_revenue": 0,
             "unattributed_revenue": round(total_invoice_revenue, 2),
             "unattributed_revenue_pct": 100.0 if total_invoice_revenue > 0 else 0,
+            "unattributed_gross_profit": round(total_gp, 2),
         }
-
-    # Per-rep gross profit, allocated to each sales person by their share of
-    # the invoice (allocated_amount / grand_total), so margin reconciles with
-    # the allocated revenue shown. Line-level GP = net_amount - COGS, cost from
-    # the linked Delivery Note or reposted SII incoming_rate (see line_cogs).
-    sii = t("Sales Invoice Item")
-    dn = dn_cost()
-    inv_gp_df = (
-        si.inner_join(sii, sii.parent == si.name)
-        .left_join(dn, sii.dn_detail == dn.dn_name)
-        .group_by(invoice=si.name)
-        .aggregate(
-            invoice_gp=sii.net_amount.sum() - line_cogs(sii, dn.dn_rate).sum(),
-            grand_total=si.grand_total.max(),
-        )
-        .execute()
-    )
     team_df = team_p.execute()
     gp_by_rep: dict[str, float] = {}
     if not inv_gp_df.empty and not team_df.empty:
         m = team_df.merge(inv_gp_df, left_on="parent", right_on="invoice", how="inner")
-        gt = m["grand_total"].astype(float)
-        frac = (m["allocated_amount"].astype(float) / gt).where(gt != 0, 0.0)
+        nt = m["net_total"].astype(float)
+        frac = (m["allocated_amount"].astype(float) / nt).where(nt != 0, 0.0)
         m["rep_gp"] = m["invoice_gp"].astype(float).fillna(0.0) * frac
         gp_by_rep = m.groupby("sales_person")["rep_gp"].sum().to_dict()
 
@@ -485,6 +483,7 @@ def analyze_sales_reps(
         "unattributed_revenue_pct": (
             round(unattributed / total_invoice_revenue * 100, 1) if total_invoice_revenue > 0 else 0
         ),
+        "unattributed_gross_profit": round(total_gp - sum(gp_by_rep.values()), 2),
     }
 
 
@@ -555,7 +554,7 @@ def calculate_comparisons(
     def _slice(si_base, start_d, end_d):
         si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))
         return si_period.aggregate(
-            revenue=si_period.grand_total.sum(),
+            revenue=si_period.base_net_total.sum(),
             transactions=si_period.count(),
         ).execute().iloc[0]
 
@@ -582,26 +581,23 @@ def calculate_comparisons(
     si_monthly = si.mutate(period=si.posting_date.strftime("%Y-%m"))
     monthly_df = (
         si_monthly.group_by("period")
-        .aggregate(revenue=si_monthly.grand_total.sum())
+        .aggregate(revenue=si_monthly.base_net_total.sum())
         .order_by("period")
         .execute()
     )
     monthly_trend: list[dict[str, Any]] = []
-    rows = list(monthly_df.to_dict(orient="records"))
-    for i, r in enumerate(rows):
-        if i == 0:
-            mom_pct = 0
-        else:
-            prev = float(rows[i - 1]["revenue"] or 0)
-            curr = float(r["revenue"] or 0)
-            mom_pct = round((curr - prev) / prev * 100, 1) if prev > 0 else 0
-        monthly_trend.append(
-            {
-                "period": r["period"],
-                "revenue": round(float(r["revenue"] or 0), 2),
-                "mom_pct": mom_pct,
-            }
-        )
+    prev: dict[str, Any] | None = None
+    for r in monthly_df.to_dict(orient="records"):
+        curr = float(r["revenue"] or 0)
+        # No MoM against nothing, an empty month or a partial baseline.
+        base_rev = prev["revenue"] if prev and not prev["is_partial"] else 0
+        prev = {
+            "period": r["period"],
+            "revenue": round(curr, 2),
+            "mom_pct": round((curr - base_rev) / base_rev * 100, 1) if base_rev > 0 else None,
+            "is_partial": _is_partial(r["period"], start, end),
+        }
+        monthly_trend.append(prev)
     # Last 12 months.
     monthly_trend = monthly_trend[-12:]
 
@@ -663,7 +659,7 @@ def analyze_by_dimensions(
     seg_df = (
         si.group_by(si.customer_group.fill_null("Uncategorized").name("customer_group"))
         .aggregate(
-            revenue=si.grand_total.sum(),
+            revenue=si.base_net_total.sum(),
             transactions=si.count(),
             unique_customers=si.customer.nunique(),
         )
@@ -673,7 +669,7 @@ def analyze_by_dimensions(
     terr_df = (
         si.group_by(si.territory.fill_null("Unassigned").name("territory"))
         .aggregate(
-            revenue=si.grand_total.sum(),
+            revenue=si.base_net_total.sum(),
             transactions=si.count(),
             unique_customers=si.customer.nunique(),
         )
@@ -713,43 +709,31 @@ def analyze_by_dimensions(
     ]
     by_territory.sort(key=lambda x: x["revenue"], reverse=True)
 
-    # By product_group -- from the item-level join, allocating invoice
-    # total to lines in proportion to their net amount (no double-count).
+    # By product_group -- line base_net_amount sums to the invoice
+    # base_net_total, so the groups tie out to total_revenue. A line with no
+    # item_group is "Uncategorized" rather than silently dropped.
     sii = t("Sales Invoice Item")
     base = si.inner_join(sii, sii.parent == si.name)
-    if start is not None:
-        base = base.filter(base.posting_date >= start.date())
-    allocated = ibis.ifelse(
-        si.base_net_total == 0,
-        sii.base_net_amount,
-        sii.base_net_amount / si.base_net_total * si.base_grand_total,
-    )
     pg_df = (
-        base.filter(sii.item_group.notnull())
-        .filter(sii.item_group != ibis.literal(""))
-        .group_by(sii.item_group)
+        base.group_by(sii.item_group.nullif("").fill_null("Uncategorized").name("item_group"))
         .aggregate(
-            revenue=allocated.sum(),
+            revenue=sii.base_net_amount.sum(),
             qty_sold=sii.qty.sum(),
             transactions=si.name.nunique(),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
     )
-    pg_total = float(pg_df["revenue"].sum()) if not pg_df.empty else 0
-    by_product_group = []
-    for _, r in pg_df.iterrows():
-        rev = float(r["revenue"] or 0)
-        by_product_group.append(
-            {
-                "item_group": str(r["item_group"]),
-                "revenue": round(rev, 2),
-                "qty_sold": float(r["qty_sold"] or 0),
-                "transactions": int(r["transactions"] or 0),
-                "pct": round(rev / pg_total * 100, 1) if pg_total > 0 else 0,
-            }
-        )
-    by_product_group = by_product_group[:20]
+    by_product_group = [
+        {
+            "item_group": str(r["item_group"]),
+            "revenue": round(float(r["revenue"] or 0), 2),
+            "qty_sold": float(r["qty_sold"] or 0),
+            "transactions": int(r["transactions"] or 0),
+            "pct": round(float(r["revenue"] or 0) / total_revenue * 100, 1) if total_revenue > 0 else 0,
+        }
+        for _, r in pg_df.iterrows()
+    ]
 
     return {
         "by_product_group": by_product_group,
@@ -937,6 +921,7 @@ def analyze_margins(
                 "revenue": round(rev, 2),
                 "gross_profit": round(profit, 2),
                 "margin_pct": round(profit / rev * 100, 1) if rev > 0 else 0,
+                "is_partial": _is_partial(r["period"], start, end),
             }
         )
     margin_trend = margin_trend[-12:]
@@ -992,7 +977,7 @@ def analyze_fulfillment(
         .group_by("fulfillment_status")
         .aggregate(
             count=so.name.count(),
-            value=so.grand_total.sum(),
+            value=so.base_net_total.sum(),
         )
         .execute()
     )
@@ -1022,7 +1007,7 @@ def analyze_fulfillment(
     backlog_df = (
         so.filter(so.per_delivered < 100)
         .select(
-            grand_total=so.grand_total,
+            grand_total=so.base_net_total,
             per_delivered=so.per_delivered.fill_null(0),
         )
         .execute()
@@ -1038,6 +1023,8 @@ def analyze_fulfillment(
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
     ).filter(t("Sales Invoice").is_return == 0)
+    # DSO stays tax-inclusive on both sides: outstanding_amount includes tax,
+    # so the daily-sales divisor must too.
     cutoff_90 = (datetime.now() - timedelta(days=90)).date()
     receivables_df = si.aggregate(total=si.outstanding_amount.sum()).execute().iloc[0]
     total_receivables = float(receivables_df["total"] or 0)
@@ -1072,7 +1059,7 @@ def analyze_fulfillment(
 # ---------------------------------------------------------------------------
 
 
-def aggregate_forecasts() -> dict[str, Any]:
+def aggregate_forecasts(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
     """Sales forecast + demand forecast / reorder alerts, computed fresh.
 
     No cache. Every call rebuilds the sales forecast (a single SQL
@@ -1081,8 +1068,8 @@ def aggregate_forecasts() -> dict[str, Any]:
     Both are cheap enough to run inline; the dashboard already shows a
     "Refresh" button if the user wants fresher numbers.
     """
-    sales = get_sales_forecast(periods=30)
-    demand_payload = DemandForecasting().train()
+    sales = get_sales_forecast(periods=30, company=company)
+    demand_payload = DemandForecasting(date_filter=date_filter).train()
     demand_alerts = demand_payload.get("reorder_alerts", [])
 
     return {
@@ -1118,7 +1105,7 @@ def run_sales_intelligence(
     dimensions = analyze_by_dimensions(date_filter, company)
     margins = analyze_margins(date_filter, company)
     fulfillment = analyze_fulfillment(date_filter, company)
-    forecasts = aggregate_forecasts()
+    forecasts = aggregate_forecasts(date_filter, company)
 
     summary = {
         "total_revenue": revenue_metrics["total_revenue"],
@@ -1138,6 +1125,9 @@ def run_sales_intelligence(
     return {
         "status": "success",
         "analysis_date": datetime.now().isoformat(),
+        "base_currency": _base_currency(company),
+        "revenue_basis": REVENUE_BASIS,
+        "date_filter": date_filter,
         "summary": summary,
         "revenue_metrics": revenue_metrics,
         "payment_mix": payment_mix,

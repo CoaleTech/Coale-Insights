@@ -47,11 +47,8 @@ export function formatNumber(value: number | undefined | null, decimals = 0): st
   return formatCount(value, { decimals })
 }
 
-export function formatPercent(value: number | undefined | null): string {
-  return `${(value || 0).toFixed(1)}%`
-}
-
-export { formatDate } from './format'
+// Null-safe: a missing value renders NO_VALUE, never a fabricated 0.0%.
+export { formatDate, formatPercent } from './format'
 
 // ─── Action Taxonomy ─────────────────────────────────────────────────────────
 // The API returns SCREAMING_SNAKE enums. `replace(/_/g, ' ')` was wrong for two

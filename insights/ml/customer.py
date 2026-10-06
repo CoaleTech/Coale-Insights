@@ -31,12 +31,12 @@ both dashboards.
 from __future__ import annotations
 
 import math
-from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import frappe
 from frappe import _
+import ibis
 
 from frappe.query_builder.functions import Count, Sum
 
@@ -45,6 +45,7 @@ from insights.api.ml.ibis_source import (
     default_company,
     dn_cost,
     line_cogs,
+    sle_cost,
     t,
 )
 
@@ -115,6 +116,56 @@ def _as_date(value):
     return value.date() if isinstance(value, datetime) else value
 
 
+def _si_base(company, start=None, end=None, customer=None):
+    """THE customer-revenue invoice set: submitted, non-return, named-customer
+    Sales Invoices (dates inclusive; `start`/`end` may be datetimes). Every
+    revenue / order-count / AOV / CLV figure in this module is built on this
+    plus ``base_net_total`` (tax-exclusive, company currency) so they all
+    reconcile; credit notes stay out of revenue.
+    """
+    si = company_filter(t("Sales Invoice"), company)
+    si = si.filter((si.docstatus == 1) & (si.is_return == 0) & si.customer.notnull() & (si.customer != ""))
+    if customer:
+        si = si.filter(si.customer == customer)
+    if start:
+        si = si.filter(si.posting_date >= _as_date(start))
+    if end:
+        si = si.filter(si.posting_date <= _as_date(end))
+    return si
+
+
+def _profit_lines(company, start=None, end=None, customer=None):
+    """`_si_base` invoices joined to their lines and the booked (Stock Ledger)
+    cost -- same cost basis as the Geography / Margins tabs. Returns
+    ``(lines, si, revenue, gross_profit)``; group on columns of the returned
+    ``si``. ``revenue`` is line ``base_net_amount``.
+    """
+    si = _si_base(company, start, end, customer)
+    sii = t("Sales Invoice Item")
+    dn = dn_cost()
+    sle = sle_cost()
+    lines = (
+        si.inner_join(sii, sii.parent == si.name)
+        .left_join(dn, sii.dn_detail == dn.dn_name)
+        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
+    )
+    revenue = sii.base_net_amount
+    return lines, si, revenue, revenue - line_cogs(sii, dn.dn_rate, sle.svd)
+
+
+def _rfm_assign(df):
+    """Quintile R/F/M + named segment, from ``recency_days`` / ``order_count``
+    / ``historical_clv``. The ONE RFM definition: the intelligence payload,
+    ``compute_rfm_segmentation`` and customer 360 all go through it.
+    """
+    df["R"] = [6 - v for v in _qcut_labels(df["recency_days"].tolist())]
+    df["F"] = _qcut_labels(df["order_count"].tolist())
+    df["M"] = _qcut_labels(df["historical_clv"].tolist())
+    df["rfm_score"] = df["R"].astype(str) + df["F"].astype(str) + df["M"].astype(str)
+    df["rfm_segment"] = [_classify_rfm(int(r), int(f), int(m)) for r, f, m in zip(df["R"], df["F"], df["M"])]
+    return df
+
+
 def _classify_clv(score: float) -> str:
     """CLV score 0-100 -> tier, matches the original pandas cut."""
     if score >= 80:
@@ -156,7 +207,7 @@ def _data_as_of(company: Optional[str]):
     ledger does not inflate every customer's inactivity and push the whole
     book to Critical churn. Returns ``None`` when there is no data."""
     import pandas as pd
-    si = company_filter(t("Sales Invoice"), company).filter(t("Sales Invoice").docstatus == 1)
+    si = _si_base(company)
     m = si.aggregate(m=si.posting_date.max()).execute().iloc[0]["m"]
     if m is None or pd.isna(m):
         return None
@@ -219,34 +270,29 @@ def _churn_score(recency_days, order_count, lifespan_days, frequency_trend,
 # RFM segmentation (customer_segmentation.py replacement)
 # ---------------------------------------------------------------------------
 
-def compute_rfm_segmentation(company: Optional[str] = None) -> Dict[str, Any]:
+def compute_rfm_segmentation(date_filter: str = "12m", company: Optional[str] = None) -> Dict[str, Any]:
     """RFM quintiles per customer from a single Ibis aggregate.
 
-    Returns the same shape the old pandas-based ``CustomerSegmentation.train()``
-    produced: ``segments`` (one row per named segment with counts and totals)
-    and ``customers`` (one row per customer with R, F, M and the assigned
-    segment name). The bucketing is done in pure Python on the small
-    already-aggregated result -- the SQL aggregate has at most one row per
-    customer with non-null sales, and we need to look up segment names from
-    a Python dict anyway.
+    Same population, window, recency anchor (latest sales date) and monetary
+    (net-of-tax revenue) as ``compute_customer_intelligence`` -- both build
+    the segment via ``_rfm_assign`` -- so a customer lands in the same segment
+    everywhere. Returns ``segments`` (one row per named segment) and
+    ``customers`` (one row per customer with R, F, M and the segment).
     """
-    si = company_filter(t("Sales Invoice"), company)
-    filtered = si.filter((si.docstatus == 1) & si.customer.notnull() & (si.customer != ""))
+    from insights.api.ml.utils import parse_date_filter
 
-    per_customer = filtered.group_by(filtered.customer).aggregate(
-        customer_name=filtered.customer_name.min(),
-        last_purchase_date=filtered.posting_date.max(),
-        first_purchase_date=filtered.posting_date.min(),
-        frequency=filtered.count(),
-        monetary=filtered.grand_total.sum(),
-    )
-
+    start, end = parse_date_filter(date_filter)
+    company = company or default_company()
     today = datetime.now().date()
-    per_customer = per_customer.mutate(
-        recency=(today - per_customer.last_purchase_date).cast("int32")
-    )
+    as_of_date = min(_data_as_of(company) or today, today)
 
-    df = per_customer.execute()
+    si = _si_base(company, start, end)
+    df = si.group_by(si.customer).aggregate(
+        customer_name=si.customer_name.min(),
+        last_purchase=si.posting_date.max(),
+        order_count=si.count(),
+        historical_clv=si.base_net_total.sum(),
+    ).execute()
     if df.empty:
         return {
             "status": "success",
@@ -256,66 +302,44 @@ def compute_rfm_segmentation(company: Optional[str] = None) -> Dict[str, Any]:
             "customers": [],
         }
 
-    df["recency"] = df["recency"].fillna(999).astype(int)
-    df["frequency"] = df["frequency"].fillna(0).astype(int)
-    df["monetary"] = df["monetary"].fillna(0).astype(float)
+    df["order_count"] = df["order_count"].fillna(0).astype(int)
+    df["historical_clv"] = df["historical_clv"].fillna(0).astype(float)
+    df["recency_days"] = df["last_purchase"].apply(lambda d: (as_of_date - _as_date(d)).days)
+    df = _rfm_assign(df)
 
-    # 1..5 quintile bucket, ties broken by stable sort, same effect as the
-    # old ``pd.qcut(..., labels=[...], duplicates='drop')`` for the small
-    # already-aggregated inputs we feed it.
-    df["R"] = _qcut_labels(df["recency"].tolist())              # recency: lower better -> reverse
-    df["R"] = [6 - v for v in df["R"]]
-    df["F"] = _qcut_labels(df["frequency"].tolist())
-    df["M"] = _qcut_labels(df["monetary"].tolist())
-    df["R"] = df["R"].fillna(3).astype(int)
-    df["F"] = df["F"].fillna(3).astype(int)
-    df["M"] = df["M"].fillna(3).astype(int)
-
-    df["segment"] = [_classify_rfm(int(r), int(f), int(m))
-                     for r, f, m in zip(df["R"], df["F"], df["M"])]
-    df["rfm_score"] = df["R"].astype(str) + df["F"].astype(str) + df["M"].astype(str)
-
-    # segment rollup
-    segment_rows: Dict[str, Dict[str, Any]] = defaultdict(
-        lambda: {"customer_count": 0, "_monetary_sum": 0.0, "_monetary_count": 0,
-                 "_frequency_sum": 0, "_recency_sum": 0}
-    )
-    for _, r in df.iterrows():
-        seg = r["segment"]
-        bucket = segment_rows[seg]
-        bucket["customer_count"] += 1
-        bucket["_monetary_sum"] += float(r["monetary"] or 0)
-        bucket["_monetary_count"] += 1
-        bucket["_frequency_sum"] += float(r["frequency"] or 0)
-        bucket["_recency_sum"] += float(r["recency"] or 0)
-
-    segments_list = []
-    for seg, b in segment_rows.items():
-        cnt = b["customer_count"]
-        segments_list.append({
-            "segment": seg,
-            "customer_count": cnt,
-            "total_revenue": round(b["_monetary_sum"], 2),
-            "avg_revenue": round(b["_monetary_sum"] / cnt, 2) if cnt else 0,
-            "avg_orders": round(b["_frequency_sum"] / cnt, 2) if cnt else 0,
-            "avg_days_since": round(b["_recency_sum"] / cnt, 2) if cnt else 0,
-        })
+    seg = df.groupby("rfm_segment").agg(
+        customer_count=("customer", "count"),
+        total_revenue=("historical_clv", "sum"),
+        avg_orders=("order_count", "mean"),
+        avg_days_since=("recency_days", "mean"),
+    ).reset_index()
+    segments_list = [
+        {
+            "segment": r.rfm_segment,
+            "customer_count": int(r.customer_count),
+            "total_revenue": round(float(r.total_revenue), 2),
+            "avg_revenue": round(float(r.total_revenue) / int(r.customer_count), 2),
+            "avg_orders": round(float(r.avg_orders), 2),
+            "avg_days_since": round(float(r.avg_days_since), 2),
+        }
+        for r in seg.itertuples()
+    ]
     segments_list.sort(key=lambda r: r["total_revenue"], reverse=True)
 
     customers_list = [
         {
-            "customer": row["customer"],
-            "customer_name": row.get("customer_name") or row["customer"],
-            "segment": row["segment"],
-            "R": int(row["R"]),
-            "F": int(row["F"]),
-            "M": int(row["M"]),
-            "rfm_score": row["rfm_score"],
-            "recency": int(row["recency"]),
-            "frequency": int(row["frequency"]),
-            "monetary": float(row["monetary"] or 0),
+            "customer": r.customer,
+            "customer_name": r.customer_name or r.customer,
+            "segment": r.rfm_segment,
+            "R": int(r.R),
+            "F": int(r.F),
+            "M": int(r.M),
+            "rfm_score": r.rfm_score,
+            "recency": int(r.recency_days),
+            "frequency": int(r.order_count),
+            "monetary": float(r.historical_clv),
         }
-        for _, row in df.iterrows()
+        for r in df.itertuples()
     ]
 
     return {
@@ -418,20 +442,19 @@ def compute_customer_intelligence(
 
     The output dict matches the shape the old ``CustomerIntelligence.train()``
     returned -- the dashboard reads keys: ``summary``, ``customers``,
-    ``geographic_analysis``, ``product_affinity``, ``pareto_analysis``,
-    ``cohort_analysis``, ``next_best_actions``, ``at_risk_customers``,
-    ``top_customers``, ``base_currency``, ``status``.
+    ``geographic_analysis``, ``pareto_analysis``, ``cohort_analysis``,
+    ``next_best_actions`` (capped at 100; true count in
+    ``next_best_actions_total``), ``at_risk_customers``, ``top_customers``,
+    ``base_currency``, ``revenue_basis``, ``status``. Revenue is tax-exclusive
+    (``base_net_total``), returns excluded.
     """
     from insights.api.ml.utils import parse_date_filter
 
     start, end = parse_date_filter(date_filter)
     company = company or default_company()
 
-    # Per-customer aggregate from Sales Invoice (docstatus=1, the live data).
-    si = company_filter(t("Sales Invoice"), company)
-    if start and end:
-        si = si.filter(si.posting_date.between(start.date(), end.date()))
-    si = si.filter((si.docstatus == 1) & si.customer.notnull() & (si.customer != ""))
+    # Per-customer aggregate from Sales Invoice (the shared `_si_base` set).
+    si = _si_base(company, start, end)
 
     today_date = datetime.now().date()
     overdue_cond = (si.due_date < today_date) & (si.outstanding_amount > 0)
@@ -450,8 +473,8 @@ def compute_customer_intelligence(
         customer_name=si.customer_name.min(),
         customer_group=si.customer_group.min(),
         territory=si.territory.min(),
-        historical_clv=si.grand_total.sum(),
-        avg_order_value=si.grand_total.mean(),
+        historical_clv=si.base_net_total.sum(),
+        avg_order_value=si.base_net_total.mean(),
         order_count=si.count(),
         first_purchase=si.posting_date.min(),
         last_purchase=si.posting_date.max(),
@@ -503,7 +526,7 @@ def compute_customer_intelligence(
     recent_cutoff = as_of_date - timedelta(days=90)
     recent_si = si.filter(si.posting_date >= recent_cutoff)
     recent_per_customer = recent_si.group_by(recent_si.customer).aggregate(
-        recent_avg_order_value=recent_si.grand_total.mean(),
+        recent_avg_order_value=recent_si.base_net_total.mean(),
         recent_order_count=recent_si.count(),
     )
     recent_df = recent_per_customer.execute()
@@ -513,24 +536,10 @@ def compute_customer_intelligence(
         df["recent_avg_order_value"] = None
         df["recent_order_count"] = 0
 
-    # Per-customer gross profit (line-level, same formula as the rankings
-    # scorecard), so the customer list and territory rollup can show margin.
-    sii = t("Sales Invoice Item")
-    si_for_profit = t("Sales Invoice")
-    dn = dn_cost()
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
-        dn, sii.dn_detail == dn.dn_name
-    )
-    if company:
-        profit_lines = profit_lines.filter(si_for_profit.company == company)
-    profit_lines = profit_lines.filter(
-        (si_for_profit.docstatus == 1) & si_for_profit.posting_date.between(start, end)
-    )
-    gp_df = (
-        profit_lines.group_by(si_for_profit.customer)
-        .aggregate(gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum())
-        .execute()
-    )
+    # Per-customer gross profit: line base_net_amount less booked (SLE) COGS --
+    # same lines/cost as Geography and the rankings scorecard.
+    lines, psi, _rev, gp_expr = _profit_lines(company, start, end)
+    gp_df = lines.group_by(psi.customer).aggregate(gross_profit=gp_expr.sum()).execute()
     if not gp_df.empty:
         gp_df["gross_profit"] = gp_df["gross_profit"].astype(float)
         df = df.merge(gp_df, on="customer", how="left")
@@ -543,10 +552,12 @@ def compute_customer_intelligence(
             "summary": {},
             "customers": [],
             "geographic_analysis": {},
-            "product_affinity": {},
+            "base_currency": _base_currency(company),
+            "revenue_basis": "net_of_tax",
             "pareto_analysis": {},
             "cohort_analysis": {},
             "next_best_actions": [],
+            "next_best_actions_total": 0,
             "at_risk_customers": [],
             "top_customers": [],
         }
@@ -595,16 +606,8 @@ def compute_customer_intelligence(
     df["clv_score"] = (df["total_clv"] / p99_clv * 100).clip(lower=0, upper=100)
     df["clv_tier"] = df["clv_score"].apply(_classify_clv)
 
-    # RFM: quintiles on recency/frequency/monetary, same mapping table.
-    df["R"] = [6 - v for v in _qcut_labels(df["recency_days"].tolist())]
-    df["F"] = _qcut_labels(df["order_count"].tolist())
-    df["M"] = _qcut_labels(df["historical_clv"].tolist())
-    df["R"] = df["R"].fillna(3).astype(int)
-    df["F"] = df["F"].fillna(3).astype(int)
-    df["M"] = df["M"].fillna(3).astype(int)
-    df["rfm_score"] = df["R"].astype(str) + df["F"].astype(str) + df["M"].astype(str)
-    df["rfm_segment"] = [_classify_rfm(int(r), int(f), int(m))
-                        for r, f, m in zip(df["R"], df["F"], df["M"])]
+    # RFM: quintiles on recency/frequency/monetary (shared definition).
+    df = _rfm_assign(df)
 
     # Churn score: rule-based. Recency ratio vs typical cycle (30d baseline),
     # value/frequency trends, receivables ratio, overdue count.
@@ -631,10 +634,7 @@ def compute_customer_intelligence(
     df["health_status"] = df["health_score"].apply(_classify_health)
 
     # ---- Geographic analysis (territory + customer group rollups) ----
-    geo_analysis = _geographic_analysis(df)
-
-    # ---- Product affinity (item-group by tier) ----
-    product_affinity = _product_affinity(start=start, end=end, company=company, per_customer=df)
+    geo_analysis = _geographic_analysis(df, company, start, end)
 
     # ---- Pareto / 80-20 ----
     pareto = _pareto_analysis(df)
@@ -646,7 +646,7 @@ def compute_customer_intelligence(
     conversion_rate, total_quotes, converted_quotes = _quotation_conversion(start, end, company)
 
     # ---- Next best actions ----
-    actions = _next_best_actions(df)
+    actions, actions_total = _next_best_actions(df)
 
     # ---- summary ----
     summary = {
@@ -691,13 +691,14 @@ def compute_customer_intelligence(
         "analysis_date": now.isoformat(),
         "company": company,
         "base_currency": _base_currency(company),
+        "revenue_basis": "net_of_tax",
         "summary": _to_native(summary),
         "customers": _to_native(customers_list),
         "geographic_analysis": _to_native(geo_analysis),
-        "product_affinity": _to_native(product_affinity),
         "pareto_analysis": _to_native(pareto),
         "cohort_analysis": _to_native(cohort),
         "next_best_actions": _to_native(actions),
+        "next_best_actions_total": actions_total,
         "at_risk_customers": [c for c in customers_list
                               if str(c.get("churn_risk", "")).lower() in ("high", "critical")],
         "top_customers": customers_list[:20],
@@ -782,29 +783,47 @@ def _composite_health_score(df):
     return df
 
 
-def _geographic_analysis(df):
+def _geographic_analysis(df, company, start, end):
     """Territory + customer_group rollups + choropleth projection for the
-    TerritoryMap component. Pure-Python on the small aggregated DF; the
-    geo projection calls into ``territory_geo_mapper`` (also synchronous).
+    TerritoryMap component. Territory revenue is by INVOICE territory
+    (``Sales Invoice.territory``), so it matches the Geography tab and sums to
+    the Pareto total; a customer invoiced in two territories shows in both
+    rows but counts once in ``coverage.total_customers``. The geo projection
+    calls into ``territory_geo_mapper`` (also synchronous).
     """
     from insights.ml.territory_geo_mapper import map_territories_bulk
 
+    si = _si_base(company, start, end)
+    pairs = si.group_by([si.territory, si.customer]).aggregate(
+        revenue=si.base_net_total.sum(), orders=si.count()
+    ).execute()
+    pairs["territory"] = pairs["territory"].fillna("")
+    pairs["revenue"] = pairs["revenue"].astype(float)
+    pairs = pairs.merge(df[["customer", "churn_score", "health_score"]], on="customer", how="left")
+    lines, psi, _rev, gp_expr = _profit_lines(company, start, end)
+    gp = lines.group_by(territory=psi.territory).aggregate(gross_profit=gp_expr.sum()).execute()
+    gp["territory"] = gp["territory"].fillna("")
+    gp["gross_profit"] = gp["gross_profit"].astype(float)
+
     territory_analysis = (
-        df.groupby("territory", dropna=False)
+        pairs.groupby("territory")
         .agg(
-            customer_count=("customer", "count"),
-            total_revenue=("historical_clv", "sum"),
-            avg_order_value=("avg_order_value", "mean"),
+            customer_count=("customer", "nunique"),
+            total_revenue=("revenue", "sum"),
+            total_orders=("orders", "sum"),
             avg_churn_risk=("churn_score", "mean"),
             avg_health_score=("health_score", "mean"),
-            total_orders=("order_count", "sum"),
-            gross_profit=("gross_profit", "sum"),
         )
         .reset_index()
+        .merge(gp, on="territory", how="left")
+        .fillna({"gross_profit": 0.0})
         .sort_values("total_revenue", ascending=False)
     )
-    total_revenue = float(territory_analysis["total_revenue"].sum())
-    total_customers = int(territory_analysis["customer_count"].sum())
+    territory_analysis["avg_order_value"] = (
+        territory_analysis["total_revenue"] / territory_analysis["total_orders"].clip(lower=1)
+    )
+    total_revenue = float(df["historical_clv"].sum())
+    total_customers = int(df["customer"].nunique())
     territory_analysis["revenue_share"] = territory_analysis["total_revenue"].apply(
         lambda v: round((v / total_revenue * 100) if total_revenue else 0, 2)
     )
@@ -844,89 +863,6 @@ def _geographic_analysis(df):
             "total_customers": int(total_customers),
         },
     }
-
-
-def _product_affinity(start, end, company, per_customer):
-    """Item-group spend by CLV tier. Built from one Ibis aggregate joining
-    Sales Invoice Item + Sales Invoice + Item, then bucketed by tier in pure
-    Python on the small result.
-    """
-    sii = t("Sales Invoice Item")
-    si = t("Sales Invoice")
-    item = t("Item")
-
-    si_filtered = si.filter(si.docstatus == 1)
-    if company:
-        si_filtered = si_filtered.filter(si_filtered.company == company)
-    if start and end:
-        si_filtered = si_filtered.filter(si_filtered.posting_date.between(start.date(), end.date()))
-
-    # Select immediately after each join to drop the overlapping Frappe
-    # meta columns (name/owner/creation/modified/docstatus/idx and any
-    # shared custom fields) before the next join -- Ibis's plain join()
-    # raises an IntegrityError on those collisions otherwise.
-    line_sales = sii.join(si_filtered, sii.parent == si_filtered.name).select(
-        item_code=sii.item_code,
-        item_name=sii.item_name,
-        qty=sii.qty,
-        amount=sii.amount,
-        customer=si_filtered.customer,
-    )
-    sales = line_sales.join(item, line_sales.item_code == item.name, how="left").select(
-        line_sales.item_code,
-        line_sales.item_name,
-        line_sales.qty,
-        line_sales.amount,
-        line_sales.customer,
-        item_group=item.item_group,
-        brand=item.brand,
-    )
-
-    per_cust_item = sales.group_by(
-        [sales.customer, sales.item_code, sales.item_name, sales.item_group, sales.brand]
-    ).aggregate(
-        total_qty=sales.qty.sum(),
-        total_amount=sales.amount.sum(),
-        order_count=sales.count(),
-    ).execute()
-    if per_cust_item.empty:
-        return {"tier_preferences": [], "top_categories": [], "brand_analysis": []}
-
-    cust_meta = per_customer[["customer", "clv_tier", "health_status"]].rename(columns={"customer": "customer_id"})
-    merged = per_cust_item.merge(cust_meta, left_on="customer", right_on="customer_id", how="left")
-    if "customer_id" in merged.columns:
-        merged = merged.drop(columns=["customer_id"])
-
-    tier_preferences = (
-        merged.groupby(["clv_tier", "item_group"], dropna=False)
-        .agg(total_revenue=("total_amount", "sum"),
-             customer_count=("customer", "nunique"),
-             order_count=("order_count", "sum"))
-        .reset_index()
-        .sort_values("total_revenue", ascending=False)
-        .head(50)
-        .fillna({"clv_tier": "Bronze", "item_group": ""})
-        .to_dict("records")
-    )
-    top_categories = (
-        merged.groupby("item_group", dropna=False)
-        .agg(total_revenue=("total_amount", "sum"), customer_count=("customer", "nunique"))
-        .reset_index()
-        .sort_values("total_revenue", ascending=False)
-        .head(20)
-        .fillna({"item_group": ""})
-        .to_dict("records")
-    )
-    brand_analysis = (
-        merged.groupby("brand", dropna=False)
-        .agg(total_revenue=("total_amount", "sum"), customer_count=("customer", "nunique"))
-        .reset_index()
-        .sort_values("total_revenue", ascending=False)
-        .head(20)
-        .fillna({"brand": ""})
-        .to_dict("records")
-    )
-    return {"tier_preferences": tier_preferences, "top_categories": top_categories, "brand_analysis": brand_analysis}
 
 
 def _pareto_analysis(df):
@@ -969,14 +905,14 @@ def _cohort_analysis(start, end, company):
     """
     import pandas as pd
 
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & si.customer.notnull() & (si.customer != ""))
+    # Cohort = month of the customer's LIFETIME first invoice (so a long-standing
+    # customer is never relabelled "new" by the window); only customers acquired
+    # inside the window are cohorted, and activity months are limited to it.
+    lifetime = _si_base(company)
+    per_cust = lifetime.group_by(lifetime.customer).aggregate(first_purchase=lifetime.posting_date.min())
     if start and end:
-        si = si.filter(si.posting_date.between(start.date(), end.date()))
-
-    per_cust = si.group_by(si.customer).aggregate(
-        first_purchase=si.posting_date.min(),
-    )
+        per_cust = per_cust.filter(per_cust.first_purchase.between(_as_date(start), _as_date(end)))
+    si = _si_base(company, start, end)
     per_cust_txn = si.mutate(txn_month=si.posting_date.truncate("M"))
     per_cust_month = (
         per_cust_txn.group_by([per_cust_txn.customer, per_cust_txn.txn_month])
@@ -1133,7 +1069,7 @@ def _next_best_actions(df):
     # Same priority sort as the original.
     actions.sort(key=lambda x: (0 if any(r["priority"] == "High" for r in x["recommendations"]) else 1,
                                  -len(x["recommendations"])))
-    return actions[:100]
+    return actions[:100], len(actions)
 
 
 def _base_currency(company):
@@ -1151,17 +1087,19 @@ def _base_currency(company):
 def compute_customer_360(customer_id: str,
                           include_purchases: bool = True,
                           include_recommendations: bool = True,
-                          company: Optional[str] = None) -> Dict[str, Any]:
+                          company: Optional[str] = None,
+                          date_filter: str = "12m") -> Dict[str, Any]:
     """One customer, profile + purchase history + cross-sell recommendations.
 
     Pulls the same per-customer aggregate the dashboard uses, restricted to
     this customer, and produces the same payload the frontend expects.
 
-    Unlike `compute_customer_intelligence` this is lifetime (no
-    `date_filter`), so the CLV/health numbers here are not literally
-    apples-to-apples with the list dashboard's windowed figures for the
-    same customer -- that pre-existing scope difference is unchanged by
-    this fix. What IS fixed here: the "CLV Components" / "Health
+    Unlike `compute_customer_intelligence` the CLV/health numbers here are
+    lifetime (no window), so they are not literally apples-to-apples with the
+    list dashboard's windowed figures for the same customer. The RFM segment
+    and score ARE the dashboard's: looked up in the same `date_filter`
+    population (`None` when the customer has no invoice in that window).
+    What IS fixed here: the "CLV Components" / "Health
     Components" breakdown the frontend renders (`revenue_score`,
     `engagement_score`, `payment_score`, `longevity_score`,
     `growth_score`) plus `avg_days_to_pay`, `frequency_trend`,
@@ -1178,8 +1116,7 @@ def compute_customer_360(customer_id: str,
                                 as_dict=True)
     company = company or default_company()
 
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & (si.customer == customer_id))
+    si = _si_base(company, customer=customer_id)
     today_date = datetime.now().date()
     as_of_date = min(_data_as_of(company) or today_date, today_date)
     overdue_cond = (si.due_date < today_date) & (si.outstanding_amount > 0)
@@ -1187,8 +1124,8 @@ def compute_customer_360(customer_id: str,
         customer_name=si.customer_name.min(),
         customer_group=si.customer_group.min(),
         territory=si.territory.min(),
-        historical_clv=si.grand_total.sum(),
-        avg_order_value=si.grand_total.mean(),
+        historical_clv=si.base_net_total.sum(),
+        avg_order_value=si.base_net_total.mean(),
         order_count=si.count(),
         first_purchase=si.posting_date.min(),
         last_purchase=si.posting_date.max(),
@@ -1208,6 +1145,7 @@ def compute_customer_360(customer_id: str,
         customer = _blank_customer_row(cust)
     else:
         customer = _score_one_customer_row(per_customer.iloc[0], cust, as_of_date, company)
+    customer["rfm_segment"], customer["rfm_score"] = _customer_rfm(customer_id, date_filter, company)
 
     response = {"status": "success", "customer": _to_native(customer),
                 "base_currency": _base_currency(company)}
@@ -1224,6 +1162,15 @@ def compute_customer_360(customer_id: str,
     return _to_native(response)
 
 
+def _customer_rfm(customer_id: str, date_filter: str, company: Optional[str]):
+    """(segment, score) from the same windowed population the dashboard ranks
+    (`compute_rfm_segmentation`); (None, None) with no invoice in the window."""
+    for c in compute_rfm_segmentation(date_filter, company)["customers"]:
+        if c["customer"] == customer_id:
+            return c["segment"], c["rfm_score"]
+    return None, None
+
+
 def _customer_avg_days_to_pay(customer_id: str, company: Optional[str]):
     """Real average days-to-pay for one customer, from fully-closed
     (`outstanding_amount == 0`) invoices: days between `posting_date` and
@@ -1233,9 +1180,8 @@ def _customer_avg_days_to_pay(customer_id: str, company: Optional[str]):
     """
     import ibis
 
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & (si.customer == customer_id)
-                   & (si.outstanding_amount == 0))
+    si = _si_base(company, customer=customer_id)
+    si = si.filter(si.outstanding_amount == 0)
     si = si.mutate(
         days_to_pay=ibis.ifelse(
             si.modified.isnull() | si.posting_date.isnull(),
@@ -1256,10 +1202,8 @@ def _customer_recent_avg_order_value(customer_id: str, company: Optional[str], t
     were no orders in that window (customer inactive recently).
     """
     cutoff = today_date - timedelta(days=90)
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & (si.customer == customer_id)
-                   & (si.posting_date >= cutoff))
-    row = si.aggregate(recent_avg_order_value=si.grand_total.mean(),
+    si = _si_base(company, cutoff, customer=customer_id)
+    row = si.aggregate(recent_avg_order_value=si.base_net_total.mean(),
                         recent_order_count=si.count()).execute().iloc[0]
     if not row["recent_order_count"]:
         return None
@@ -1268,26 +1212,12 @@ def _customer_recent_avg_order_value(customer_id: str, company: Optional[str], t
 
 def _customer_profitability(customer_id: str, company: Optional[str]):
     """Gross profit and margin % for one customer, lifetime (no date
-    filter, matching this endpoint's scope). Identical formula to
-    `compute_customer_rankings`'s top_profit/top_margin so the same
-    customer's profitability reconciles across both views: line-level
-    `net_amount - qty * incoming_rate` summed against `sii.amount`
-    revenue. A line with a NULL `incoming_rate` drops out of the
-    gross_profit sum (SQL NULL propagation), matching that convention.
+    filter, matching this endpoint's scope). Same lines and booked (SLE) cost
+    as the rankings scorecard (`_profit_lines`), margin against line
+    ``base_net_amount`` revenue.
     """
-    sii = t("Sales Invoice Item")
-    si_for_profit = t("Sales Invoice")
-    dn = dn_cost()
-    lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
-        dn, sii.dn_detail == dn.dn_name
-    )
-    if company:
-        lines = lines.filter(si_for_profit.company == company)
-    lines = lines.filter((si_for_profit.docstatus == 1) & (si_for_profit.customer == customer_id))
-    row = lines.aggregate(
-        gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
-        revenue=sii.amount.sum(),
-    ).execute().iloc[0]
+    lines, psi, revenue_expr, gp_expr = _profit_lines(company, customer=customer_id)
+    row = lines.aggregate(gross_profit=gp_expr.sum(), revenue=revenue_expr.sum()).execute().iloc[0]
     revenue = float(row["revenue"] or 0)
     gross_profit = float(row["gross_profit"] or 0)
     margin_pct = round(gross_profit / revenue * 100, 1) if revenue > 0 else None
@@ -1301,10 +1231,9 @@ def _population_clv_reference(company: Optional[str]) -> float:
     reference point for scoring a single customer's CLV/revenue without
     the O(all customers) per-customer aggregate the list dashboard runs.
     """
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & si.customer.notnull() & (si.customer != ""))
+    si = _si_base(company)
     row = si.aggregate(
-        total_revenue=si.grand_total.sum(),
+        total_revenue=si.base_net_total.sum(),
         customer_count=si.customer.nunique(),
     ).execute().iloc[0]
     customer_count = int(row["customer_count"] or 0)
@@ -1329,8 +1258,6 @@ def _blank_customer_row(cust):
         "total_clv": 0.0,
         "clv_score": 0.0,
         "clv_tier": "Bronze",
-        "rfm_segment": "Need Attention",
-        "rfm_score": "333",
         "recency_days": 0,
         "days_since_last_purchase": 0,
         "churn_score": 0.0,
@@ -1557,8 +1484,6 @@ def _score_one_customer_row(row, cust, as_of_date, company=None):
         "total_clv": total_clv,
         "clv_score": clv_score,
         "clv_tier": clv_tier,
-        "rfm_segment": "Need Attention",  # one-row quintile bucketing is too noisy
-        "rfm_score": "333",
         "recency_days": recency_days,
         "days_since_last_purchase": recency_days,
         "churn_score": churn_score,
@@ -1598,10 +1523,11 @@ def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
             SI.due_date,
             SI.grand_total,
             SI.net_total,
+            SI.base_net_total,
             SI.outstanding_amount,
             SI.status,
         )
-        .where((SI.customer == customer_id) & (SI.docstatus == 1))
+        .where((SI.customer == customer_id) & (SI.docstatus == 1) & (SI.is_return == 0))
         .orderby(SI.posting_date, order=frappe.qb.desc)
         .limit(50)
         .run(as_dict=True)
@@ -1642,14 +1568,14 @@ def _analyze_customer_purchase_patterns(purchase_history: List[Dict[str, Any]]) 
         df["day_of_week"] = df["posting_date"].apply(lambda d: d.strftime("%A"))
         preferred_day = df["day_of_week"].mode().iloc[0] if len(df) else None
         df["month"] = df["posting_date"].apply(lambda d: d.strftime("%B"))
-        month_totals = df.groupby("month")["grand_total"].sum()
+        month_totals = df.groupby("month")["base_net_total"].sum()
         peak_month = month_totals.idxmax() if len(month_totals) else None
         return {
             "avg_frequency": avg_frequency,
             "preferred_day": preferred_day,
             "peak_month": peak_month,
             "total_purchases": int(len(df)),
-            "total_value": float(df["grand_total"].sum()),
+            "total_value": float(df["base_net_total"].sum()),
         }
     except Exception:
         return None
@@ -1672,7 +1598,7 @@ def _cross_sell_for_one_customer(customer_id: str, company: Optional[str] = None
         .on(SII.item_code == Item.name)
         .select(SII.item_code, Item.item_group)
         .distinct()
-        .where((SI.customer == customer_id) & (SI.docstatus == 1))
+        .where((SI.customer == customer_id) & (SI.docstatus == 1) & (SI.is_return == 0))
         .run(as_dict=True)
     )
     if not purchased:
@@ -1698,7 +1624,7 @@ def _cross_sell_for_one_customer(customer_id: str, company: Optional[str] = None
             Count("*").as_("popularity"),
             Sum(SII2.qty).as_("total_qty"),
         )
-        .where((SI2.docstatus == 1) & Item2.item_group.isin(groups) & SII2.item_code.notin(purchased_codes))
+        .where((SI2.docstatus == 1) & (SI2.is_return == 0) & Item2.item_group.isin(groups) & SII2.item_code.notin(purchased_codes))
         .groupby(SII2.item_code)
         .orderby(Count("*"), order=frappe.qb.desc)
         .limit(10)
@@ -1741,9 +1667,7 @@ def compute_customer_counts(date_filter: str = "12m",
         new_by_creation = 0
 
     if start and end:
-        si_all = company_filter(t("Sales Invoice"), company).filter(
-            t("Sales Invoice").docstatus == 1
-        )
+        si_all = _si_base(company)
         first_dates = si_all.group_by(si_all.customer).aggregate(
             first_date=si_all.posting_date.min()
         )
@@ -1771,11 +1695,10 @@ def compute_customer_counts(date_filter: str = "12m",
 
     cutoff = (datetime.now() - timedelta(days=active_cutoff_months * 30)).date()
     so = company_filter(t("Sales Order"), company)
-    si_active = company_filter(t("Sales Invoice"), company)
     so_active = so.filter((so.docstatus == 1) & (so.transaction_date >= cutoff)).select(so.customer).distinct()
-    si_active_q = si_active.filter((si_active.docstatus == 1) & (si_active.posting_date >= cutoff)).select(si_active.customer).distinct()
-    active_union = so_active.union(si_active_q)
-    active = _scalar_int(active_union.count())
+    si_active_q = _si_base(company, cutoff).select("customer").distinct()
+    # UNION ALL would count a customer with both an order and an invoice twice.
+    active = _scalar_int(so_active.union(si_active_q, distinct=True).count())
 
     pe = t("Payment Entry")
     pe = pe.filter((pe.docstatus == 1) & (pe.payment_type == "Receive")
@@ -1814,13 +1737,9 @@ def compute_customer_revenue_split(date_filter: str = "12m",
     import ibis
     start, end = parse_date_filter(date_filter)
     company = company or default_company()
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter(si.docstatus == 1)
-    if start and end:
-        si = si.filter(si.posting_date.between(start.date(), end.date()))
+    si = _si_base(company, start, end)
 
-    first_txn = company_filter(t("Sales Invoice"), company)
-    first_txn = first_txn.filter(first_txn.docstatus == 1)
+    first_txn = _si_base(company)
     first_txn = first_txn.group_by(first_txn.customer).aggregate(
         first_date=first_txn.posting_date.min()
     )
@@ -1838,7 +1757,7 @@ def compute_customer_revenue_split(date_filter: str = "12m",
         joined = joined.mutate(customer_type=ibis.literal("existing"))
 
     agg = joined.group_by(joined.customer_type).aggregate(
-        revenue=si.grand_total.sum(),
+        revenue=si.base_net_total.sum(),
         customer_count=si.customer.nunique(),
     ).execute()
     split = {"new_revenue": 0.0, "existing_revenue": 0.0, "new_count": 0, "existing_count": 0}
@@ -1879,11 +1798,10 @@ def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascend
     order = ibis.asc if ascending else ibis.desc
 
     # top/bottom revenue
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & si.posting_date.between(start, end))
+    si = _si_base(company, start, end)
     revenue_rows = (
         si.group_by(si.customer, si.customer_name)
-        .aggregate(revenue=si.grand_total.sum())
+        .aggregate(revenue=si.base_net_total.sum())
         .order_by(order("revenue"))
         .limit(limit)
         .execute()
@@ -1891,48 +1809,19 @@ def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascend
         .to_dict("records")
     )
 
-    # top/bottom gross profit
-    sii = t("Sales Invoice Item")
-    si_for_profit = t("Sales Invoice")
-    dn = dn_cost()
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
-        dn, sii.dn_detail == dn.dn_name
+    # top/bottom gross profit (line base_net_amount less booked SLE COGS)
+    lines, psi, rev_expr, gp_expr = _profit_lines(company, start, end)
+    per_cust_profit = lines.group_by(psi.customer, psi.customer_name).aggregate(
+        gross_profit=gp_expr.sum(), revenue=rev_expr.sum()
     )
-    if company:
-        profit_lines = profit_lines.filter(si_for_profit.company == company)
-    profit_lines = profit_lines.filter(
-        (si_for_profit.docstatus == 1) & si_for_profit.posting_date.between(start, end)
-    )
-    # `.execute()` returns `gross_profit`/`revenue` as object-dtype
-    # `decimal.Decimal` (Ibis + MariaDB DECIMAL aggregates), not float64 --
-    # the same defect already fixed in `compute_customer_intelligence`'s
-    # bulk path (see CHANGELOG). Left uncast, `.round()` on the Decimal
-    # `margin_pct` division below raises `TypeError: Expected numeric
-    # dtype, got object instead` -- this endpoint has never returned
-    # `top_margin`/`bottom_margin` successfully. Cast immediately after
-    # each `.execute()`, before any arithmetic.
-    profit_df = (
-        profit_lines.group_by(si_for_profit.customer, si_for_profit.customer_name)
-        .aggregate(
-            gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
-            revenue=sii.amount.sum(),
-        )
-        .order_by(order("gross_profit"))
-        .limit(limit)
-        .execute()
-    )
+    # `.execute()` returns DECIMAL aggregates as object-dtype `decimal.Decimal`;
+    # cast before any arithmetic (`.round()` on Decimal raises TypeError).
+    profit_df = per_cust_profit.order_by(order("gross_profit")).limit(limit).execute()
     profit_df["gross_profit"] = profit_df["gross_profit"].astype(float)
     profit_df["revenue"] = profit_df["revenue"].astype(float)
     profit_rows = profit_df.fillna(0).to_dict("records")
 
-    margin_per_cust = (
-        profit_lines.group_by(si_for_profit.customer, si_for_profit.customer_name)
-        .aggregate(
-            gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
-            revenue=sii.amount.sum(),
-        )
-        .execute()
-    )
+    margin_per_cust = per_cust_profit.execute()
     margin_per_cust["gross_profit"] = margin_per_cust["gross_profit"].astype(float)
     margin_per_cust["revenue"] = margin_per_cust["revenue"].astype(float)
     margin_per_cust = margin_per_cust[margin_per_cust["revenue"] > 0].copy()
@@ -1948,7 +1837,7 @@ def _rank_customers(date_filter: str, limit: int, company: Optional[str], ascend
     si_monthly = si.mutate(month=si.posting_date.truncate("M"))
     monthly = si_monthly.group_by(
         [si_monthly.customer, si_monthly.customer_name, si_monthly.month]
-    ).aggregate(monthly_spend=si_monthly.grand_total.sum()).execute()
+    ).aggregate(monthly_spend=si_monthly.base_net_total.sum()).execute()
     consistency = []
     if not monthly.empty:
         total_months = _inclusive_month_span(start, end)
@@ -2013,7 +1902,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
                                  company: Optional[str] = None) -> Dict[str, Any]:
     """One unified per-customer frame for the Rankings tab -- every customer
     with the same metrics the four ranking mini-tables split apart: revenue
-    (grand_total), gross profit and margin %% (line-level, same formula as
+    (net of tax, company currency), gross profit and margin %% (line-level, same formula as
     `_rank_customers`), and months-active / consistency score. Unlike
     `compute_customer_rankings` this applies no limit and does not sort --
     the frontend does the filtering, sorting, and thresholding client-side
@@ -2028,13 +1917,12 @@ def compute_customer_scorecard(date_filter: str = "12m",
         end = datetime.now().date()
         start = end - timedelta(days=365)
 
-    # Revenue (grand_total) -- canonical customer set, matches top_revenue
+    # Revenue (base_net_total) -- canonical customer set, matches top_revenue
     # and the drill-down.
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & si.posting_date.between(start, end))
+    si = _si_base(company, start, end)
     base = (
         si.group_by(si.customer)
-        .aggregate(customer_name=si.customer_name.min(), revenue=si.grand_total.sum())
+        .aggregate(customer_name=si.customer_name.min(), revenue=si.base_net_total.sum())
         .execute()
     )
     if base.empty:
@@ -2043,23 +1931,10 @@ def compute_customer_scorecard(date_filter: str = "12m",
     base = base.fillna({"customer_name": ""})
 
     # Gross profit + margin % (line-level, identical formula to _rank_customers)
-    sii = t("Sales Invoice Item")
-    si_for_profit = t("Sales Invoice")
-    dn = dn_cost()
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
-        dn, sii.dn_detail == dn.dn_name
-    )
-    if company:
-        profit_lines = profit_lines.filter(si_for_profit.company == company)
-    profit_lines = profit_lines.filter(
-        (si_for_profit.docstatus == 1) & si_for_profit.posting_date.between(start, end)
-    )
+    lines, psi, rev_expr, gp_expr = _profit_lines(company, start, end)
     profit = (
-        profit_lines.group_by(si_for_profit.customer)
-        .aggregate(
-            gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum(),
-            line_revenue=sii.amount.sum(),
-        )
+        lines.group_by(psi.customer)
+        .aggregate(gross_profit=gp_expr.sum(), line_revenue=rev_expr.sum())
         .execute()
     )
     if not profit.empty:
@@ -2078,7 +1953,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
     si_monthly = si.mutate(month=si.posting_date.truncate("M"))
     monthly = (
         si_monthly.group_by([si_monthly.customer, si_monthly.month])
-        .aggregate(monthly_spend=si_monthly.grand_total.sum())
+        .aggregate(monthly_spend=si_monthly.base_net_total.sum())
         .execute()
     )
     total_months = _inclusive_month_span(start, end)
@@ -2145,34 +2020,27 @@ def compute_purchase_patterns(top_percentile: int = 20,
         end = datetime.now().date()
         start = end - timedelta(days=365)
 
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & si.posting_date.between(start, end))
-    per_cust = si.group_by(si.customer, si.customer_name).aggregate(revenue=si.grand_total.sum()).execute()
+    si = _si_base(company, start, end)
+    per_cust = si.group_by(si.customer, si.customer_name).aggregate(revenue=si.base_net_total.sum()).execute()
     if per_cust.empty:
         return {"status": "success", "message": _("No transaction data"), "patterns": None}
     per_cust = per_cust.sort_values("revenue", ascending=False).reset_index(drop=True)
     top_n = max(1, int(len(per_cust) * top_percentile / 100))
     top_ids = per_cust.head(top_n)["customer"].tolist()
 
-    SI = frappe.qb.DocType("Sales Invoice")
-    rows = (
-        frappe.qb.from_(SI)
-        .select(SI.name, SI.customer, SI.grand_total, SI.posting_date)
-        .where(
-            (SI.docstatus == 1)
-            & SI.posting_date.between(start, end)
-            & SI.customer.isin(top_ids)
-        )
-        .orderby(SI.posting_date)
-        .run(as_dict=True)
+    df = (
+        si.filter(si.customer.isin(top_ids))
+        .select("name", "customer", "posting_date", net_total=si.base_net_total)
+        .order_by("posting_date")
+        .execute()
     )
-    if not rows:
+    if df.empty:
         return {"status": "success", "message": _("No transaction data"), "patterns": None}
+    df["net_total"] = df["net_total"].astype(float)
 
     def _quarter(d):
         return (d.month - 1) // 3 + 1
 
-    df = pd.DataFrame([dict(r) for r in rows])
     df["posting_date"] = pd.to_datetime(df["posting_date"])
     df["day_name"] = df["posting_date"].dt.day_name()
     df["month_num"] = df["posting_date"].dt.month
@@ -2181,31 +2049,20 @@ def compute_purchase_patterns(top_percentile: int = 20,
 
     # Per-invoice gross profit (line-level, same formula as _rank_customers),
     # bucketed alongside revenue so each pattern view shows margin, not just top line.
-    sii = t("Sales Invoice Item")
-    si_for_profit = t("Sales Invoice")
-    dn = dn_cost()
-    profit_lines = sii.join(si_for_profit, sii.parent == si_for_profit.name).left_join(
-        dn, sii.dn_detail == dn.dn_name
-    )
-    if company:
-        profit_lines = profit_lines.filter(si_for_profit.company == company)
-    profit_lines = profit_lines.filter(
-        (si_for_profit.docstatus == 1)
-        & si_for_profit.posting_date.between(start, end)
-        & si_for_profit.customer.isin(top_ids)
-    )
+    lines, psi, _rev, gp_expr = _profit_lines(company, start, end)
     profit_per_inv = (
-        profit_lines.group_by(si_for_profit.name)
-        .aggregate(gross_profit=(sii.net_amount - line_cogs(sii, dn.dn_rate)).sum())
+        lines.filter(psi.customer.isin(top_ids))
+        .group_by(psi.name)
+        .aggregate(gross_profit=gp_expr.sum())
         .execute()
     )
     gp_map = dict(zip(profit_per_inv["name"], profit_per_inv["gross_profit"])) if not profit_per_inv.empty else {}
     df["gross_profit"] = df["name"].map(gp_map).fillna(0).astype(float)
 
     day_analysis = df.groupby("day_name").agg(
-        order_count=("grand_total", "count"),
-        total_revenue=("grand_total", "sum"),
-        avg_order_value=("grand_total", "mean"),
+        order_count=("net_total", "count"),
+        total_revenue=("net_total", "sum"),
+        avg_order_value=("net_total", "mean"),
         gross_profit=("gross_profit", "sum"),
     ).reindex(_DAY_ORDER).fillna(0).reset_index()
     day_analysis["total_revenue"] = day_analysis["total_revenue"].round(2)
@@ -2213,9 +2070,9 @@ def compute_purchase_patterns(top_percentile: int = 20,
     day_analysis["gross_profit"] = day_analysis["gross_profit"].round(2)
 
     month_analysis = df.groupby("month_name").agg(
-        order_count=("grand_total", "count"),
-        total_revenue=("grand_total", "sum"),
-        avg_order_value=("grand_total", "mean"),
+        order_count=("net_total", "count"),
+        total_revenue=("net_total", "sum"),
+        avg_order_value=("net_total", "mean"),
         gross_profit=("gross_profit", "sum"),
     ).reindex(_MONTH_ORDER).fillna(0).reset_index()
     month_analysis["total_revenue"] = month_analysis["total_revenue"].round(2)
@@ -2223,9 +2080,9 @@ def compute_purchase_patterns(top_percentile: int = 20,
     month_analysis["gross_profit"] = month_analysis["gross_profit"].round(2)
 
     quarter_analysis = df.groupby("quarter").agg(
-        order_count=("grand_total", "count"),
-        total_revenue=("grand_total", "sum"),
-        avg_order_value=("grand_total", "mean"),
+        order_count=("net_total", "count"),
+        total_revenue=("net_total", "sum"),
+        avg_order_value=("net_total", "mean"),
     ).fillna(0).reset_index()
     quarter_names = {1: "Q1 (Jan-Mar)", 2: "Q2 (Apr-Jun)", 3: "Q3 (Jul-Sep)", 4: "Q4 (Oct-Dec)"}
 
@@ -2240,7 +2097,7 @@ def compute_purchase_patterns(top_percentile: int = 20,
             "top_percentile": top_percentile,
             "customer_count": len(top_ids),
             "transaction_count": int(len(df)),
-            "date_range": f"{start} to {end}",
+            "date_range": f"{_as_date(start)} to {_as_date(end)}",
         },
         "day_of_week": {
             "data": day_analysis.to_dict("records"),
@@ -2262,8 +2119,8 @@ def compute_purchase_patterns(top_percentile: int = 20,
         },
         "summary": {
             "total_orders": int(len(df)),
-            "total_revenue": float(df["grand_total"].sum()),
-            "avg_order_value": float(df["grand_total"].mean()),
+            "total_revenue": float(df["net_total"].sum()),
+            "avg_order_value": float(df["net_total"].mean()),
             "peak_day": peak_day,
             "peak_month": peak_month,
         },
@@ -2287,11 +2144,10 @@ def compute_customer_variance(date_filter: str = "12m",
         end = datetime.now().date()
         start = end - timedelta(days=365)
 
-    si = company_filter(t("Sales Invoice"), company)
-    si = si.filter((si.docstatus == 1) & si.posting_date.between(start, end))
+    si = _si_base(company, start, end)
     actuals = (
         si.group_by(si.customer, si.customer_name, si.territory)
-        .aggregate(actual_revenue=si.grand_total.sum())
+        .aggregate(actual_revenue=si.base_net_total.sum())
         .execute()
     )
     if actuals.empty:
@@ -2404,6 +2260,6 @@ def compute_next_best_actions(date_filter: str = "12m",
     payload = compute_customer_intelligence(date_filter=date_filter, company=company)
     return {
         "status": "success",
-        "total_actions": len(payload.get("next_best_actions", [])),
+        "total_actions": payload.get("next_best_actions_total", 0),
         "actions": payload.get("next_best_actions", []),
     }

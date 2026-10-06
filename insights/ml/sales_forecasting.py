@@ -43,15 +43,14 @@ after every domain lands.
 """
 
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
-
-import ibis
 
 if TYPE_CHECKING:
     import pandas as pd
 
 from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.utils import parse_date_filter
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -61,8 +60,6 @@ from insights.api.ml.ibis_source import company_filter, default_company, t
 # extrapolating; it still contributes its history, just no forecast rows.
 _DIM_MIN_MONTHS = 3
 
-# How many historical months the dimensional forecast shows.
-_DIM_HISTORY_MONTHS = 12
 # How many future months the dimensional forecast projects.
 _DIM_FORECAST_MONTHS = 3
 
@@ -78,7 +75,25 @@ _DAILY_MIN_SAMPLES = 7
 # ---------------------------------------------------------------------------
 
 
-def _flat_mean_forecast(history: pd.DataFrame, periods: int) -> dict[str, Any]:
+def _is_partial(period: str, start: datetime | None, end: datetime | None) -> bool:
+    """True when a ``YYYY-MM`` bucket is not wholly inside the window: its first
+    day precedes the window start, or its last day is after the window end /
+    today (still in progress)."""
+    first = date(int(period[:4]), int(period[5:7]), 1)
+    last = (first.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    cutoff = min(end.date(), date.today()) if end else date.today()
+    return (start is not None and first < start.date()) or last > cutoff
+
+
+def _first_projected_day(last_date: date, first_day: date | None) -> date:
+    """First day of the projection: the day after the last observation, but
+    never earlier than `first_day` (today) so a stale series is not projected
+    into the past."""
+    nxt = last_date + timedelta(days=1)
+    return max(nxt, first_day) if first_day else nxt
+
+
+def _flat_mean_forecast(history: pd.DataFrame, periods: int, first_day: date | None = None) -> dict[str, Any]:
     """Forecast a flat line at the historical mean.
 
     Used as a fallback when the daily history is too short for a
@@ -95,14 +110,15 @@ def _flat_mean_forecast(history: pd.DataFrame, periods: int) -> dict[str, Any]:
     last_date = df["ds"].iloc[-1]
     if hasattr(last_date, "date") and callable(last_date.date):
         last_date = last_date.date()
+    start = _first_projected_day(last_date, first_day)
     future_rows: list[dict[str, Any]] = [
         {
-            "ds": (last_date + timedelta(days=i)).isoformat(),
+            "ds": (start + timedelta(days=i)).isoformat(),
             "yhat": round(max(0.0, mean), 2),
             "yhat_lower": round(max(0.0, mean - band), 2),
             "yhat_upper": round(mean + band, 2),
         }
-        for i in range(1, periods + 1)
+        for i in range(periods)
     ]
     return {
         "method": "linear_trend",
@@ -126,6 +142,7 @@ def _flat_mean_forecast(history: pd.DataFrame, periods: int) -> dict[str, Any]:
 def _linear_trend_forecast(
     history: pd.DataFrame,
     periods: int,
+    first_day: date | None = None,
 ) -> dict[str, Any]:
     """Project `history` (single-column time series, datetime-indexed
     if possible) forward `periods` rows via a closed-form least-squares
@@ -152,7 +169,7 @@ def _linear_trend_forecast(
         # run-rate. The method name is kept as `linear_trend` for
         # forward-compat with the dashboard's rendering path, but the
         # slope is forced to zero below.
-        return _flat_mean_forecast(history, periods)
+        return _flat_mean_forecast(history, periods, first_day)
 
     df = history[["ds", "y"]].copy()
     # With the PyArrow execute path `ds` is object-dtype datetime.date objects,
@@ -194,14 +211,15 @@ def _linear_trend_forecast(
         # `Timestamp`/`datetime` under the default (pandas) materialization path --
         # normalize once so every arithmetic step below sees a plain `date`.
         last_date = last_date.date()
+    start = _first_projected_day(last_date, first_day)
     future_rows: list[dict[str, Any]] = []
-    for i in range(1, periods + 1):
-        step_idx = n + i - 1
+    for i in range(periods):
+        step_idx = n + i
         yhat = a + b * step_idx
         yhat_floor = max(0.0, float(yhat))
         future_rows.append(
             {
-                "ds": (last_date + timedelta(days=i)).isoformat(),
+                "ds": (start + timedelta(days=i)).isoformat(),
                 "yhat": round(yhat_floor, 2),
                 "yhat_lower": round(max(0.0, yhat_floor - band), 2),
                 "yhat_upper": round(yhat_floor + band, 2),
@@ -255,30 +273,31 @@ def run_sales_forecast(periods: int = 30, method: str = "auto") -> dict[str, Any
     return get_sales_forecast(periods=periods)
 
 
-def get_sales_forecast(periods: int = 30) -> dict[str, Any]:
-    """Get the sales forecast (a daily projection of `periods` days)."""
-    si = company_filter(t("Sales Invoice"), default_company()).filter(
-        t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+def get_sales_forecast(periods: int = 30, company: str | None = None) -> dict[str, Any]:
+    """Get the sales forecast (a daily projection of `periods` days).
 
-    # Daily revenue series. `posting_date` is already a DATE in MariaDB
-    # and `grand_total` is DECIMAL -- `sum` returns a numeric column.
-    # The `_linear_trend_forecast` helper expects columns named `ds` and
-    # `y`; rename after .execute() rather than trying to alias inside
-    # the aggregate (Ibis 10 rejects keyword-aliasing of a bare column
-    # in a group-by metric).
-    daily = (
-        si.group_by(si.posting_date)
-        .aggregate(y=si.grand_total.sum())
-        .order_by("posting_date")
-    )
+    The series is tax-exclusive base-currency revenue, matching the
+    dashboard headline. Projection starts at max(last data day + 1, today).
+    """
+    inv = t("Sales Invoice")
+    si = company_filter(inv, company or default_company()).filter(inv.docstatus == 1).filter(inv.is_return == 0)
+
+    # `_linear_trend_forecast` expects columns named `ds` and `y`; rename
+    # after .execute() (Ibis 10 rejects keyword-aliasing of a bare column in
+    # a group-by metric).
+    daily = si.group_by(si.posting_date).aggregate(y=si.base_net_total.sum()).order_by("posting_date")
     df = daily.execute()
     if not df.empty:
         df = df.rename(columns={"posting_date": "ds"})
-    forecast = _linear_trend_forecast(df, periods)
+    forecast = _linear_trend_forecast(df, periods, first_day=date.today())
 
     if not df.empty:
         last_date = df["ds"].max()
+        if hasattr(last_date, "date") and callable(last_date.date):
+            last_date = last_date.date()
+        if "forecast_summary" in forecast:
+            forecast["forecast_summary"]["stale_days"] = max(0, (date.today() - last_date).days)
+            forecast["forecast_summary"]["first_day"] = forecast["forecast"][0]["ds"]
         first_date = df["ds"].min()
         data_range = {
             "start": str(first_date),
@@ -309,7 +328,9 @@ def get_sales_forecast(periods: int = 30) -> dict[str, Any]:
     }
 
 
-def get_grouped_forecast(group_by: str = "item_group", periods: int = 30) -> dict[str, Any]:
+def get_grouped_forecast(
+    group_by: str = "item_group", periods: int = 30, company: str | None = None
+) -> dict[str, Any]:
     """Get the forecast split by `group_by` (either "item_group" or
     "customer_group"). Aggregates daily sales per group, then runs the
     same linear-trend projection per group. Returns the same shape the
@@ -335,9 +356,8 @@ def get_grouped_forecast(group_by: str = "item_group", periods: int = 30) -> dic
         join_on = (t("Sales Invoice Item").item_code == cust.itemname)
         group_col = "item_group"
 
-    si = t("Sales Invoice").filter(t("Sales Invoice").docstatus == 1).filter(
-        t("Sales Invoice").is_return == 0
-    )
+    inv = t("Sales Invoice")
+    si = company_filter(inv, company or default_company()).filter(inv.docstatus == 1).filter(inv.is_return == 0)
     sii = t("Sales Invoice Item")
 
     joined = si.inner_join(sii, sii.parent == si.name).inner_join(cust, join_on)
@@ -345,7 +365,7 @@ def get_grouped_forecast(group_by: str = "item_group", periods: int = 30) -> dic
 
     expr = (
         filtered.group_by([si.posting_date, cust[group_col]])
-        .aggregate(y=sii.amount.sum())
+        .aggregate(y=sii.base_net_amount.sum())
         .order_by([si.posting_date, cust[group_col]])
     )
     df = expr.execute()
@@ -356,7 +376,7 @@ def get_grouped_forecast(group_by: str = "item_group", periods: int = 30) -> dic
 
     groups: dict[str, dict[str, Any]] = {}
     for group_name, group_df in df.groupby("group_name"):
-        forecast = _linear_trend_forecast(group_df, periods)
+        forecast = _linear_trend_forecast(group_df, periods, first_day=date.today())
         historical_avg = float(group_df["y"].mean())
         groups[str(group_name)] = {
             "forecast": forecast["forecast"],
@@ -388,77 +408,55 @@ def _rows(raw: pd.DataFrame, alias: str) -> list[dict[str, Any]]:
     ]
 
 
-def _monthly_by_territory(months: int) -> list[dict[str, Any]]:
-    """Monthly revenue per territory.
+def _monthly_by_territory(company: str | None = None) -> list[dict[str, Any]]:
+    """Monthly net revenue per invoice territory, full history.
 
-    Territory is a Sales Invoice header field, so the invoice total
-    can be summed directly -- one row per invoice, no fan-out.
+    Territory is a Sales Invoice header field, so `base_net_total` can be
+    summed directly -- one row per invoice, no fan-out.
     """
-    si = t("Sales Invoice")
-    cutoff = (datetime.now() - timedelta(days=months * 30)).date()
+    inv = t("Sales Invoice")
+    si = company_filter(inv, company or default_company())
     base = (
         si.filter(si.docstatus == 1)
         .filter(si.is_return == 0)
-        .filter(si.posting_date >= cutoff)
-        .filter(si.territory.notnull())
-        .filter(si.territory != ibis.literal(""))
-        .mutate(period=si.posting_date.strftime("%Y-%m"))
+        .mutate(
+            period=si.posting_date.strftime("%Y-%m"),
+            bucket=si.territory.nullif("").fill_null("Unassigned"),
+        )
     )
     expr = (
-        base.group_by(["period", "territory"])
-        .aggregate(
-            revenue=si.base_grand_total.sum(),
-            transactions=base.name.count(),
-        )
-        .order_by(["period", "territory"])
+        base.group_by(["period", "bucket"])
+        .aggregate(revenue=base.base_net_total.sum(), transactions=base.name.count())
+        .order_by(["period", "bucket"])
     )
-    df = expr.execute().rename(columns={"territory": "bucket"})
-    return _rows(df, "territory")
+    return _rows(expr.execute(), "territory")
 
 
-def _monthly_by_item_group(months: int) -> list[dict[str, Any]]:
-    """Monthly revenue per item group.
+def _monthly_by_item_group(company: str | None = None) -> list[dict[str, Any]]:
+    """Monthly net revenue per item group, full history.
 
-    Item group lives on the invoice *lines*, so this has to join. A
-    naive join counting `base_grand_total` per line inflates revenue
-    by ~42% (a known prior bug). The fix: allocate the invoice total
-    to its lines in proportion to their net amount, and fall back to
-    the line amount itself when the invoice net total is zero (fully
-    discounted). Either way the per-period sum ties out to revenue.
+    Item group lives on the invoice *lines*, so this joins; line
+    `base_net_amount` sums to the invoice `base_net_total`, so no allocation
+    is needed and the per-period sum ties out to revenue.
     """
-    si = t("Sales Invoice")
+    inv = t("Sales Invoice")
     sii = t("Sales Invoice Item")
-    cutoff = (datetime.now() - timedelta(days=months * 30)).date()
-
+    si = company_filter(inv, company or default_company())
     base = (
         si.inner_join(sii, sii.parent == si.name)
         .filter(si.docstatus == 1)
         .filter(si.is_return == 0)
-        .filter(si.posting_date >= cutoff)
-        .filter(sii.item_group.notnull())
-        .filter(sii.item_group != ibis.literal(""))
-        .mutate(period=si.posting_date.strftime("%Y-%m"))
-    )
-
-    # Allocate invoice total to each line in proportion to its net
-    # amount, with a zero-net-total guard. The same logic is in
-    # ``_monthly_by_item_group`` of the previous implementation.
-    allocated = ibis.ifelse(
-        si.base_net_total == 0,
-        sii.base_net_amount,
-        sii.base_net_amount / si.base_net_total * si.base_grand_total,
-    )
-
-    expr = (
-        base.group_by(["period", "item_group"])
-        .aggregate(
-            revenue=allocated.sum(),
-            transactions=si.name.nunique(),
+        .mutate(
+            period=si.posting_date.strftime("%Y-%m"),
+            bucket=sii.item_group.nullif("").fill_null("Uncategorized"),
         )
-        .order_by(["period", "item_group"])
     )
-    df = expr.execute().rename(columns={"item_group": "bucket"})
-    return _rows(df, "product_group")
+    expr = (
+        base.group_by(["period", "bucket"])
+        .aggregate(revenue=sii.base_net_amount.sum(), transactions=si.name.nunique())
+        .order_by(["period", "bucket"])
+    )
+    return _rows(expr.execute(), "product_group")
 
 
 
@@ -510,18 +508,37 @@ def _extend_with_forecast(history: list[dict[str, Any]], alias: str) -> list[dic
     return history + projected
 
 
-def get_dimensional_history_and_forecast(months: int = _DIM_HISTORY_MONTHS) -> dict[str, Any]:
-    """Monthly actuals plus a short projection, by product group and
-    territory. Shaped for the Revenue dashboard's "Forecasts" tab,
-    which transposes these into a period-by-group table.
+def get_dimensional_history_and_forecast(
+    date_filter: str = "12m", company: str | None = None
+) -> dict[str, Any]:
+    """Monthly net-revenue actuals (windowed by `date_filter`) plus a short
+    projection, by product group and territory. Shaped for the Revenue
+    dashboard's "Forecasts" tab, which transposes these into a
+    period-by-group table.
+
+    The projection is fitted on the full history; only the returned actual
+    rows are windowed, and each carries `is_partial`.
     """
-    product_group = _monthly_by_item_group(months)
-    territory = _monthly_by_territory(months)
+    start, end = parse_date_filter(date_filter)
+    lo = start.strftime("%Y-%m") if start else ""
+    hi = end.strftime("%Y-%m") if end else "9999-99"
+
+    def build(rows: list[dict[str, Any]], alias: str) -> list[dict[str, Any]]:
+        out = []
+        for r in _extend_with_forecast(rows, alias):
+            if r["is_forecast"]:
+                r["is_partial"] = False
+            elif lo <= r["period"] <= hi:
+                r["is_partial"] = _is_partial(r["period"], start, end)
+            else:
+                continue
+            out.append(r)
+        return out
 
     return {
         "status": "success",
-        "months": months,
+        "date_filter": date_filter,
         "horizon_months": _DIM_FORECAST_MONTHS,
-        "combined_product_group": _extend_with_forecast(product_group, "product_group"),
-        "combined_territory": _extend_with_forecast(territory, "territory"),
+        "combined_product_group": build(_monthly_by_item_group(company), "product_group"),
+        "combined_territory": build(_monthly_by_territory(company), "territory"),
     }
