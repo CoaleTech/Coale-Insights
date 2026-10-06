@@ -52,6 +52,7 @@ from datetime import datetime, timedelta
 
 import frappe
 from frappe import _
+from frappe.utils import add_months
 
 from insights.api.response import error, success
 
@@ -634,7 +635,7 @@ def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, dateti
     """Parse a date filter string into (start_date, end_date).
 
     Supported: ``"7d"``/``"30d"``/``"90d"`` (days), ``"3m"``-``"24m"``
-    (months, x30d), ``"1y"``-``"3y"`` (years, x365d), ``"ytd"``, ``"all"``,
+    (calendar months), ``"1y"``-``"3y"`` (calendar years), ``"ytd"``, ``"all"``,
     or a ``custom:<start>:<end>`` range (see `parse_custom_range`).
     """
     if not date_filter or date_filter == "all":
@@ -651,10 +652,13 @@ def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, dateti
     elif date_filter.endswith("d") and date_filter[:-1].isdigit():
         start_date = end_date - timedelta(days=int(date_filter[:-1]))
     elif date_filter.endswith("m") and date_filter[:-1].isdigit():
-        start_date = end_date - timedelta(days=int(date_filter[:-1]) * 30)
+        start_date = add_months(end_date, -int(date_filter[:-1]))
     elif date_filter.endswith("y") and date_filter[:-1].isdigit():
-        start_date = end_date - timedelta(days=int(date_filter[:-1]) * 365)
+        start_date = add_months(end_date, -12 * int(date_filter[:-1]))
     else:
-        start_date = end_date - timedelta(days=365)
+        start_date = add_months(end_date, -12)
 
-    return start_date, end_date
+    # Midnight start: a datetime bound mid-day silently drops the start day's
+    # rows when compared with a DATE column.
+    return start_date.replace(hour=0, minute=0, second=0, microsecond=0), end_date
+

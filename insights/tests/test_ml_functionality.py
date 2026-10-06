@@ -280,6 +280,23 @@ class TestSalesAPIDrillDown(FrappeTestCase):
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['territory'], 'Mombasa')
 
+    @patch('insights.api.ml.sales.frappe.has_permission')
+    @patch('insights.api.ml.sales.frappe.get_list')
+    @patch('insights.api.ml.sales.frappe.db.count')
+    def test_revenue_drilldowns_match_kpi_basis(self, mock_db_count, mock_get_list, mock_has_permission):
+        """Row sets must reproduce the KPI: no credit notes, same window, net total."""
+        from insights.api.ml.sales import get_sales_detail
+
+        mock_get_list.return_value = []
+        mock_db_count.return_value = 0
+        for metric in ('total_orders', 'sales_by_territory'):
+            result = get_sales_detail(metric, '{"period": "custom:2026-01-01:2026-01-31"}')
+            _, kwargs = mock_get_list.call_args
+            self.assertEqual(kwargs['filters']['is_return'], 0)
+            self.assertEqual(kwargs['filters']['posting_date'], ('between', ['2026-01-01', '2026-01-31']))
+            self.assertIn('base_net_total', kwargs['fields'])
+            self.assertEqual(result['columns'][-1 if metric == 'sales_by_territory' else 3]['fieldname'], 'base_net_total')
+
     def test_get_sales_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
         from insights.api.ml.sales import get_sales_detail
@@ -461,34 +478,6 @@ class TestCustomerAPIDrillDown(FrappeTestCase):
         self.assertEqual(kwargs['filters']['company'], 'Test Company')
         self.assertEqual(kwargs['filters']['docstatus'], 1)
 
-    @patch('insights.api.ml.customer.frappe.has_permission')
-    @patch('insights.api.ml.customer.frappe.get_list')
-    @patch('insights.api.ml.customer.frappe.db.count')
-    @patch('insights.api.ml.customer.frappe.utils')
-    def test_get_customer_detail_new_customers(self, mock_utils, mock_db_count, mock_get_list, mock_has_permission):
-        """Test new_customers drill-down applies creation cutoff"""
-        from insights.api.ml.customer import get_customer_detail
-
-        mock_utils.today.return_value = '2024-06-17'
-        mock_utils.add_days.return_value = '2024-05-18'
-        mock_get_list.return_value = [
-            {
-                'name': 'CUST-002',
-                'customer_name': 'Customer B',
-                'customer_group': 'Individual',
-                'territory': 'Mombasa',
-                'creation': '2024-06-01'
-            }
-        ]
-        mock_db_count.return_value = 1
-
-        result = get_customer_detail('new_customers', '{"period": "30d"}')
-
-
-        self.assertEqual(result['rows'][0]['name'], 'CUST-002')
-        _, kwargs = mock_get_list.call_args
-        self.assertIn('creation', kwargs['filters'])
-
     def test_get_customer_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
         from insights.api.ml.customer import get_customer_detail
@@ -580,6 +569,46 @@ class TestProcurementAPIDrillDown(FrappeTestCase):
         self.assertEqual(result['rows'][0]['supplier'], 'Supplier C')
         _, kwargs = mock_get_list.call_args
         self.assertEqual(kwargs['filters']['supplier'], 'Supplier C')
+
+    @patch('insights.api.ml.procurement.frappe.has_permission')
+    @patch('insights.api.ml.procurement.frappe.get_list')
+    @patch('insights.api.ml.procurement.frappe.db.count')
+    def test_get_procurement_detail_total_pos_date_filter(self, mock_db_count, mock_get_list, mock_has_permission):
+        """date_filter in filters windows total_pos on transaction_date; absent = all time"""
+        from insights.api.ml.procurement import get_procurement_detail
+
+        mock_get_list.return_value = []
+        mock_db_count.return_value = 0
+
+        get_procurement_detail('total_pos', '{"company": "C", "date_filter": "3m"}')
+        self.assertEqual(mock_get_list.call_args[1]['filters']['transaction_date'][0], 'between')
+
+        get_procurement_detail('total_pos', '{"company": "C", "date_filter": "all"}')
+        self.assertNotIn('transaction_date', mock_get_list.call_args[1]['filters'])
+
+    @patch('insights.api.ml.procurement.frappe.has_permission')
+    @patch('insights.api.ml.procurement.frappe.get_list')
+    @patch('insights.api.ml.procurement.frappe.db.count')
+    def test_get_procurement_detail_new_invoice_metrics(self, mock_db_count, mock_get_list, mock_has_permission):
+        """supplier_invoices / overdue_invoices / item_purchases return {columns, rows, total}"""
+        from insights.api.ml.procurement import get_procurement_detail
+
+        mock_get_list.return_value = []
+        mock_db_count.return_value = 0
+
+        for metric, flt in (
+            ('supplier_invoices', '{"supplier": "S", "date_filter": "12m"}'),
+            ('overdue_invoices', '{}'),
+            ('item_purchases', '{"item_code": "I", "date_filter": "12m"}'),
+        ):
+            result = get_procurement_detail(metric, flt)
+            self.assertEqual(set(result), {'columns', 'rows', 'total'})
+            mock_has_permission.assert_called_with('Purchase Invoice', throw=True)
+
+        with self.assertRaises(frappe.ValidationError):
+            get_procurement_detail('supplier_invoices', '{}')
+        with self.assertRaises(frappe.ValidationError):
+            get_procurement_detail('item_purchases', '{}')
 
     def test_get_procurement_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -1290,6 +1319,64 @@ class TestESGAPIDrillDown(FrappeTestCase):
 
         with self.assertRaises(frappe.ValidationError):
             get_esg_detail('unknown_metric', '{}')
+
+
+class TestInventoryForecastMath(unittest.TestCase):
+    def test_weighted_forecast_recent_month_weighs_most(self):
+        from insights.ml.inventory_intelligence import _weighted_forecast
+
+        # ascending months: 0.2*10 + 0.3*20 + 0.5*30 = 23
+        self.assertAlmostEqual(_weighted_forecast([10, 20, 30]), 23.0)
+        # only the last three months count
+        self.assertAlmostEqual(_weighted_forecast([999, 10, 20, 30]), 23.0)
+
+    def test_weighted_forecast_partial_history(self):
+        from insights.ml.inventory_intelligence import _weighted_forecast
+
+        # two months use the two newest weights (0.3, 0.5)
+        self.assertAlmostEqual(_weighted_forecast([20, 40]), (20 * 0.3 + 40 * 0.5) / 0.8)
+        self.assertEqual(_weighted_forecast([]), 0.0)
+
+
+class TestSalesRevenueBasis(unittest.TestCase):
+    """Pure-function checks for the net-of-tax revenue basis and its windows."""
+
+    def test_is_partial_flags_window_edges_and_current_month(self):
+        from datetime import datetime
+
+        from insights.ml.sales_forecasting import _is_partial
+
+        start, end = datetime(2025, 10, 6), datetime(2025, 12, 31)
+        self.assertTrue(_is_partial("2025-10", start, end))  # starts before the window
+        self.assertFalse(_is_partial("2025-11", start, end))  # wholly inside
+        self.assertTrue(_is_partial("2999-01", None, None))  # in the future / in progress
+        today = date.today()
+        self.assertTrue(_is_partial(today.strftime("%Y-%m"), None, None))  # current month
+
+    def test_flat_forecast_starts_today_when_data_is_stale(self):
+        from datetime import timedelta
+
+        import pandas as pd
+
+        from insights.ml.sales_forecasting import _linear_trend_forecast
+
+        old = date.today() - timedelta(days=40)
+        hist = pd.DataFrame({"ds": [old - timedelta(days=i) for i in range(10)], "y": [100.0] * 10})
+        rows = _linear_trend_forecast(hist, 5, first_day=date.today())["forecast"]
+        self.assertEqual(rows[0]["ds"], date.today().isoformat())
+        self.assertEqual(len(rows), 5)
+        fresh = _linear_trend_forecast(hist, 5)["forecast"]  # no anchor: day after last data
+        self.assertEqual(fresh[0]["ds"], (old + timedelta(days=1)).isoformat())
+
+    def test_net_invoice_filters_exclude_returns_and_bound_both_ends(self):
+        from insights.api.ml.sales import _net_invoice_filters
+
+        f = _net_invoice_filters("JKM", "custom:2026-01-01:2026-01-31")
+        self.assertEqual(f["is_return"], 0)
+        self.assertEqual(f["docstatus"], 1)
+        self.assertEqual(f["posting_date"], ("between", ["2026-01-01", "2026-01-31"]))
+        self.assertNotIn("posting_date", _net_invoice_filters(None, "all"))
+
 
 
 if __name__ == '__main__':

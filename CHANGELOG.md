@@ -6,6 +6,62 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-22
 
+### Fixed — Finance Intelligence: future-dated postings, reversal double-count, blank amount cells, dead drill-downs, budget/break-even maths
+
+Live `jkm` before → after:
+
+- **Actuals** (`financial_intelligence.py`): future-dated GL/Payment Entries (a 2027-03-31 depreciation JE, Oct/Nov 2026 payments) no longer leak into MTD/YTD, the monthly trend, burn rate or the expense forecast — phantom `2027-03` period gone, MTD expenses `2,159 → 0`, `avg_monthly_outflow 11.1M → 14.7M`, fixed 6-month divisor. Row-level `.abs()` removed: revenue breakdown `80.42M → 80.15M` (= YTD), expenses `79.29M → 76.68M`. Trend window starts on the 1st of the month (Oct 2025 revenue `6.83M → 9.86M`). `date_filter` now drives the trend/cash/collection windows. `runway_months` is `null` (not 999) when cash-positive. `receivables`/`payables` gain `gl_balance` and `avg_overdue_days`.
+- **UI amounts**: decimals reach the browser as numbers — aging tables, top debtors/creditors, large transactions and waterfalls rendered `—` because they were strings. New drill-downs `top_customers_ar`, `top_suppliers_ap`, `overdue_ap_90` (rows previously threw "Unknown metric").
+- **Strategic** (`strategic_finance/*`): prior quarter is the full previous quarter (`6.96M → 32.36M`); partial current periods carry `is_partial` and null change instead of −100%; working-capital trends are cumulative balances (no 999 sentinels, no future months); AR-delay / AP-acceleration scenarios shift cash instead of deleting it; expense forecast bounded to complete months; ROE/D-E/fixed-cost cards are `null`/`unavailable`, not 0/"good"; tax rate read from Insights Settings (fallback 25, was 30); asset capex falls back to GL when `Asset.purchase_amount` is unset.
+- **Budget variance**: actuals use `root_type` (COGS included) with income signed positive; Monthly Distribution honoured; `has_budget` and `errors` replace silent zero-filled `{}`; `favorable` flag on rows.
+- **Break-even**: cash-flow break-even was all zeros (alias stripped by `Coalesce`) → `₹90.5M in / ₹88.1M out`; ROCE target `1500% red → 15% green`; break-even revenue = fixed ÷ CM ratio; unconfigured cost centers return `configured:false` and null coverage instead of "0% red + 100% margin of safety".
+- **Frontend**: Capital Planning tab rewritten to the real payload; Scenario/Ratios/Period-comparison/Budget/Break-even tabs stop binding keys that don't exist; no `KES`/`en-KE`; keyboard + `role=button` on clickable cards; `yMin: 0` on bar charts; Refresh reloads break-even; date-filter hint on planning tabs; new Due Soon / Payment Schedule / Monthly Collections views.
+- **Follow-ups**: forecast accuracy was `1 − x/y·100` (precedence) → `(1 − |var|/forecast)·100`; Ratios & Trends "Gross Margin" was net margin under a gross label (equal to Net Margin every quarter, vs a 35% benchmark) → `(revenue − COGS)/revenue`, null when no COGS booked (Q4 `4.7% → 7.9%`); Ratios tab gains a Liquidity group (Current/Quick ratio) from the working-capital payload.
+- **Alignment**: Working Capital / Ratios / Cost Structure no longer render blank when the planning feed fails or is warming (panel is scoped to the tabs that read it, not just the Planning group). Strategic cash (working capital, ratios, trend) now includes name-matched Fixed Deposit accounts like the Cash tab (`Cash & Bank 0.73M → 10.55M`, current ratio `1.28x → 1.89x`; the 0.97M gap to the Cash tab is its post-dated block). Capital Planning: the register was read from `Asset.purchase_amount` (0 on manually created assets) — now `net_purchase_amount`; headline stays GL book value (`1.58M`) and `register_gross_assets` (`0.33M`) is disclosed in a note under the cards, count labelled "registered assets".
+
+### Fixed — Revenue & Customer Intelligence: tax-inclusive headline, credit notes in customer metrics, doubled active count, hardcoded RFM, 360-day "12m"
+
+Live `jkm` before → after:
+
+- **Revenue basis**: headline revenue was `grand_total` (tax-inclusive, ₹176.6M) while margins/reps used net (₹152.6M), so "Unattributed revenue ₹24.06M" was really GST. Both dashboards now use tax-exclusive `base_net_total`/`base_net_amount` with returns excluded; payloads carry `base_currency` + `revenue_basis`. Margin %, rep GP (sum = margins.total_profit), product/territory/segment/monthly totals all reconcile (₹154.04M on the new 12m window); unattributed ₹0.
+- **`parse_date_filter`** (shared by all dashboards): `12m` was 360 days with a mid-day start; now calendar months/years with a midnight start. Partial first/current months flagged `is_partial`, first-month MoM null.
+- **Active customers** doubled (673 vs 339) — Ibis `union` is UNION ALL; now distinct (338). Credit notes (−₹419,519.70) no longer inflate order counts / lower CLV / AOV; gross profit no longer drops start-day invoices.
+- **Customer 360** showed "Need Attention / 333" for everyone; now the customer's real RFM (same population as the list). `customer_segmentation` and the windowed RFM agree.
+- **Drill-downs** match their KPIs: sales `total_orders`/`sales_by_territory` exclude returns (2047 → 2044), honour custom-range end dates; customer drill-downs use the dashboard window (no 365-day map).
+- **Forecast** started at the last invoice date (22 of "next 30 days" already elapsed); now starts today with `stale_days`. Dimension forecast, purchase patterns, segmentation and refresh honour `date_filter`.
+- **Geography** rolled up by the customer's min territory; now by invoice territory. Map coverage 98.6% → 94.5% (real denominator). Cohorts use lifetime first purchase. `next_best_actions_total` exposes the true count behind the 100-row cap; duplicate top-20 and dead `product_affinity` removed.
+- **Frontend**: bar charts `yMin: 0`, margin badges relative to the company margin (all rows were red), Monthly Summary customers total no longer 2.4× inflated, "Today" 100%-credit on no sales, Space/`role="button"` on clickable rows, purchase-history rows open invoices instead of `/customer/SINV-…`, date locale `en-IN`, lazy tab loaders per active tab.
+
+### Fixed — Inventory Intelligence: ignored period filter, cancelled COGS, reversed forecast weights, capped counts, unitless money
+
+Live `jkm` before → after:
+
+- **`date_filter` was ignored** by every section (3m/6m returned the 12m numbers, forced a full recompute); now drives turnover, procurement, transfers, movers, dead stock, ABC/XYZ and demand history. 3m COGS ₹27.7M. Turnover/DSI annualised so windows stay comparable.
+- **COGS** counted cancelled SLEs and Stock Entry outflows (₹141.67M incl. ₹0.64M cancelled); both excluded.
+- **Demand forecast** weighted the *oldest* month 50% and included the in-progress month: KCL97TIND 32,150 → 26,750; weights `[0.2,0.3,0.5]`, partial month excluded; demand uses `stock_qty`.
+- **Counts vs lists**: pending orders 20 → 30 (true count), reorder count is the full population with `Showing X of Y` in the UI; dead-stock scan no longer capped at 50 items.
+- **Sentinels**: DSI `999 days` / turnover `0x` for zero-stock groups and forecast `months_cover` 999 are `null` → `-`.
+- **Money** rendered `1.0M` with no currency; now `formatMoney` with payload `base_currency`. `avg_inventory_value` (a point-in-time snapshot duplicating Stock Value) renamed `current_inventory_value` and its duplicate card removed.
+- **Blank/raw cells**: warehouse Distribution column populated, pending orders show supplier name and formatted date, reorder rows carry `item_name`, ABC top items show per-row Strategy.
+- **Transfers** attribute demand by line warehouse and no longer impute 0.01 fake demand; PO totals use `base_grand_total`.
+- **Drill-downs** added for Out of Stock, Overstock, Dead Stock, Pending Orders and Reorder; Space key + `role="button"` on warehouse rows.
+
+### Fixed — Procurement Intelligence: wrong shares, saturated risk score, imputed supplier scores, no period control
+
+Live `jkm` before → after:
+
+- **Category forecast** used the mean invoice *line* ×3: "All Item Groups" spent ₹112.9M in 12M but forecast ₹249k for 3M → now trailing-12M ÷ 12 × 3 = ₹28.2M (flat run-rate; the invented 2% growth and the hardcoded "Confidence: Medium/Low" are gone).
+- **Top-supplier / category `% of total`** was normalised to the top-N sum (SR00054 21.0%, Risk tab 8.3%) → whole-window total (8.3% on both).
+- **Risk score** saturated at 100/100 (183 single-source items × 2) → three bounded components returned as `risk_components` (35/35/30) and shown on the Risk tab: 11.2.
+- **Supplier score**: a supplier with no lead-time data got lead score 100 (SR00251 scored 100.0); missing lead/quality/on-time are now `null`, excluded from averages, and weights renormalised. On-time denominator no longer counts open not-yet-due POs. KPI lead time now shares its basis with PO→GRN (1.1 / 1.1, was 1.9 / 1.0).
+- **Missing ≠ 0**: MR→PO "0.0 days" (no MR links) is `null` and renders as `-`.
+- **Price intelligence**: stock items only, base-currency stock-UOM prices, savings = Σ(unit − min) × qty (₹1.13M, 123k of it from "Transport Charges" → ₹21.7M over 122 stock items); "Items with Price Increases" no longer capped at 10 (`price_increases_count`).
+- **Growth** compares the window with the preceding equal window (was YTD vs same period last year beside a 12M figure). Partial first/current months are flagged and excluded from the forecast fit; forecast months use calendar arithmetic.
+- **Period control**: `date_filter` on every procurement endpoint and the dashboard (`IntelligenceDateFilter`); pending/overdue/payment figures are labelled current. The executive rollup now honours its period for procurement.
+- **Drill-downs** for top suppliers, single-source and price items (`item_purchases`), overdue invoices; `total_pos`/`supplier_performance` honour the window.
+- Frontend: `yMin: 0` on bar/area charts, dashed forecast on the history chart, `'KES'` fallback removed, keyboard-reachable clickable rows, `noopener`, bounded AI-chat context.
+- Removed dead payload: `ytd_spend`, `avg_invoice_value`, `grn_completion_rate`, `seasonal_pattern`, `best_price_suppliers`, `high_concentration_count`, `overdue_value`; `total_spend_12m` → `total_spend`, `yoy_growth` → `prior_period_growth`.
+
 ### Changed — Risk Overview tab rebuilt around money, not scores
 
 The Overview tab led with an abstract 0–100 score and four disconnected KPI

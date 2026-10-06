@@ -214,7 +214,7 @@ def _load_procurement(period: str) -> Dict[str, Any]:
     try:
         from insights.ml.procurement_intelligence import ProcurementIntelligence
 
-        return ProcurementIntelligence().train() or {}
+        return ProcurementIntelligence(date_filter=_resolve_date_filter(period)).train() or {}
     except Exception as e:
         frappe.log_error(f"Executive: procurement load failed: {e}", "Executive Intelligence")
         return {"error": str(e)}
@@ -294,14 +294,12 @@ def _financial_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
         # Cash runway: reuse the burn-rate figure FinancialIntelligence already
         # computed (cash / net outflow -- how long the balance lasts if the
         # current spend pace continues). When net burn is non-positive (the
-        # site is cash-flow positive, i.e. money is coming in faster than it
-        # leaves) FinancialIntelligence returns a sentinel 999 for
-        # `runway_months`; that "83 years of runway" would render as a real
-        # C-suite KPI otherwise. Detect the sentinel and surface an
-        # "unavailable" KPI in that case so the number doesn't lie.
+        # site is cash-flow positive) FinancialIntelligence returns
+        # `runway_months=None`; surface an "unavailable" KPI then so the
+        # number doesn't lie.
         cash_flow = data.get("cash_flow", {}) or {}
         raw_runway = _f(cash_flow.get("runway_months"))
-        burn_positive = raw_runway < 999 and raw_runway > 0
+        burn_positive = raw_runway > 0
         if burn_positive:
             runway_weeks = round(raw_runway * 4.33, 1)
             runway_kpi = _kpi(
@@ -316,7 +314,7 @@ def _financial_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
                 target=13, variance_pct=None,
                 extra={
                     "rag_status": "amber",
-                    "note": _("Cash flow is positive; runway not applicable (sentinel 999 from FinancialIntelligence)"),
+                    "note": _("Cash flow is positive; runway not applicable"),
                 },
             )
         return {
@@ -476,7 +474,7 @@ def _operations_kpis(inv: Dict[str, Any], proc: Dict[str, Any]) -> Dict[str, Any
         # resulting `_f(None)` silently reporting "0% supplier performance,
         # red RAG" when the truth is "we don't track this yet".
         supplier_perf = proc.get("supplier_performance") or {}
-        if not supplier_perf or proc.get("status") in ("error", "unavailable"):
+        if supplier_perf.get("avg_score") is None or proc.get("status") in ("error", "unavailable"):
             out["supplier_performance"] = _kpi(
                 None, label=_("Supplier Performance %"), format="percentage",
                 target=85.0, variance_pct=None,
@@ -741,20 +739,21 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
     we return an empty list so the dashboard renders the placeholder."""
     trends: Dict[str, List[float]] = {}
 
-    # Revenue trend (12 months) from Sales Invoice grand_total
+    # Revenue trend (12 months): tax-exclusive, credit notes excluded -- the
+    # same basis as the Sales dashboard headline the sparkline sits beside.
     try:
         from insights.api.ml.ibis_source import company_filter, t
         from insights.api.ml.utils import parse_date_filter
 
         start, _ = parse_date_filter("12m")
         si = company_filter(t("Sales Invoice"), _company())
-        si = si.filter(si.docstatus == 1)
+        si = si.filter(si.docstatus == 1).filter(si.is_return == 0)
         if start:
             si = si.filter(si.posting_date >= start.date())
         rev = (
             si.mutate(month=si.posting_date.truncate("month"))
             .group_by("month")
-            .aggregate(total=si.grand_total.sum())
+            .aggregate(total=si.base_net_total.sum())
             .order_by("month")
             .execute()
         )

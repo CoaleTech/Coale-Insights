@@ -153,16 +153,15 @@ export function formatPercent(value: number | null | undefined, decimals = 1): s
  * - Missing value: `'-'`, `''`, `'N/A'`, `'TBD'` and `'Never'` were all in use.
  * - Time: four included it, the rest did not, with no pattern to which.
  *
- * Pinned to `en-KE` because the deployment reports in KES and the majority of
- * the dashboard chrome already used it. The numeric pin above stays `en-US`
- * deliberately: that one is about grouping vocabulary (M/K vs crore), which is
- * a different axis from date field order.
+ * Pinned to `en-IN` because the deployment is Indian (INR). The numeric pin
+ * above stays `en-US` deliberately: that one is about grouping vocabulary
+ * (M/K vs crore), which is a different axis from date field order.
  *
  * Day-month-name-year is unambiguous for any reader, which matters more here
  * than in most products: an auditor and a CFO read the same finding, and
  * `3/2/2026` means two different days depending on who is looking.
  */
-const DATE_LOCALE = 'en-KE'
+const DATE_LOCALE = 'en-IN'
 
 /**
  * One absence marker for the whole vocabulary.
@@ -201,12 +200,14 @@ export function formatDate(value: string | null | undefined): string {
 export function formatDateTime(value: string | null | undefined): string {
 	const d = parse(value)
 	if (!d) return NO_VALUE
+	// en-IN defaults to a 12-hour clock ("02:30 pm"); the documented shape is 24-hour.
 	return d.toLocaleDateString(DATE_LOCALE, {
 		year: 'numeric',
 		month: 'short',
 		day: 'numeric',
 		hour: '2-digit',
 		minute: '2-digit',
+		hour12: false,
 	})
 }
 

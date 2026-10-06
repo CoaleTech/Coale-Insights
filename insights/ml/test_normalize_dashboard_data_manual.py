@@ -75,9 +75,9 @@ def test_manufacturing_and_procurement_and_inventory():
     assert out["summary"] == {"total_work_orders": 12, "completion_rate_pct": 91.5}
 
     out = svc._normalize_dashboard_data(
-        "procurement", {"spend_overview": {"total_spend_12m": 1000, "supplier_count": 4}}
+        "procurement", {"spend_overview": {"total_spend": 1000, "supplier_count": 4}}
     )
-    assert out["summary"] == {"total_spend_12m": 1000, "supplier_count": 4}
+    assert out["summary"] == {"total_spend": 1000, "supplier_count": 4}
 
     out = svc._normalize_dashboard_data(
         "inventory", {"stock_overview": {"total_skus": 64, "health_score": 80}}
