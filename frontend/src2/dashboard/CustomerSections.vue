@@ -132,6 +132,10 @@ const patternsLoadingKey = ref<string | null>(null)
 const purchasePatternsData = computed(() => patternsByFilter.value[props.dateFilter] ?? null)
 const isLoadingPatterns = computed(() => patternsLoadingKey.value === props.dateFilter && !purchasePatternsData.value)
 const activeCutoff = ref('6')
+// Period-wise counts: loaded lazily when the "Customers by period" panel opens.
+const periodOpen = ref(false)
+const periodGran = ref('auto')
+const periodData = ref<{ granularity: string | null, periods: Record<string, any>[] } | null>(null)
 
 // Rankings filters + sort — all client-side over the one scorecard list.
 const rankSearch = ref('')
@@ -458,6 +462,49 @@ async function loadCustomerCounts() {
   }
 }
 
+async function loadPeriodCounts() {
+  try {
+    periodData.value = await apiCall('insights.api.ml.customer.customer_counts_by_period', {
+      date_filter: props.dateFilter,
+      granularity: periodGran.value,
+      active_cutoff_months: activeCutoff.value,
+    }) as typeof periodData.value
+  } catch (e: unknown) {
+    console.error('Failed to load customer counts by period:', readFrappeError(e).message)
+  }
+}
+function periodLabel(p: Record<string, string>): string {
+  const d = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+  return p.period_start === p.period_end ? d(p.period_start) : `${d(p.period_start)} – ${d(p.period_end)}`
+}
+// A period row drills with its own range, so the list matches the cell.
+function drillPeriod(metric: 'new_customers' | 'reactivated_customers', title: string, p: Record<string, string>) {
+  drillOpen(`${title} · ${periodLabel(p)}`, {
+    metric,
+    date_filter: `custom:${p.period_start}:${p.period_end}`,
+    active_cutoff_months: activeCutoff.value,
+  })
+}
+
+// Counts strip. Total is the Customer master; "Buyers" is the customers who
+// invoiced in the window (the dashboard's customer KPIs); Reactivated is
+// customers who restarted buying after the "Inactive after" gap.
+const countTiles = computed(() => {
+  const c = (counts.value ?? {}) as Record<string, number>
+  const months = activeCutoff.value
+  return [
+    { label: 'All customers', value: c.total, hint: 'Every enabled customer on the master, whether or not they bought in this period', drill: { title: 'All Customers', params: { metric: 'total_customers' } } },
+    { label: 'Buyers', value: c.transacting, hint: 'Customers with a sales invoice in the selected period' },
+    { label: 'New', value: c.new_by_first_txn, hint: 'First-ever invoice falls in the selected period', drill: { title: 'New Customers', params: { metric: 'new_customers', date_filter: props.dateFilter } } },
+    { label: 'Repeat', value: c.repeat, hint: 'Bought in the period and had bought before it' },
+    { label: 'Reactivated', value: c.reactivated, hint: `Bought in the period after ${months}+ months without buying`, drill: { title: 'Reactivated Customers', params: { metric: 'reactivated_customers', date_filter: props.dateFilter, active_cutoff_months: months } } },
+    { label: 'Inactive', value: c.inactive, hint: `No order or invoice in the last ${months} months` },
+    { label: 'Advance pay', value: c.advance_payment },
+    { label: 'Manufacturers', value: c.manufacturers },
+    { label: 'Traders', value: c.traders },
+  ]
+})
+
 async function loadRankings() {
   isLoadingRankings.value = true
   try {
@@ -517,6 +564,7 @@ function clearGeoAll() {
 
 
 // ── Watchers ───────────────────────────────────────────────────────────────
+watch([periodGran, activeCutoff, () => props.dateFilter, periodOpen], () => { if (periodOpen.value) loadPeriodCounts() })
 watch(activeCutoff, () => loadCustomerCounts())
 watch(() => props.activeTab, (tab) => {
   if (tab === 'cust-patterns') loadPurchasePatterns()
@@ -547,40 +595,65 @@ onMounted(() => {
 <template>
   <!-- Customer counts strip: always visible above tab content -->
   <div v-if="counts" class="mb-6">
-    <dl class="grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border border-outline-gray-1 bg-card p-4 sm:grid-cols-4 xl:grid-cols-8">
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Total</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.total as number) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">New</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.new_by_first_txn as number) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Repeat</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.repeat as number) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Active</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.active as number) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Inactive</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.inactive as number) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Advance pay</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.advance_payment as number) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Manufacturers</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.manufacturers as number) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Traders</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ formatNumber(counts.traders as number) }}</dd>
+    <dl class="grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border border-outline-gray-1 bg-card p-4 sm:grid-cols-4 xl:grid-cols-9">
+      <div v-for="tile in countTiles" :key="tile.label" class="min-w-0" :title="tile.hint">
+        <dt class="text-sm text-ink-gray-6">{{ tile.label }}</dt>
+        <dd class="tnum text-lg font-semibold text-ink-gray-9">
+          <button
+            v-if="tile.drill && tile.value"
+            type="button"
+            class="underline decoration-dotted underline-offset-4 hover:text-ink-blue-3"
+            @click="drillOpen(tile.drill.title, tile.drill.params)"
+          >{{ formatNumber(tile.value) }}</button>
+          <template v-else>{{ formatNumber(tile.value) }}</template>
+        </dd>
       </div>
     </dl>
+    <details class="mt-3 rounded-lg border border-outline-gray-1 bg-card p-4" @toggle="periodOpen = ($event.target as HTMLDetailsElement).open">
+      <summary class="cursor-pointer text-sm font-medium text-ink-gray-8">Customers by period</summary>
+      <div class="mt-3 flex flex-wrap items-center gap-3">
+        <Select
+          v-model="periodGran"
+          :options="[
+            { value: 'auto', label: 'Auto' },
+            { value: 'day', label: 'By day' },
+            { value: 'week', label: 'By week' },
+            { value: 'month', label: 'By month' },
+          ]"
+          class="text-sm"
+        />
+        <p class="text-sm text-ink-gray-6">Buyers, Repeat and Reactivated count a customer in every period they bought; New adds up to the window total.</p>
+      </div>
+      <div v-if="periodData?.periods.length" class="mt-3 max-h-80 overflow-auto">
+        <table class="w-full text-sm">
+          <thead class="sticky top-0 bg-card text-left text-ink-gray-6">
+            <tr>
+              <th class="py-1 pr-4 font-medium">Period</th>
+              <th class="py-1 pr-4 text-right font-medium">Buyers</th>
+              <th class="py-1 pr-4 text-right font-medium">New</th>
+              <th class="py-1 pr-4 text-right font-medium">Repeat</th>
+              <th class="py-1 text-right font-medium">Reactivated</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="p in periodData.periods" :key="p.period_start" class="border-t border-outline-gray-1">
+              <td class="py-1 pr-4 text-ink-gray-8">{{ periodLabel(p) }}</td>
+              <td class="tnum py-1 pr-4 text-right">{{ formatNumber(p.buyers) }}</td>
+              <td class="tnum py-1 pr-4 text-right">
+                <button v-if="p.new" type="button" class="underline decoration-dotted underline-offset-4 hover:text-ink-blue-3" @click="drillPeriod('new_customers', 'New Customers', p)">{{ formatNumber(p.new) }}</button>
+                <template v-else>{{ formatNumber(p.new) }}</template>
+              </td>
+              <td class="tnum py-1 pr-4 text-right">{{ formatNumber(p.repeat) }}</td>
+              <td class="tnum py-1 text-right">
+                <button v-if="p.reactivated" type="button" class="underline decoration-dotted underline-offset-4 hover:text-ink-blue-3" @click="drillPeriod('reactivated_customers', 'Reactivated Customers', p)">{{ formatNumber(p.reactivated) }}</button>
+                <template v-else>{{ formatNumber(p.reactivated) }}</template>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p v-else-if="periodData" class="mt-3 text-sm text-ink-gray-6">No periods for this window.</p>
+    </details>
   </div>
 
   <!-- Active Cutoff Selector + window / revenue-basis caption -->
@@ -588,9 +661,9 @@ onMounted(() => {
     <Select
       v-model="activeCutoff"
       :options="[
-        { value: '3', label: 'Active: 3 months' },
-        { value: '6', label: 'Active: 6 months' },
-        { value: '12', label: 'Active: 12 months' },
+        { value: '3', label: 'Inactive after: 3 months' },
+        { value: '6', label: 'Inactive after: 6 months' },
+        { value: '12', label: 'Inactive after: 12 months' },
       ]"
       class="text-sm"
     />

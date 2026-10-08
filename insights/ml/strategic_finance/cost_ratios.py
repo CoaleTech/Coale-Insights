@@ -11,10 +11,12 @@ Development, Incentives/Increment/Appraisal, Rent, Electricity) against
 configurable ideal/risky thresholds from `Insights Settings`, and forecasts
 total monthly expenses from a simple linear trend.
 
-Every figure is queried fresh from GL Entry per call; nothing is cached or
-estimated. A ratio that cannot be computed (e.g. no COGS accounts posted this
-period, so gross profit is unknown) is reported as such rather than guessed —
-matching the convention in `summary.py`'s gross margin calculation.
+Revenue, expenses and salary/opex figures are queried fresh from GL Entry per
+call; gross profit comes from the invoice-line `gross_margin_totals` shared
+with the Revenue dashboard. Nothing is cached or estimated. A ratio that
+cannot be computed (e.g. no sales this period, so gross profit is unknown) is
+reported as such rather than guessed -- matching the convention in
+`summary.py`'s gross margin calculation.
 """
 
 import frappe
@@ -117,35 +119,18 @@ def _root_type_sum(company: str, start: str, end: str, root_type: str) -> float:
     return float(rows[0].amount or 0) if rows else 0.0
 
 
-def _cogs_total(company: str, start: str, end: str) -> float:
-    """Same shape as `_root_type_sum` for Expense, restricted to COGS
-    accounts (by `account_type = 'Cost of Goods Sold'` or by name match)."""
-    gle = DocType("GL Entry")
-    acc = DocType("Account")
-    name_filter = acc.name.like("%Cost of Goods%") | acc.name.like("%COGS%")
-    type_filter = acc.account_type == "Cost of Goods Sold"
-    rows = (
-        frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"))
-        .where((type_filter | name_filter) & (acc.root_type == "Expense"))
-        .where(gle.posting_date.between(start, end))
-        .where(gle.company == company)
-        .where(gle.is_cancelled == 0)
-        .run(as_dict=True)
-    )
-    return float(rows[0].amount or 0) if rows else 0.0
-
-
 def _revenue_and_profit(company: str, start: str, end: str) -> tuple:
-    """Revenue, gross profit (None if no COGS accounts posted), net profit —
-    same GL convention as `summary.py:calculate_executive_summary`."""
+    """Revenue and net profit from the GL (same convention as
+    `summary.py:calculate_executive_summary`); gross profit (None if no sales)
+    from `gross_margin_totals`, the one definition shared with the Revenue
+    dashboard."""
+    from insights.ml.sales_intelligence import gross_margin_totals
+
     revenue = _root_type_sum(company, start, end, "Income")
     expenses = _root_type_sum(company, start, end, "Expense")
-    cogs = _cogs_total(company, start, end)
     net_profit = revenue - expenses
-    gross_profit = (revenue - cogs) if (cogs > 0 and revenue > 0) else None
+    gm = gross_margin_totals(start, end, company)
+    gross_profit = gm["total_profit"] if gm["total_revenue"] > 0 else None
     return revenue, gross_profit, net_profit
 
 

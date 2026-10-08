@@ -737,6 +737,8 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
 
 def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
     """Calculate financial ratio trends over time"""
+    from insights.ml.sales_intelligence import gross_margin_totals
+
     # Get quarterly data for last 8 quarters
     quarters = []
     for q in range(8):
@@ -785,26 +787,11 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             )
             .else_(0)
         )).as_("interest_expense")
-        # Same COGS definition as summary.py / cost_ratios.py; no COGS booked
-        # means gross margin is unknown, not equal to net margin.
-        cogs_q = Abs(Sum(
-            Case()
-            .when(
-                (
-                    (acc.account_type == "Cost of Goods Sold")
-                    | acc.name.like("%Cost of Goods%")
-                    | acc.name.like("%COGS%")
-                ) & (acc.root_type == "Expense"),
-                gle.debit - gle.credit,
-            )
-            .else_(0)
-        )).as_("cogs")
-
         financials_rows = (
             frappe.qb.from_(gle)
             .join(acc)
             .on(gle.account == acc.name)
-            .select(revenue_q, expenses_q, depreciation_q, interest_q, cogs_q)
+            .select(revenue_q, expenses_q, depreciation_q, interest_q)
             .where(gle.posting_date.between(q["start"], q["end"]))
             .where(gle.company == intelligence.company)
             .where(gle.is_cancelled == 0)
@@ -890,7 +877,7 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         expenses = float(financials.get("expenses") or 0)
         depreciation = float(financials.get("depreciation") or 0)
         interest_expense = float(financials.get("interest_expense") or 0)
-        cogs = float(financials.get("cogs") or 0)
+        gm = gross_margin_totals(q["start"], q["end"], intelligence.company)
         assets = abs(float(balance_sheet.get("assets") or 0))
         liabilities = abs(float(balance_sheet.get("liabilities") or 0))
         equity = abs(float(balance_sheet.get("equity") or 0))
@@ -920,7 +907,7 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
 
         ratio_trends.append({
             "period": q["label"],
-            "gross_margin": round((revenue - cogs) / revenue * 100, 1) if revenue > 0 and cogs > 0 else None,
+            "gross_margin": gm["overall_margin"] if gm["total_revenue"] > 0 else None,
             "net_margin": round(net_income / revenue * 100, 1) if revenue > 0 else None,
             "roe": round(net_income / equity * 100, 1) if equity > 1000 else None,
             "roa": round(net_income / assets * 100, 1) if assets > 1000 else None,

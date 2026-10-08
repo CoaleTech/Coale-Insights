@@ -307,6 +307,21 @@ def customer_counts(date_filter: str = "12m",
 
 
 @frappe.whitelist()
+def customer_counts_by_period(date_filter: str = "12m",
+                              granularity: str = "auto",
+                              active_cutoff_months: int = 6,
+                              company: Optional[str] = None) -> Dict[str, Any]:
+    """Buyers / new / repeat / reactivated per day, week or month."""
+    frappe.has_permission("Customer", "read", throw=True)
+    from insights.ml.customer import compute_customer_counts_by_period
+    return run(lambda: compute_customer_counts_by_period(date_filter=date_filter,
+                                                         granularity=granularity,
+                                                         active_cutoff_months=int(active_cutoff_months),
+                                                         company=company),
+               "Customer counts by period")
+
+
+@frappe.whitelist()
 def customer_revenue_split(date_filter: str = "12m",
                            company: Optional[str] = None) -> Dict[str, Any]:
     """Revenue split between new and existing customers."""
@@ -490,6 +505,44 @@ def get_customer_detail(metric: str, filters: str) -> dict:
             ],
             "rows": rows,
             "total": total,
+        }
+
+    if metric == "reactivated_customers":
+        frappe.has_permission("Customer", throw=True)
+        from insights.api.ml.ibis_source import default_company
+        from insights.ml.customer import reactivated_customers
+
+        # Exactly what the `customer_counts` "reactivated" KPI counts.
+        start_dt, end_dt = parse_date_filter(date_filter or "12m")
+        react = reactivated_customers(
+            company or default_company(), start_dt, end_dt, int(f.get("active_cutoff_months") or 6)
+        )
+        df = react.order_by(react.first_in_window.desc(), "customer").execute()
+        page_df = df.iloc[start:start + page_size]
+        by_name = {
+            r["name"]: r
+            for r in frappe.get_list(
+                "Customer",
+                filters={"name": ("in", page_df["customer"].tolist())},
+                fields=["name", "customer_name", "customer_group", "territory"],
+                ignore_permissions=False,
+            )
+        }
+        rows = [
+            {**by_name[c], "last_before": lb, "first_in_window": fi}
+            for c, lb, fi in zip(page_df["customer"], page_df["last_before"], page_df["first_in_window"])
+            if c in by_name
+        ]
+        return {
+            "columns": [
+                {"label": "Customer", "fieldname": "name", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
+                {"label": "Group", "fieldname": "customer_group", "fieldtype": "Data"},
+                {"label": "Last Order Before", "fieldname": "last_before", "fieldtype": "Date"},
+                {"label": "Back On", "fieldname": "first_in_window", "fieldtype": "Date"},
+            ],
+            "rows": rows,
+            "total": len(df),
         }
 
     if metric == "customer_invoices":

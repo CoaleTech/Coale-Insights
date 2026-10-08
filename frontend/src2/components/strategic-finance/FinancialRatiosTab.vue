@@ -16,7 +16,7 @@
         :label="card.name"
         :value="card.value"
         :severity="card.severity"
-        :sublabel="`Benchmark: ${card.benchmark}`"
+        :sublabel="`Last 90 days · Benchmark: ${card.benchmark}`"
         :loading="!data"
       />
     </div>

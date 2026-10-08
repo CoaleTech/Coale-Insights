@@ -6,6 +6,17 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-22
 
+### Fixed — Revenue / Customer / Finance follow-ups: one gross margin, full-window daily table, avg order gap, reactivated, At Risk
+
+Live `jkm` (Sep 2026 = `custom:2026-09-01:2026-09-30`) before → after:
+
+- **Gross margin** had three definitions: Revenue used invoice-line GP, Finance (Executive summary, Ratios & Trends, Cost Structure) used GL COGS, which on this ledger is booked only via Delivery Notes and is incomplete (12m GL margin 52% vs invoice 8.8%). All now use `sales_intelligence.gross_margin_totals` — the ERPNext Gross Profit report basis. Sep: 7.7% / GP ₹539,103.21 on ₹6,961,391.25 (rep allocation matches the GP report). Remaining differences are the window only: Ratios & Trends cards (now labelled "Last 90 days") 7.8%, Executive summary YTD 8.7%, Revenue 12m 8.8%.
+- **Daily Sales Detail** was cut to `today − 30 days` and then to the last 15 rows, so a past/custom range lost its tail. Daily/weekly series and the daily payment mix now end at the window end (Sep: from 1 Sep, was 7 Sep); the table shows every day returned. "Transactions" → "Orders".
+- **Avg days between orders** counted several invoices on one day as separate orders (0-day gaps). Now the mean gap between distinct order days per repeat customer (Sep 4.4 → 4.8, 12m 30.0 → 31.2).
+- **Customer counts strip**: adds "Buyers" (customers invoiced in the window — the KPI strip's Customers) beside "All customers" (the master); "Active" (any order/invoice in the last N months, regardless of window) replaced by **Reactivated** — bought in the window after N+ months without buying. New, Reactivated and All customers drill down (`new_customers`, new `reactivated_customers`).
+- **Customers by period** (Customer tab, collapsible panel under the counts strip): Buyers / New / Repeat / Reactivated per day, week (Mon–Sun) or month, via new `customer_counts_by_period` (`compute_customer_counts_by_period`). Auto picks day ≤14 days, week ≤120, else month; first bucket is clipped to the window start. Reconciles with the strip: a one-bucket window equals the strip exactly (Sep: 71 / 10 / 61 / 6) and New sums to the window total (Sep weekly 5+5+0+0+0 = 10; 12m monthly 350 = 350). The New and Reactivated cells drill down through the existing `new_customers` / `reactivated_customers` metrics with that period's own `custom:<start>:<end>` range; each drill total equals its cell.
+- **At Risk** was always 0 on windows shorter than a year: the population was the window's own buyers, who had all just bought. Churn is now scored on the 12 months to the window end (window customers take that score), so customers who stopped buying show up.
+
 ### Fixed — Finance Intelligence: future-dated postings, reversal double-count, blank amount cells, dead drill-downs, budget/break-even maths
 
 Live `jkm` before → after:

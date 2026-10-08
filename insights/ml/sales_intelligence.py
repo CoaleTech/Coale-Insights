@@ -25,7 +25,7 @@ shape the old class returned is still produced by ``run_sales_intelligence``
 and ``get_sales_intelligence`` for backward compatibility.
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import frappe
@@ -93,8 +93,10 @@ def calculate_revenue_metrics(
     unique_customers = int(overall["unique_customers"] or 0)
     avg_order_value = round(total_revenue / total_transactions, 2) if total_transactions else 0
 
-    # Daily series (last 30 days).
-    daily_cutoff = (datetime.now() - timedelta(days=30)).date()
+    # Daily series (31 days ending at the window end -- not "today", or a past
+    # or custom range would be cut off at today-30d and lose its tail).
+    anchor = end or datetime.now()
+    daily_cutoff = (anchor - timedelta(days=30)).date()
     si_daily = si.filter(si.posting_date >= daily_cutoff)
     daily_df = (
         si_daily.group_by(si_daily.posting_date)
@@ -114,9 +116,9 @@ def calculate_revenue_metrics(
         for _, r in daily_df.iterrows()
     ]
 
-    # Weekly series (ISO week, last 12 weeks).
+    # Weekly series (ISO week, last 12 weeks of the window).
     si_weekly = si.mutate(year_week=si.posting_date.strftime("%x-W%v")).filter(
-        si.posting_date >= (datetime.now() - timedelta(weeks=12)).date()
+        si.posting_date >= (anchor - timedelta(weeks=12)).date()
     )
     weekly_df = (
         si_weekly.group_by(["year_week"])
@@ -217,16 +219,17 @@ def calculate_revenue_metrics(
     }
     _merge_gp(monthly_sales, gp_monthly, "period")
 
-    # Average days between orders per customer -- a small per-customer
-    # aggregate. We compute the span = max(posting_date) - min(posting_date)
-    # and the order count; the answer is mean(span) / mean(orders - 1)
-    # restricted to customers with > 1 order.
+    # Mean gap between consecutive order *days* per customer. Telescoping, the
+    # sum of a customer's gaps is last - first, so mean gap =
+    # sum(span) / sum(order_days - 1). Order days are distinct posting dates:
+    # several invoices on one day are one order occasion, not a 0-day gap that
+    # drags the average down.
     per_customer_df = (
         si.group_by(si.customer)
         .aggregate(
             first_sale=si.posting_date.min(),
             last_sale=si.posting_date.max(),
-            order_count=si.count(),
+            order_count=si.posting_date.nunique(),
         )
         .execute()
     )
@@ -296,8 +299,8 @@ def calculate_payment_mix(
     cash_ratio = round(cash_total / total * 100, 1) if total > 0 else 0
     credit_ratio = round(credit_total / total * 100, 1) if total > 0 else 0
 
-    # Daily mix (last 30 days). Each day gets its own cash/credit row.
-    daily_cutoff = (datetime.now() - timedelta(days=30)).date()
+    # Daily mix (31 days ending at the window end). Each day gets its own cash/credit row.
+    daily_cutoff = ((end or datetime.now()) - timedelta(days=30)).date()
     si_daily = si.filter(si.posting_date >= daily_cutoff)
     is_cash_daily = si_daily.outstanding_amount == 0
     daily_df = (
@@ -748,6 +751,50 @@ def analyze_by_dimensions(
 # ---------------------------------------------------------------------------
 
 
+def gross_margin_totals(start, end, company: str | None = None) -> dict[str, float]:
+    """Net sales, gross profit and margin % of submitted, non-return Sales
+    Invoices posted in [start, end] (date / datetime / ISO string; None = unbounded).
+
+    Gross profit = line `base_net_amount` less booked COGS (`line_cogs`, Stock
+    Ledger first) -- the basis of ERPNext's Gross Profit report. The ONE gross
+    margin definition: the Revenue dashboard KPI/Margins tab and every Finance
+    gross-margin figure call this, so the same window always shows the same
+    number. (GL "Cost of Goods Sold" is deliberately not used: on the live
+    ledger it is incomplete for part of the last 12 months -- GL COGS 73.6M
+    against 153M of net sales -- which produced a 52% / 4.7% margin that
+    disagreed with this one.)
+    """
+    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    start, end = (None if d is None else date.fromisoformat(str(d)[:10]) for d in (start, end))
+    if start is not None:
+        si = si.filter(si.posting_date >= start)
+    if end is not None:
+        si = si.filter(si.posting_date <= end)
+    sii = t("Sales Invoice Item")
+    dn = dn_cost()
+    sle = sle_cost()
+    row = (
+        si.inner_join(sii, sii.parent == si.name)
+        .left_join(dn, sii.dn_detail == dn.dn_name)
+        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
+        .aggregate(
+            total_revenue=sii.base_net_amount.sum(),
+            total_profit=sii.base_net_amount.sum() - line_cogs(sii, dn.dn_rate, sle.svd).sum(),
+        )
+        .execute()
+        .iloc[0]
+    )
+    revenue = float(row["total_revenue"] or 0)
+    profit = float(row["total_profit"] or 0)
+    return {
+        "total_revenue": revenue,
+        "total_profit": profit,
+        "overall_margin": round(profit / revenue * 100, 1) if revenue > 0 else 0,
+    }
+
+
 def analyze_margins(
     date_filter: str = "12m",
     company: str | None = None,
@@ -780,13 +827,10 @@ def analyze_margins(
         .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
     )
 
-    overall_df = base.aggregate(
-        total_revenue=sii.base_net_amount.sum(),
-        total_profit=line_profit,
-    ).execute().iloc[0]
-    total_revenue = float(overall_df["total_revenue"] or 0)
-    total_profit = float(overall_df["total_profit"] or 0)
-    overall_margin = round(total_profit / total_revenue * 100, 1) if total_revenue > 0 else 0
+    totals = gross_margin_totals(start, end, company)
+    total_revenue = totals["total_revenue"]
+    total_profit = totals["total_profit"]
+    overall_margin = totals["overall_margin"]
 
     pg_df = (
         base.filter(sii.item_group.notnull())

@@ -116,27 +116,19 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
     ytd_ebitda = ytd_ebit + ytd_depreciation
     ebitda_margin = (ytd_ebitda / ytd_revenue * 100) if ytd_revenue > 0 else None
 
-    # YTD Cost of Goods Sold (COGS) for Gross Margin calculation
-    cogs_filter = (
-        (acc.account_type == "Cost of Goods Sold")
-        | acc.name.like("%Cost of Goods%")
-        | acc.name.like("%COGS%")
-    ) & (acc.root_type == "Expense")
-    ytd_cogs = _gl_account_root_type_total(
-        company=company,
-        root_type="Expense",
-        start_date=fy_start,
-        end_date=today,
-        extra_account_filter=cogs_filter,
-    )
+    # Gross profit = invoice-line net sales less booked COGS, from the same
+    # helper the Revenue dashboard uses (GL COGS is incomplete on this ledger
+    # and disagreed with it). No sales in the period means gross margin is
+    # unknown, not zero -- and never an invented 70%.
+    from insights.ml.sales_intelligence import gross_margin_totals
 
-    # Gross Margin = (Revenue - COGS) / Revenue * 100
-    # When COGS is zero or no COGS accounts post entries, both figures are absent —
-    # never estimate (removing the previous "* 0.7" fallback which invented a 70% margin).
-    if ytd_cogs > 0 and ytd_revenue > 0:
-        gross_profit = ytd_revenue - ytd_cogs
-        gross_margin = gross_profit / ytd_revenue * 100
+    gm = gross_margin_totals(fy_start, today, company)
+    if gm["total_revenue"] > 0:
+        ytd_cogs = gm["total_revenue"] - gm["total_profit"]
+        gross_profit = gm["total_profit"]
+        gross_margin = gm["overall_margin"]
     else:
+        ytd_cogs = 0.0
         gross_profit = None
         gross_margin = None
 

@@ -609,10 +609,25 @@ def compute_customer_intelligence(
     # RFM: quintiles on recency/frequency/monetary (shared definition).
     df = _rfm_assign(df)
 
-    # Churn score: rule-based. Recency ratio vs typical cycle (30d baseline),
+    # Churn score: rule-based. Recency ratio vs the customer's own cycle,
     # value/frequency trends, receivables ratio, overdue count.
     df = _rule_based_churn_score(df)
     df["churn_risk"] = df["churn_score"].apply(_classify_churn)
+    # A window shorter than a year can't show who is slipping away (all its
+    # customers just bought), so score churn on the 12 months to the window
+    # end instead and make that the At Risk population; window customers take
+    # their score from it so the table and the count agree.
+    churn_pop = None
+    churn_as_of = min(_as_date(end), as_of_date) if end else as_of_date
+    if start is not None and (churn_as_of - _as_date(start)).days < 364:
+        churn_pop = _churn_frame(company, churn_as_of, today_date)
+        if churn_pop.empty:
+            churn_pop = None
+        else:
+            scored = churn_pop.set_index("customer")
+            hit = df["customer"].isin(scored.index)
+            for col in ("churn_score", "churn_risk"):
+                df.loc[hit, col] = df.loc[hit, "customer"].map(scored[col])
 
     # CLV component scores (0-100 each) -- computed BEFORE health_score so
     # the "Health Components" / "CLV Components" breakdown the frontend
@@ -655,10 +670,10 @@ def compute_customer_intelligence(
         "avg_clv": float(df["total_clv"].mean()),
         "avg_order_value": float(df["avg_order_value"].mean()),
         "avg_health_score": float(df["health_score"].mean()),
-        "avg_churn_risk": float(df["churn_score"].mean()),
+        "avg_churn_risk": float((df if churn_pop is None else churn_pop)["churn_score"].mean()),
         "clv_tier_distribution": {str(k): int(v) for k, v in df["clv_tier"].value_counts().to_dict().items()},
         "health_distribution": {str(k): int(v) for k, v in df["health_status"].value_counts().to_dict().items()},
-        "churn_risk_distribution": {str(k): int(v) for k, v in df["churn_risk"].value_counts().to_dict().items()},
+        "churn_risk_distribution": {str(k): int(v) for k, v in (df if churn_pop is None else churn_pop)["churn_risk"].value_counts().to_dict().items()},
         "rfm_segment_distribution": {str(k): int(v) for k, v in df["rfm_segment"].value_counts().to_dict().items()},
         "quote_conversion_rate": round(conversion_rate, 1),
         "total_quotes": int(total_quotes),
@@ -686,6 +701,19 @@ def compute_customer_intelligence(
             r[col] = str(r.get(col) or "")
     customers_list.sort(key=lambda c: float(c.get("total_clv") or 0), reverse=True)
 
+    if churn_pop is None:
+        at_risk = [c for c in customers_list if c["churn_risk"] in ("High", "Critical")]
+    else:
+        at_risk = (
+            churn_pop[churn_pop["churn_risk"].isin(["High", "Critical"])][[
+                "customer", "customer_name", "order_count", "recency_days",
+                "historical_clv", "outstanding_amount", "churn_score", "churn_risk",
+            ]]
+            .rename(columns={"customer": "customer_id"})
+            .sort_values("historical_clv", ascending=False)
+            .to_dict("records")
+        )
+
     return {
         "status": "success",
         "analysis_date": now.isoformat(),
@@ -699,8 +727,7 @@ def compute_customer_intelligence(
         "cohort_analysis": _to_native(cohort),
         "next_best_actions": _to_native(actions),
         "next_best_actions_total": actions_total,
-        "at_risk_customers": [c for c in customers_list
-                              if str(c.get("churn_risk", "")).lower() in ("high", "critical")],
+        "at_risk_customers": _to_native(at_risk),
         "top_customers": customers_list[:20],
     }
 
@@ -742,6 +769,46 @@ def _rule_based_churn_score(df):
             df["historical_clv"], overdue,
         )
     ]
+    return df
+
+
+def _churn_frame(company, as_of, today_date):
+    """Churn-scored frame of every customer who bought in the 365 days to
+    `as_of`, scored as of `as_of` on that history.
+
+    Churn is about customers who STOPPED buying, so it cannot be scored on a
+    short window's own buyers: in a one-month window everyone bought that
+    month, recency is tiny, the cadence is unknown, and At Risk is always 0.
+    Same columns and scorer as the main engine (`_rule_based_churn_score`).
+    """
+    import ibis
+
+    si = _si_base(company, as_of - timedelta(days=365), as_of)
+    recent = si.posting_date >= as_of - timedelta(days=90)
+    df = si.group_by(si.customer).aggregate(
+        customer_name=si.customer_name.min(),
+        historical_clv=si.base_net_total.sum(),
+        avg_order_value=si.base_net_total.mean(),
+        order_count=si.count(),
+        first_purchase=si.posting_date.min(),
+        last_purchase=si.posting_date.max(),
+        outstanding_amount=si.outstanding_amount.sum(),
+        overdue_count=ibis.ifelse((si.due_date < today_date) & (si.outstanding_amount > 0), 1, 0).sum(),
+        recent_avg_order_value=si.base_net_total.mean(where=recent),
+        recent_order_count=ibis.ifelse(recent, 1, 0).sum(),
+    ).execute()
+    if df.empty:
+        return df
+    for col in ("historical_clv", "avg_order_value", "outstanding_amount", "recent_avg_order_value"):
+        df[col] = df[col].astype(float).fillna(0)
+    for col in ("order_count", "overdue_count", "recent_order_count"):
+        df[col] = df[col].fillna(0).astype(int)
+    df["first_purchase"] = df["first_purchase"].apply(_as_date)
+    df["last_purchase"] = df["last_purchase"].apply(_as_date)
+    df["lifespan_months"] = ((df["last_purchase"] - df["first_purchase"]).apply(lambda x: x.days) / 30.44).clip(lower=1)
+    df["recency_days"] = df["last_purchase"].apply(lambda x: (as_of - x).days)
+    df = _rule_based_churn_score(df)
+    df["churn_risk"] = df["churn_score"].apply(_classify_churn)
     return df
 
 
@@ -1645,12 +1712,33 @@ def _cross_sell_for_one_customer(customer_id: str, company: Optional[str] = None
     recs.sort(key=lambda x: x["confidence"], reverse=True)
     return recs[:10]
 
+def reactivated_customers(company, start, end, cutoff_months: int = 6):
+    """Customers who restarted buying: invoiced in [start, end], with an
+    earlier purchase, but nothing in the ``cutoff_months * 30`` days before
+    `start`. Ibis table: customer, last_before (last invoice before the
+    window), first_in_window. Shared by the counts KPI and its drill-down so
+    the two always agree.
+    """
+    si = _si_base(company)
+    s, e = _as_date(start), _as_date(end)
+    g = si.group_by(si.customer).aggregate(
+        last_before=si.posting_date.max(where=si.posting_date < s),
+        first_in_window=si.posting_date.min(where=si.posting_date.between(s, e)),
+    )
+    gap_start = s - timedelta(days=cutoff_months * 30)
+    return g.filter(g.first_in_window.notnull() & g.last_before.notnull() & (g.last_before < gap_start))
+
+
 def compute_customer_counts(date_filter: str = "12m",
                              active_cutoff_months: int = 6,
                              company: Optional[str] = None) -> Dict[str, Any]:
-    """Count metrics: total, new-by-creation, new-by-first-txn, active,
-    inactive, advance-payment, manufacturers vs traders. All from a handful
-    of Ibis aggregates; no per-row SQL.
+    """Count metrics: total, transacting, new-by-creation, new-by-first-txn,
+    repeat, reactivated, active, inactive, advance-payment, manufacturers vs
+    traders. All from a handful of Ibis aggregates; no per-row SQL.
+
+    `total` is the Customer master (every enabled customer); `transacting`
+    is the customers with an invoice in the window (what the KPI strip's
+    "Customers" counts).
     """
     from insights.api.ml.utils import parse_date_filter
     start, end = parse_date_filter(date_filter)
@@ -1688,10 +1776,13 @@ def compute_customer_counts(date_filter: str = "12m",
         prior = first_dates.filter(first_dates.first_date < start.date()).select(
             first_dates.customer
         )
+        transacting = _scalar_int(in_window.count())
         repeat = _scalar_int(in_window.filter(in_window.customer.isin(prior.customer)).count())
+        reactivated = _scalar_int(
+            reactivated_customers(company, start, end, active_cutoff_months).count()
+        )
     else:
-        new_by_first_txn = 0
-        repeat = 0
+        new_by_first_txn = transacting = repeat = reactivated = 0
 
     cutoff = (datetime.now() - timedelta(days=active_cutoff_months * 30)).date()
     so = company_filter(t("Sales Order"), company)
@@ -1714,9 +1805,11 @@ def compute_customer_counts(date_filter: str = "12m",
 
     return {
         "total": total,
+        "transacting": transacting,
         "new_by_creation": new_by_creation,
         "new_by_first_txn": new_by_first_txn,
         "repeat": repeat,
+        "reactivated": reactivated,
         "existing": max(0, total - new_by_creation),
         "active": active,
         "inactive": max(0, total - active),
@@ -1725,6 +1818,67 @@ def compute_customer_counts(date_filter: str = "12m",
         "traders": traders,
         "active_cutoff_months": active_cutoff_months,
     }
+
+
+def compute_customer_counts_by_period(date_filter: str = "12m",
+                                      granularity: str = "auto",
+                                      active_cutoff_months: int = 6,
+                                      company: Optional[str] = None) -> Dict[str, Any]:
+    """Buyers / new / repeat / reactivated per day, week (Mon-Sun) or month of
+    the window. Same definitions as `compute_customer_counts`, applied to each
+    bucket (the first bucket is clipped to the window start): new = first-ever
+    invoice in the bucket, repeat = bought earlier, reactivated = repeat whose
+    previous purchase is older than the cutoff. `new` sums to the window's
+    new count; buyers/repeat/reactivated count a customer in every bucket they
+    bought in. Empty buckets are kept as zeros.
+    """
+    import pandas as pd
+    from insights.api.ml.utils import parse_date_filter
+    start, end = parse_date_filter(date_filter)
+    if not (start and end):
+        return {"granularity": None, "periods": []}
+    s, e = pd.Timestamp(start.date()), pd.Timestamp(end.date())
+    span = (e - s).days + 1
+    if granularity not in ("day", "week", "month"):
+        granularity = "day" if span <= 14 else "week" if span <= 120 else "month"
+
+    rows = _si_base(company or default_company(), None, e.date()).select("customer", "posting_date").distinct().execute()
+    rows["d"] = pd.to_datetime(rows["posting_date"])
+    d = rows["d"]
+    if granularity == "day":
+        bucket = d.dt.normalize()
+    elif granularity == "week":
+        bucket = d.dt.normalize() - pd.to_timedelta(d.dt.weekday, unit="D")
+    else:
+        bucket = d.dt.to_period("M").dt.start_time
+    pre = pd.Timestamp("1900-01-01")  # everything before the window is one history bucket
+    rows["bucket"] = bucket.where(d >= s, pre)
+
+    g = (rows.groupby(["customer", "bucket"], as_index=False)
+         .agg(last=("d", "max")).sort_values(["customer", "bucket"]))
+    g["prev_last"] = g.groupby("customer")["last"].shift()
+    g = g[g["bucket"] != pre].copy()
+    g["repeat"] = g["prev_last"].notna()
+    g["new"] = ~g["repeat"]
+    gap = pd.Timedelta(days=active_cutoff_months * 30)
+    g["reactivated"] = g["repeat"] & (g["prev_last"] < g["bucket"].clip(lower=s) - gap)
+    g["buyers"] = 1
+    by = g.groupby("bucket")[["buyers", "new", "repeat", "reactivated"]].sum()
+
+    step = {"day": pd.DateOffset(days=1), "week": pd.DateOffset(weeks=1), "month": pd.DateOffset(months=1)}[granularity]
+    first = {"day": s, "week": s - pd.Timedelta(days=s.weekday()), "month": s.replace(day=1)}[granularity]
+    periods = []
+    cur = first
+    while cur <= e:
+        p_start, p_end = max(cur, s), min(cur + step - pd.Timedelta(days=1), e)
+        r = by.loc[cur] if cur in by.index else None
+        periods.append({
+            "period_start": p_start.date().isoformat(),
+            "period_end": p_end.date().isoformat(),
+            **{k: int(r[k]) if r is not None else 0 for k in ("buyers", "new", "repeat", "reactivated")},
+        })
+        cur += step
+    return {"granularity": granularity, "periods": periods, "active_cutoff_months": active_cutoff_months}
 
 
 def compute_customer_revenue_split(date_filter: str = "12m",
@@ -2238,7 +2392,7 @@ def compute_at_risk_customers(date_filter: str = "12m",
                                 company: Optional[str] = None) -> Dict[str, Any]:
     """List of customers with churn risk 'High' or 'Critical'."""
     payload = compute_customer_intelligence(date_filter=date_filter, company=company)
-    at_risk = [c for c in payload.get("customers", []) if str(c.get("churn_risk", "")).lower() in ("high", "critical")]
+    at_risk = payload.get("at_risk_customers", [])
     return {
         "status": "success",
         "at_risk_count": len(at_risk),

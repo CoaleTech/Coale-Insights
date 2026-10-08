@@ -90,6 +90,32 @@ class TestCustomerLedgerReconciliation(FrappeTestCase):
             & (SI.posting_date >= cutoff)).run()}
         self.assertEqual(counts["active"], len(so | si))
 
+    def test_reactivated_bought_in_window_after_a_gap(self):
+        start, end = self._window()
+        counts = cust.compute_customer_counts("12m")
+        gap_start = frappe.utils.add_days(start, -counts["active_cutoff_months"] * 30)
+        SI = frappe.qb.DocType("Sales Invoice")
+        base = (SI.docstatus == 1) & (SI.is_return == 0) & (SI.customer != "")
+
+        def buyers(cond):
+            return {r[0] for r in frappe.qb.from_(SI).select(SI.customer).distinct().where(base & cond).run()}
+
+        in_window = buyers(SI.posting_date.between(start, end))
+        reactivated = (
+            in_window & buyers(SI.posting_date < gap_start)
+        ) - buyers(SI.posting_date.between(gap_start, frappe.utils.add_days(start, -1)))
+        self.assertEqual(counts["reactivated"], len(reactivated))
+        self.assertEqual(counts["transacting"], len(in_window))
+
+    def test_counts_by_period_reconcile_with_window_counts(self):
+        counts = cust.compute_customer_counts("12m")
+        for g in ("week", "month"):
+            periods = cust.compute_customer_counts_by_period("12m", g)["periods"]
+            self.assertEqual(sum(p["new"] for p in periods), counts["new_by_first_txn"])
+            for p in periods:
+                self.assertEqual(p["buyers"], p["new"] + p["repeat"])
+                self.assertLessEqual(p["reactivated"], p["repeat"])
+
     def test_segmentation_matches_intelligence_rfm(self):
         payload = self._intel()
         seg = cust.compute_rfm_segmentation("12m")

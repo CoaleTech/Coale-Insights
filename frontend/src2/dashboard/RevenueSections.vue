@@ -693,7 +693,7 @@ interface DailySalesItem { date: string; revenue?: number; transactions?: number
 const transposedDailySales = computed(() => {
   const dailyData = (revenueMetrics.value.daily_sales as DailySalesItem[]) || []
   if (!dailyData.length) return { dates: [] as string[], rows: [] as TransposedRow[] }
-  const recentDays = dailyData.slice(-15)
+  const recentDays = dailyData
   const dates = recentDays.map(d => d.date)
   const rows: TransposedRow[] = [
     {
@@ -704,7 +704,7 @@ const transposedDailySales = computed(() => {
       isCurrency: true,
     },
     {
-      metric: 'Transactions',
+      metric: 'Orders',
       values: recentDays.reduce((acc, d) => { acc[d.date] = d.transactions ?? 0; return acc }, {} as Record<string, number>),
       total: recentDays.reduce((sum, d) => sum + (d.transactions ?? 0), 0),
       colorClass: 'text-ink-gray-7',
@@ -928,7 +928,7 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
       >
         <span class="font-semibold text-ink-gray-8 flex items-center gap-2">
           <Activity class="w-4 h-4" aria-hidden="true" />
-          Daily Sales Detail{{ transposedDailySales.dates.length ? ` (Latest ${transposedDailySales.dates.length} Days)` : '' }}
+          Daily Sales Detail{{ transposedDailySales.dates.length ? ` (${transposedDailySales.dates.length} Days)` : '' }}
         </span>
         <span class="text-ink-gray-6" aria-hidden="true">{{ showDailySales ? '▼' : '▶' }}</span>
       </Button>
