@@ -169,10 +169,13 @@ scheduler_events = {
     ],
     "hourly": [
         "insights.api.data_store.update_failed_sync_status",
-        # Recompute the intelligence dashboards people actually opened, so a
-        # user request only ever reads the cache. See `insights.api.ml.utils`.
-        "insights.api.ml.utils.refresh_dashboard_caches",
     ],
+    "cron": {
+        # Recompute the intelligence dashboards people actually opened, so a
+        # user request only ever reads the cache (CACHE_TTL is 24 h; two runs
+        # keep every opened payload warm). See `insights.api.ml.utils`.
+        "0 6,13 * * *": ["insights.api.ml.utils.refresh_dashboard_caches"],
+    },
     "weekly": [
         # Executive Reports - Weekly
         "insights.reports.executive_reports.generate_weekly_executive_report",
