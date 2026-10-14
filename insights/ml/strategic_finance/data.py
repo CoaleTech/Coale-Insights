@@ -81,7 +81,9 @@ def get_current_fiscal_year(intelligence) -> Dict[str, Any]:
 
 
 def get_cash_balance(intelligence) -> float:
-    """Get current cash and bank balance"""
+    """Get current cash and bank balance (cached on intelligence to avoid repeat scans)."""
+    if hasattr(intelligence, '_cash_balance'):
+        return intelligence._cash_balance
     gle = DocType("GL Entry")
     acc = DocType("Account")
     rows = (
@@ -96,6 +98,7 @@ def get_cash_balance(intelligence) -> float:
         .run(as_dict=True)
     )
     cash = float(rows[0].balance or 0) if rows else 0.0
+    intelligence._cash_balance = cash
     return cash
 
 
@@ -445,7 +448,10 @@ def get_payroll_for_week(intelligence, week_start, payroll_pattern: Dict) -> flo
 
 def _weeks_of_history(intelligence, today: str) -> int:
     """Weeks (1..12) of Cash/Bank GL history available up to `today`, so a
-    young ledger is not averaged over 12 mostly-empty weeks."""
+    young ledger is not averaged over 12 mostly-empty weeks.
+    Cached on intelligence — result is constant within a single train() call."""
+    if hasattr(intelligence, '_woh'):
+        return intelligence._woh
     gle = DocType("GL Entry")
     acc = DocType("Account")
     rows = (
@@ -461,62 +467,79 @@ def _weeks_of_history(intelligence, today: str) -> int:
     )
     first = rows[0].first_date if rows else None
     if not first:
-        return 12
-    days = (frappe.utils.getdate(today) - frappe.utils.getdate(first)).days
-    return max(1, min(12, -(-days // 7)))
+        result = 12
+    else:
+        days = (frappe.utils.getdate(today) - frappe.utils.getdate(first)).days
+        result = max(1, min(12, -(-days // 7)))
+    intelligence._woh = result
+    return result
+
+
+def _combined_weekly_estimates(intelligence) -> tuple:
+    """One Cash/Bank GL scan for the 12-week window → (other_receipts_per_week, opex_per_week).
+
+    Merges `estimate_other_receipts` and `estimate_operating_expenses` into a single
+    aggregating SELECT with two CASE expressions and caches the result on `intelligence`
+    so the 13-week forecast loop pays for one query, not one per non-actual week.
+    """
+    if hasattr(intelligence, '_weekly_estimates'):
+        return intelligence._weekly_estimates
+
+    today = datetime.now().strftime('%Y-%m-%d')
+    twelve_weeks_ago = (datetime.now() - timedelta(weeks=12)).strftime('%Y-%m-%d')
+    woh = _weeks_of_history(intelligence, today)
+
+    gle = DocType("GL Entry")
+    acc = DocType("Account")
+    net = gle.debit - gle.credit
+
+    # Inflows: Cash/Bank debits that are not AR payments or PE receipts.
+    receipts_crit = (
+        (net > 0)
+        & gle.voucher_type.notin(["Sales Invoice", "Payment Entry"])
+    )
+    # Outflows: Cash/Bank credits that are not AP, payroll or tax-related.
+    opex_crit = (
+        (net < 0)
+        & gle.voucher_type.notin(["Purchase Invoice", "Payment Entry"])
+        & ~gle.against.like("%Salary%")
+        & ~gle.against.like("%Payroll%")
+        & ~gle.against.like("%Tax%")
+        & ~gle.against.like("%VAT%")
+    )
+
+    rows = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            Coalesce(Sum(Case().when(receipts_crit, net).else_(0)), 0).as_("receipts"),
+            Abs(Coalesce(Sum(Case().when(opex_crit, net).else_(0)), 0)).as_("opex"),
+        )
+        .where(gle.company == intelligence.company)
+        .where(gle.posting_date.between(twelve_weeks_ago, today))
+        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .where(gle.is_cancelled == 0)
+        .run(as_dict=True)
+    )
+    r = rows[0] if rows else None
+    result = (
+        float(r.receipts or 0) / woh if r else 0.0,
+        float(r.opex or 0) / woh if r else 0.0,
+    )
+    intelligence._weekly_estimates = result
+    return result
 
 
 def estimate_other_receipts(intelligence, week_start: datetime) -> float:
     """Estimate other receipts (non-AR): average weekly total over the last
     12 weeks, divided by the weeks of history that actually exist."""
-    today = datetime.now().strftime('%Y-%m-%d')
-    twelve_weeks_ago = (datetime.now() - timedelta(weeks=12)).strftime('%Y-%m-%d')
-
-    gle = DocType("GL Entry")
-    acc = DocType("Account")
-    rows = (
-        frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("total"))
-        .where(gle.company == intelligence.company)
-        .where(gle.posting_date.between(twelve_weeks_ago, today))
-        .where(acc.account_type.isin(["Cash", "Bank"]))
-        .where(gle.is_cancelled == 0)
-        .where((gle.debit - gle.credit) > 0)
-        .where(gle.voucher_type.notin(["Sales Invoice", "Payment Entry"]))
-        .run(as_dict=True)
-    )
-    total = float(rows[0].total or 0) if rows else 0.0
-    return total / _weeks_of_history(intelligence, today)
+    return _combined_weekly_estimates(intelligence)[0]
 
 
 def estimate_operating_expenses(intelligence, week_start: datetime) -> float:
     """Estimate operating expenses based on historical average"""
-    today = datetime.now().strftime('%Y-%m-%d')
-    twelve_weeks_ago = (datetime.now() - timedelta(weeks=12)).strftime('%Y-%m-%d')
-
-    gle = DocType("GL Entry")
-    acc = DocType("Account")
-    rows = (
-        frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("total"))
-        .where(gle.company == intelligence.company)
-        .where(gle.posting_date.between(twelve_weeks_ago, today))
-        .where(acc.account_type.isin(["Cash", "Bank"]))
-        .where(gle.is_cancelled == 0)
-        .where((gle.debit - gle.credit) < 0)
-        .where(gle.voucher_type.notin(["Purchase Invoice", "Payment Entry"]))
-        .where(~gle.against.like("%Salary%"))
-        .where(~gle.against.like("%Payroll%"))
-        .where(~gle.against.like("%Tax%"))
-        .where(~gle.against.like("%VAT%"))
-        .run(as_dict=True)
-    )
-    total = abs(float(rows[0].total or 0)) if rows else 0.0
-    return total / _weeks_of_history(intelligence, today)
+    return _combined_weekly_estimates(intelligence)[1]
 
 
 def get_scheduled_taxes(intelligence, week_start, week_end) -> float:

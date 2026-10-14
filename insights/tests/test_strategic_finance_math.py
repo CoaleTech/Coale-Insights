@@ -11,6 +11,13 @@ from insights.ml.strategic_finance.cost_ratios import _get_fixed_cost
 from insights.ml.strategic_finance.forecast import _shift_weeks, apply_scenario
 from insights.ml.strategic_finance.scenarios import build_periods, calc_change
 from insights.ml.strategic_finance.summary import calculate_health_scores, generate_key_insights
+from insights.ml.strategic_finance.data import (
+    _combined_weekly_estimates,
+    estimate_other_receipts,
+    estimate_operating_expenses,
+    get_cash_balance,
+    _weeks_of_history,
+)
 
 
 def _weeks(ar):
@@ -80,3 +87,25 @@ class TestStrategicFinanceMath(unittest.TestCase):
         insights = generate_key_insights(None, 0, 0, net_margin=None, revenue_growth=None,
                                          cash_runway_months=None, debt_to_equity=None, roe=None, health_scores=hs)
         self.assertEqual(insights, [])
+
+    def test_get_cash_balance_cached(self):
+        """get_cash_balance returns cached value without hitting DB."""
+        intel = SimpleNamespace(company="X", _cash_balance=42.0)
+        self.assertEqual(get_cash_balance(intel), 42.0)
+
+    def test_weeks_of_history_cached(self):
+        """_weeks_of_history returns cached value without hitting DB."""
+        intel = SimpleNamespace(company="X", _woh=7)
+        self.assertEqual(_weeks_of_history(intel, "2026-10-14"), 7)
+
+    def test_combined_weekly_estimates_cached(self):
+        """estimate_* wrappers return from _weekly_estimates cache by index."""
+        intel = SimpleNamespace(company="X", _weekly_estimates=(12.5, 8.3))
+        self.assertAlmostEqual(estimate_other_receipts(intel, None), 12.5)
+        self.assertAlmostEqual(estimate_operating_expenses(intel, None), 8.3)
+
+    def test_combined_weekly_estimates_result_is_stored(self):
+        """_combined_weekly_estimates returns the cached tuple when pre-set."""
+        intel = SimpleNamespace(company="X", _weekly_estimates=(5.0, 3.0))
+        result = _combined_weekly_estimates(intel)
+        self.assertEqual(result, (5.0, 3.0))
