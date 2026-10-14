@@ -876,7 +876,7 @@ def _geographic_analysis(df, company, start, end):
     # GP above, grouped differently — zero extra SQL query).
     _gpl = cached_gp_lines(start, end, company)
     gp = (
-        _gpl.groupby("territory")
+        _gpl.groupby("territory", dropna=False)
         .agg(gross_profit=("gross_profit", "sum"))
         .reset_index()
     )

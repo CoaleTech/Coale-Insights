@@ -402,8 +402,8 @@ class FinancialIntelligence:
         )
         for r in pe_monthly_rows:
             r["period"] = str(r["period"])[:7] if r.get("period") else ""
-        cash_inflows = [r for r in pe_monthly_rows if r.get("payment_type") == "Receive"]
-        cash_outflows = [r for r in pe_monthly_rows if r.get("payment_type") == "Pay"]
+        cash_inflows = [{k: v for k, v in r.items() if k != "payment_type"} for r in pe_monthly_rows if r["payment_type"] == "Receive"]
+        cash_outflows = [{k: v for k, v in r.items() if k != "payment_type"} for r in pe_monthly_rows if r["payment_type"] == "Pay"]
 
         # Average over the 6 *complete* months (fixed denominator so zero-payment months count).
         this_month = today[:7]
