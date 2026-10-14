@@ -226,6 +226,9 @@ class HRIntelligence:
         of analytics in one render. Returns plain dicts of scalars /
         per-row aggregates that downstream methods consume.
         """
+        if hasattr(self, '_corpora_cache'):
+            return self._corpora_cache  # type: ignore[attr-defined]
+
         employee = t("Employee")
         emp_active = employee.filter(employee["status"] == "Active")
 
@@ -354,7 +357,7 @@ class HRIntelligence:
                     "count": int(r.get("count") or 0),
                 })
 
-        return {
+        self._corpora_cache = {
             "total_active": int(total_active),
             "new_hires": int(new_hires),
             "total_exits": total_exits,
@@ -364,6 +367,7 @@ class HRIntelligence:
             "employment_type_breakdown": emp_type_breakdown,
             "gender_dist": gender_dist,
         }
+        return self._corpora_cache
 
     # ------------------------------------------------------------------ headcount
     def _analyze_headcount(self) -> Dict[str, Any]:
@@ -453,6 +457,9 @@ class HRIntelligence:
     def _analyze_payroll(self) -> Dict[str, Any]:
         """Payroll aggregates over Salary Slip. Returns zeroed-out structure
         on sites with no payroll cycle (Salary Slip table empty)."""
+        if hasattr(self, '_payroll_cache'):
+            return self._payroll_cache  # type: ignore[attr-defined]
+
         if not frappe.db.table_exists("Salary Slip"):
             return {
                 "total_payroll_cost": 0,
@@ -553,7 +560,7 @@ class HRIntelligence:
             else 0
         )
 
-        return {
+        self._payroll_cache = {
             "total_payroll_cost": total_gross,
             "average_salary": avg_gross,
             "cost_per_employee": cost_per_employee,
@@ -562,9 +569,13 @@ class HRIntelligence:
             "payroll_efficiency": "optimal" if deduction_rate < 25 else "review_needed",
             "department_breakdown": dept_payroll,
         }
+        return self._payroll_cache
 
     # ------------------------------------------------------------------ attendance
     def _analyze_attendance(self) -> Dict[str, Any]:
+        if hasattr(self, '_attendance_cache'):
+            return self._attendance_cache  # type: ignore[attr-defined]
+
         if not frappe.db.table_exists("Attendance"):
             return {
                 "attendance_rate_pct": 0,
@@ -675,7 +686,7 @@ class HRIntelligence:
         else:
             productivity = "low"
 
-        return {
+        self._attendance_cache = {
             "attendance_rate_pct": round(attendance_rate, 2),
             "late_arrivals": late_arrivals,
             "late_arrival_rate_pct": round(late_arrival_rate, 2),
@@ -694,6 +705,7 @@ class HRIntelligence:
             "attendance_health": health,
             "productivity_indicator": productivity,
         }
+        return self._attendance_cache
     # ------------------------------------------------------------------ leave
     def _analyze_leave(self) -> Dict[str, Any]:
         if not frappe.db.table_exists("Leave Application"):
