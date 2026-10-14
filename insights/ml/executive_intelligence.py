@@ -1031,12 +1031,6 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
     risk = _load_risk(period)
     hr = _load_hr(period)
     manufacturing = _load_manufacturing(period)
-    # marketing is loaded for trend data only; we do not surface a marketing
-    # KPI block in the dashboard (the existing dashboard has no marketing
-    # KPI section; marketing is consumed via the Marketing dashboard
-    # directly). Loading here keeps the dependency alive for the day
-    # someone adds a marketing KPI block.
-    _marketing = _load_marketing(period)  # noqa: F841
 
     kpis: Dict[str, Any] = {
         "financial": _financial_kpis(financial),
