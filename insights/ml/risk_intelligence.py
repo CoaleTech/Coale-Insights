@@ -132,7 +132,7 @@ def run_risk_intelligence(refresh: bool = False) -> dict:
 
 def _base_currency(company: str | None) -> str:
     if company:
-        cur = frappe.db.get_value("Company", company, "default_currency")
+        cur = frappe.db.get_value("Company", company, "default_currency", cache=True)
         if cur:
             return cur
     return (
@@ -216,6 +216,8 @@ def _scalar_count(doctype: str, filters: dict | None = None) -> int:
 
 def _top_alerts(company: str | None) -> list[dict]:
     alerts: list[dict] = []
+    # Resolve currency once so the per-customer loop doesn't re-query Company.
+    base_cur = _base_currency(company)
 
     si = t("Sales Invoice")
     q = si.filter(si.docstatus == 1, si.outstanding_amount > 0)
@@ -261,7 +263,7 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "customer": cust,
                 "overdue_days": 60,
                 "title": f"Overdue Customer: {names.get(cust) or cust}",
-                "description": f"Outstanding: {_plain_money(out, _base_currency(company))}",
+                "description": f"Outstanding: {_plain_money(out, base_cur)}",
                 "action": "Review credit limit and payment terms",
                 # The same figure as a number. ``description`` is a formatted
                 # string, so a table could only right-align these by parsing
@@ -280,7 +282,7 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "type": "cashflow_risk",
                 "severity": "critical" if cash < 500_000 else "high",
                 "title": "Low Cash Position",
-                "description": f"Current cash: {_plain_money(cash, _base_currency(company))}",
+                "description": f"Current cash: {_plain_money(cash, base_cur)}",
                 "action": "Monitor cash flow and accelerate collections",
                 "amount": cash,
             }
@@ -835,6 +837,10 @@ def _aging_buckets_payables(company: str | None) -> list[dict]:
 
 def _analyze_cashflow_risk(company: str | None) -> dict:
     overdue_days_trend = _overdue_days_trend(company)
+    # Compute cash once; avoids a duplicate _gl_balance_for_account_types call
+    # when the caller (run_risk_intelligence) also requests current_cash_position
+    # through _aggregate_cashflow_risk → _current_cash_position.
+    cash = _current_cash_position(company)
 
     # Working capital: current_assets - current_liabilities.
     current_assets = _gl_balance_for_account_types(
@@ -854,7 +860,7 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
         "exposure_trend": _exposure_trend(company),
         "current_working_capital": working_capital,
         "working_capital_ratio": round(wc_ratio, 2),
-        "current_cash_position": _current_cash_position(company),
+        "current_cash_position": cash,
         "customer_concentration": concentration,
         "top_customer_share": top_customer_share,
         "cash_forecast": _forecast_cash_flow(company),

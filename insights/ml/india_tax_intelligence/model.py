@@ -78,7 +78,7 @@ def _fiscal_year_for(company: str | None) -> Dict[str, Any]:
 
 def _base_currency(company: str | None) -> str:
     if company:
-        cur = frappe.db.get_value("Company", company, "default_currency")
+        cur = frappe.db.get_value("Company", company, "default_currency", cache=True)
         if cur:
             return cur
     return (
