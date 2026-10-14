@@ -32,6 +32,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
 from insights.api.ml.ibis_source import t
@@ -1292,9 +1293,13 @@ def get_counterparty_risk(intelligence, start: date, end: date) -> Dict[str, Any
         si = _docstatus_filter(si)
         si = _date_filter(si, start, end, "posting_date")
 
+        # billing_address_gstin is varchar(140), supplier_gstin is varchar(64);
+        # cast both to dt.String() (unbounded) so ibis emits equal schema on
+        # both sides of the UNION. isin() against a Python set avoids a
+        # cross-table collation mismatch (utf8mb4_general_ci vs _unicode_ci).
         sales_gstins = (
             si.filter(si["billing_address_gstin"].fill_null("") != "")
-            .group_by(si["billing_address_gstin"].cast("string").name("gstin"))
+            .group_by(si["billing_address_gstin"].cast(dt.String()).name("gstin"))
             .aggregate(value=si["base_grand_total"].fill_null(0).sum())
         )
 
@@ -1304,30 +1309,37 @@ def get_counterparty_risk(intelligence, start: date, end: date) -> Dict[str, Any
 
         purchase_gstins = (
             pi.filter(pi["supplier_gstin"].fill_null("") != "")
-            .group_by(pi["supplier_gstin"].cast("string").name("gstin"))
+            .group_by(pi["supplier_gstin"].cast(dt.String()).name("gstin"))
             .aggregate(value=pi["base_grand_total"].fill_null(0).sum())
         )
 
         from ibis import union as _union
         unioned = _union(sales_gstins, purchase_gstins)
 
-        # At-risk registry GSTINs (cancelled / suspended / Rule-86A blocked).
-        at_risk = gstin.filter(
-            gstin["status"].isin(["Cancelled", "Suspended"])
-            | (gstin["is_blocked"].fill_null(0) == 1)
-        ).select("gstin")
-
-        # Aggregate over `unioned` alone (single relation): a post-join
-        # aggregate that referenced `unioned` columns raised Ibis
-        # IntegrityError ("belong to another relation").
-        exposed = (
-            unioned.filter(unioned["gstin"].isin(at_risk["gstin"]))
-            .aggregate(
-                parties=unioned["gstin"].nunique(),
-                value=unioned["value"].fill_null(0).sum(),
+        # Materialise at-risk GSTINs to a Python set: eliminates the
+        # cross-collation SQL comparison that caused error 1267.
+        at_risk_set = set(
+            gstin.filter(
+                gstin["status"].isin(["Cancelled", "Suspended"])
+                | (gstin["is_blocked"].fill_null(0) == 1)
             )
-            .execute()
+            .select("gstin")
+            .execute()["gstin"]
+            .dropna()
+            .tolist()
         )
+
+        if not at_risk_set:
+            exposed = None
+        else:
+            exposed = (
+                unioned.filter(unioned["gstin"].isin(list(at_risk_set)))
+                .aggregate(
+                    parties=unioned["gstin"].nunique(),
+                    value=unioned["value"].fill_null(0).sum(),
+                )
+                .execute()
+            )
     else:
         exposed = None
     if exposed is None or exposed.empty:
