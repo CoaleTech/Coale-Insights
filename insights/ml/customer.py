@@ -41,6 +41,7 @@ import ibis
 from frappe.query_builder.functions import Count, Sum
 
 from insights.api.ml.ibis_source import (
+    cached_gp_lines,
     company_filter,
     default_company,
     dn_cost,
@@ -536,10 +537,14 @@ def compute_customer_intelligence(
         df["recent_avg_order_value"] = None
         df["recent_order_count"] = 0
 
-    # Per-customer gross profit: line base_net_amount less booked (SLE) COGS --
-    # same lines/cost as Geography and the rankings scorecard.
-    lines, psi, _rev, gp_expr = _profit_lines(company, start, end)
-    gp_df = lines.group_by(psi.customer).aggregate(gross_profit=gp_expr.sum()).execute()
+    # Per-customer gross profit using the shared per-line cache — avoids a
+    # duplicate 15s SI×SII×DN×SLE join that _geographic_analysis also issues.
+    _gpl = cached_gp_lines(start, end, company)
+    gp_df = (
+        _gpl.groupby("customer")
+        .agg(gross_profit=("gross_profit", "sum"))
+        .reset_index()
+    )
     if not gp_df.empty:
         gp_df["gross_profit"] = gp_df["gross_profit"].astype(float)
         df = df.merge(gp_df, on="customer", how="left")
@@ -867,8 +872,14 @@ def _geographic_analysis(df, company, start, end):
     pairs["territory"] = pairs["territory"].fillna("")
     pairs["revenue"] = pairs["revenue"].astype(float)
     pairs = pairs.merge(df[["customer", "churn_score", "health_score"]], on="customer", how="left")
-    lines, psi, _rev, gp_expr = _profit_lines(company, start, end)
-    gp = lines.group_by(territory=psi.territory).aggregate(gross_profit=gp_expr.sum()).execute()
+    # Territory GP from the shared per-line cache (same data as the per-customer
+    # GP above, grouped differently — zero extra SQL query).
+    _gpl = cached_gp_lines(start, end, company)
+    gp = (
+        _gpl.groupby("territory")
+        .agg(gross_profit=("gross_profit", "sum"))
+        .reset_index()
+    )
     gp["territory"] = gp["territory"].fillna("")
     gp["gross_profit"] = gp["gross_profit"].astype(float)
 

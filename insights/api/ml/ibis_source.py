@@ -240,3 +240,111 @@ def line_cogs(sii: ir.Table, dn_rate: ir.Column, sle_svd: ir.Column | None = Non
     if sle_svd is None:
         return stored
     return ibis.coalesce(-sle_svd, stored)
+
+
+def cached_gp_lines(
+    start,  # date | datetime | None  — same window as the calling compute
+    end,    # date | datetime | None
+    company: str | None,
+) -> "pd.DataFrame":
+    """Per-Sales-Invoice-Item row with revenue, cost, and period columns.
+
+    Materialises the ``Sales Invoice × Sales Invoice Item × Delivery Note
+    Item × Stock Ledger Entry`` join exactly ONCE per compute call and caches
+    the result on ``frappe.local`` for the duration of that request, so every
+    caller (revenue GP, margins, sales-reps, customer profitability, territory
+    rollup) groups the same frame in pandas instead of re-issuing the join.
+
+    The cache is keyed by (user, start, end, company) and lives only on
+    ``frappe.local`` -- it resets automatically at the end of every request
+    and never leaks across users or concurrent sessions.
+    """
+    import pandas as pd
+
+    def _ds(v) -> str:
+        if v is None:
+            return ""
+        d = v.date() if hasattr(v, "date") and callable(v.date) else v
+        return str(d)[:10]
+
+    key = (frappe.session.user, _ds(start), _ds(end), company or "")
+    cache = getattr(frappe.local, "insights_gp_line_cache", None)
+    if cache is None:
+        cache = frappe.local.insights_gp_line_cache = {}
+    if key in cache:
+        return cache[key]
+
+    import ibis as _ibis
+
+    _si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+        t("Sales Invoice").docstatus == 1
+    ).filter(t("Sales Invoice").is_return == 0)
+    if start is not None:
+        _start = start.date() if hasattr(start, "date") and callable(start.date) else start
+        _si = _si.filter(_si.posting_date >= _start)
+    if end is not None:
+        _end = end.date() if hasattr(end, "date") and callable(end.date) else end
+        _si = _si.filter(_si.posting_date <= _end)
+
+    _sii = t("Sales Invoice Item")
+    _dn = dn_cost()
+    _sle = sle_cost()
+    _svd_key = _ibis.coalesce(_sii.dn_detail.nullif(""), _sii.name)
+
+    df: pd.DataFrame = (
+        _si.inner_join(_sii, _sii.parent == _si.name)
+        .left_join(_dn, _sii.dn_detail == _dn.dn_name)
+        .left_join(_sle, _svd_key == _sle.vd_name)
+        .select(
+            parent=_si.name,
+            posting_date=_si.posting_date,
+            customer=_si.customer,
+            territory=_si.territory,
+            base_net_total=_si.base_net_total,
+            item_code=_sii.item_code,
+            item_name=_sii.item_name,
+            item_group=_sii.item_group,
+            base_net_amount=_sii.base_net_amount,
+            qty=_sii.qty,
+            incoming_rate=_sii.incoming_rate,
+            dn_rate=_dn.dn_rate,
+            svd=_sle.svd,
+        )
+        .execute()
+    )
+
+    # Numeric coercion (MariaDB DECIMAL → float; nulls stay as NaN for cost logic).
+    for _col in ("base_net_amount", "qty", "incoming_rate", "base_net_total"):
+        df[_col] = df[_col].astype(float)
+    df["dn_rate"] = pd.to_numeric(df["dn_rate"], errors="coerce")
+    df["svd"] = pd.to_numeric(df["svd"], errors="coerce")
+
+    # Normalise posting_date to plain Python date (PyArrow path returns date,
+    # normal path returns datetime64 -- comparisons to date objects must agree).
+    df["posting_date"] = df["posting_date"].apply(
+        lambda d: d.date() if hasattr(d, "date") and callable(d.date) else d
+    )
+
+    # line_cogs: -svd when the stock ledger booked it, else qty * coalesce(rate, 0).
+    # Mirrors ibis_source.line_cogs() exactly.
+    _rate = df["incoming_rate"].where(df["incoming_rate"] != 0, df["dn_rate"]).fillna(0)
+    _stored = df["qty"] * _rate
+    df["line_cogs"] = (-df["svd"]).where(df["svd"].notna(), _stored)
+    df["gross_profit"] = df["base_net_amount"] - df["line_cogs"]
+
+    # Period columns for GROUP-BY callers.
+    df["period"] = df["posting_date"].apply(
+        lambda d: d.strftime("%Y-%m") if hasattr(d, "strftime") else str(d)[:7]
+    )
+    df["year_week"] = df["posting_date"].apply(
+        lambda d: (
+            f"{d.isocalendar()[0]}-W{d.isocalendar()[1]:02d}"
+            if hasattr(d, "isocalendar") else ""
+        )
+    )
+
+    # Item group: normalise blank to "Uncategorized" for consistent grouping.
+    df["item_group"] = df["item_group"].fillna("").replace("", "Uncategorized")
+
+    cache[key] = df
+    return df

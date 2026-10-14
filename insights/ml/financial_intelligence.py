@@ -187,65 +187,43 @@ class FinancialIntelligence:
 
         joined = self._gl_with_account()
 
-        # MTD
-        mtd_inc = joined.filter(
-            (joined["root_type"] == "Income")
-            & (joined["posting_date"] >= mtd_start)
-            & (joined["posting_date"] <= today)
-        ).aggregate(amount=(joined["credit"] - joined["debit"]).sum())
-        mtd_income = self._scalar(mtd_inc["amount"].abs())
-
-        mtd_exp = joined.filter(
-            (joined["root_type"] == "Expense")
-            & (joined["posting_date"] >= mtd_start)
-            & (joined["posting_date"] <= today)
-        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
-        mtd_expenses = self._scalar(mtd_exp["amount"].abs())
-
-        # YTD (fiscal)
-        ytd_inc = joined.filter(
-            (joined["root_type"] == "Income")
-            & (joined["posting_date"] >= fy_start)
-            & (joined["posting_date"] <= today)
-        ).aggregate(amount=(joined["credit"] - joined["debit"]).sum())
-        ytd_income = self._scalar(ytd_inc["amount"].abs())
-
-        ytd_exp = joined.filter(
-            (joined["root_type"] == "Expense")
-            & (joined["posting_date"] >= fy_start)
-            & (joined["posting_date"] <= today)
-        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
-        ytd_expenses = self._scalar(ytd_exp["amount"].abs())
-
-        mtd_revenue = mtd_income
-        mtd_profit = mtd_revenue - mtd_expenses
-        ytd_revenue = ytd_income
-        ytd_expenses = ytd_expenses
-        ytd_profit = ytd_revenue - ytd_expenses
-
-        # YTD Interest and Depreciation for EBITDA. Same account-matching
-        # convention as `calculate_ratio_trends` (analysis.py) and
-        # `calculate_executive_summary` (summary.py) -- interest by account
-        # name (this CoA tags no account_type for borrowing costs),
-        # depreciation by `account_type == 'Depreciation'` -- so EBITDA
-        # means the same thing across every dashboard that reports it. No
-        # tax add-back: this CoA carries no income-tax / provision-for-tax
-        # account distinct from indirect taxes (customs duty, GST) that are
-        # real operating costs.
-        ytd_interest_exp = joined.filter(
-            (joined["root_type"] == "Expense")
-            & (joined["posting_date"] >= fy_start)
-            & (joined["posting_date"] <= today)
-            & (joined["account"].like("%Interest%"))
-        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
-        ytd_interest_expense = self._scalar(ytd_interest_exp["amount"].abs())
-
-        ytd_deprec = joined.filter(
-            (joined["account_type"] == "Depreciation")
-            & (joined["posting_date"] >= fy_start)
-            & (joined["posting_date"] <= today)
-        ).aggregate(amount=(joined["debit"] - joined["credit"]).sum())
-        ytd_depreciation = self._scalar(ytd_deprec["amount"].abs())
+        # Single aggregate for all 6 P&L scalars. Replaces 6 separate GL scans
+        # with one conditional-SUM pass over the joined GL+Account table.
+        import ibis as _ibis
+        # The tightest lower bound across all 6 conditions is fy_start
+        # (the YTD conditions); use it to bound the GL scan the same way
+        # each individual query was bounded, rather than scanning all history.
+        _date_filter = (joined["posting_date"] >= fy_start) & (joined["posting_date"] <= today)
+        _mtd_cond     = joined["posting_date"] >= mtd_start  # subset of _date_filter
+        _mtd_inc_cond = (joined["root_type"] == "Income")  & _mtd_cond
+        _mtd_exp_cond = (joined["root_type"] == "Expense") & _mtd_cond
+        _ytd_inc_cond = (joined["root_type"] == "Income")
+        _ytd_exp_cond = (joined["root_type"] == "Expense")
+        _ytd_int_cond = _ytd_exp_cond & joined["account"].like("%Interest%")
+        _ytd_dep_cond = (joined["account_type"] == "Depreciation")
+        _scalars = (
+            joined.filter(_date_filter)
+            .aggregate(
+                mtd_income=_ibis.ifelse(_mtd_inc_cond, joined["credit"] - joined["debit"], 0).sum(),
+                mtd_expenses=_ibis.ifelse(_mtd_exp_cond, joined["debit"] - joined["credit"], 0).sum(),
+                ytd_income=_ibis.ifelse(_ytd_inc_cond, joined["credit"] - joined["debit"], 0).sum(),
+                ytd_expenses=_ibis.ifelse(_ytd_exp_cond, joined["debit"] - joined["credit"], 0).sum(),
+                ytd_interest=_ibis.ifelse(_ytd_int_cond, joined["debit"] - joined["credit"], 0).sum(),
+                ytd_depreciation=_ibis.ifelse(_ytd_dep_cond, joined["debit"] - joined["credit"], 0).sum(),
+            )
+            .execute()
+            .iloc[0]
+        )
+        mtd_income           = abs(float(_scalars["mtd_income"] or 0))
+        mtd_expenses         = abs(float(_scalars["mtd_expenses"] or 0))
+        ytd_income           = abs(float(_scalars["ytd_income"] or 0))
+        ytd_expenses         = abs(float(_scalars["ytd_expenses"] or 0))
+        ytd_interest_expense = abs(float(_scalars["ytd_interest"] or 0))
+        ytd_depreciation     = abs(float(_scalars["ytd_depreciation"] or 0))
+        mtd_revenue  = mtd_income
+        mtd_profit   = mtd_revenue - mtd_expenses
+        ytd_revenue  = ytd_income
+        ytd_profit   = ytd_revenue - ytd_expenses
 
         ytd_ebit = ytd_profit + ytd_interest_expense
         ytd_ebitda = ytd_ebit + ytd_depreciation
@@ -406,29 +384,28 @@ class FinancialIntelligence:
         # last-6-months window is computed once and shared by both directions below
         six_months_ago = _months_ago(6)
 
-        def _pe_monthly(payment_type: str) -> list[dict[str, Any]]:
-            agg = (
-                pe
-                .filter(
-                    (pe["payment_type"] == payment_type)
-                    & (pe["posting_date"] >= six_months_ago)
-                    & (pe["posting_date"] <= today)
-                )
-                .group_by(pe["posting_date"].truncate("month").name("period"))
-                .aggregate(amount=pe["paid_amount"].sum())
-                .order_by("period")
+        # Monthly inflows + outflows: one query grouped by (period, payment_type).
+        # Replaces 2 separate PE scans with one conditional group-by.
+        pe_monthly_rows = self._rows(
+            pe
+            .filter(
+                pe["payment_type"].isin(["Receive", "Pay"])
+                & (pe["posting_date"] >= six_months_ago)
+                & (pe["posting_date"] <= today)
             )
-            rows = self._rows(agg)
-            for r in rows:
-                r["period"] = str(r["period"])[:7] if r.get("period") else ""
-            return rows
+            .group_by([
+                pe["posting_date"].truncate("month").name("period"),
+                pe["payment_type"],
+            ])
+            .aggregate(amount=pe["paid_amount"].sum())
+            .order_by(["payment_type", "period"])
+        )
+        for r in pe_monthly_rows:
+            r["period"] = str(r["period"])[:7] if r.get("period") else ""
+        cash_inflows = [r for r in pe_monthly_rows if r.get("payment_type") == "Receive"]
+        cash_outflows = [r for r in pe_monthly_rows if r.get("payment_type") == "Pay"]
 
-        cash_inflows = _pe_monthly("Receive")
-        cash_outflows = _pe_monthly("Pay")
-
-        # Average over the 6 *complete* months in the window (the fixed
-        # denominator keeps zero-payment months in the average; the partial
-        # current month is displayed but would understate it).
+        # Average over the 6 *complete* months (fixed denominator so zero-payment months count).
         this_month = today[:7]
 
         def _avg6(rows: list[dict[str, Any]]) -> float:
@@ -439,38 +416,26 @@ class FinancialIntelligence:
         net_burn = avg_outflow - avg_inflow
         runway_months = round(total_cash / net_burn, 1) if net_burn > 0 else None
 
-        # Inflow/outflow by source (party_type) for last 3 months
+        # Inflow/outflow by source (party_type) for last 3 months — one query.
         three_months_ago = _months_ago(3)
-
-        inflow_src = (
+        pe_src_rows = self._rows(
             pe
             .filter(
-                (pe["payment_type"] == "Receive")
+                pe["payment_type"].isin(["Receive", "Pay"])
                 & (pe["posting_date"] >= three_months_ago)
                 & (pe["posting_date"] <= today)
             )
-            .group_by(pe["party_type"].name("source"))
+            .group_by([pe["payment_type"], pe["party_type"].name("party_type")])
             .aggregate(amount=pe["paid_amount"].sum())
             .order_by(ibis.desc("amount"))
         )
         inflow_by_source = [
-            {**r, "source": r.get("source") or "Other"}
-            for r in self._rows(inflow_src)
+            {"source": r.get("party_type") or "Other", "amount": r["amount"]}
+            for r in pe_src_rows if r.get("payment_type") == "Receive"
         ]
-        outflow_use = (
-            pe
-            .filter(
-                (pe["payment_type"] == "Pay")
-                & (pe["posting_date"] >= three_months_ago)
-                & (pe["posting_date"] <= today)
-            )
-            .group_by(pe["party_type"].name("category"))
-            .aggregate(amount=pe["paid_amount"].sum())
-            .order_by(ibis.desc("amount"))
-        )
         outflow_by_use = [
-            {**r, "category": r.get("category") or "Other"}
-            for r in self._rows(outflow_use)
+            {"category": r.get("party_type") or "Other", "amount": r["amount"]}
+            for r in pe_src_rows if r.get("payment_type") == "Pay"
         ]
 
         # Large transactions in last 1 month

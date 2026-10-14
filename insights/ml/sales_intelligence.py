@@ -31,7 +31,7 @@ from typing import Any
 import frappe
 import ibis
 
-from insights.api.ml.ibis_source import company_filter, default_company, dn_cost, line_cogs, sle_cost, t
+from insights.api.ml.ibis_source import cached_gp_lines, company_filter, default_company, dn_cost, line_cogs, sle_cost, t
 from insights.api.ml.utils import parse_date_filter
 from insights.ml.inventory_intelligence import DemandForecasting
 from insights.ml.sales_forecasting import _is_partial, get_sales_forecast
@@ -161,20 +161,10 @@ def calculate_revenue_metrics(
         for _, r in monthly_df.iterrows()
     ]
 
-    # Line-level cost of sales and gross profit per period. Cost is COGS from
-    # the linked Delivery Note (sii.dn_detail) when the Sales Invoice ran with
-    # update_stock=0, else the reposted SII incoming_rate -- see line_cogs.
-    # GP = sum(base_net_amount) - cost. base_net_amount is pre-tax and in the
-    # company (base) currency -- matching the base-currency valuation the cost
-    # is booked in (incoming_rate / DN incoming_rate), so foreign-currency
-    # invoices don't mix a transaction-currency numerator against a
-    # base-currency cost. Gross margin % is therefore on the same tax-exclusive
-    # base as the Revenue row above.
-    sii = t("Sales Invoice Item")
-    dn = dn_cost()
-    sle = sle_cost()
-    line_cost = line_cogs(sii, dn.dn_rate, sle.svd).sum()
-    line_profit = sii.base_net_amount.sum() - line_cost
+    # Line-level GP: fetch once via cached_gp_lines; group in pandas for
+    # daily / weekly / monthly windows. Replaces 3 separate SI×SII×DN×SLE
+    # join executions with one shared materialisation per compute call.
+    gp_frame = cached_gp_lines(start, end, company or default_company())
 
     def _merge_gp(series: list[dict[str, Any]], gp_map: dict[str, tuple[float, float]], key: str) -> None:
         for row in series:
@@ -182,40 +172,32 @@ def calculate_revenue_metrics(
             row["cost_of_sales"] = round(cost, 2)
             row["gross_profit"] = round(gp, 2)
 
-    _svd_key = ibis.coalesce(sii.dn_detail.nullif(""), sii.name)
-    base_daily = (si_daily.inner_join(sii, sii.parent == si_daily.name)
-                  .left_join(dn, sii.dn_detail == dn.dn_name)
-                  .left_join(sle, _svd_key == sle.vd_name))
+    # Daily GP (last 30 days of window).
+    _gp_daily = gp_frame[gp_frame["posting_date"] >= daily_cutoff].groupby("posting_date")[
+        ["line_cogs", "gross_profit"]
+    ].sum()
     gp_daily = {
-        str(r["posting_date"]): (float(r["cost"] or 0), float(r["gross_profit"] or 0))
-        for _, r in base_daily.group_by(base_daily.posting_date)
-        .aggregate(cost=line_cost, gross_profit=line_profit)
-        .execute()
-        .iterrows()
+        str(d): (float(row["line_cogs"]), float(row["gross_profit"]))
+        for d, row in _gp_daily.iterrows()
     }
     _merge_gp(daily_sales, gp_daily, "date")
 
-    base_weekly = (si_weekly.inner_join(sii, sii.parent == si_weekly.name)
-                   .left_join(dn, sii.dn_detail == dn.dn_name)
-                   .left_join(sle, _svd_key == sle.vd_name))
+    # Weekly GP (last 12 weeks of window).
+    _weekly_cutoff = (anchor - timedelta(weeks=12)).date()
+    _gp_weekly = gp_frame[gp_frame["posting_date"] >= _weekly_cutoff].groupby("year_week")[
+        ["line_cogs", "gross_profit"]
+    ].sum()
     gp_weekly = {
-        r["year_week"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
-        for _, r in base_weekly.group_by(base_weekly.year_week)
-        .aggregate(cost=line_cost, gross_profit=line_profit)
-        .execute()
-        .iterrows()
+        yw: (float(row["line_cogs"]), float(row["gross_profit"]))
+        for yw, row in _gp_weekly.iterrows()
     }
     _merge_gp(weekly_sales, gp_weekly, "year_week")
 
-    base_monthly = (si_monthly.inner_join(sii, sii.parent == si_monthly.name)
-                    .left_join(dn, sii.dn_detail == dn.dn_name)
-                    .left_join(sle, _svd_key == sle.vd_name))
+    # Monthly GP (full window).
+    _gp_monthly = gp_frame.groupby("period")[["line_cogs", "gross_profit"]].sum()
     gp_monthly = {
-        r["period"]: (float(r["cost"] or 0), float(r["gross_profit"] or 0))
-        for _, r in base_monthly.group_by(base_monthly.period)
-        .aggregate(cost=line_cost, gross_profit=line_profit)
-        .execute()
-        .iterrows()
+        p: (float(row["line_cogs"]), float(row["gross_profit"]))
+        for p, row in _gp_monthly.iterrows()
     }
     _merge_gp(monthly_sales, gp_monthly, "period")
 
@@ -411,24 +393,16 @@ def analyze_sales_reps(
     )
     df = expr.execute()
 
-    # Per-rep gross profit, allocated to each sales person by their share of
-    # the invoice (allocated_amount / base_net_total -- ERPNext allocates off
-    # base_net_total), so margin reconciles with the allocated revenue shown.
-    # Cost is the same Stock-Ledger-booked COGS `analyze_margins` uses, so
-    # sum(rep GP) + unattributed_gross_profit == margins.total_profit.
-    sii = t("Sales Invoice Item")
-    dn = dn_cost()
-    sle = sle_cost()
+    # Per-invoice GP from the cached SI×SII×DN×SLE frame.
+    _gp_frame = cached_gp_lines(start, end, company or default_company())
     inv_gp_df = (
-        si.inner_join(sii, sii.parent == si.name)
-        .left_join(dn, sii.dn_detail == dn.dn_name)
-        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
-        .group_by(invoice=si.name)
-        .aggregate(
-            invoice_gp=sii.base_net_amount.sum() - line_cogs(sii, dn.dn_rate, sle.svd).sum(),
-            net_total=si.base_net_total.max(),
+        _gp_frame.groupby("parent")
+        .agg(
+            invoice_gp=("gross_profit", "sum"),
+            net_total=("base_net_total", "max"),
         )
-        .execute()
+        .reset_index()
+        .rename(columns={"parent": "invoice"})
     )
     total_gp = float(inv_gp_df["invoice_gp"].astype(float).sum()) if not inv_gp_df.empty else 0.0
     if df.empty:
@@ -755,39 +729,16 @@ def gross_margin_totals(start, end, company: str | None = None) -> dict[str, flo
     """Net sales, gross profit and margin % of submitted, non-return Sales
     Invoices posted in [start, end] (date / datetime / ISO string; None = unbounded).
 
-    Gross profit = line `base_net_amount` less booked COGS (`line_cogs`, Stock
-    Ledger first) -- the basis of ERPNext's Gross Profit report. The ONE gross
-    margin definition: the Revenue dashboard KPI/Margins tab and every Finance
-    gross-margin figure call this, so the same window always shows the same
-    number. (GL "Cost of Goods Sold" is deliberately not used: on the live
-    ledger it is incomplete for part of the last 12 months -- GL COGS 73.6M
-    against 153M of net sales -- which produced a 52% / 4.7% margin that
-    disagreed with this one.)
+    Gross profit = line ``base_net_amount`` less booked COGS (``line_cogs``,
+    Stock Ledger first) -- the ONE gross-margin definition shared across every
+    dashboard. Uses ``cached_gp_lines`` so the join runs at most once per
+    compute call.
     """
-    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
-        t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
-    start, end = (None if d is None else date.fromisoformat(str(d)[:10]) for d in (start, end))
-    if start is not None:
-        si = si.filter(si.posting_date >= start)
-    if end is not None:
-        si = si.filter(si.posting_date <= end)
-    sii = t("Sales Invoice Item")
-    dn = dn_cost()
-    sle = sle_cost()
-    row = (
-        si.inner_join(sii, sii.parent == si.name)
-        .left_join(dn, sii.dn_detail == dn.dn_name)
-        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
-        .aggregate(
-            total_revenue=sii.base_net_amount.sum(),
-            total_profit=sii.base_net_amount.sum() - line_cogs(sii, dn.dn_rate, sle.svd).sum(),
-        )
-        .execute()
-        .iloc[0]
-    )
-    revenue = float(row["total_revenue"] or 0)
-    profit = float(row["total_profit"] or 0)
+    # Normalise to date objects for the cache key.
+    _start, _end = (None if d is None else date.fromisoformat(str(d)[:10]) for d in (start, end))
+    df = cached_gp_lines(_start, _end, company or default_company())
+    revenue = float(df["base_net_amount"].sum())
+    profit = float(df["gross_profit"].sum())
     return {
         "total_revenue": revenue,
         "total_profit": profit,
@@ -801,63 +752,40 @@ def analyze_margins(
 ) -> dict[str, Any]:
     """Per-product-group and per-item gross margin analysis.
 
-    Gross profit per line = `net_amount - line_cogs(...)`, where cost is the
+    Gross profit per line = ``base_net_amount - line_cogs(...)``, where cost is the
     linked Delivery Note Item rate when the invoice ran with update_stock=0,
-    else the reposted SII incoming_rate (see `line_cogs`). A line whose cost
+    else the reposted SII incoming_rate (see ``line_cogs``). A line whose cost
     still resolves to zero is treated as uncosted, not a genuine full margin.
+    Uses ``cached_gp_lines`` to avoid 3 separate SI×SII×DN×SLE join queries.
     """
-    si = company_filter(t("Sales Invoice"), company or default_company()).filter(
-        t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
-    sii = t("Sales Invoice Item")
     start, end = parse_date_filter(date_filter)
-    if start is not None:
-        si = si.filter(si.posting_date >= start.date())
-    if end is not None:
-        si = si.filter(si.posting_date <= end.date())
-
-    dn = dn_cost()
-    sle = sle_cost()
-    line_cost = line_cogs(sii, dn.dn_rate, sle.svd).sum()
-    line_profit = sii.base_net_amount.sum() - line_cost
-
-    base = (
-        si.inner_join(sii, sii.parent == si.name)
-        .left_join(dn, sii.dn_detail == dn.dn_name)
-        .left_join(sle, ibis.coalesce(sii.dn_detail.nullif(""), sii.name) == sle.vd_name)
-    )
+    # Use cached GP frame — avoids 3 separate SI×SII×DN×SLE join executions.
+    df = cached_gp_lines(start, end, company or default_company())
 
     totals = gross_margin_totals(start, end, company)
     total_revenue = totals["total_revenue"]
     total_profit = totals["total_profit"]
     overall_margin = totals["overall_margin"]
 
+    # Per-item-group aggregate.
+    _uncosted = (
+        (df["svd"].fillna(0) == 0)
+        & (df["incoming_rate"].fillna(0) == 0)
+        & (df["dn_rate"].fillna(0) == 0)
+    )
+    df_pg = df[df["item_group"] != ""].copy()
+    df_pg["_uncosted_rev"] = df_pg["base_net_amount"].where(_uncosted[df_pg.index], 0.0)
     pg_df = (
-        base.filter(sii.item_group.notnull())
-        .group_by(sii.item_group)
-        .aggregate(
-            revenue=sii.base_net_amount.sum(),
-            gross_profit=line_profit,
-            qty_sold=sii.qty.sum(),
-            unique_items=sii.item_code.nunique(),
-            # Revenue from lines where the cost could not be measured
-            # (incoming_rate NULL or 0) -- surfaced per-group so a
-            # 100% margin row visibly reflects a costing gap, not a
-            # genuine 100% margin product. Mirrors the
-            # `uncosted_items_excluded` accounting the per-item
-            # leaderboard already does.
-            uncosted_revenue=(
-                ibis.ifelse(
-                    (sle.svd.fill_null(0) == 0)
-                    & (sii.incoming_rate.fill_null(0) == 0)
-                    & (dn.dn_rate.fill_null(0) == 0),
-                    sii.base_net_amount,
-                    0,
-                ).sum()
-            ),
+        df_pg.groupby("item_group")
+        .agg(
+            revenue=("base_net_amount", "sum"),
+            gross_profit=("gross_profit", "sum"),
+            qty_sold=("qty", "sum"),
+            unique_items=("item_code", "nunique"),
+            uncosted_revenue=("_uncosted_rev", "sum"),
         )
-        .order_by(ibis.desc("revenue"))
-        .execute()
+        .sort_values("revenue", ascending=False)
+        .reset_index()
     )
     by_product_group: list[dict[str, Any]] = []
     for _, r in pg_df.iterrows():
@@ -879,35 +807,25 @@ def analyze_margins(
             }
         )
 
-    # Per-item -- top 10 by margin % and bottom 10 by margin % (over items
-    # with revenue above the median, so we do not list a single 1-unit
-    # item at -100% or +100% margin).
+    # Per-item — top 500 by revenue, same selection logic as before.
     item_df = (
-        base.filter(sii.item_code.notnull())
-        .group_by([sii.item_code, sii.item_name, sii.item_group])
-        .aggregate(
-            revenue=sii.base_net_amount.sum(),
-            gross_profit=line_profit,
-            qty_sold=sii.qty.sum(),
+        df[df["item_code"].notna() & (df["item_code"] != "")]
+        .groupby(["item_code", "item_name", "item_group"])
+        .agg(
+            revenue=("base_net_amount", "sum"),
+            gross_profit=("gross_profit", "sum"),
+            qty_sold=("qty", "sum"),
         )
-        .order_by(ibis.desc("revenue"))
-        .limit(500)
-        .execute()
+        .sort_values("revenue", ascending=False)
+        .head(500)
+        .reset_index()
     )
     if not item_df.empty:
-        # MariaDB SUM() returns Decimal; pandas .quantile()/.std() use numpy
-        # interpolation internals that raise TypeError when mixed with float.
-        # Cast once, up front.
         item_df["revenue"] = item_df["revenue"].astype(float)
         item_df["gross_profit"] = item_df["gross_profit"].astype(float)
         threshold = float(item_df["revenue"].quantile(0.5))
         significant = item_df[item_df["revenue"] >= threshold].copy()
         significant["margin_pct"] = (significant["gross_profit"] / significant["revenue"] * 100).fillna(0).round(1)
-        # gross_profit >= revenue means the line carried no incoming_rate at
-        # all (see the NULL-cost note above), not a genuine 100% margin. Left
-        # in, these costing gaps swamp the "top margin" leaderboard instead
-        # of real top performers, so they are excluded from that ranking
-        # pool; the count/value is still reported so the gap stays visible.
         uncosted_mask = significant["gross_profit"] >= significant["revenue"]
         uncosted_items_excluded = int(uncosted_mask.sum())
         uncosted_revenue = round(float(significant.loc[uncosted_mask, "revenue"].sum()), 2)
@@ -944,16 +862,12 @@ def analyze_margins(
         uncosted_items_excluded = 0
         uncosted_revenue = 0.0
 
-    # Margin trend (last 12 months).
+    # Margin trend (last 12 months) — group by period from cached frame.
     trend_df = (
-        base.mutate(period=base.posting_date.strftime("%Y-%m"))
-        .group_by("period")
-        .aggregate(
-            revenue=sii.base_net_amount.sum(),
-            gross_profit=line_profit,
-        )
-        .order_by("period")
-        .execute()
+        df.groupby("period")
+        .agg(revenue=("base_net_amount", "sum"), gross_profit=("gross_profit", "sum"))
+        .sort_index()
+        .reset_index()
     )
     margin_trend: list[dict[str, Any]] = []
     for _, r in trend_df.iterrows():
