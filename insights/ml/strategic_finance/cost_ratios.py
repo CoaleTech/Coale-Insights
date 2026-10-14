@@ -27,6 +27,8 @@ from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
 
+from .data import _gl_daily_cache, _gl_sum_period
+
 if TYPE_CHECKING:
     import numpy as np
 
@@ -97,41 +99,86 @@ def _get_fixed_cost(company: str, start: str, end: str, settings) -> Optional[fl
     return float(rows[0].amount or 0) if rows else 0.0
 
 
-def _root_type_sum(company: str, start: str, end: str, root_type: str) -> float:
-    """Sum of GL Entry postings against accounts of a given root_type
-    (Income or Expense) for the period. Mirrors the legacy SQL
-    `COALESCE(SUM(ABS(credit - debit)), 0)` for Income (credit-normal)
-    and `COALESCE(SUM(ABS(debit - credit)), 0)` for Expense (debit-normal)."""
+def _batch_category_totals(
+    company: str, start: str, end: str, keyword_sets: Dict[str, List[str]]
+) -> Dict[str, float]:
+    """One GL query computing all keyword-category Expense totals at once.
+
+    Replaces N individual `_category_total` calls (N × 1 GL query) with a
+    single SELECT using CASE-SUM columns, one per keyword set.
+    Returns {category_name: float}.
+    """
+    if not keyword_sets:
+        return {}
     gle = DocType("GL Entry")
     acc = DocType("Account")
-    expr = gle.debit - gle.credit
+    case_exprs = []
+    for cat_name, keywords in keyword_sets.items():
+        if not keywords:
+            case_exprs.append(
+                Abs(Coalesce(Sum(Case().when(
+                    acc.root_type == "Expense", gle.debit - gle.credit
+                ).else_(0)), 0)).as_(cat_name)
+            )
+            continue
+        filt = acc.name.like(f"%{keywords[0]}%")
+        for kw in keywords[1:]:
+            filt = filt | acc.name.like(f"%{kw}%")
+        case_exprs.append(
+            Abs(Coalesce(Sum(Case().when(
+                (acc.root_type == "Expense") & filt, gle.debit - gle.credit
+            ).else_(0)), 0)).as_(cat_name)
+        )
     rows = (
         frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Abs(Coalesce(Sum(expr), 0)).as_("amount"))
-        .where(acc.root_type == root_type)
-        .where(gle.posting_date.between(start, end))
+        .join(acc).on(gle.account == acc.name)
+        .select(*case_exprs)
         .where(gle.company == company)
+        .where(gle.posting_date.between(start, end))
         .where(gle.is_cancelled == 0)
         .run(as_dict=True)
     )
-    return float(rows[0].amount or 0) if rows else 0.0
+    if not rows:
+        return {k: 0.0 for k in keyword_sets}
+    return {k: float(rows[0].get(k) or 0) for k in keyword_sets}
 
 
-def _revenue_and_profit(company: str, start: str, end: str) -> tuple:
-    """Revenue and net profit from the GL (same convention as
-    `summary.py:calculate_executive_summary`); gross profit (None if no sales)
-    from `gross_margin_totals`, the one definition shared with the Revenue
-    dashboard."""
+def _revenue_and_profit(company: str, start: str, end: str, intelligence=None) -> tuple:
+    """Revenue and net profit.
+
+    When `intelligence` is supplied, reads income/expense from _gl_daily_cache
+    (zero extra DB queries).  Gross profit always from gross_margin_totals.
+    """
     from insights.ml.sales_intelligence import gross_margin_totals
 
-    revenue = _root_type_sum(company, start, end, "Income")
-    expenses = _root_type_sum(company, start, end, "Expense")
+    if intelligence is not None:
+        gl = _gl_daily_cache(intelligence)
+        revenue  = abs(_gl_sum_period(gl, start, end, "income"))
+        expenses = abs(_gl_sum_period(gl, start, end, "expense"))
+    else:
+        # standalone fallback
+        gle = DocType("GL Entry")
+        acc = DocType("Account")
+        expr = gle.debit - gle.credit
+        def _rts(rt):
+            rows = (
+                frappe.qb.from_(gle).join(acc).on(gle.account == acc.name)
+                .select(Abs(Coalesce(Sum(expr), 0)).as_("amount"))
+                .where(acc.root_type == rt)
+                .where(gle.posting_date.between(start, end))
+                .where(gle.company == company)
+                .where(gle.is_cancelled == 0)
+                .run(as_dict=True)
+            )
+            return float(rows[0].amount or 0) if rows else 0.0
+        revenue  = _rts("Income")
+        expenses = _rts("Expense")
+
     net_profit = revenue - expenses
     gm = gross_margin_totals(start, end, company)
     gross_profit = gm["total_profit"] if gm["total_revenue"] > 0 else None
     return revenue, gross_profit, net_profit
+
 
 
 # ─── Classification + recommendations ──────────────────────────────────────
@@ -231,12 +278,11 @@ def _build_card(
 # ─── Main entry point ───────────────────────────────────────────────────────
 
 def calculate_cost_structure_ratios(intelligence) -> Dict[str, Any]:
-    """Cost structure ratios for the current fiscal year to date: salary,
-    fixed cost, and five named opex categories, each graded good/moderate/
-    risky against `Insights Settings` thresholds with a plain-English action."""
+    """Cost structure ratios — reads _gl_daily_cache for revenue/expense;
+    fetches all six keyword categories in one combined GL query."""
     fy_start = intelligence.fiscal_year["start_date"]
-    today = datetime.now().strftime('%Y-%m-%d')
-    company = intelligence.company
+    today    = datetime.now().strftime('%Y-%m-%d')
+    company  = intelligence.company
 
     settings = frappe.get_cached_doc("Insights Settings")
 
@@ -247,22 +293,29 @@ def calculate_cost_structure_ratios(intelligence) -> Dict[str, Any]:
         except (TypeError, ValueError):
             return default
 
-    revenue, gross_profit, net_profit = _revenue_and_profit(company, fy_start, today)
+    # Revenue + gross profit: 0 GL queries (cache) + 1 ibis (gross_margin_totals)
+    revenue, gross_profit, net_profit = _revenue_and_profit(company, fy_start, today, intelligence)
 
-    salary_kw = _parse_keywords(getattr(settings, "salary_cost_keywords", None), ["Salary", "Payroll", "Wages"])
-    marketing_kw = _parse_keywords(getattr(settings, "marketing_cost_keywords", None), ["Marketing", "Advertising", "Promotion", "Branding"])
-    training_kw = _parse_keywords(getattr(settings, "training_cost_keywords", None), ["Training", "Development", "Learning"])
-    incentive_kw = _parse_keywords(getattr(settings, "incentive_cost_keywords", None), ["Incentive", "Bonus", "Commission", "Appraisal", "Increment"])
-    rent_kw = _parse_keywords(getattr(settings, "rent_cost_keywords", None), ["Rent", "Lease"])
+    salary_kw     = _parse_keywords(getattr(settings, "salary_cost_keywords",     None), ["Salary", "Payroll", "Wages"])
+    marketing_kw  = _parse_keywords(getattr(settings, "marketing_cost_keywords",  None), ["Marketing", "Advertising", "Promotion", "Branding"])
+    training_kw   = _parse_keywords(getattr(settings, "training_cost_keywords",   None), ["Training", "Development", "Learning"])
+    incentive_kw  = _parse_keywords(getattr(settings, "incentive_cost_keywords",  None), ["Incentive", "Bonus", "Commission", "Appraisal", "Increment"])
+    rent_kw       = _parse_keywords(getattr(settings, "rent_cost_keywords",       None), ["Rent", "Lease"])
     electricity_kw = _parse_keywords(getattr(settings, "electricity_cost_keywords", None), ["Electricity", "Power", "Utilities", "Utility"])
 
-    salary_cost = _category_total(company, fy_start, today, salary_kw)
-    marketing_cost = _category_total(company, fy_start, today, marketing_kw)
-    training_cost = _category_total(company, fy_start, today, training_kw)
-    incentive_cost = _category_total(company, fy_start, today, incentive_kw)
-    rent_cost = _category_total(company, fy_start, today, rent_kw)
-    electricity_cost = _category_total(company, fy_start, today, electricity_kw)
-    fixed_cost = _get_fixed_cost(company, fy_start, today, settings)
+    # Six keyword categories → 1 combined GL query instead of 6 individual ones
+    cats = _batch_category_totals(company, fy_start, today, {
+        "salary": salary_kw, "marketing": marketing_kw, "training": training_kw,
+        "incentive": incentive_kw, "rent": rent_kw, "electricity": electricity_kw,
+    })
+    salary_cost     = cats["salary"]
+    marketing_cost  = cats["marketing"]
+    training_cost   = cats["training"]
+    incentive_cost  = cats["incentive"]
+    rent_cost       = cats["rent"]
+    electricity_cost = cats["electricity"]
+    fixed_cost = _get_fixed_cost(company, fy_start, today, settings)  # cost-center filter; stays separate
+
 
     cards = [
         _build_card(

@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 
-from .data import format_currency
+from .data import format_currency, _gl_daily_cache, _gl_sum_period, _gl_cumulative
 
 
 def _cash_like(acc):
@@ -565,78 +565,25 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
 
 
 def analyze_working_capital(intelligence) -> Dict[str, Any]:
-    """Analyze working capital metrics and trends"""
-    gle = DocType("GL Entry")
-    acc = DocType("Account")
+    """Analyze working capital metrics and trends — reads _gl_daily_cache."""
+    today_str = getdate().strftime('%Y-%m-%d')
 
-    # Current Assets (Cash, Receivables, Inventory)
-    cash_expr = Coalesce(
-        Sum(
-            Case()
-            .when(_cash_like(acc), gle.debit - gle.credit)
-            .else_(0)
-        ),
-        0,
-    ).as_("cash")
-    receivables_expr = Coalesce(
-        Sum(
-            Case()
-            .when(acc.account_type == "Receivable", gle.debit - gle.credit)
-            .else_(0)
-        ),
-        0,
-    ).as_("receivables")
-    inventory_expr = Coalesce(
-        Sum(
-            Case()
-            .when(acc.account_type == "Stock", gle.debit - gle.credit)
-            .else_(0)
-        ),
-        0,
-    ).as_("inventory")
+    # ── Point-in-time balances from the shared GL daily cache ─────────────
+    # Replaces 1 current-assets query + 1 current-liabilities query +
+    # 1 monthly-trends GL query (3 DB round-trips → 0).
+    gl = _gl_daily_cache(intelligence)
+    cash        = _gl_cumulative(gl, today_str, "cash")
+    receivables = _gl_cumulative(gl, today_str, "receivable")
+    inventory   = _gl_cumulative(gl, today_str, "inventory")
+    total_current_assets      = cash + receivables + inventory
+    total_current_liabilities = abs(_gl_cumulative(gl, today_str, "payable"))
+    current_liabilities       = total_current_liabilities  # signed alias for DSO/DPO
 
-    current_assets_rows = (
-        frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(cash_expr, receivables_expr, inventory_expr)
-        .where(gle.company == intelligence.company)
-        .where(gle.is_cancelled == 0)
-        .where(gle.posting_date <= datetime.now().strftime('%Y-%m-%d'))
-        .run(as_dict=True)
-    )
-    current_assets = current_assets_rows[0] if current_assets_rows else {}
-
-    cash = float(current_assets.get("cash") or 0)
-    receivables = float(current_assets.get("receivables") or 0)
-    inventory = float(current_assets.get("inventory") or 0)
-    total_current_assets = cash + receivables + inventory
-
-    # Current Liabilities (Payables, Short-term debt)
-    current_liabilities_rows = (
-        frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Coalesce(Sum(gle.credit - gle.debit), 0).as_("payables"))
-        .where(acc.account_type == "Payable")
-        .where(gle.company == intelligence.company)
-        .where(gle.is_cancelled == 0)
-        .where(gle.posting_date <= datetime.now().strftime('%Y-%m-%d'))
-        .run(as_dict=True)
-    )
-    current_liabilities = float(current_liabilities_rows[0].payables or 0) if current_liabilities_rows else 0.0
-
-    total_current_liabilities = abs(float(current_liabilities))
-
-    # Working Capital
     working_capital = total_current_assets - total_current_liabilities
-    # No meaningful current liabilities -> ratio is unavailable, not 0.
-    # Capped at 10 like the legacy display.
     current_ratio = min(round(total_current_assets / total_current_liabilities, 2), 10.0) if total_current_liabilities > 1000 else None
-    quick_ratio = min(round((cash + receivables) / total_current_liabilities, 2), 10.0) if total_current_liabilities > 1000 else None
+    quick_ratio   = min(round((cash + receivables) / total_current_liabilities, 2), 10.0) if total_current_liabilities > 1000 else None
 
-    # DSO, DPO, DIO calculations
-    # Average daily revenue (last 90 days)
+    # ── DSO / DPO / DIO (Sales Invoice + Purchase Invoice — unchanged) ────
     ninety_days_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
     today_bound = datetime.now().strftime('%Y-%m-%d')
     si = DocType("Sales Invoice")
@@ -650,7 +597,6 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     )
     avg_daily_revenue = float(avg_daily_revenue_rows[0].daily_avg or 1) if avg_daily_revenue_rows else 1.0
 
-    # Average daily COGS
     pi = DocType("Purchase Invoice")
     avg_daily_cogs_rows = (
         frappe.qb.from_(pi)
@@ -662,61 +608,47 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     )
     avg_daily_cogs = float(avg_daily_cogs_rows[0].daily_avg or 1) if avg_daily_cogs_rows else 1.0
 
-    # Calculate with caps for reasonable values
     dso = min(receivables / float(avg_daily_revenue), 365) if avg_daily_revenue > 0 else 0
     dpo = min(abs(float(current_liabilities)) / float(avg_daily_cogs), 365) if avg_daily_cogs > 0 else 0
     dio = min(inventory / float(avg_daily_cogs), 365) if avg_daily_cogs > 0 else 0
-    ccc = dso + dio - dpo  # Cash Conversion Cycle
-    ccc = max(min(ccc, 365), -365)  # Cap CCC to reasonable range
+    ccc = max(min(dso + dio - dpo, 365), -365)
 
-    # Monthly working capital trends
-    # Balance-sheet series: running balance at each month-end through the
-    # current month (nothing after today), not that month's net movement.
-    today_str = getdate().strftime('%Y-%m-%d')
+    # ── Monthly working capital trends (from GL daily cache) ──────────────
+    # Running balance at each month-end: cumulate _gl_daily rows month by month.
     periods = [add_months(get_first_day(today_str), -n).strftime('%Y-%m') for n in range(11, -1, -1)]
-    period_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
-    ca_trend_expr = Sum(
-        Case()
-        .when(
-            _cash_like(acc) | (acc.account_type.isin(["Receivable", "Stock"])),
-            gle.debit - gle.credit,
-        )
-        .else_(0)
-    ).as_("current_assets")
-    cl_trend_expr = Sum(
-        Case()
-        .when(acc.account_type == "Payable", gle.credit - gle.debit)
-        .else_(0)
-    ).as_("current_liabilities")
 
-    wc_rows = (
-        frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(period_expr, ca_trend_expr, cl_trend_expr)
-        .where(gle.posting_date <= today_str)
-        .where(gle.company == intelligence.company)
-        .where(gle.is_cancelled == 0)
-        .groupby(period_expr)
-        .orderby(period_expr)
-        .run(as_dict=True)
-    )
+    # Group _gl_daily rows by month (all rows up to today_str are already in cache)
+    from collections import defaultdict
+    month_ca: dict = defaultdict(float)
+    month_cl: dict = defaultdict(float)
+    for r in gl:
+        pd = r['_pd']
+        if pd > today_str:
+            continue
+        m = pd[:7]
+        month_ca[m] += (float(r.cash or 0)
+                        + float(r.receivable or 0)
+                        + float(r.inventory or 0))
+        month_cl[m] += float(r.payable or 0)
 
+    sorted_months = sorted(set(month_ca.keys()) | set(month_cl.keys()))
+    month_idx = 0
     trends = []
     ca = cl = 0.0
-    i = 0
     for period in periods:
-        while i < len(wc_rows) and wc_rows[i].period <= period:
-            ca += float(wc_rows[i].current_assets or 0)
-            cl += float(wc_rows[i].current_liabilities or 0)
-            i += 1
+        while month_idx < len(sorted_months) and sorted_months[month_idx] <= period:
+            m = sorted_months[month_idx]
+            ca += month_ca.get(m, 0.0)
+            cl += month_cl.get(m, 0.0)
+            month_idx += 1
         trends.append({
             "period": period,
             "current_assets": ca,
             "current_liabilities": cl,
             "working_capital": ca - cl,
-            "current_ratio": round(ca / cl, 2) if cl > 0 else None
+            "current_ratio": round(ca / cl, 2) if cl > 0 else None,
         })
+
 
     return {
         "cash": cash,
@@ -758,136 +690,35 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
     # never cached, so a mid-quarter repayment shows up the same day.
     prev_loan_balance = None
 
-    gle = DocType("GL Entry")
-    acc = DocType("Account")
+    # One GL scan for all 8 quarters (period P&L + cumulative balance sheet).
+    # Replaces 8 × period query + 8 × cumulative query = 16 DB round-trips.
+    gl = _gl_daily_cache(intelligence)
 
     for q in reversed(quarters):
-        # Revenue and expenses for the quarter. Four separate CASE-aggregated
-        # sums in a single SELECT.
-        revenue_q = Abs(Sum(
-            Case()
-            .when(acc.root_type == "Income", gle.credit - gle.debit)
-            .else_(0)
-        )).as_("revenue")
-        expenses_q = Abs(Sum(
-            Case()
-            .when(acc.root_type == "Expense", gle.debit - gle.credit)
-            .else_(0)
-        )).as_("expenses")
-        depreciation_q = Abs(Sum(
-            Case()
-            .when(acc.account_type == "Depreciation", gle.debit - gle.credit)
-            .else_(0)
-        )).as_("depreciation")
-        interest_q = Abs(Sum(
-            Case()
-            .when(
-                (acc.root_type == "Expense") & acc.name.like("%Interest%"),
-                gle.debit - gle.credit,
-            )
-            .else_(0)
-        )).as_("interest_expense")
-        financials_rows = (
-            frappe.qb.from_(gle)
-            .join(acc)
-            .on(gle.account == acc.name)
-            .select(revenue_q, expenses_q, depreciation_q, interest_q)
-            .where(gle.posting_date.between(q["start"], q["end"]))
-            .where(gle.company == intelligence.company)
-            .where(gle.is_cancelled == 0)
-            .run(as_dict=True)
-        )
-        financials = financials_rows[0] if financials_rows else {}
+        # ── Period P&L ────────────────────────────────────────────────────
+        revenue          = abs(_gl_sum_period(gl, q["start"], q["end"], "income"))
+        expenses         = abs(_gl_sum_period(gl, q["start"], q["end"], "expense"))
+        depreciation     = abs(_gl_sum_period(gl, q["start"], q["end"], "dep"))
+        interest_expense = abs(_gl_sum_period(gl, q["start"], q["end"], "interest"))
 
-        # Get cumulative balance sheet items as of quarter end. Current-asset
-        # and current-liability buckets mirror `analyze_working_capital`
-        # above exactly (same account_type classification), so "working
-        # capital" means the same thing in both places on this dashboard.
-        # `loan_balance` name-matches the way `interest_expense` above does:
-        # this CoA tags no account_type for borrowings at all (Secured
-        # Loans, Unsecured Loans, Bank Overdraft all carry account_type ''),
-        # only the account name identifies them.
-        assets_expr = Sum(
-            Case()
-            .when(acc.root_type == "Asset", gle.debit - gle.credit)
-            .else_(0)
-        ).as_("assets")
-        liabilities_expr = Sum(
-            Case()
-            .when(acc.root_type == "Liability", gle.credit - gle.debit)
-            .else_(0)
-        ).as_("liabilities")
-        equity_expr = Sum(
-            Case()
-            .when(acc.root_type == "Equity", gle.credit - gle.debit)
-            .else_(0)
-        ).as_("equity")
-        cash_bs = Sum(
-            Case()
-            .when(_cash_like(acc), gle.debit - gle.credit)
-            .else_(0)
-        ).as_("cash")
-        receivables_bs = Sum(
-            Case()
-            .when(acc.account_type == "Receivable", gle.debit - gle.credit)
-            .else_(0)
-        ).as_("receivables")
-        inventory_bs = Sum(
-            Case()
-            .when(acc.account_type == "Stock", gle.debit - gle.credit)
-            .else_(0)
-        ).as_("inventory")
-        payables_bs = Sum(
-            Case()
-            .when(acc.account_type == "Payable", gle.credit - gle.debit)
-            .else_(0)
-        ).as_("payables")
-        loan_balance_expr = Sum(
-            Case()
-            .when(
-                (acc.root_type == "Liability")
-                & (acc.name.like("%Loan%") | acc.name.like("%Overdraft%")),
-                gle.credit - gle.debit,
-            )
-            .else_(0)
-        ).as_("loan_balance")
+        # ── Cumulative balance sheet as of quarter end ────────────────────
+        assets      = abs(_gl_cumulative(gl, q["end"], "asset"))
+        liabilities = abs(_gl_cumulative(gl, q["end"], "liability"))
+        equity      = abs(_gl_cumulative(gl, q["end"], "equity"))
+        cash        = _gl_cumulative(gl, q["end"], "cash")
+        receivables = _gl_cumulative(gl, q["end"], "receivable")
+        inventory   = _gl_cumulative(gl, q["end"], "inventory")
+        payables    = abs(_gl_cumulative(gl, q["end"], "payable"))
+        loan_balance = abs(_gl_cumulative(gl, q["end"], "loan"))
 
-        balance_sheet_rows = (
-            frappe.qb.from_(gle)
-            .join(acc)
-            .on(gle.account == acc.name)
-            .select(
-                assets_expr,
-                liabilities_expr,
-                equity_expr,
-                cash_bs,
-                receivables_bs,
-                inventory_bs,
-                payables_bs,
-                loan_balance_expr,
-            )
-            .where(gle.posting_date <= q["end"])
-            .where(gle.company == intelligence.company)
-            .where(gle.is_cancelled == 0)
-            .run(as_dict=True)
-        )
-        balance_sheet = balance_sheet_rows[0] if balance_sheet_rows else {}
-
-        revenue = float(financials.get("revenue") or 0)
-        expenses = float(financials.get("expenses") or 0)
-        depreciation = float(financials.get("depreciation") or 0)
-        interest_expense = float(financials.get("interest_expense") or 0)
         gm = gross_margin_totals(q["start"], q["end"], intelligence.company)
-        assets = abs(float(balance_sheet.get("assets") or 0))
-        liabilities = abs(float(balance_sheet.get("liabilities") or 0))
-        equity = abs(float(balance_sheet.get("equity") or 0))
         net_income = revenue - expenses
 
-        current_assets = float(balance_sheet.get("cash") or 0) + float(balance_sheet.get("receivables") or 0) + float(balance_sheet.get("inventory") or 0)
-        current_liabilities = abs(float(balance_sheet.get("payables") or 0))
-        working_capital = current_assets - current_liabilities
+        current_assets      = cash + receivables + inventory
+        current_liabilities = payables
+        working_capital     = current_assets - current_liabilities
 
-        loan_balance = abs(float(balance_sheet.get("loan_balance") or 0))
+        # ── Derived metrics ───────────────────────────────────────────────
         # Only a *reduction* counts as debt service; a rise in balance is
         # financing inflow (new borrowing), not an outflow DSCR should penalise.
         principal_repaid = max(0.0, prev_loan_balance - loan_balance) if prev_loan_balance is not None else 0.0

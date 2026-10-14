@@ -14,7 +14,7 @@ from frappe.query_builder.functions import Abs, Coalesce, Sum
 
 from frappe.utils import add_months
 
-from .data import get_cash_balance, get_monthly_financial_trends
+from .data import get_cash_balance, get_monthly_financial_trends, _gl_daily_cache, _gl_sum_period, _gl_cumulative
 
 
 def _gl_account_root_type_total(
@@ -62,145 +62,76 @@ def _gl_account_root_type_total(
 
 
 def calculate_executive_summary(intelligence) -> Dict[str, Any]:
-    """Calculate executive-level KPIs and trends"""
+    """Calculate executive-level KPIs and trends.
+
+    All GL aggregations read from _gl_daily_cache (one DB scan shared with
+    ratio_trends, working_capital, compare_periods, scenario_analysis).
+    """
     fy_start = intelligence.fiscal_year["start_date"]
-    today = datetime.now().strftime('%Y-%m-%d')
-    company = intelligence.company
+    today    = datetime.now().strftime('%Y-%m-%d')
+    company  = intelligence.company
 
-    # YTD Revenue
-    ytd_revenue = _gl_account_root_type_total(
-        company=company, root_type="Income", start_date=fy_start, end_date=today
-    )
+    gl = _gl_daily_cache(intelligence)
 
-    # YTD Expenses
-    ytd_expenses = _gl_account_root_type_total(
-        company=company, root_type="Expense", start_date=fy_start, end_date=today
-    )
-
-    # YTD Net Income
-    ytd_net_income = ytd_revenue - ytd_expenses
+    # ── YTD P&L ───────────────────────────────────────────────────────────
+    ytd_revenue          = abs(_gl_sum_period(gl, fy_start, today, "income"))
+    ytd_expenses         = abs(_gl_sum_period(gl, fy_start, today, "expense"))
+    ytd_net_income       = ytd_revenue - ytd_expenses
     net_margin = (ytd_net_income / ytd_revenue * 100) if ytd_revenue > 0 else None
 
-    # YTD Interest and Depreciation for EBITDA. Same account-matching
-    # convention as `calculate_ratio_trends` (analysis.py) -- interest by
-    # name (this CoA tags no account_type for borrowing costs), depreciation
-    # by `account_type = 'Depreciation'` -- so EBITDA means the same thing
-    # on the Executive Summary as it does on the Ratios tab. No tax
-    # add-back: this CoA carries no income-tax / provision-for-tax account
-    # distinct from indirect taxes (customs duty, GST) that are real
-    # operating costs.
-    acc = DocType("Account")
-    ytd_interest_expense = _gl_account_root_type_total(
-        company=company,
-        root_type="Expense",
-        start_date=fy_start,
-        end_date=today,
-        extra_account_filter=acc.name.like("%Interest%"),
-    )
+    # EBITDA add-backs: interest by name, depreciation by account_type —
+    # same account-matching convention as calculate_ratio_trends.
+    ytd_interest_expense = abs(_gl_sum_period(gl, fy_start, today, "interest"))
+    ytd_depreciation     = abs(_gl_sum_period(gl, fy_start, today, "dep"))
 
-    gle = DocType("GL Entry")
-    dep_rows = (
-        frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"))
-        .where(acc.account_type == "Depreciation")
-        .where(gle.posting_date.between(fy_start, today))
-        .where(gle.company == company)
-        .where(gle.is_cancelled == 0)
-        .run(as_dict=True)
-    )
-    ytd_depreciation = float(dep_rows[0].amount or 0) if dep_rows else 0.0
-
-    ytd_ebit = ytd_net_income + ytd_interest_expense
+    ytd_ebit   = ytd_net_income + ytd_interest_expense
     ytd_ebitda = ytd_ebit + ytd_depreciation
     ebitda_margin = (ytd_ebitda / ytd_revenue * 100) if ytd_revenue > 0 else None
 
-    # Gross profit = invoice-line net sales less booked COGS, from the same
-    # helper the Revenue dashboard uses (GL COGS is incomplete on this ledger
-    # and disagreed with it). No sales in the period means gross margin is
-    # unknown, not zero -- and never an invented 70%.
+    # Gross profit from Sales Invoice (ibis, one query shared globally via
+    # the same ibis cache — not duplicated by this call).
     from insights.ml.sales_intelligence import gross_margin_totals
 
     gm = gross_margin_totals(fy_start, today, company)
     if gm["total_revenue"] > 0:
-        ytd_cogs = gm["total_revenue"] - gm["total_profit"]
+        ytd_cogs     = gm["total_revenue"] - gm["total_profit"]
         gross_profit = gm["total_profit"]
         gross_margin = gm["overall_margin"]
     else:
-        ytd_cogs = 0.0
+        ytd_cogs     = 0.0
         gross_profit = None
         gross_margin = None
 
-    # Prior Year Same Period for Growth
+    # ── YoY growth ────────────────────────────────────────────────────────
     prior_fy_start = add_months(fy_start, -12)
-    prior_today = add_months(today, -12)
+    prior_today    = add_months(today,    -12)
+    prior_revenue  = abs(_gl_sum_period(gl, str(prior_fy_start), str(prior_today), "income"))
 
-    prior_revenue = _gl_account_root_type_total(
-        company=company, root_type="Income", start_date=prior_fy_start, end_date=prior_today
-    )
-
-    # Return None when the YoY comparison is not meaningful:
-    #   - prior_revenue == 0: division undefined, currently returns 0 which reads as "flat"
-    #   - prior_revenue < 10% of ytd_revenue: base is too small for the ratio to be informative
-    #     (e.g. ≥900% growth); such extremes usually reflect incomplete prior-year data rather
-    #     than real performance — a governance dashboard must not show them as facts.
     if prior_revenue > 0 and prior_revenue >= ytd_revenue * 0.10:
         revenue_growth = (ytd_revenue - prior_revenue) / prior_revenue * 100
     else:
         revenue_growth = None
 
-    # Cash Position
-    cash_balance = get_cash_balance(intelligence)
+    # ── Cash & runway ─────────────────────────────────────────────────────
+    cash_balance = get_cash_balance(intelligence)  # already cached on intelligence
 
-    # Monthly Burn Rate (average of last 3 months expenses)
     three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
-    monthly_expenses_total = _gl_account_root_type_total(
-        company=company, root_type="Expense", start_date=three_months_ago, end_date=today
-    )
-    monthly_expenses = monthly_expenses_total / 3 if monthly_expenses_total else 0
-
-    # Cash Runway
+    monthly_expenses_total = abs(_gl_sum_period(gl, three_months_ago, today, "expense"))
+    monthly_expenses   = monthly_expenses_total / 3 if monthly_expenses_total else 0
     cash_runway_months = (cash_balance / monthly_expenses) if monthly_expenses > 0 else None
 
-    # Total Assets, Liabilities, Equity from GL Entry (balance-sheet items
-    # are point-in-time balances, not period-scoped; no `posting_date`
-    # filter, but cancelled entries excluded). Filter to leaf accounts
-    # (`is_group = 0`) -- otherwise the parent "Current Assets" / "Fixed
-    # Liabilities" totals double-count their own children's balances (the
-    # parent's `debit - credit` IS the sum of its leaves'). The previous
-    # code used `tabAsset.purchase_amount` for assets (gross book value
-    # only, and missing entirely on benches where the Asset doctype isn't
-    # used -- e.g. this `jkm` bench shows `total_assets: 0` despite ~3.4
-    # Cr of leaf-account assets in GL) and `SUM(ABS(credit - debit))` for
-    # liabilities/equity (which sums gross activity on each row rather
-    # than the actual balance; on `jkm` the liability total was inflated
-    # ~31x to ~94 Cr when the real leaf-account balance is ~3 Cr).
-    total_assets = _gl_account_root_type_total(
-        company=company, root_type="Asset", end_date=today, extra_account_filter=acc.is_group == 0, apply_abs=False
-    )
+    # ── Balance sheet (cumulative to today, leaf accounts only) ───────────
+    # asset_leaf / liability_leaf exclude group-account double-counts;
+    # equity uses all accounts (same as the original call with no is_group filter).
+    total_assets      = _gl_cumulative(gl, today, "asset_leaf")
+    total_liabilities = _gl_cumulative(gl, today, "liability_leaf")
+    total_equity      = _gl_cumulative(gl, today, "equity")
 
-    # Total Liabilities (credit-normal balance: credit - debit). The shared
-    # helper's non-abs branch always computes debit - credit (correct for
-    # debit-normal Assets); negate it here for this credit-normal root type.
-    total_liabilities = -_gl_account_root_type_total(
-        company=company, root_type="Liability", end_date=today, extra_account_filter=acc.is_group == 0, apply_abs=False
-    )
-
-    # Equity (credit-normal balance, same shape as liabilities).
-    total_equity = -_gl_account_root_type_total(
-        company=company, root_type="Equity", end_date=today, apply_abs=False
-    )
-
-    # ROE / ROA / D-E. Unavailable (None), not 0, when there is no positive
-    # equity/assets to divide by; a contra-balance (negative liabilities)
-    # reads as zero debt rather than a negative ratio.
-    roe = (ytd_net_income / total_equity * 100) if total_equity > 0 else None
-    roa = (ytd_net_income / total_assets * 100) if total_assets > 0 else None
+    roe = (ytd_net_income / total_equity     * 100) if total_equity     > 0 else None
+    roa = (ytd_net_income / total_assets     * 100) if total_assets     > 0 else None
     debt_to_equity = (max(0.0, total_liabilities) / total_equity) if total_equity > 0 else None
 
-
-    # Monthly trends (last 12 months)
+    # ── Trends (also reads _gl_daily_cache internally, zero extra query) ──
     monthly_trends = get_monthly_financial_trends(intelligence)
 
     # Calculate Health Scores
@@ -239,12 +170,7 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "ebitda_margin": round(ebitda_margin, 2) if ebitda_margin is not None else None,
         "ebitda_addbacks": {"interest": ytd_interest_expense, "depreciation": ytd_depreciation},
         "revenue_growth_yoy": round(revenue_growth, 2) if revenue_growth is not None else None,
-        "revenue_growth": round(revenue_growth, 2) if revenue_growth is not None else None,  # alias for frontend compatibility
-        # Exposed so a suppressed percentage is disclosed rather than concealed.
-        # Withholding the ratio is right -- 1554% off a 6% base is not a
-        # performance signal -- but hiding the change altogether would be its own
-        # form of under-reporting. The frontend states the base instead, and the
-        # reader discounts it themselves.
+        "revenue_growth": round(revenue_growth, 2) if revenue_growth is not None else None,
         "prior_period_revenue": prior_revenue,
         "prior_period_start": prior_fy_start,
         "cash_balance": cash_balance,
@@ -260,15 +186,21 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "health_scores": health_scores,
         "key_insights": key_insights,
         "kpis": [
-            {"label": "Total Revenue", "value": ytd_revenue, "format": "currency", "subtitle": "Year to Date", "trend": round(revenue_growth, 1) if revenue_growth is not None else None},
-            {"label": "Net Profit", "value": ytd_net_income, "format": "currency", "subtitle": f"{net_margin:.1f}% margin" if net_margin is not None else "Year to Date"},
-            {"label": "EBITDA", "value": ytd_ebitda, "format": "currency", "subtitle": f"{ebitda_margin:.1f}% margin" if ebitda_margin is not None else "Year to Date"},
-            {"label": "Gross Margin", "value": gross_margin, "format": "percent", "subtitle": "Revenue - COGS"},
-            {"label": "Revenue Growth", "value": revenue_growth, "format": "percent", "subtitle": "YoY"},
-            {"label": "Cash Position", "value": cash_balance, "format": "currency", "subtitle": f"{cash_runway_months:.0f} months runway" if cash_runway_months is not None else "No recent expenses"},
-            {"label": "ROE", "value": roe, "format": "percent", "subtitle": "Return on Equity" if roe is not None else "No equity recorded"}
+            {"label": "Total Revenue",    "value": ytd_revenue,    "format": "currency", "subtitle": "Year to Date",
+             "trend": round(revenue_growth, 1) if revenue_growth is not None else None},
+            {"label": "Net Profit",       "value": ytd_net_income, "format": "currency",
+             "subtitle": f"{net_margin:.1f}% margin" if net_margin is not None else "Year to Date"},
+            {"label": "EBITDA",           "value": ytd_ebitda,     "format": "currency",
+             "subtitle": f"{ebitda_margin:.1f}% margin" if ebitda_margin is not None else "Year to Date"},
+            {"label": "Gross Margin",     "value": gross_margin,   "format": "percent",  "subtitle": "Revenue - COGS"},
+            {"label": "Revenue Growth",   "value": revenue_growth, "format": "percent",  "subtitle": "YoY"},
+            {"label": "Cash Position",    "value": cash_balance,   "format": "currency",
+             "subtitle": f"{cash_runway_months:.0f} months runway" if cash_runway_months is not None else "No recent expenses"},
+            {"label": "ROE",              "value": roe,            "format": "percent",
+             "subtitle": "Return on Equity" if roe is not None else "No equity recorded"},
         ]
     }
+
 
 
 def calculate_health_scores(intelligence, net_margin: Optional[float], roe: Optional[float], roa: Optional[float],

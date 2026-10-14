@@ -8,6 +8,7 @@ All _get_*() methods, _format_currency(), and sanitize_for_json().
 """
 
 import frappe
+from collections import defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Dict, Any, List, Optional, TYPE_CHECKING
@@ -102,59 +103,133 @@ def get_cash_balance(intelligence) -> float:
     return cash
 
 
-def get_monthly_financial_trends(intelligence) -> List[Dict]:
-    """Get monthly revenue/expense trends for last 12 months"""
+def _gl_daily_cache(intelligence) -> list:
+    """One GL Entry × Account scan grouped by posting_date — all history up to today.
+
+    Returns a list of dicts (oldest-first) with 15 CASE-SUM columns covering
+    every aggregate shape needed by calculate_ratio_trends (8 × 2 queries),
+    calculate_executive_summary (9 GL queries), compare_periods (6 queries),
+    analyze_working_capital (3 GL queries), and generate_scenario_analysis.
+    All those functions slice this in-memory list in Python; the DB pays for
+    a single full GL scan per train() call instead of 34+ individual queries.
+
+    Security: scoped to `intelligence.company`, identical to every other
+    frappe.qb query in this module.  Cached on `intelligence._gl_daily` so
+    the result is reused without re-computing within one train() invocation.
+    """
+    if hasattr(intelligence, '_gl_daily'):
+        return intelligence._gl_daily
+
     gle = DocType("GL Entry")
     acc = DocType("Account")
-
-    # Anchor on Python-side dates so PyPika emits literal bound parameters.
-    # Window: 12 calendar months ending with the current month, starting on
-    # the 1st; bounded above by today so future-dated postings never leak.
     today = datetime.now().strftime('%Y-%m-%d')
-    twelve_months_ago = str(add_months(get_first_day(today), -11))
 
-    period_expr = DateFormat(gle.posting_date, "%Y-%m").as_("period")
-    revenue_expr = Abs(
-        Sum(
-            Case()
-            .when(acc.root_type == "Income", gle.credit - gle.debit)
-            .else_(0)
-        )
-    ).as_("revenue")
-    expense_expr = Abs(
-        Sum(
-            Case()
-            .when(acc.root_type == "Expense", gle.debit - gle.credit)
-            .else_(0)
-        )
-    ).as_("expenses")
-
-    trends = (
+    rows = (
         frappe.qb.from_(gle)
         .join(acc)
         .on(gle.account == acc.name)
-        .select(period_expr, revenue_expr, expense_expr)
-        .where(gle.posting_date.between(twelve_months_ago, today))
+        .select(
+            gle.posting_date,
+            # ── P&L (period sums) ──────────────────────────────────────────
+            Sum(Case().when(acc.root_type == "Income",
+                            gle.credit - gle.debit).else_(0)).as_("income"),
+            Sum(Case().when(acc.root_type == "Expense",
+                            gle.debit - gle.credit).else_(0)).as_("expense"),
+            Sum(Case().when(acc.account_type == "Depreciation",
+                            gle.debit - gle.credit).else_(0)).as_("dep"),
+            Sum(Case().when(
+                (acc.root_type == "Expense") & acc.name.like("%Interest%"),
+                gle.debit - gle.credit,
+            ).else_(0)).as_("interest"),
+            # ── Balance sheet (cumulative) ─────────────────────────────────
+            Sum(Case().when(acc.root_type == "Asset",
+                            gle.debit - gle.credit).else_(0)).as_("asset"),
+            Sum(Case().when(
+                (acc.root_type == "Asset") & (acc.is_group == 0),
+                gle.debit - gle.credit,
+            ).else_(0)).as_("asset_leaf"),
+            Sum(Case().when(acc.root_type == "Liability",
+                            gle.credit - gle.debit).else_(0)).as_("liability"),
+            Sum(Case().when(
+                (acc.root_type == "Liability") & (acc.is_group == 0),
+                gle.credit - gle.debit,
+            ).else_(0)).as_("liability_leaf"),
+            Sum(Case().when(acc.root_type == "Equity",
+                            gle.credit - gle.debit).else_(0)).as_("equity"),
+            Sum(Case().when(
+                acc.account_type.isin(["Cash", "Bank"]) | acc.account_name.like("Fixed Deposit%"),
+                gle.debit - gle.credit,
+            ).else_(0)).as_("cash"),
+            Sum(Case().when(acc.account_type == "Receivable",
+                            gle.debit - gle.credit).else_(0)).as_("receivable"),
+            Sum(Case().when(acc.account_type == "Stock",
+                            gle.debit - gle.credit).else_(0)).as_("inventory"),
+            Sum(Case().when(acc.account_type == "Payable",
+                            gle.credit - gle.debit).else_(0)).as_("payable"),
+            Sum(Case().when(
+                (acc.root_type == "Liability")
+                & (acc.name.like("%Loan%") | acc.name.like("%Overdraft%")),
+                gle.credit - gle.debit,
+            ).else_(0)).as_("loan"),
+        )
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
-        .where(acc.root_type.isin(["Income", "Expense"]))
-        .groupby(period_expr)
-        .orderby(period_expr)
+        .where(gle.posting_date <= today)
+        .groupby(gle.posting_date)
+        .orderby(gle.posting_date)
         .run(as_dict=True)
     )
 
+    # Pre-stringify posting_date once; all callers compare against ISO strings.
+    for r in rows:
+        r['_pd'] = str(r.posting_date)
+
+    intelligence._gl_daily = rows
+    return rows
+
+
+def _gl_sum_period(gl: list, start: str, end: str, col: str) -> float:
+    """Sum `col` for all rows where posting_date ∈ [start, end] (ISO strings, inclusive)."""
+    return sum(float(r.get(col) or 0) for r in gl if start <= r['_pd'] <= end)
+
+
+def _gl_cumulative(gl: list, up_to: str, col: str) -> float:
+    """Cumulative sum of `col` for all rows where posting_date ≤ up_to."""
+    return sum(float(r.get(col) or 0) for r in gl if r['_pd'] <= up_to)
+
+
+
+def get_monthly_financial_trends(intelligence) -> List[Dict]:
+    """Monthly revenue/expense trends for last 12 months — reads _gl_daily_cache."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    twelve_months_ago = str(add_months(get_first_day(today), -11))
+
+    gl = _gl_daily_cache(intelligence)
+    month_income: dict = defaultdict(float)
+    month_expense: dict = defaultdict(float)
+    for r in gl:
+        pd = r['_pd']
+        if pd < twelve_months_ago or pd > today:
+            continue
+        month = pd[:7]
+        if inc := float(r.income or 0):
+            month_income[month] += inc
+        if exp := float(r.expense or 0):
+            month_expense[month] += exp
+
     result = []
-    for t in trends:
-        revenue = float(t.revenue or 0)
-        expenses = float(t.expenses or 0)
+    for period in sorted(set(month_income) | set(month_expense)):
+        revenue  = abs(month_income.get(period, 0.0))
+        expenses = abs(month_expense.get(period, 0.0))
         result.append({
-            "period": t.period,
+            "period": period,
             "revenue": revenue,
             "expenses": expenses,
             "net_income": revenue - expenses,
-            "margin": round((revenue - expenses) / revenue * 100, 1) if revenue > 0 else None
+            "margin": round((revenue - expenses) / revenue * 100, 1) if revenue > 0 else None,
         })
     return result
+
 
 
 def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:

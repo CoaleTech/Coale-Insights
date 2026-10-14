@@ -16,38 +16,36 @@ from frappe.query_builder.functions import Abs, DateFormat, Sum
 from frappe.utils import add_months, get_first_day, getdate
 
 from .cost_ratios import _get_fixed_cost
+from .data import _gl_daily_cache, _gl_sum_period
+
 
 if TYPE_CHECKING:
     import numpy as np
 
 
 
-def _period_root_type_breakdown(company: str, start: str, end: str) -> Dict[str, float]:
-    """Sum GL Entry postings by Account.root_type (Income vs Expense) for the
-    given period, returning `revenue` and `expenses` like the legacy SQL
-    `CASE WHEN ... THEN ABS(...) ELSE 0 END` aggregate."""
+def _period_root_type_breakdown(company: str, start: str, end: str,
+                                intelligence=None) -> Dict[str, float]:
+    """Revenue and expenses for the period.
+
+    When `intelligence` is supplied, reads the _gl_daily_cache (zero extra
+    DB queries).  Falls back to a direct GL query when called standalone.
+    """
+    start, end = str(start), str(end)
+    if intelligence is not None:
+        gl = _gl_daily_cache(intelligence)
+        revenue  = abs(_gl_sum_period(gl, start, end, "income"))
+        expenses = abs(_gl_sum_period(gl, start, end, "expense"))
+        return {"revenue": revenue, "expenses": expenses}
+
+    # ── standalone fallback (e.g. tests or direct calls) ──────────────────
     gle = DocType("GL Entry")
     acc = DocType("Account")
-
-    revenue_expr = Abs(
-        Sum(
-            Case()
-            .when(acc.root_type == "Income", gle.credit - gle.debit)
-            .else_(0)
-        )
-    ).as_("revenue")
-    expense_expr = Abs(
-        Sum(
-            Case()
-            .when(acc.root_type == "Expense", gle.debit - gle.credit)
-            .else_(0)
-        )
-    ).as_("expenses")
-
+    revenue_expr = Abs(Sum(Case().when(acc.root_type == "Income",  gle.credit - gle.debit).else_(0))).as_("revenue")
+    expense_expr = Abs(Sum(Case().when(acc.root_type == "Expense", gle.debit - gle.credit).else_(0))).as_("expenses")
     rows = (
         frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
+        .join(acc).on(gle.account == acc.name)
         .select(revenue_expr, expense_expr)
         .where(gle.posting_date.between(start, end))
         .where(gle.company == company)
@@ -56,11 +54,8 @@ def _period_root_type_breakdown(company: str, start: str, end: str) -> Dict[str,
     )
     if not rows:
         return {"revenue": 0.0, "expenses": 0.0}
-    row = rows[0]
-    return {
-        "revenue": float(row.revenue or 0),
-        "expenses": float(row.expenses or 0),
-    }
+    return {"revenue": float(rows[0].revenue or 0), "expenses": float(rows[0].expenses or 0)}
+
 
 
 def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
@@ -70,7 +65,7 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     fy_start = intelligence.fiscal_year["start_date"]
     today = datetime.now().strftime('%Y-%m-%d')
 
-    baseline = _period_root_type_breakdown(intelligence.company, fy_start, today)
+    baseline = _period_root_type_breakdown(intelligence.company, fy_start, today, intelligence)
 
     base_revenue = float(baseline["revenue"] or 0)
     base_expenses = float(baseline["expenses"] or 0)
@@ -311,7 +306,7 @@ def compare_periods(intelligence) -> Dict[str, Any]:
 
     period_data = {}
     for key, p in periods.items():
-        breakdown = _period_root_type_breakdown(intelligence.company, p["start"].isoformat(), p["end"].isoformat())
+        breakdown = _period_root_type_breakdown(intelligence.company, p["start"].isoformat(), p["end"].isoformat(), intelligence)
         revenue, expenses = breakdown["revenue"], breakdown["expenses"]
         period_data[key] = {
             "revenue": revenue,
