@@ -29,6 +29,7 @@ that needs a background job, a warm cache, or a fork.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+import functools
 
 import frappe
 import frappe.defaults
@@ -70,6 +71,29 @@ def use_pyarrow_materialization() -> None:
     ir.Table.execute = _execute
 
 
+@functools.cache
+def _plain_equality_compiler():
+    """MySQL compiler whose string ``==`` is a plain ``=``.
+
+    ibis 11 compiles string equality as ``CAST(left AS BINARY) = right``
+    (case-sensitive), which stops MariaDB using any index or join key: the
+    gross-profit query ran 40 s instead of ~3 s on 12k-row tables. Plain ``=``
+    follows the column collation, the same as Frappe's own filters.
+    Applied to this app's own connection only -- external Data Sources keep
+    ibis's stock compiler.
+    """
+    import sqlglot.expressions as sge
+    from ibis.backends.sql.compilers.mysql import MySQLCompiler
+
+    class _PlainEquality(MySQLCompiler):
+        def visit_Equals(self, op, *, left, right):
+            if op.left.dtype.is_string():
+                return sge.EQ(this=left, expression=right)
+            return super().visit_Equals(op, left=left, right=right)
+
+    return _PlainEquality()
+
+
 def connection() -> ibis.BaseBackend:
     """Ibis backend bound to the current site's own MariaDB database.
 
@@ -82,7 +106,7 @@ def connection() -> ibis.BaseBackend:
         import ibis
 
         conf = frappe.conf
-        frappe.local.insights_ml_ibis_conn = ibis.mysql.connect(
+        conn = ibis.mysql.connect(
             host=conf.get("db_host") or "127.0.0.1",
             port=int(conf.get("db_port") or 3306),
             user=conf.get("db_user") or conf.get("db_name"),
@@ -90,6 +114,8 @@ def connection() -> ibis.BaseBackend:
             database=conf.get("db_name"),
             charset="utf8mb4",
         )
+        conn.compiler = _plain_equality_compiler()
+        frappe.local.insights_ml_ibis_conn = conn
     return frappe.local.insights_ml_ibis_conn
 
 
