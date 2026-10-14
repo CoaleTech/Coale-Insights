@@ -326,7 +326,7 @@ class TestOutsideVoiceFixes(FrappeTestCase):
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
         service = CrossDashboardSearchService()
         with patch.object(frappe, "get_all", return_value=[]) as mock_get_all:
-            result = service._search_domain("sales", {"keywords": ["acme"]})
+            result = service._search_domain("revenue-customers", {"keywords": ["acme"]})
             mock_get_all.assert_called_once()
             self.assertEqual(mock_get_all.call_args.args[0], "Sales Invoice")
         self.assertEqual(result["results"], [])
