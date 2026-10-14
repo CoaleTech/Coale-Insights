@@ -706,30 +706,16 @@ class MarketingIntelligence:
                 t("Quotation")["creation"] >= from_str
             )
 
-            quote_won = _scalar(
-                quote.filter(quote["status"] == "Ordered").aggregate(
-                    value=quote["base_grand_total"].sum()
-                ),
-                default=0.0,
+            _quote_df = (
+                quote.group_by("status")
+                .aggregate(value=quote["base_grand_total"].sum())
+                .execute()
             )
-            quote_lost = _scalar(
-                quote.filter(quote["status"] == "Lost").aggregate(
-                    value=quote["base_grand_total"].sum()
-                ),
-                default=0.0,
-            )
-            quote_expired = _scalar(
-                quote.filter(quote["status"] == "Expired").aggregate(
-                    value=quote["base_grand_total"].sum()
-                ),
-                default=0.0,
-            )
-            quote_draft = _scalar(
-                quote.filter(quote["status"] == "Draft").aggregate(
-                    value=quote["base_grand_total"].sum()
-                ),
-                default=0.0,
-            )
+            _qv = {row["status"]: float(row["value"] or 0) for _, row in _quote_df.iterrows()} if not _quote_df.empty else {}
+            quote_won = _qv.get("Ordered", 0.0)
+            quote_lost = _qv.get("Lost", 0.0)
+            quote_expired = _qv.get("Expired", 0.0)
+            quote_draft = _qv.get("Draft", 0.0)
 
             total_sales_value = float(
                 _scalar(
