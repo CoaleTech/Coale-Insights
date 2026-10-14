@@ -74,7 +74,7 @@ def _base_currency() -> str:
         or frappe.db.get_single_value("Global Defaults", "default_company")
     )
     if company:
-        cur = frappe.db.get_value("Company", company, "default_currency")
+        cur = frappe.db.get_value("Company", company, "default_currency", cache=True)
         if cur:
             return cur
     return frappe.db.get_single_value("Global Defaults", "default_currency") or "USD"
@@ -733,34 +733,58 @@ def _executive_alerts(kpis: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def _trend_sparklines(period: str) -> Dict[str, List[float]]:
-    """Twelve monthly series for the dashboard sparklines. One Ibis query
-    per series; each query materialises a small list of floats, so a pandas
-    DataFrame is not warranted. If a series has no rows (e.g. no Work Orders)
-    we return an empty list so the dashboard renders the placeholder."""
+    """Twelve monthly series for the dashboard sparklines. Revenue and
+    customer-activity both read Sales Invoice; they are merged into one
+    monthly GROUP BY (one pass over the table instead of two), then sliced
+    in Python for their respective series. All other series are distinct
+    tables and stay as individual queries."""
+    import ibis as _ibis
     trends: Dict[str, List[float]] = {}
 
-    # Revenue trend (12 months): tax-exclusive, credit notes excluded -- the
-    # same basis as the Sales dashboard headline the sparkline sits beside.
+    # Revenue trend (12 months, credit notes excluded) AND customer-activity
+    # trend (all submitted invoices, all months) — merged into one SI scan.
+    # Revenue uses a conditional SUM to exclude returns; both share the same
+    # monthly GROUP BY so MariaDB scans `tabSales Invoice` once instead of twice.
     try:
         from insights.api.ml.ibis_source import company_filter, t
         from insights.api.ml.utils import parse_date_filter
 
         start, _ = parse_date_filter("12m")
-        si = company_filter(t("Sales Invoice"), _company())
-        si = si.filter(si.docstatus == 1).filter(si.is_return == 0)
-        if start:
-            si = si.filter(si.posting_date >= start.date())
-        rev = (
-            si.mutate(month=si.posting_date.truncate("month"))
+        _co = _company()
+        si_all = company_filter(t("Sales Invoice").filter(t("Sales Invoice").docstatus == 1), _co)
+        si_wide = (
+            si_all.mutate(month=si_all.posting_date.truncate("month"))
             .group_by("month")
-            .aggregate(total=si.base_net_total.sum())
+            .aggregate(
+                # Revenue: credit notes (is_return==1) contribute 0 to this sum.
+                total_revenue=_ibis.ifelse(si_all.is_return == 0, si_all.base_net_total, 0.0).sum(),
+                # Customer activity: every submitted invoice counts regardless of return flag.
+                active_customers=si_all.customer.nunique(),
+            )
             .order_by("month")
             .execute()
         )
-        trends["revenue"] = [float(v or 0) for v in rev["total"].tolist()]
+        start_date = start.date() if start else None
+
+        # Revenue series: last 12 months only.
+        rev_rows = si_wide[si_wide["month"] >= start_date] if start_date is not None else si_wide
+        trends["revenue"] = [float(v or 0) for v in rev_rows["total_revenue"].tolist()]
+
+        # Customer-activity change series: full history, all months.
+        active = [int(v or 0) for v in si_wide["active_customers"].tolist()]
+        change: List[float] = []
+        for i, v in enumerate(active):
+            if i == 0 or not active[i - 1]:
+                change.append(0.0)
+            else:
+                change.append(round(((v - active[i - 1]) / active[i - 1]) * 100, 1))
+        while len(change) < 12:
+            change.insert(0, 0.0)
+        trends["customer_activity_change"] = change[-12:]
     except Exception as e:
-        frappe.log_error(f"Executive: revenue trend failed: {e}", "Executive Intelligence")
+        frappe.log_error(f"Executive: SI sparklines failed: {e}", "Executive Intelligence")
         trends["revenue"] = []
+        trends["customer_activity_change"] = [0.0] * 12
 
     # Sales growth MoM (derived from revenue series above)
     try:
@@ -829,47 +853,6 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
         frappe.log_error(f"Executive: oee trend failed: {e}", "Executive Intelligence")
         trends["oee"] = []
 
-    # Customer activity trend -- previous implementation labelled this
-    # trend key `churn_rate` but computed `max(0, (1 - v/max) * 100)`:
-    # a self-referential index that scales every site's value against
-    # its own max-active month, which guarantees a ceiling of 100 in the
-    # most-recent (always partial) month and a floor of 0 in the
-    # highest-active month regardless of real customer retention. The
-    # customer block's `churn_risk` KPI already reports a real model
-    # score (avg_churn_risk from `customer.summary`), so the trend and
-    # the KPI were using different formulas under the same name.
-    # Replace with a real per-month change in distinct active customers:
-    # the % drop in active customers from one month to the next. Positive
-    # value = customer base shrank (real activity loss). Negative value
-    # = customer base grew. Zero-pad the first month. Renamed to
-    # `customer_activity_change` to match the Vue's `departmentTrendKeys
-    # .customer` after the rename.
-    try:
-        from insights.api.ml.ibis_source import company_filter, t
-
-        si = company_filter(t("Sales Invoice"), _company())
-        si = si.filter(si.docstatus == 1)
-        cust_series = (
-            si.mutate(month=si.posting_date.truncate("month"))
-            .group_by("month")
-            .aggregate(active_customers=si.customer.nunique())
-            .order_by("month")
-            .execute()
-        )
-        active = [int(v or 0) for v in cust_series["active_customers"].tolist()]
-        change: List[float] = []
-        for i, v in enumerate(active):
-            if i == 0 or not active[i - 1]:
-                change.append(0.0)
-            else:
-                change.append(round(((v - active[i - 1]) / active[i - 1]) * 100, 1))
-        # Pad to 12 entries on the left (oldest months) with zeros.
-        while len(change) < 12:
-            change.insert(0, 0.0)
-        trends["customer_activity_change"] = change[-12:]
-    except Exception as e:
-        frappe.log_error(f"Executive: customer activity trend failed: {e}", "Executive Intelligence")
-        trends["customer_activity_change"] = [0.0] * 12
     # Stock-outflow trend -- previous implementation labelled this trend
     # key `inventory_turns` but computed a normalised relative index of
     # outgoing-stock qty (`(q / mean) * 6`) and explicitly admitted in
