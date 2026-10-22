@@ -1,0 +1,196 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:case_ref",
+ "creation": "2026-10-22 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "case_ref",
+  "tax_type",
+  "period_label",
+  "company",
+  "column_break_1",
+  "stage",
+  "amnesty_eligible",
+  "section_break_amounts",
+  "principal",
+  "column_break_2",
+  "penalty_interest",
+  "section_break_dates",
+  "notice_date",
+  "objection_date",
+  "decision_date",
+  "column_break_3",
+  "tribunal_date",
+  "hearing_date",
+  "section_break_notes",
+  "notes"
+ ],
+ "fields": [
+  {
+   "fieldname": "case_ref",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Case Ref",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "fieldname": "tax_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Tax Type",
+   "options": "VAT\nPAYE\nCIT\nWHT\nExcise\nCustoms\nTOT\nOther",
+   "reqd": 1
+  },
+  {
+   "fieldname": "period_label",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Period",
+   "description": "Tax period the assessment covers, e.g. 2023 or Mar 2024"
+  },
+  {
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_standard_filter": 1,
+   "label": "Company",
+   "options": "Company"
+  },
+  {
+   "fieldname": "column_break_1",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "Assessment received",
+   "fieldname": "stage",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Stage",
+   "options": "Assessment received\nObjection lodged\nAppeal to Tribunal\nHigh Court\nSettled\nClosed",
+   "reqd": 1,
+   "search_index": 1
+  },
+  {
+   "default": "0",
+   "description": "Principal up to 31 Dec 2025 may qualify for the Tax Procedures Act s.37E amnesty",
+   "fieldname": "amnesty_eligible",
+   "fieldtype": "Check",
+   "label": "Amnesty Eligible"
+  },
+  {
+   "fieldname": "section_break_amounts",
+   "fieldtype": "Section Break",
+   "label": "Amounts"
+  },
+  {
+   "fieldname": "principal",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Principal"
+  },
+  {
+   "fieldname": "column_break_2",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "penalty_interest",
+   "fieldtype": "Currency",
+   "label": "Penalty and Interest"
+  },
+  {
+   "fieldname": "section_break_dates",
+   "fieldtype": "Section Break",
+   "label": "Dates"
+  },
+  {
+   "description": "Objection is due 30 days after this date",
+   "fieldname": "notice_date",
+   "fieldtype": "Date",
+   "label": "Assessment Notice Date"
+  },
+  {
+   "description": "KRA decision is due 60 days after this date",
+   "fieldname": "objection_date",
+   "fieldtype": "Date",
+   "label": "Objection Lodged On"
+  },
+  {
+   "description": "Appeal to the Tribunal is due 30 days after this date",
+   "fieldname": "decision_date",
+   "fieldtype": "Date",
+   "label": "KRA Decision Date"
+  },
+  {
+   "fieldname": "column_break_3",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "tribunal_date",
+   "fieldtype": "Date",
+   "label": "Appeal to Tribunal Lodged On"
+  },
+  {
+   "fieldname": "hearing_date",
+   "fieldtype": "Date",
+   "label": "Hearing Date"
+  },
+  {
+   "fieldname": "section_break_notes",
+   "fieldtype": "Section Break"
+  },
+  {
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-10-22 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Insights",
+ "name": "Insights Tax Case",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "export": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Auditor"
+  }
+ ],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

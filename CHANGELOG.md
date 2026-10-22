@@ -6,6 +6,14 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-09-22
 
+### Changed — Tax Intelligence is now Kenya (KRA), India GST/TDS package removed
+
+- `insights.ml.india_tax_intelligence` (GST/ITC/TDS/e-invoice/e-waybill) is deleted and replaced by `insights.ml.kenya_tax_intelligence`: 9 tabs (Overview, VAT, eTIMS, Payroll taxes, Withholding, Income tax, Notices & Legal, Customs & Excise, Action queue). `KenyaTaxIntelligence(period).train()` returns the envelope; each tab is `available: false` with a message when its data source is absent. Statutory rates and dates live in `rules.py`.
+- `insights.api.ml.tax`: `tax_intelligence` keeps its cache key scheme; `gst_summary`, `itc_health` and `tds_summary` are removed; `get_tax_detail` routes drill-downs to the owning tab module.
+- New doctype **Insights Tax Case** (assessments, objections, appeals, amnesty eligibility) feeding the Notices & Legal tab. Run `bench migrate` to create it.
+- Obligation status is derived from payment evidence (Payment Entry / GL on matched tax accounts): chips read Paid / Paid late / Part-paid / Overdue / Not started, never "Filed".
+- `risk_intelligence` compliance reads eTIMS purchase coverage and the Company KRA PIN instead of GSTR-1/3B and GSTIN/PAN; `strategic_finance.get_scheduled_taxes` forecasts PAYE/NSSF/SHIF/AHL/NITA/excise/VAT from the ledger on KRA due dates; the scheduler job is `train_kenya_tax_intelligence`.
+
 ### Fixed — Revenue / Customer / Finance follow-ups: one gross margin, full-window daily table, avg order gap, reactivated, At Risk
 
 Live `jkm` (Sep 2026 = `custom:2026-09-01:2026-09-30`) before → after:

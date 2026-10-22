@@ -6,7 +6,7 @@ from __future__ import annotations
 Risk Intelligence & Analytics -- Ibis-native rewrite.
 
 Was a Frankenstein's monster: a 1000-line ``BaseMLModel`` subclass that
-combined pandas, numpy, scikit-learn, statsmodels, ``india_tax_intelligence``,
+combined pandas, numpy, scikit-learn, statsmodels, a tax-intelligence model,
 and an embedded Prophet forecast for cash flow. It cached every output
 to Redis and shipped a "warming" placeholder when the cache was cold,
 which crashed in the RQ work-horse on Frappe Cloud.
@@ -15,10 +15,8 @@ The whole thing now compiles to a dozen Ibis aggregates -- per-customer
 credit metrics, aging buckets, GL-derived cash/working-capital, top-N
 risk lists, a few hand-rolled forecasts computed in Python on ~24-row
 monthly series -- and assembles a single JSON dict that the Vue dashboard
-consumes. The compliance sub-section still calls into
-``insights.ml.india_tax_intelligence`` for GSTR-1/GSTR-3B filing status
-(unchanged), because the ``india_compliance`` app's GST Return Log is the
-only honest source of that data on this site.
+consumes. The compliance sub-section reads eTIMS purchase coverage from
+``insights.ml.kenya_tax_intelligence.etims`` and the KRA PIN from the Company.
 
 The response shape is byte-compatible with the previous one: every key
 the Vue dashboard reads is preserved. Internal ``*_score`` weights are
@@ -342,6 +340,18 @@ def _risk_matrix(
 # ── Component aggregates ─────────────────────────────────────────────────────
 
 
+def _etims_purchase_coverage() -> float | None:
+    """eTIMS purchase control-unit coverage (0-100) from the Kenya tax etims tab; None when unavailable."""
+    try:
+        from insights.ml.kenya_tax_intelligence import etims
+        from insights.ml.kenya_tax_intelligence.common import build_context
+
+        tab = etims.compute(build_context("fy"))
+        return next((k["value"] for k in tab.get("kpis") or [] if k["key"] == "purchase_cu_coverage_pct"), None)
+    except Exception:
+        return None
+
+
 def _aggregate_credit_risk(company: str | None) -> float:
     si = t("Sales Invoice")
     cutoff = _months_ago(HISTORY_MONTHS)
@@ -435,41 +445,11 @@ def _aggregate_compliance_risk(company: str | None) -> float:
         incomplete_ratio = incomplete / total_sales * 100.0
         risk_factors.append(incomplete_ratio)
 
-    # GST filing: delegate to the india_tax_intelligence module's
-    # data, the same way the original class did. A status the underlying
-    # log does not record (no india_compliance app, or filing_status
-    # never populated on this site, or the current FY has no logged
-    # returns yet) is reported as moderate/unknown rather than
-    # fabricated as compliant -- the previous code added nothing to
-    # `risk_factors` whenever the status was "No Data" / "Not Tracked",
-    # which silently scored 0 for any site whose current FY started
-    # recently and had no return rows yet, contradicting the documented
-    # intent. (See TODOS.md, 2026-08-17 risk_intelligence audit, bug 2.)
-    try:
-        from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-        import insights.ml.india_tax_intelligence.data as india_tax_data
-
-        tax_intel = IndiaTaxIntelligence(period="fy")
-        if tax_intel.india_compliance_installed:
-            fy_start = str(tax_intel.fiscal_year["year_start_date"])
-            today = datetime.now().strftime("%Y-%m-%d")
-            filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today)
-            statuses = [filing.get("gstr1", {}).get("status"), filing.get("gstr3b", {}).get("status")]
-            unknown_count = statuses.count("No Data") + statuses.count("Not Tracked")
-            pending_count = statuses.count("Pending")
-            # "Unknown" (no logged returns, or filing_status not populated)
-            # is itself a compliance risk signal -- a finance team cannot
-            # claim "compliant" when the data is absent. 25 per occurrence
-            # is the same "moderate/unknown" budget the comment above
-            # advertised and the `not india_compliance_installed` branch
-            # already uses (30); 25 is slightly more conservative because
-            # at least one half of the picture (india_compliance itself
-            # being present) is known here.
-            risk_factors.append(pending_count * 40.0 + unknown_count * 25.0)
-        else:
-            risk_factors.append(30.0)
-    except Exception:
-        risk_factors.append(30.0)
+    # eTIMS: purchase invoices carrying a KRA control-unit number, from the
+    # kenya_tax_intelligence etims tab. Unknown coverage (eTIMS app absent) is
+    # reported as moderate risk rather than fabricated as compliant.
+    coverage = _etims_purchase_coverage()
+    risk_factors.append(30.0 if coverage is None else max(0.0, 100.0 - coverage))
 
     if not risk_factors:
         return 0.0
@@ -1134,63 +1114,41 @@ def _supplier_performance(company: str | None) -> list[dict]:
 
 
 def _analyze_compliance_risk(company: str | None) -> dict:
-    from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-    import insights.ml.india_tax_intelligence.data as india_tax_data
-
-    try:
-        tax_intel = IndiaTaxIntelligence(period="fy")
-        fy_start = str(tax_intel.fiscal_year["year_start_date"])
-        today_str = datetime.now().strftime("%Y-%m-%d")
-
-        if tax_intel.india_compliance_installed:
-            filing = india_tax_data.get_filing_compliance(tax_intel, fy_start, today_str)
-            einvoice = india_tax_data.get_einvoice_status(tax_intel, fy_start, today_str)
-        else:
-            filing = {"gstr1": {"status": "Not Available"}, "gstr3b": {"status": "Not Available"}}
-            einvoice = {"coverage_pct": None, "pending_value": 0}
-    except Exception:
-        filing = {"gstr1": {"status": "Not Available"}, "gstr3b": {"status": "Not Available"}}
-        einvoice = {"coverage_pct": None, "pending_value": 0}
-
+    # The `gst_status` key is kept for the dashboard's response contract. ERPNext
+    # has no "return filed" record, so GSTR-style filing status is not available
+    # in Kenya; the eTIMS coverage fields carry the Kenya e-invoicing signal.
+    coverage = _etims_purchase_coverage()
     gst_status = {
-        "gstr1_status": filing.get("gstr1", {}).get("status", "No Data"),
-        "gstr1_latest_period": filing.get("gstr1", {}).get("latest_period", ""),
-        "gstr3b_status": filing.get("gstr3b", {}).get("status", "No Data"),
-        "gstr3b_latest_period": filing.get("gstr3b", {}).get("latest_period", ""),
-        "einvoice_coverage_pct": einvoice.get("coverage_pct"),
-        "einvoice_pending_value": einvoice.get("pending_value", 0),
+        "gstr1_status": "Not Available",
+        "gstr1_latest_period": "",
+        "gstr3b_status": "Not Available",
+        "gstr3b_latest_period": "",
+        "einvoice_coverage_pct": coverage,
+        "einvoice_pending_value": 0,
     }
 
     # Document completeness audit. Two table reads combined into one
     # Python result so the response shape stays a single array.
     document_audit = _document_audit(company)
 
-    # GST/PAN registration: read from the Company master (not invented).
+    # KRA PIN: read from the Company master (standard `tax_id`), not invented.
     # `get_cached_doc` does not itself check permissions -- gate explicitly,
     # since this endpoint's own entry check only requires Sales Invoice read
     # (see `insights.api.ml.risk.risk_intelligence`), which said nothing about
     # Company. Without this a Sales-Invoice-only user could read another
-    # company's GSTIN/PAN through the compliance tab.
-    gstin, pan = "", ""
+    # company's tax id through the compliance tab.
+    kra_pin = ""
     if company and frappe.has_permission("Company", "read", doc=company):
         try:
-            company_doc = frappe.get_cached_doc("Company", company)
-            gstin = (company_doc.get("gstin") or "").strip()
-            pan = (company_doc.get("pan") or "").strip()
+            kra_pin = (frappe.get_cached_doc("Company", company).get("tax_id") or "").strip()
         except Exception:
             pass
     licenses = [
         {
-            "license_type": "GST Registration",
-            "reference": gstin or "Not on file",
-            "status": "Registered" if gstin else "Not Registered",
-            "risk_level": "Low" if gstin else "High",
-        },
-        {
-            "license_type": "PAN",
-            "reference": pan or "Not on file",
-            "status": "Registered" if pan else "Not Registered",
-            "risk_level": "Low" if pan else "High",
+            "license_type": "KRA PIN",
+            "reference": kra_pin or "Not on file",
+            "status": "Registered" if kra_pin else "Not Registered",
+            "risk_level": "Low" if kra_pin else "High",
         },
     ]
 
@@ -1206,17 +1164,13 @@ def _analyze_compliance_risk(company: str | None) -> dict:
                         "rate": round(rate, 2),
                     }
                 )
-    if gst_status["gstr1_status"] == "Pending":
+    if gst_status["einvoice_coverage_pct"] is not None and gst_status["einvoice_coverage_pct"] < 95:
         compliance_issues.append(
-            {"issue": "GSTR-1 returns pending for this fiscal year", "severity": "High", "rate": None}
+            {"issue": "eTIMS purchase invoice coverage below 95%", "severity": "High", "rate": round(100 - gst_status["einvoice_coverage_pct"], 2)}
         )
-    if gst_status["gstr3b_status"] == "Pending":
+    if not kra_pin:
         compliance_issues.append(
-            {"issue": "GSTR-3B returns pending for this fiscal year", "severity": "High", "rate": None}
-        )
-    if not gstin:
-        compliance_issues.append(
-            {"issue": "No GSTIN on file for this company", "severity": "High", "rate": None}
+            {"issue": "No KRA PIN on file for this company", "severity": "High", "rate": None}
         )
 
     overall_score = min(100, len(compliance_issues) * 15)

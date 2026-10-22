@@ -1,5 +1,13 @@
 # TODOS
 
+## [2026-10-22] Tax Intelligence cutover to Kenya
+
+The India tax package (`insights.ml.india_tax_intelligence`) and the `gst_summary` / `itc_health` / `tds_summary` endpoints were removed; the India-specific audit notes below (GSTR, ITC, TDS, e-invoice) describe code that no longer exists and are kept as history only.
+
+- Open: `risk_intelligence` still returns the `gst_status` key (GSTR fields are `"Not Available"`, `einvoice_*` carry eTIMS purchase coverage); `RiskIntelligence.vue` labels need Kenya wording, then the key can be renamed.
+- Open: payment evidence for VAT/excise is inferred from settlement debits on name-matched tax accounts (`overview.py`); a Journal Entry that clears a VAT account without paying KRA can overstate payments.
+- Open: Insights Tax Case is entered by hand; no KRA iTax import.
+
 ## Supervisor Summary — Intelligence Dashboard Audit (2026-08-17)
 
 Full-coverage audit of all 12 Intelligence dashboards (Executive, Sales, Customer,

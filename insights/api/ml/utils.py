@@ -611,7 +611,7 @@ def parse_custom_range(period: str | None) -> tuple[datetime, datetime] | None:
     picks an explicit "from / to" range instead of a preset. It is the one
     place that understands that encoding -- every period resolver in the
     intelligence domains (`parse_date_filter` below, HR's and Marketing's
-    `_period_start_date`, Tax's `_coerce_period` + `IndiaTaxIntelligence._window`,
+    `_period_start_date`, Tax's `_coerce_period` + `build_context`,
     Manufacturing's `get_manufacturing_overview`) checks this first, so a
     custom range is honoured everywhere a preset already is. Malformed or
     inverted (``end`` before ``start``) input returns ``None`` rather than

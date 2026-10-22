@@ -32,7 +32,7 @@ class TestChunkText(FrappeTestCase):
 		self.assertEqual(chunk_text("   "), [])
 
 	def test_short_text_returns_single_unchanged_chunk(self):
-		text = "GST rate for textiles is 5%."
+		text = "VAT standard rate is 16%."
 		self.assertEqual(chunk_text(text, chunk_size=1000), [text])
 
 	def test_long_text_keeps_paragraphs_intact(self):
@@ -65,7 +65,7 @@ class TestCollectionName(FrappeTestCase):
 	[a-zA-Z0-9._-], starting and ending with an alnum."""
 
 	def test_sanitizes_invalid_characters(self):
-		name = _collection_name("GST Circulars (2026)!")
+		name = _collection_name("KRA Public Notices (2026)!")
 		self.assertRegex(name, r"^[a-zA-Z0-9._-]+$")
 
 	def test_always_starts_with_kb_prefix(self):
@@ -106,35 +106,35 @@ class TestTaxAgentGrounding(FrappeTestCase):
 		agent = self._get_agent()
 		assert agent.config is not None
 		agent.config.knowledge_base = None
-		self.assertEqual(agent._get_grounding_context("What is my GST liability?"), "")
+		self.assertEqual(agent._get_grounding_context("What is my VAT liability?"), "")
 
 	def test_grounding_formats_top_matches_with_source_titles(self):
 		agent = self._get_agent()
 		assert agent.config is not None
-		agent.config.knowledge_base = "GST Circulars"
+		agent.config.knowledge_base = "KRA Public Notices"
 		matches = [
-			{"text": "Rule 86B restricts ITC utilisation to 99%.", "metadata": {"title": "CGST Circular 231"}},
-			{"text": "e-Invoicing mandatory above Rs 5 crore turnover.", "metadata": {"title": "Notification 10/2026"}},
+			{"text": "Input VAT claims lapse after 6 months.", "metadata": {"title": "KRA Public Notice 231"}},
+			{"text": "eTIMS invoices are mandatory for VAT-registered taxpayers.", "metadata": {"title": "Notification 10/2026"}},
 		]
 
 		with patch("insights.ai.knowledge_base.embed_texts", return_value=[[0.1, 0.2]]) as mock_embed, patch(
 			"insights.ai.knowledge_base.get_store"
 		) as mock_get_store:
 			mock_get_store.return_value.query.return_value = matches
-			result = agent._get_grounding_context("Can I claim full ITC?")
+			result = agent._get_grounding_context("Can I claim input VAT?")
 
-		mock_embed.assert_called_once_with(["Can I claim full ITC?"])
-		mock_get_store.assert_called_once_with("GST Circulars")
+		mock_embed.assert_called_once_with(["Can I claim input VAT?"])
+		mock_get_store.assert_called_once_with("KRA Public Notices")
 		mock_get_store.return_value.query.assert_called_once_with([0.1, 0.2], n_results=5)
-		self.assertIn("GST Circulars", result)
-		self.assertIn("CGST Circular 231", result)
-		self.assertIn("Rule 86B restricts ITC", result)
+		self.assertIn("KRA Public Notices", result)
+		self.assertIn("KRA Public Notice 231", result)
+		self.assertIn("Input VAT claims lapse", result)
 		self.assertIn("Notification 10/2026", result)
 
 	def test_grounding_returns_empty_string_when_no_matches(self):
 		agent = self._get_agent()
 		assert agent.config is not None
-		agent.config.knowledge_base = "GST Circulars"
+		agent.config.knowledge_base = "KRA Public Notices"
 		with patch("insights.ai.knowledge_base.embed_texts", return_value=[[0.1]]), patch(
 			"insights.ai.knowledge_base.get_store"
 		) as mock_get_store:
@@ -148,9 +148,9 @@ class TestTaxAgentGrounding(FrappeTestCase):
 		grounding is an optional augmentation, not a hard dependency."""
 		agent = self._get_agent()
 		assert agent.config is not None
-		agent.config.knowledge_base = "GST Circulars"
+		agent.config.knowledge_base = "KRA Public Notices"
 		with patch("insights.ai.knowledge_base.embed_texts", side_effect=RuntimeError("embedding API down")):
-			result = agent._get_grounding_context("Can I claim full ITC?")
+			result = agent._get_grounding_context("Can I claim input VAT?")
 		self.assertEqual(result, "")
 
 
@@ -168,7 +168,7 @@ class TestReindexKnowledgeBaseAPI(FrappeTestCase):
 			frappe, "get_doc"
 		) as mock_get_doc:
 			with self.assertRaises(frappe.PermissionError):
-				reindex_knowledge_base("GST Circulars")
+				reindex_knowledge_base("KRA Public Notices")
 			mock_has_perm.assert_called_once_with("AI Knowledge Base", "write", throw=True)
 			mock_get_doc.assert_not_called()
 
@@ -185,13 +185,13 @@ class TestReindexKnowledgeBaseAPI(FrappeTestCase):
 		with patch.object(frappe, "has_permission"), patch.object(
 			frappe, "get_doc", return_value=mock_kb
 		), patch.object(frappe.db, "set_value") as mock_set_value, patch.object(frappe, "enqueue") as mock_enqueue:
-			result = reindex_knowledge_base("GST Circulars")
+			result = reindex_knowledge_base("KRA Public Notices")
 
 		row_a.db_set.assert_called_once_with("status", STATUS_QUEUE, update_modified=False)
 		row_b.db_set.assert_called_once_with("status", STATUS_QUEUE, update_modified=False)
-		mock_set_value.assert_called_once_with("AI Knowledge Base", "GST Circulars", "status", STATUS_QUEUE)
+		mock_set_value.assert_called_once_with("AI Knowledge Base", "KRA Public Notices", "status", STATUS_QUEUE)
 		mock_enqueue.assert_called_once()
-		self.assertEqual(mock_enqueue.call_args.kwargs["kb_name"], "GST Circulars")
+		self.assertEqual(mock_enqueue.call_args.kwargs["kb_name"], "KRA Public Notices")
 		self.assertTrue(result["success"])
 
 
@@ -220,9 +220,9 @@ class TestProcessKnowledgeBase(FrappeTestCase):
 			process_knowledge_base,
 		)
 
-		row = self._make_row("row-1", STATUS_QUEUE, "GST rate for textiles is 5%.")
+		row = self._make_row("row-1", STATUS_QUEUE, "VAT standard rate is 16%.")
 		kb = MagicMock(documents=[row], chunk_size=1000, chunk_overlap=200)
-		kb.name = "GST Circulars"
+		kb.name = "KRA Public Notices"
 
 		with patch.object(frappe, "get_doc", return_value=kb), patch.object(
 			frappe.db, "commit"
@@ -232,7 +232,7 @@ class TestProcessKnowledgeBase(FrappeTestCase):
 		), patch(
 			"insights.ai.knowledge_base.embed_texts", return_value=[[0.1, 0.2]]
 		), patch("insights.ai.knowledge_base.get_store") as mock_get_store:
-			process_knowledge_base("GST Circulars")
+			process_knowledge_base("KRA Public Notices")
 
 		row.db_set.assert_any_call("status", STATUS_IN_PROGRESS, update_modified=False)
 		final_row_update = row.db_set.call_args_list[-1].args[0]
@@ -254,10 +254,10 @@ class TestProcessKnowledgeBase(FrappeTestCase):
 			process_knowledge_base,
 		)
 
-		good_row = self._make_row("row-good", STATUS_QUEUE, "Rule 86B restricts ITC to 99%.")
+		good_row = self._make_row("row-good", STATUS_QUEUE, "Input VAT claims lapse after 6 months.")
 		bad_row = self._make_row("row-bad", STATUS_QUEUE, "irrelevant")
 		kb = MagicMock(documents=[good_row, bad_row], chunk_size=1000, chunk_overlap=200)
-		kb.name = "GST Circulars"
+		kb.name = "KRA Public Notices"
 
 		def extract_side_effect(file_url):
 			if file_url == bad_row.file:
@@ -272,7 +272,7 @@ class TestProcessKnowledgeBase(FrappeTestCase):
 		), patch(
 			"insights.ai.knowledge_base.embed_texts", return_value=[[0.1]]
 		), patch("insights.ai.knowledge_base.get_store"):
-			process_knowledge_base("GST Circulars")
+			process_knowledge_base("KRA Public Notices")
 
 		good_final = good_row.db_set.call_args_list[-1].args[0]
 		self.assertEqual(good_final["status"], STATUS_COMPLETED)
@@ -296,7 +296,7 @@ class TestProcessKnowledgeBase(FrappeTestCase):
 
 		done_row = self._make_row("row-done", STATUS_COMPLETED, "already indexed")
 		kb = MagicMock(documents=[done_row], chunk_size=1000, chunk_overlap=200)
-		kb.name = "GST Circulars"
+		kb.name = "KRA Public Notices"
 
 		with patch.object(frappe, "get_doc", return_value=kb), patch.object(
 			frappe.db, "commit"
@@ -305,7 +305,7 @@ class TestProcessKnowledgeBase(FrappeTestCase):
 		) as mock_extract, patch(
 			"insights.ai.knowledge_base.embed_texts"
 		) as mock_embed, patch("insights.ai.knowledge_base.get_store"):
-			process_knowledge_base("GST Circulars")
+			process_knowledge_base("KRA Public Notices")
 
 		mock_extract.assert_not_called()
 		mock_embed.assert_not_called()
@@ -337,7 +337,7 @@ class TestRequeueReattachedRows(FrappeTestCase):
 		new_row = self._make_row("row-1", STATUS_COMPLETED, "/files/new.pdf")
 		before = MagicMock(documents=[old_row])
 		kb = MagicMock(documents=[new_row])
-		kb.name = "GST Circulars"
+		kb.name = "KRA Public Notices"
 		kb.get_doc_before_save.return_value = before
 
 		with patch("insights.ai.knowledge_base.get_store") as mock_get_store:
@@ -359,7 +359,7 @@ class TestRequeueReattachedRows(FrappeTestCase):
 		new_row = self._make_row("row-1", STATUS_COMPLETED, "/files/same.pdf")
 		before = MagicMock(documents=[old_row])
 		kb = MagicMock(documents=[new_row])
-		kb.name = "GST Circulars"
+		kb.name = "KRA Public Notices"
 		kb.get_doc_before_save.return_value = before
 
 		with patch("insights.ai.knowledge_base.get_store") as mock_get_store:
@@ -379,7 +379,7 @@ class TestRequeueReattachedRows(FrappeTestCase):
 		new_row = self._make_row("row-new", STATUS_QUEUE, "/files/brand-new.pdf")
 		before = MagicMock(documents=[])
 		kb = MagicMock(documents=[new_row])
-		kb.name = "GST Circulars"
+		kb.name = "KRA Public Notices"
 		kb.get_doc_before_save.return_value = before
 
 		with patch("insights.ai.knowledge_base.get_store") as mock_get_store:
@@ -708,15 +708,15 @@ class TestChunkTextNewSplitter(FrappeTestCase):
 
 	def test_respects_chunk_size_and_overlap_on_realistic_text(self):
 		paragraphs = [
-			"GST rate for cotton textiles is 5% under HSN 5201 to 5212. "
-			"This rate was unchanged in the 2026 budget and applies to "
-			"both job-work and forward supply chains.",
-			"Input tax credit (ITC) for textile manufacturers is "
-			"restricted under Section 17(5) for items used to make "
-			"exempt supplies -- this remains a frequent audit finding.",
-			"Job workers in the textile supply chain must register "
-			"under GST even when turnover is below the general threshold, "
-			"because textile processing is a notified service.",
+			"VAT standard rate for taxable supplies is 16% under the VAT Act. "
+			"This rate was unchanged in the 2026 Finance Act and applies to "
+			"both goods and services supplied in Kenya.",
+			"Input VAT claims are only allowed against a valid eTIMS invoice "
+			"and lapse after six months of the invoice date -- this remains "
+			"a frequent audit finding for importers and manufacturers.",
+			"Non-resident digital service providers must register for VAT in "
+			"Kenya even when turnover is below the general threshold, "
+			"because the supply is treated as made in Kenya.",
 		]
 		text = "\n\n".join(paragraphs)
 		chunks = chunk_text(text, chunk_size=200, chunk_overlap=50)
@@ -751,7 +751,7 @@ class TestChunkTextNewSplitter(FrappeTestCase):
 		self.assertEqual(chunk_text("   "), [])
 
 	def test_short_text_returns_single_unchanged_chunk(self):
-		text = "GST rate for textiles is 5%."
+		text = "VAT standard rate is 16%."
 		self.assertEqual(chunk_text(text, chunk_size=1000), [text])
 
 	def test_long_text_keeps_paragraphs_intact(self):

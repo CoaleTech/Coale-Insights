@@ -74,9 +74,6 @@ _LAZY_MAP = {
     "get_forex_exposure": ("insights.api.ml.financial", "get_forex_exposure"),
     # ------------------------------------------------------------------ tax
     "tax_intelligence": ("insights.api.ml.tax", "tax_intelligence"),
-    "gst_summary": ("insights.api.ml.tax", "gst_summary"),
-    "itc_health": ("insights.api.ml.tax", "itc_health"),
-    "tds_summary": ("insights.api.ml.tax", "tds_summary"),
     # ------------------------------------------------------------------ general
     "get_ml_status": ("insights.api.ml.general", "get_ml_status"),
     "run_all_models": ("insights.api.ml.general", "run_all_models"),

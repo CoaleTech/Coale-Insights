@@ -1,425 +1,153 @@
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
-"""Direct SQL Demo Data for Tax Intelligence Dashboard (India GST)"""
+"""Direct-SQL demo data for the Kenya Tax Intelligence dashboard (KRA).
+
+Same scenario and numbers as `tax_demo_data.py` (it shares that module's masters and
+`plan_*` functions), but invoices, their GL postings, salary slips and landed cost vouchers are
+written with plain INSERTs instead of the document controllers: no naming series, hooks,
+eTIMS queueing or payroll validation run, so it is fast and the figures land exactly as planned.
+Accounts, parties, employees and Journal Entries still go through the ORM because the account
+tree (lft/rgt) and the GL must stay consistent.
+
+Run it explicitly on a throw-away site; it writes invoices, GL, payroll and journals:
+
+    bench --site <site> execute insights.setup.tax_demo_sql.create_tax_demo_data_sql
+
+It refuses a company that already has non-demo submitted Sales Invoices unless `force=True`.
+"""
+
+from datetime import timedelta
 
 import frappe
-from frappe.utils import today, add_days, getdate, now_datetime
-import random
-from datetime import datetime
+from erpnext.accounts.utils import get_fiscal_year
+
+from insights.setup import tax_demo_data as demo
+
+_COLS = {}
 
 
-def create_tax_demo_data_sql():
-    """Create demo data using direct SQL inserts for guaranteed persistence."""
-    company = "JKM"
-    abbr = "J"
-    fy_start = "2026-01-01"
-    fy_end = "2026-12-31"
+def _insert(doctype, values):
+    """INSERT one row, keeping only columns this site's table has (custom eTIMS fields may be absent)."""
+    if doctype not in _COLS:
+        _COLS[doctype] = set(frappe.db.get_table_columns(doctype))
+    values = {k: v for k, v in values.items() if k in _COLS[doctype]}
+    cols = ", ".join(f"`{k}`" for k in values)
+    frappe.db.sql(f"INSERT INTO `tab{doctype}` ({cols}) VALUES ({', '.join(['%s'] * len(values))})", tuple(values.values()))
 
-    # Update company
-    frappe.db.sql("""
-        UPDATE `tabCompany`
-        SET gst_category = 'Registered Regular',
-            gstin = '27AAPFU0939F1ZV',
-            default_gst_rate = 18.0
-        WHERE name = %s
-    """, (company,))
 
-    # Create accounts
-    create_accounts_sql(company, abbr)
+def _gl(ctx, voucher_type, voucher_no, d, lines):
+    """Post (account, debit, credit, party_type, party) lines to the GL; the voucher must balance."""
+    assert round(sum(x[1] for x in lines), 2) == round(sum(x[2] for x in lines), 2), voucher_no
+    stamp = demo._stamp()
+    fiscal_year = get_fiscal_year(d, company=ctx.company)[0]
+    for account, debit, credit, party_type, party in lines:
+        _insert(
+            "GL Entry",
+            {
+                **stamp, "name": frappe.generate_hash(length=10), "docstatus": 1, "posting_date": d, "account": account, "party_type": party_type,
+                "party": party, "cost_center": ctx.c.cost_center, "debit": debit, "credit": credit, "account_currency": "KES",
+                "debit_in_account_currency": debit, "credit_in_account_currency": credit, "voucher_type": voucher_type, "voucher_no": voucher_no,
+                "remarks": demo.DEMO_TAG, "is_opening": "No", "is_advance": "No", "fiscal_year": fiscal_year, "company": ctx.company, "is_cancelled": 0,
+            },
+        )
 
-    # Create items
-    create_items_sql(company, abbr)
 
-    # Create customers
-    create_customers_sql(company)
+def _invoice(ctx, doctype, name, party_field, p, price_list, purchase):
+    """Header, item, tax rows and GL for one Sales or Purchase Invoice built from a plan row."""
+    stamp, d = demo._stamp(), p["date"]
+    child = {**stamp, "parent": name, "parenttype": doctype, "docstatus": 1}
+    party = p[party_field]
+    lines = p["lines"] if not purchase else [(p["item"], 1, p["net"])]
+    taxed = demo.TEMPLATES[p["template"]][2] if p["template"] else []
+    money = {"total": p["net"], "net_total": p["net"], "total_taxes_and_charges": round(p["total"] - p["net"], 2), "grand_total": p["total"], "rounded_total": p["total"], "outstanding_amount": p["total"]}
+    money = {**money, **{f"base_{k}": v for k, v in money.items()}}
+    header = {
+        **stamp, "name": name, "docstatus": 1, "company": ctx.company, "posting_date": d, "set_posting_time": 1, "due_date": d + timedelta(days=30),
+        "currency": "KES", "conversion_rate": 1, "price_list_currency": "KES", "plc_conversion_rate": 1, "update_stock": 0, "remarks": demo.DEMO_TAG,
+        "status": "Unpaid", "taxes_and_charges": ctx.tpl.get(p["template"]), **money,
+    }
+    if purchase:
+        header.update({"supplier": party, "supplier_name": party, "credit_to": ctx.c.default_payable_account, "bill_no": f"INV-{name[-4:]}", "bill_date": p["bill_date"], "buying_price_list": price_list})
+        if p["match"]:
+            header.update({"custom_kra_match_status": p["match"], "custom_kra_variance_amount": round(p["vat"] * 0.04, 2) if p["match"] == "Mismatched" else 0})
+    else:
+        header.update({"customer": party, "customer_name": party, "debit_to": ctx.c.default_receivable_account, "selling_price_list": price_list})
+        if p["cu"]:
+            header.update({"custom_current_receipt_number": p["cu"], "custom_total_receipt_number": p["cu"]})
+    _insert(doctype, header)
 
-    # Create suppliers
-    create_suppliers_sql(company)
+    for i, (item, qty, rate) in enumerate(lines, 1):
+        amount = round(qty * rate, 2)
+        _insert(
+            f"{doctype} Item",
+            {
+                **child, "name": f"{name}-i{i}", "parentfield": "items", "idx": i, "item_code": item, "item_name": item, "description": item, "qty": qty, "uom": "Nos",
+                "stock_uom": "Nos", "conversion_factor": 1, "rate": rate, "base_rate": rate, "net_rate": rate, "base_net_rate": rate, "amount": amount,
+                "base_amount": amount, "net_amount": amount, "base_net_amount": amount, "cost_center": ctx.c.cost_center,
+                "expense_account" if purchase else "income_account": ctx.c.default_expense_account if purchase else ctx.c.default_income_account,
+            },
+        )
+    running, gl_tax = p["net"], []
+    for i, (account, desc, rate, add_deduct) in enumerate(taxed, 1):
+        amount = round(p["net"] * rate / 100, 2)
+        running += -amount if add_deduct == "Deduct" else amount
+        _insert(
+            f"{'Purchase' if purchase else 'Sales'} Taxes and Charges",
+            {
+                **child, "name": f"{name}-t{i}", "parentfield": "taxes", "idx": i, "charge_type": "On Net Total", "account_head": demo.acct(ctx, account), "description": desc,
+                "rate": rate, "tax_amount": amount, "base_tax_amount": amount, "tax_amount_after_discount_amount": amount, "base_tax_amount_after_discount_amount": amount,
+                "total": round(running, 2), "base_total": round(running, 2), "category": "Total", "add_deduct_tax": add_deduct,
+            },
+        )
+        gl_tax.append((demo.acct(ctx, account), amount, add_deduct))
 
-    # Create sales invoices with GST
-    create_sales_invoices_sql(company, abbr, fy_start, fy_end)
+    if purchase:
+        gl = [(ctx.c.default_expense_account, p["net"], 0.0, None, None)]
+        gl += [(a, amt if ad == "Add" else 0.0, amt if ad == "Deduct" else 0.0, None, None) for a, amt, ad in gl_tax]
+        gl.append((ctx.c.default_payable_account, 0.0, p["total"], "Supplier", party))
+    else:
+        gl = [(ctx.c.default_receivable_account, p["total"], 0.0, "Customer", party), (ctx.c.default_income_account, 0.0, p["net"], None, None)]
+        gl += [(a, 0.0, amt, None, None) for a, amt, _ in gl_tax]
+    _gl(ctx, doctype, name, d, gl)
 
-    # Create purchase invoices with GST
-    create_purchase_invoices_sql(company, abbr, fy_start, fy_end)
 
-    # Create GL entries
-    create_gl_entries_sql(company, abbr, fy_start, fy_end)
+def create_tax_demo_data_sql(company=None, force=False):
+    """Create demo data for the Kenya Tax Intelligence dashboard using direct SQL inserts."""
+    frappe.db.commit()
+    ctx = demo.make_context(company, force)
+    sales, purchases, payroll = demo.plan_sales(ctx.today), demo.plan_purchases(ctx.today), demo.plan_payroll(ctx.today)
 
-    # Create GSTR logs
-    create_gstr_logs_sql(company)
+    demo.ensure_accounts(ctx)
+    demo.ensure_templates(ctx)
+    demo.ensure_parties_and_items(ctx)
+    employees = demo.ensure_payroll_masters(ctx)
 
-    # Create GST Inward Supply
-    create_gst_inward_supply_sql(company)
+    selling = frappe.db.get_value("Price List", {"selling": 1, "enabled": 1}, "name")
+    buying = frappe.db.get_value("Price List", {"buying": 1, "enabled": 1}, "name")
+    imports = []
+    for n, p in enumerate(sales, 1):
+        if not frappe.db.exists("Sales Invoice", f"SINV-DEMO-{n:04d}"):
+            _invoice(ctx, "Sales Invoice", f"SINV-DEMO-{n:04d}", "customer", p, selling, False)
+    for n, p in enumerate(purchases, 1):
+        name = f"PINV-DEMO-{n:04d}"
+        if not frappe.db.exists("Purchase Invoice", name):
+            _invoice(ctx, "Purchase Invoice", name, "supplier", p, buying, True)
+        if p["import"]:
+            imports.append({"name": name, "supplier": p["supplier"], "net": p["net"], "date": p["date"]})
+    print(f"Invoices written: {len(sales)} sales, {len(purchases)} purchase")
+
+    for doctype, values in demo.lcv_rows(imports, ctx.company, ctx.abbr) + demo.slip_rows(ctx.company, payroll, employees):
+        if not frappe.db.exists(doctype, values["name"]):
+            _insert(doctype, values)
+
+    # eTIMS queue rows for untransmitted sales: ORM insert so the queue controller sets its own defaults
+    for n, p in enumerate(sales, 1):
+        if p["queue"]:
+            demo.mark_sale(f"SINV-DEMO-{n:04d}", p)
+
+    demo.post_journals(ctx, demo.journal_plan(ctx.today, purchases, payroll))
+    demo.seed_tax_cases(ctx)
 
     frappe.db.commit()
-    print("Tax Intelligence demo data created successfully via SQL!")
-
-
-def create_accounts_sql(company, abbr):
-    """Create GST accounts via SQL."""
-    accounts = [
-        ("Output CGST", "Duties and Taxes", "Tax", "Liability"),
-        ("Output SGST", "Duties and Taxes", "Tax", "Liability"),
-        ("Output IGST", "Duties and Taxes", "Tax", "Liability"),
-        ("Input CGST", "Tax Assets", "Tax", "Asset"),
-        ("Input SGST", "Tax Assets", "Tax", "Asset"),
-        ("Input IGST", "Tax Assets", "Tax", "Asset"),
-        ("TDS Payable", "Duties and Taxes", "Payable", "Liability"),
-        ("WHT Receivable", "Tax Assets", "Receivable", "Asset"),
-        ("Entertainment Expenses", "Indirect Expenses", "Expense Account", "Expense"),
-        ("Donations", "Indirect Expenses", "Expense Account", "Expense"),
-        ("Penalties and Fines", "Indirect Expenses", "Expense Account", "Expense"),
-    ]
-
-    # Ensure Tax Assets parent exists
-    tax_assets = f"Tax Assets - {abbr}"
-    if not frappe.db.exists("Account", tax_assets):
-        frappe.db.sql("""
-            INSERT INTO `tabAccount` (name, account_name, parent_account, company, root_type, account_type, is_group, lft, rgt, docstatus, creation, modified)
-            VALUES (%s, 'Tax Assets', %s, %s, 'Asset', '', 1, 1, 2, 0, NOW(), NOW())
-        """, (tax_assets, f"Current Assets - {abbr}", company))
-
-    for acc_name, parent, acc_type, root_type in accounts:
-        full_name = f"{acc_name} - {abbr}"
-        parent_name = f"{parent} - {abbr}"
-        if not frappe.db.exists("Account", full_name):
-            frappe.db.sql("""
-                INSERT INTO `tabAccount` (name, account_name, parent_account, company, root_type, account_type, is_group, lft, rgt, docstatus, creation, modified)
-                VALUES (%s, %s, %s, %s, %s, %s, 0, 1, 2, 0, NOW(), NOW())
-            """, (full_name, acc_name, parent_name, company, root_type, acc_type))
-            print(f"Created account: {full_name}")
-        else:
-            print(f"Account exists: {full_name}")
-
-
-def create_items_sql(company, abbr):
-    """Create items with HSN codes via SQL."""
-    items = [
-        ("LAPTOP-001", "Business Laptop Dell XPS", "Products", "847130", 75000, 95000),
-        ("DESK-001", "Executive Office Desk", "Products", "940330", 12000, 15000),
-        ("CHAIR-001", "Ergonomic Office Chair", "Products", "940310", 8000, 10000),
-        ("PAPER-001", "A4 Copier Paper (Ream)", "Products", "480256", 250, 300),
-        ("INK-001", "Printer Ink Cartridge", "Products", "321511", 1500, 1800),
-        ("CAB-001", "Network Cable Cat 6", "Products", "854442", 500, 650),
-        ("ROUTER-001", "WiFi Router TP-Link", "Products", "851762", 3500, 4200),
-        ("SOFT-001", "Software License Annual", "Services", "852349", 50000, 60000),
-    ]
-
-    for item_code, item_name, item_group, hsn, valuation_rate, standard_rate in items:
-        if not frappe.db.exists("Item", item_code):
-            frappe.db.sql("""
-                INSERT INTO `tabItem` (name, item_code, item_name, item_group, gst_hsn_code, valuation_rate, standard_rate, is_stock_item, stock_uom, docstatus, creation, modified, owner)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, 1, 'Nos', 0, NOW(), NOW(), 'Administrator')
-            """, (item_code, item_code, item_name, item_group, hsn, valuation_rate, standard_rate))
-            print(f"Created item: {item_code}")
-        else:
-            print(f"Item exists: {item_code}")
-
-
-def create_customers_sql(company):
-    """Create customers with GSTIN via SQL."""
-    customers = [
-        ("Reliance Retail Ltd", "27AABCU9603R1ZV"),
-        ("Tata Motors Dealership", "27AADCT2378N1Z5"),
-        ("Infosys Ltd", "29AABCU9603R1ZM"),
-        ("Wipro Technologies", "29AAACW1234H1Z2"),
-        ("HDFC Bank Branch", "27AAACH1234H1Z5"),
-    ]
-
-    for cust_name, gstin in customers:
-        if not frappe.db.exists("Customer", cust_name):
-            frappe.db.sql("""
-                INSERT INTO `tabCustomer` (name, customer_name, gst_category, territory, docstatus, creation, modified, owner)
-                VALUES (%s, %s, 'Registered Regular', 'India', 0, NOW(), NOW(), 'Administrator')
-            """, (cust_name, cust_name))
-            frappe.db.sql("UPDATE `tabCustomer` SET gstin = %s WHERE name = %s", (gstin, cust_name))
-            print(f"Created customer: {cust_name}")
-        else:
-            print(f"Customer exists: {cust_name}")
-
-
-def create_suppliers_sql(company):
-    """Create suppliers with GSTIN via SQL."""
-    suppliers = [
-        ("Dell India Pvt Ltd", "27AAACD1234H1Z5"),
-        ("HP India Sales", "27AAACH1234H1Z5"),
-        ("Staples India", "29AABCS1234H1Z5"),
-        ("Canon India Pvt Ltd", "07AAACC1234H1Z5"),
-        ("Cisco Systems India", "29AABCC1234H1Z5"),
-    ]
-
-    for sup_name, gstin in suppliers:
-        if not frappe.db.exists("Supplier", sup_name):
-            frappe.db.sql("""
-                INSERT INTO `tabSupplier` (name, supplier_name, supplier_type, gst_category, docstatus, creation, modified, owner)
-                VALUES (%s, %s, 'Company', 'Registered Regular', 0, NOW(), NOW(), 'Administrator')
-            """, (sup_name, sup_name))
-            frappe.db.sql("UPDATE `tabSupplier` SET gstin = %s WHERE name = %s", (gstin, sup_name))
-            print(f"Created supplier: {sup_name}")
-        else:
-            print(f"Supplier exists: {sup_name}")
-
-
-def create_sales_invoices_sql(company, abbr, fy_start, fy_end):
-    """Create sales invoices with GST via SQL."""
-    items = frappe.get_all("Item", fields=["name", "standard_rate"], limit=5)
-    customers = frappe.get_all("Customer", fields=["name"], limit=5)
-
-    if not items or not customers:
-        print("Missing items or customers for sales invoices")
-        return
-
-    base_date = getdate(today())
-    months_back = 6
-    invoice_counter = 1
-
-    for month_offset in range(months_back, -1, -1):
-        invoice_date = add_days(base_date, -month_offset * 30)
-        num_invoices = random.randint(3, 5)
-
-        for _ in range(num_invoices):
-            customer = random.choice(customers)
-            inv_name = f"SINV-DEMO-{invoice_counter:04d}"
-            invoice_counter += 1
-
-            # Calculate totals
-            num_items = random.randint(2, 4)
-            total_net = 0
-            for _ in range(num_items):
-                item = random.choice(items)
-                qty = random.randint(1, 10)
-                rate = item["standard_rate"]
-                total_net += qty * rate
-
-            cgst = round(total_net * 0.09, 2)
-            sgst = round(total_net * 0.09, 2)
-            grand_total = round(total_net + cgst + sgst, 2)
-
-            # Insert Sales Invoice
-            frappe.db.sql("""
-                INSERT INTO `tabSales Invoice`
-                (name, customer, company, posting_date, due_date, base_net_total, base_grand_total, grand_total, docstatus,
-                 status, is_return, is_debit_note, currency, conversion_rate, creation, modified, owner, naming_series)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, 'Submitted', 0, 0, 'INR', 1, NOW(), NOW(), 'Administrator', 'SINV-.YYYY.-.#####')
-            """, (inv_name, customer["name"], company, invoice_date, add_days(invoice_date, 30),
-                  total_net, grand_total, grand_total))
-
-            # Insert Sales Taxes and Charges
-            tax_row1 = frappe.generate_hash(length=10)
-            tax_row2 = frappe.generate_hash(length=10)
-            frappe.db.sql("""
-                INSERT INTO `tabSales Taxes and Charges`
-                (name, parent, parenttype, parentfield, charge_type, account_head, description, rate, tax_amount, base_tax_amount, idx)
-                VALUES (%s, %s, 'Sales Invoice', 'taxes', 'On Net Total', %s, 'Output CGST @ 9%%', 9, %s, %s, 1)
-            """, (tax_row1, inv_name, f"Output CGST - {abbr}", cgst, cgst))
-
-            frappe.db.sql("""
-                INSERT INTO `tabSales Taxes and Charges`
-                (name, parent, parenttype, parentfield, charge_type, account_head, description, rate, tax_amount, base_tax_amount, idx)
-                VALUES (%s, %s, 'Sales Invoice', 'taxes', 'On Net Total', %s, 'Output SGST @ 9%%', 9, %s, %s, 2)
-            """, (tax_row2, inv_name, f"Output SGST - {abbr}", sgst, sgst))
-
-            # Insert Sales Invoice Items
-            for idx in range(1, num_items + 1):
-                item = random.choice(items)
-                qty = random.randint(1, 10)
-                rate = item["standard_rate"]
-                amount = qty * rate
-                hsn = frappe.db.get_value("Item", item["name"], "gst_hsn_code") or ""
-                item_row = frappe.generate_hash(length=10)
-                frappe.db.sql("""
-                    INSERT INTO `tabSales Invoice Item`
-                    (name, parent, parenttype, parentfield, item_code, item_name, qty, rate, amount, base_rate, base_amount, gst_hsn_code, idx, warehouse)
-                    VALUES (%s, %s, 'Sales Invoice', 'items', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (item_row, inv_name, item["name"], item["name"], qty, rate, amount, rate, amount, hsn, idx, f"Stores - {abbr}"))
-
-            print(f"Created Sales Invoice: {inv_name} for {invoice_date} (Total: {grand_total})")
-
-    print(f"Created {invoice_counter - 1} sales invoices")
-
-
-def create_purchase_invoices_sql(company, abbr, fy_start, fy_end):
-    """Create purchase invoices with GST via SQL."""
-    items = frappe.get_all("Item", fields=["name", "valuation_rate"], limit=5)
-    suppliers = frappe.get_all("Supplier", fields=["name"], limit=5)
-
-    if not items or not suppliers:
-        print("Missing items or suppliers for purchase invoices")
-        return
-
-    base_date = getdate(today())
-    months_back = 6
-    invoice_counter = 1
-
-    for month_offset in range(months_back, -1, -1):
-        invoice_date = add_days(base_date, -month_offset * 30)
-        num_invoices = random.randint(2, 4)
-
-        for _ in range(num_invoices):
-            supplier = random.choice(suppliers)
-            inv_name = f"PINV-DEMO-{invoice_counter:04d}"
-            invoice_counter += 1
-            use_tds = random.random() < 0.3
-
-            num_items = random.randint(2, 4)
-            total_net = 0
-            for _ in range(num_items):
-                item = random.choice(items)
-                qty = random.randint(5, 20)
-                rate = item["valuation_rate"] * random.uniform(0.9, 1.1)
-                total_net += qty * rate
-
-            cgst = round(total_net * 0.09, 2)
-            sgst = round(total_net * 0.09, 2)
-            tds_amount = round(total_net * 0.02, 2) if use_tds else 0
-            grand_total = round(total_net + cgst + sgst - tds_amount, 2)
-
-            frappe.db.sql("""
-                INSERT INTO `tabPurchase Invoice`
-                (name, supplier, company, posting_date, due_date, base_net_total, base_grand_total, grand_total, docstatus,
-                 status, is_return, currency, conversion_rate, creation, modified, owner, naming_series)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 1, 'Submitted', 0, 'INR', 1, NOW(), NOW(), 'Administrator', 'PINV-.YYYY.-.#####')
-            """, (inv_name, supplier["name"], company, invoice_date, add_days(invoice_date, 30),
-                  total_net, grand_total, grand_total))
-
-            # Insert Purchase Taxes and Charges
-            pt_row1 = frappe.generate_hash(length=10)
-            pt_row2 = frappe.generate_hash(length=10)
-            frappe.db.sql("""
-                INSERT INTO `tabPurchase Taxes and Charges`
-                (name, parent, parenttype, parentfield, charge_type, account_head, description, rate, tax_amount, base_tax_amount, add_deduct_tax, idx)
-                VALUES (%s, %s, 'Purchase Invoice', 'taxes', 'On Net Total', %s, 'Input CGST @ 9%%', 9, %s, %s, 'Add', 1)
-            """, (pt_row1, inv_name, f"Input CGST - {abbr}", cgst, cgst))
-
-            frappe.db.sql("""
-                INSERT INTO `tabPurchase Taxes and Charges`
-                (name, parent, parenttype, parentfield, charge_type, account_head, description, rate, tax_amount, base_tax_amount, add_deduct_tax, idx)
-                VALUES (%s, %s, 'Purchase Invoice', 'taxes', 'On Net Total', %s, 'Input SGST @ 9%%', 9, %s, %s, 'Add', 2)
-            """, (pt_row2, inv_name, f"Input SGST - {abbr}", sgst, sgst))
-
-            if use_tds:
-                pt_row3 = frappe.generate_hash(length=10)
-                frappe.db.sql("""
-                    INSERT INTO `tabPurchase Taxes and Charges`
-                    (name, parent, parenttype, parentfield, charge_type, account_head, description, rate, tax_amount, base_tax_amount, add_deduct_tax, idx)
-                    VALUES (%s, %s, 'Purchase Invoice', 'taxes', 'On Net Total', %s, 'TDS @ 2%%', 2, %s, %s, 'Deduct', 3)
-                """, (pt_row3, inv_name, f"TDS Payable - {abbr}", tds_amount, tds_amount))
-
-            # Insert Purchase Invoice Items
-            for idx in range(1, num_items + 1):
-                item = random.choice(items)
-                qty = random.randint(5, 20)
-                rate = item["valuation_rate"] * random.uniform(0.9, 1.1)
-                amount = qty * rate
-                item_row = frappe.generate_hash(length=10)
-                frappe.db.sql("""
-                    INSERT INTO `tabPurchase Invoice Item`
-                    (name, parent, parenttype, parentfield, item_code, item_name, qty, rate, amount, base_rate, base_amount, idx, warehouse)
-                    VALUES (%s, %s, 'Purchase Invoice', 'items', %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (item_row, inv_name, item["name"], item["name"], qty, round(rate, 2), round(amount, 2), round(rate, 2), round(amount, 2), idx, f"Stores - {abbr}"))
-
-            print(f"Created Purchase Invoice: {inv_name} for {invoice_date} {'with TDS' if use_tds else ''} (Total: {grand_total})")
-
-    print(f"Created {invoice_counter - 1} purchase invoices")
-
-
-def create_gl_entries_sql(company, abbr, fy_start, fy_end):
-    """Create GL entries for tax accounts."""
-    je_name = f"JE-TAX-DEMO-001"
-
-    if frappe.db.exists("Journal Entry", je_name):
-        print(f"Journal Entry {je_name} exists")
-        return
-
-    posting_date = add_days(today(), -15)
-
-    # Create Journal Entry header
-    frappe.db.sql("""
-        INSERT INTO `tabJournal Entry`
-        (name, company, posting_date, voucher_type, remark, total_debit, total_credit, docstatus, creation, modified, owner)
-        VALUES (%s, %s, %s, 'Journal Entry', 'Tax adjustment entry for demo', 97000, 97000, 1, NOW(), NOW(), 'Administrator')
-    """, (je_name, company, posting_date))
-
-    # Insert GL Entries
-    gl_entries = [
-        (f"Input CGST - {abbr}", 45000, 0),
-        (f"Input SGST - {abbr}", 45000, 0),
-        (f"Output CGST - {abbr}", 0, 52000),
-        (f"Output SGST - {abbr}", 0, 52000),
-        (f"TDS Payable - {abbr}", 0, 15000),
-        (f"Cash - {abbr}", 37000, 0),
-    ]
-
-    for account, debit, credit in gl_entries:
-        frappe.db.sql("""
-            INSERT INTO `tabGL Entry`
-            (name, posting_date, account, company, debit, credit, debit_in_account_currency, credit_in_account_currency,
-             voucher_type, voucher_no, against_voucher_type, against_voucher, is_cancelled, creation, modified, owner)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'Journal Entry', %s, '', '', 0, NOW(), NOW(), 'Administrator')
-        """, (frappe.generate_hash(), posting_date, account, company, debit, credit, debit, credit, je_name))
-
-    print(f"Created Journal Entry {je_name} with GL entries")
-
-
-def create_gstr_logs_sql(company):
-    """Create GSTR logs via SQL."""
-    try:
-        if frappe.db.sql("""SELECT 1 FROM information_schema.tables WHERE table_name = 'tabGSTR-1 Log'"""):
-            months = ["2026-01", "2026-02", "2026-03", "2026-04"]
-            for month in months:
-                log_name = f"GSTR1-DEMO-{month}"
-                if not frappe.db.exists("GSTR-1 Log", log_name):
-                    frappe.db.sql("""
-                        INSERT INTO `tabGSTR-1 Log` (name, company, return_period, status, creation, modified, owner)
-                        VALUES (%s, %s, %s, %s, NOW(), NOW(), 'Administrator')
-                    """, (log_name, company, month, random.choice(["Filed", "Filed", "Pending"])))
-                    print(f"Created GSTR-1 Log for {month}")
-    except Exception as e:
-        print(f"GSTR-1 Log setup skipped: {e}")
-
-    try:
-        if frappe.db.sql("""SELECT 1 FROM information_schema.tables WHERE table_name = 'tabGSTR-3B Entry'"""):
-            months = ["2026-01", "2026-02", "2026-03", "2026-04"]
-            for month in months:
-                entry_name = f"GSTR3B-DEMO-{month}"
-                if not frappe.db.exists("GSTR-3B Entry", entry_name):
-                    frappe.db.sql("""
-                        INSERT INTO `tabGSTR-3B Entry` (name, company, return_period, status, creation, modified, owner)
-                        VALUES (%s, %s, %s, %s, NOW(), NOW(), 'Administrator')
-                    """, (entry_name, company, month, random.choice(["Filed", "Filed", "Pending"])))
-                    print(f"Created GSTR-3B Entry for {month}")
-    except Exception as e:
-        print(f"GSTR-3B Entry setup skipped: {e}")
-
-
-def create_gst_inward_supply_sql(company):
-    """Create GST Inward Supply records via SQL."""
-    try:
-        if not frappe.db.sql("""SELECT 1 FROM information_schema.tables WHERE table_name = 'tabGST Inward Supply'"""):
-            print("GST Inward Supply table not found")
-            return
-
-        suppliers = frappe.get_all("Supplier", fields=["name", "supplier_name", "gstin"], limit=3)
-        statuses = ["Exact Match", "Exact Match", "Exact Match", "Suggested Match", "Mismatch", "Unlinked"]
-
-        for i in range(10):
-            supplier = random.choice(suppliers) if suppliers else {"name": "Unknown", "supplier_name": "Unknown", "gstin": ""}
-            inv_name = f"GIS-DEMO-{i+1:04d}"
-            taxable = random.randint(10000, 100000)
-            cgst = round(taxable * 0.09, 2)
-            sgst = round(taxable * 0.09, 2)
-
-            frappe.db.sql("""
-                INSERT INTO `tabGST Inward Supply`
-                (name, company, supplier_name, supplier_gstin, bill_no, bill_date, taxable_value, cgst, sgst, igst, cess, match_status, creation, modified, owner)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 0, %s, NOW(), NOW(), 'Administrator')
-            """, (inv_name, company, supplier["supplier_name"], supplier.get("gstin", ""), f"SUPP-INV-{i+1:04d}",
-                  add_days(today(), -random.randint(1, 90)), taxable, cgst, sgst, random.choice(statuses)))
-            print(f"Created GST Inward Supply {inv_name}")
-    except Exception as e:
-        print(f"GST Inward Supply setup skipped: {e}")
-
-
-if __name__ == "__main__":
-    create_tax_demo_data_sql()
+    print("Kenya Tax Intelligence demo data created via SQL.")

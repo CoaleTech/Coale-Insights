@@ -47,7 +47,7 @@ _LAZY_MAP = {
     "DemandForecasting": "insights.ml.demand_forecasting",
     "ProductRecommendations": "insights.ml.product_recommendations",
     "BreakevenEngine": "insights.ml.breakeven_engine",
-    "IndiaTaxIntelligence": "insights.ml.india_tax_intelligence.model",
+    "KenyaTaxIntelligence": "insights.ml.kenya_tax_intelligence.model",
     # `CustomerIntelligence` removed 2026-08-11: the underlying
     # `insights.ml.customer_intelligence.model` subpackage was deleted in the
     # pure-Ibis rewrite and nothing in the live tree uses

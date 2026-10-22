@@ -338,8 +338,8 @@ class FinancialIntelligence:
         # the schema's only native mention of a fixed deposit is
         # `Bank Guarantee.fixed_deposit_number` -- a margin-money field on an
         # unrelated document. An FD therefore lives in a plain Asset account
-        # and is identifiable only by name, the same convention as the TDS/TCS
-        # GL lookup in india_tax_intelligence/data.py.
+        # and is identifiable only by name, the same convention as the
+        # tax-account lookup in kenya_tax_intelligence/common.py.
         cash_agg = (
             self._cash_accounts(joined)
             .group_by(

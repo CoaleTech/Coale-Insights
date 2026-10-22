@@ -946,67 +946,6 @@ class TestMarketingAPIDrillDown(FrappeTestCase):
 class TestTaxAPIDrillDown(FrappeTestCase):
     """Test suite for tax drill-down API endpoints"""
 
-    @patch('insights.api.ml.tax.frappe.has_permission')
-    @patch('insights.ml.india_tax_intelligence.model.IndiaTaxIntelligence')
-    def test_get_tax_detail_tax_invoices(self, mock_intelligence, mock_has_permission):
-        """Test tax_invoices drill-down returns invoices with tax rows"""
-        from insights.api.ml.tax import get_tax_detail
-        from unittest.mock import MagicMock, patch
-
-        mock_intelligence.return_value._window.return_value = {
-            'name': 'FY2024', 'start': '2024-04-01', 'end': '2025-03-31'
-        }
-
-        # Build a chainable mock query builder whose .run() returns the page
-        # rows on the first call and the total count on the second.
-        mock_query = MagicMock()
-        mock_query.run.side_effect = [
-            [
-                {
-                    'name': 'SINV-007',
-                    'customer': 'Customer G',
-                    'posting_date': '2024-01-15',
-                    'grand_total': 1180.0,
-                    'total_taxes_and_charges': 180.0
-                }
-            ],
-            [{'total': 1}]
-        ]
-        for attr in ['select', 'where', 'orderby', 'limit', 'offset', 'inner_join', 'left_join', 'join', 'on', 'groupby', 'having']:
-            getattr(mock_query, attr).return_value = mock_query
-
-        # DocType fields must support comparison, arithmetic, and logical operators.
-        class _FakeField:
-            def __lt__(self, other): return self
-            def __le__(self, other): return self
-            def __gt__(self, other): return self
-            def __ge__(self, other): return self
-            def __eq__(self, other): return self
-            def __ne__(self, other): return self
-            def __add__(self, other): return self
-            def __sub__(self, other): return self
-            def __mul__(self, other): return self
-            def __truediv__(self, other): return self
-            def __and__(self, other): return self
-            def __rand__(self, other): return self
-            def __or__(self, other): return self
-            def __ror__(self, other): return self
-            def between(self, *args): return self
-            def isin(self, *args): return self
-            def notin(self, *args): return self
-            def isnull(self): return self
-        class _FakeDocType:
-            def __getattr__(self, name): return _FakeField()
-        mock_qb = MagicMock()
-        mock_qb.from_.return_value = mock_query
-        mock_qb.DocType.return_value = _FakeDocType()
-
-        with patch('insights.api.ml.tax.frappe.qb', mock_qb):
-            result = get_tax_detail('tax_invoices', '{"company": "Test Company"}')
-
-        self.assertEqual(result['rows'][0]['total_taxes_and_charges'], 180.0)
-        self.assertEqual(result['total'], 1)
-
     def test_get_tax_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
         from insights.api.ml.tax import get_tax_detail
@@ -1015,191 +954,42 @@ class TestTaxAPIDrillDown(FrappeTestCase):
             get_tax_detail('unknown_metric', '{}')
 
 
-class TestTaxForecastWindow(FrappeTestCase):
-    """`get_tax_forecast` must fit on closed months only.
+class TestKenyaTaxEnvelope(FrappeTestCase):
+    """`KenyaTaxIntelligence.train()` returns 9 tabs and survives a broken section."""
 
-    The running month carries a part-month of invoices, so it sits far below
-    every closed month and pulls the slope down. On a ledger whose current
-    month is empty the bug is invisible, which is why this is a test and not
-    a dashboard check.
-    """
+    def test_envelope_shape_and_degradation(self):
+        from types import SimpleNamespace
 
-    @staticmethod
-    def _months_back(count: int) -> list[str]:
-        """`YYYY-MM` for the `count` months ending with the running one."""
-        today = date.today()
-        out = []
-        y, m = today.year, today.month
-        for _ in range(count):
-            out.append(f"{y:04d}-{m:02d}")
-            m -= 1
-            if m == 0:
-                y, m = y - 1, 12
-        return list(reversed(out))
+        from insights.ml.kenya_tax_intelligence import model
 
-    def _forecast(self, months: list[str], outputs: list[float]):
-        from insights.ml.india_tax_intelligence import analytics
-
-        rows = [
-            {"month": mo, "cgst": amt / 2, "sgst": amt / 2, "igst": 0}
-            for mo, amt in zip(months, outputs, strict=True)
-        ]
-        with patch(
-            "insights.ml.india_tax_intelligence.data.get_gst_output_tax",
-            return_value=rows,
-        ), patch(
-            "insights.ml.india_tax_intelligence.data.get_gst_input_tax",
-            return_value=[],
-        ):
-            return analytics.get_tax_forecast(object(), None, None)
-
-    def test_running_month_excluded_from_fit(self):
-        """A flat history plus a part-month must still forecast flat."""
-        months = self._months_back(5)
-        # Four closed months at 1000, then a part-month at 100.
-        result = self._forecast(months, [1000, 1000, 1000, 1000, 100])
-
-        self.assertEqual(result["months_used"], 4)
-        self.assertEqual(result["last_closed_month"], months[-2])
-        self.assertIn("running month", result["note"])
-        # Flat closed history -> flat projection. Including the part-month
-        # would slope this hard negative.
-        for row in result["forecast"]:
-            self.assertAlmostEqual(row["projected_net_gst"], 1000.0, places=2)
-
-    def test_closed_history_is_used_whole(self):
-        """Nothing is dropped when the series ends before the running month."""
-        months = self._months_back(5)[:-1]
-        result = self._forecast(months, [100, 200, 300, 400])
-
-        self.assertEqual(result["months_used"], 4)
-        self.assertEqual(result["last_closed_month"], months[-1])
-        self.assertNotIn("running month", result["note"])
-        self.assertAlmostEqual(result["forecast"][0]["projected_net_gst"], 500.0, places=2)
-
-    def test_too_few_closed_months(self):
-        """Three rows where one is the running month is not three months."""
-        months = self._months_back(3)
-        result = self._forecast(months, [1000, 1000, 100])
-
-        self.assertEqual(result["forecast"], [])
-        self.assertIn("closed months", result["note"])
-
-
-class TestFilingDueWindow(FrappeTestCase):
-    """`_last_past_due_period` decides which returns the score may judge.
-
-    Both directions are bugs that have shipped here. Counting every logged
-    period as due reported the company delinquent on returns it did not yet
-    owe; counting only periods that carry a status reported 100% filing while
-    `tax_cash_outlook` listed GSTR-3B 2026-07 as overdue on the same screen.
-    The boundary is the statutory due day, so it is pinned on both sides of
-    that day.
-    """
-
-    def _cut(self, day, today):
-        from insights.ml.india_tax_intelligence.data import _last_past_due_period
-        return _last_past_due_period(day, today)
-
-    def test_before_due_day_skips_last_month(self):
-        """On the 10th, GSTR-1 for last month (due the 11th) is not yet late."""
-        self.assertEqual(self._cut(11, date(2026, 9, 10)), "2026-07")
-
-    def test_after_due_day_includes_last_month(self):
-        """On the 12th, last month's return has missed the 11th."""
-        self.assertEqual(self._cut(11, date(2026, 9, 12)), "2026-08")
-
-    def test_on_due_day_is_not_yet_late(self):
-        """The due date itself is a filing day, not a breach."""
-        self.assertEqual(self._cut(11, date(2026, 9, 11)), "2026-07")
-
-    def test_gstr3b_uses_its_own_later_day(self):
-        """GSTR-3B is due the 20th, so the 15th is still inside the window."""
-        self.assertEqual(self._cut(20, date(2026, 9, 15)), "2026-07")
-        self.assertEqual(self._cut(20, date(2026, 9, 21)), "2026-08")
-
-    def test_year_boundary(self):
-        """January steps back across the year, not to month zero."""
-        self.assertEqual(self._cut(11, date(2027, 1, 5)), "2026-11")
-        self.assertEqual(self._cut(11, date(2027, 1, 20)), "2026-12")
-        self.assertEqual(self._cut(20, date(2027, 2, 3)), "2026-12")
-
-
-class TestFailureCountsAreMeasured(FrappeTestCase):
-    """A failure count must come from the ledger, never from a constant.
-
-    Two shipped here. e-Invoice returned a hardcoded ``failed: 0`` behind a
-    comment claiming no such field existed -- it does, so the panel asserted
-    "no generation failures" without looking. e-Waybill computed its ``Failed``
-    bucket, printed it in the by-status table, and then never returned it as a
-    key, so the coverage lane's ``ew.failed ?? 0`` reported no issues directly
-    above a table listing one. Both read as a clean bill of health.
-    """
-
-    def _sections(self):
-        from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-        from insights.ml.india_tax_intelligence import data as d
-
-        m = IndiaTaxIntelligence(period="fy")
-        w = m._window()
-        return (
-            d.get_einvoice_status(m, w["start"], w["end"]),
-            d.get_ewaybill_status(m, w["start"], w["end"]),
+        ctx = SimpleNamespace(
+            company="Test Co",
+            base_currency="KES",
+            today=date(2026, 7, 1),
+            window=lambda: {"key": "fy"},
         )
 
-    def test_ewaybill_failed_matches_its_own_by_status_table(self):
-        """The lane and the table beneath it are one fact, not two."""
-        _, ewb = self._sections()
-        if "error" in ewb:
-            self.skipTest("india_compliance not installed")
-        bucket = sum(
-            int(b.get("count") or 0)
-            for b in (ewb.get("by_status") or [])
-            if b.get("status") == "Failed"
+        def compute(ctx, *_):
+            return {"available": True, "kpis": [], "exceptions": [1, 2], "rows": [1]}
+
+        def broken(ctx, *_):
+            raise RuntimeError("boom")
+
+        def fake_module(name):
+            return SimpleNamespace(compute=broken if name == "vat" else compute)
+
+        with patch.object(model, "build_context", return_value=ctx), patch.object(
+            model, "section_module", side_effect=fake_module
+        ), patch("insights.ml.kenya_tax_intelligence.common.frappe.log_error"):
+            result = model.KenyaTaxIntelligence("fy").train()
+
+        self.assertEqual(
+            list(result["tabs"]),
+            ["overview", "vat", "etims", "payroll", "wht", "income", "legal", "customs", "actions"],
         )
-        self.assertIn("failed", ewb)
-        self.assertEqual(ewb["failed"], bucket)
-
-    def test_einvoice_failed_is_read_from_the_status_field(self):
-        """Exact, not a bound: same window, same company, same IRN scope.
-
-        On a ledger with no failed generations a fabricated zero and a
-        measured zero are the same number, so this cannot catch the literal
-        today -- ``test_ewaybill_failed_matches_its_own_by_status_table``
-        does that structurally. What this pins is the contract: the moment
-        one invoice fails IRN generation, a hardcoded key stops matching.
-        """
-        from insights.ml.india_tax_intelligence.model import IndiaTaxIntelligence
-        from insights.ml.india_tax_intelligence.data import IRN_REQUIRED_GST_CATEGORIES
-
-        ei, _ = self._sections()
-        if "error" in ei:
-            self.skipTest("india_compliance not installed")
-        self.assertIn("failed", ei)
-        if "einvoice_status" not in frappe.db.get_table_columns("Sales Invoice"):
-            self.skipTest("no einvoice_status field on this install")
-
-        m = IndiaTaxIntelligence(period="fy")
-        w = m._window()
-        expected = frappe.db.count(
-            "Sales Invoice",
-            {
-                "docstatus": 1,
-                "company": m.company,
-                "posting_date": ("between", [w["start"], w["end"]]),
-                "einvoice_status": "Failed",
-                "gst_category": ("in", IRN_REQUIRED_GST_CATEGORIES),
-            },
-        )
-        self.assertEqual(ei["failed"], expected)
-
-    def test_einvoice_buckets_do_not_exceed_their_denominator(self):
-        """filed + pending must fit inside the invoices that need an IRN."""
-        ei, _ = self._sections()
-        if "error" in ei:
-            self.skipTest("india_compliance not installed")
-        self.assertEqual(ei["filed"] + ei["pending"], ei["total"])
-        self.assertLessEqual(ei["total"], ei["all_invoices"])
+        self.assertFalse(result["tabs"]["vat"]["available"])
+        self.assertTrue(result["tabs"]["etims"]["available"])
+        self.assertEqual(result["badges"], {"etims": 2, "payroll": 2, "wht": 2, "legal": 2, "actions": 1})
 
 
 class TestStrategicFinanceAPIDrillDown(FrappeTestCase):

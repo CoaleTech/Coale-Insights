@@ -60,6 +60,16 @@ const options = computed(() => {
       props.kind === 'donut'
         ? useDonutChartOptions(props.config as DonutChartConfig)
         : useAxisChartOptions(props.config as AxisChartConfig)
+    // frappe-ui 0.1.142 types `yAxis.yMin/yMax` but never passes them to ECharts.
+    const yAxis = (props.config as AxisChartConfig).yAxis
+    const echartsY = (base as { yAxis?: unknown }).yAxis
+    const y0 = (Array.isArray(echartsY) ? echartsY[0] : echartsY) as
+      | { min?: number; max?: number }
+      | undefined
+    if (props.kind !== 'donut' && yAxis && y0) {
+      if (yAxis.yMin != null) y0.min = yAxis.yMin
+      if (yAxis.yMax != null) y0.max = yAxis.yMax
+    }
     // ECharts shows no legend unless `legend` is present, so removing the key
     // (not setting `show:false`) also reclaims the space it reserved.
     if (props.hideLegend && base && typeof base === 'object') {

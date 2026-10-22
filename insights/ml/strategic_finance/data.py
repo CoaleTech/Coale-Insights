@@ -617,30 +617,40 @@ def estimate_operating_expenses(intelligence, week_start: datetime) -> float:
     return _combined_weekly_estimates(intelligence)[1]
 
 
+def _gl_total(ctx, kind: str, column: str, start, end) -> float:
+    """Sum of `column` ('credit'|'debit') over non-cancelled GL Entries on the Kenya tax accounts of `kind`."""
+    from insights.ml.kenya_tax_intelligence.common import tax_accounts
+
+    accounts = tax_accounts(ctx, kind)
+    if not accounts:
+        return 0.0
+    return float(
+        frappe.db.sql(
+            f"""SELECT COALESCE(SUM({column}), 0) FROM `tabGL Entry`
+                WHERE company = %s AND is_cancelled = 0 AND account IN %s
+                AND posting_date BETWEEN %s AND %s""",
+            (ctx.company, tuple(accounts), start, end),
+        )[0][0]
+    )
+
+
 def get_scheduled_taxes(intelligence, week_start, week_end) -> float:
-    """Get scheduled tax payments for a specific week: GST (GSTR-3B) and TDS.
+    """Scheduled KRA payments falling due in a week, from the ledger.
 
-    Due dates and amounts are the same real ones
-    insights.ml.india_tax_intelligence uses, not a flat percentage guess:
+    Due dates come from ``kenya_tax_intelligence.rules.monthly_due_dates``
+    (PAYE/NSSF/SHIF/NITA on the 9th, AHL 9 working days after month end,
+    VAT and excise on the 20th), nominal and never rolled for weekends.
+    Amounts are the prior calendar month's liability credits on the matching
+    tax accounts; VAT is output credits less input debits, floored at 0.
 
-    - GST: GSTR-3B monthly due date (20th) — the actual payment date, since
-      GSTR-1 (11th) carries no tax payment. QRMP (quarterly) filers are due
-      the 22nd/24th depending on state group; that split is not applied here
-      because this codebase has no verified state-to-group source, and on
-      this site GST Return Log shows the company filing GSTR-3B monthly
-      (consecutive month-over-month periods), the more common case above the
-      QRMP turnover threshold. Amount is net GST (output tax − input tax
-      credit) actually posted for the prior calendar month, floored at 0 —
-      a negative position is ITC carried forward, not a cash inflow.
-    - TDS: due the 7th of the following month (Sec 200(1), Income Tax Act,
-      non-government deductors). The March-deducted-TDS exception (due 30
-      April, not 7 April) is not modelled — a single month a year in a
-      rolling forecast. Amount is the real TDS payable-by-section total for
-      the prior calendar month.
-
-    Returns 0 if india_compliance is not installed, rather than falling back
-    to an estimate with no real filing/ledger data behind it.
+    Returns 0 when the chart has no matching accounts, rather than falling
+    back to an estimate with no ledger data behind it.
     """
+    from dataclasses import replace
+
+    from insights.ml.kenya_tax_intelligence import rules
+    from insights.ml.kenya_tax_intelligence.common import build_context
+
     if isinstance(week_start, str):
         week_start = datetime.strptime(week_start, '%Y-%m-%d').date()
     elif hasattr(week_start, 'date') and callable(week_start.date):
@@ -650,41 +660,20 @@ def get_scheduled_taxes(intelligence, week_start, week_end) -> float:
     elif hasattr(week_end, 'date') and callable(week_end.date):
         week_end = week_end.date()
 
-    from insights.ml.india_tax_intelligence.data import (
-        check_india_compliance_installed,
-        get_gst_output_tax,
-        get_gst_input_tax,
-        get_tds_summary,
-        GST_DUE_DATES,
-    )
-
-    if not check_india_compliance_installed():
-        return 0.0
-
-    gst_due_day = GST_DUE_DATES.get("gstr3b_monthly_day", 20)
-    tds_due_day = 7
-
+    ctx = replace(build_context("fy"), company=intelligence.company, _cache={})
     tax_amount = 0.0
-
     for day in range((week_end - week_start).days + 1):
         check_date = week_start + timedelta(days=day)
         prev_month_end = check_date.replace(day=1) - timedelta(days=1)
-        prev_month_start = prev_month_end.replace(day=1)
-
-        if check_date.day == gst_due_day:
-            output_rows = get_gst_output_tax(intelligence, str(prev_month_start), str(prev_month_end))
-            input_rows = get_gst_input_tax(intelligence, str(prev_month_start), str(prev_month_end))
-            output_total = sum(
-                float(r.get(c, 0) or 0) for r in output_rows for c in ('cgst', 'sgst', 'igst', 'cess')
-            )
-            input_total = sum(
-                float(r.get(c, 0) or 0) for r in input_rows for c in ('cgst', 'sgst', 'igst', 'cess')
-            )
-            tax_amount += max(0.0, output_total - input_total)
-
-        if check_date.day == tds_due_day:
-            tds = get_tds_summary(intelligence, str(prev_month_start), str(prev_month_end))
-            tax_amount += float(tds.get('total_payable', 0) or 0)
+        start = prev_month_end.replace(day=1)
+        due = rules.monthly_due_dates(prev_month_end)
+        for kind in ("paye", "nssf", "shif", "nita", "ahl", "excise"):
+            if due[kind] == check_date:
+                tax_amount += _gl_total(ctx, kind, "credit", start, prev_month_end)
+        if due["vat"] == check_date:
+            output = _gl_total(ctx, "vat_output", "credit", start, prev_month_end)
+            input_ = _gl_total(ctx, "vat_input", "debit", start, prev_month_end)
+            tax_amount += max(0.0, output - input_)
 
     return round(tax_amount, 2)
 

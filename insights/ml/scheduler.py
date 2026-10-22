@@ -462,30 +462,26 @@ def train_breakeven_engine():
         return {"status": "error", "message": str(e)}
 
 
-def train_india_tax_intelligence():
-    """Daily: Train India tax intelligence and warm caches."""
+def train_kenya_tax_intelligence():
+    """Daily: Train Kenya tax intelligence and warm caches."""
     try:
-        from insights.ml.india_tax_intelligence import IndiaTaxIntelligence
+        from insights.ml.kenya_tax_intelligence import KenyaTaxIntelligence
 
-        frappe.logger().info("Starting scheduled India tax intelligence training")
-        model = IndiaTaxIntelligence()
-        result = model.train()
+        frappe.logger().info("Starting scheduled Kenya tax intelligence training")
+        result = KenyaTaxIntelligence().train()
 
         if result.get("status") == "success":
-            frappe.logger().info(
-                f"India tax intelligence completed: "
-                f"gst_summary={len(result.get('gst_summary', []))} months, "
-                f"compliance_score={result.get('compliance_score', 0):.1f}"
-            )
+            available = [k for k, t in result["tabs"].items() if t.get("available")]
+            frappe.logger().info(f"Kenya tax intelligence completed: {len(available)}/9 tabs available")
         else:
             frappe.logger().warning(
-                f"India tax intelligence failed: {result.get('message', 'Unknown error')}"
+                f"Kenya tax intelligence failed: {result.get('message', 'Unknown error')}"
             )
 
         return result
 
     except Exception as e:
-        frappe.log_error(f"Scheduled India tax intelligence failed: {str(e)}", "ML Scheduler")
+        frappe.log_error(f"Scheduled Kenya tax intelligence failed: {str(e)}", "ML Scheduler")
         return {"status": "error", "message": str(e)}
 
 
