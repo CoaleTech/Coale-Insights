@@ -14,18 +14,10 @@ def check_role(role):
     def decorator(function):
         @wraps(function)
         def wrapper(*args, **kwargs):
-
-            perm_disabled = not frappe.db.get_single_value(
-                "Insights Settings", "enable_permissions"
-            )
-            if perm_disabled and role in ["Insights Admin", "Insights User"]:
+            if frappe.session.user == "Administrator":
                 return function(*args, **kwargs)
 
-            has_required_role = frappe.db.get_value(
-                "Has Role",
-                {"parent": frappe.session.user, "role": role},
-                cache=not frappe.flags.in_test,
-            )
+            has_required_role = role in frappe.get_roles(frappe.session.user)
 
             if role == "Insights User" and is_admin(frappe.session.user):
                 has_required_role = True
@@ -150,25 +142,27 @@ def validate_type(func):
     return wrapper
 
 
-def insights_whitelist(*args, **kwargs):
+def insights_whitelist(*args, role="Insights User", **kwargs):
     # usage:
     # @insights_whitelist()
     # def my_function():
     #     pass
     #
+    # @insights_whitelist(role="Insights Admin")
+    # def admin_only():
+    #     pass
+    #
     # what it does:
     # @frappe.whitelist()
-    # @check_role("Insights User")
+    # @check_role(role)
     # def my_function():
     #     pass
 
     def decorator(function):
         @wraps(function)
-        @frappe.whitelist(*args, **kwargs)
-        @check_role("Insights User")
         def wrapper(*args, **kwargs):
             return function(*args, **kwargs)
 
-        return wrapper
+        return frappe.whitelist(*args, **kwargs)(check_role(role)(wrapper))
 
     return decorator

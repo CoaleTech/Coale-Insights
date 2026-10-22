@@ -57,7 +57,7 @@ def get_user_info():
     })
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def update_default_version(version):
     if get_user_default("insights_has_visited_v3", frappe.session.user) != "1":
         set_user_default("insights_has_visited_v3", "1", frappe.session.user)
@@ -65,7 +65,7 @@ def update_default_version(version):
     set_user_default("insights_default_version", version, frappe.session.user)
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 @rate_limit(limit=10, seconds=60 * 60)
 def contact_team(message_type, message_content, is_critical=False):
     if not message_type or not message_content:

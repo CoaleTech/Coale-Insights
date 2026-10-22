@@ -40,6 +40,7 @@ class InsightsAlert(Document):
         last_execution: DF.Datetime | None
         message: DF.MarkdownEditor | None
         next_execution: DF.Datetime | None
+        permission_user: DF.Link | None
         query: DF.Link
         recipients: DF.SmallText | None
         telegram_chat_id: DF.Data | None
@@ -55,7 +56,21 @@ class InsightsAlert(Document):
         except Exception as e:
             frappe.throw(f"Invalid condition: {e}")
 
-    @frappe.whitelist()
+        self.set_permission_user()
+
+    def set_permission_user(self):
+        """Whoever enables the alert is who it runs as.
+
+        The scheduler runs as Administrator, so without this the alert would
+        read every row. Only the enable transition writes it so a title edit
+        does not hand the alert over to a different user's row access.
+        `permission_user` is permlevel 1 so no client can write it directly.
+        """
+        if self.is_new() or self.has_value_changed("disabled"):
+            self.permission_user = frappe.session.user
+
+
+    @frappe.whitelist(methods=["POST"])
     def send_alert(self, force=False):
         results = self.evaluate_condition()
         if not results and not force:
@@ -157,18 +172,26 @@ class InsightsAlert(Document):
         next_execution = self.get_next_execution()
         return next_execution <= now_datetime()
 
-    @frappe.whitelist()
+    @frappe.whitelist(methods=["POST"])
     def test_alert(self):
         self.send_alert(force=True)
 
 
 def send_alerts():
-    alerts = frappe.get_all("Insights Alert", filters={"disabled": 0})
+    from insights.permission_user import permission_user
+
+    alerts = frappe.get_all("Insights Alert", filters={"disabled": 0}, fields=["name", "permission_user"])
     for alert in alerts:
-        alert_doc = frappe.get_cached_doc("Insights Alert", alert.name)
-        if alert_doc.is_event_due():
-            alert_doc.send_alert()
+        try:
+            alert_doc = frappe.get_cached_doc("Insights Alert", alert.name)
+            if alert_doc.is_event_due():
+                # the scheduler runs as Administrator; filter rows by who enabled the alert
+                with permission_user(alert.permission_user):
+                    alert_doc.send_alert()
             frappe.db.commit()
+        except Exception:
+            frappe.db.rollback()
+            frappe.log_error(title=f"Alert failed: {alert.name}")
 
 
 class TelegramAlert:

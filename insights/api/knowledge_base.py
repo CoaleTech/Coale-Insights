@@ -16,7 +16,7 @@ import frappe
 from frappe import _
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def reindex_knowledge_base(kb_name: str) -> dict[str, Any]:
 	"""Requeue every document on `kb_name` and re-run the chunk/embed/upsert
 	pipeline, regardless of its current status."""

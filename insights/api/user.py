@@ -201,27 +201,39 @@ def add_insights_user(user):
     raise NotImplementedError
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True)  # nosemgrep - invitee has no account yet
 @validate_type
 def accept_invitation(key: str):
+    from insights.insights.doctype.insights_user_invitation.insights_user_invitation import (
+        get_invitation_by_key,
+    )
+
     if not key:
         frappe.throw("Invalid or expired key")
 
-    invitation_name = frappe.db.exists("Insights User Invitation", {"key": key})
+    invitation_name = get_invitation_by_key(key)
     if not invitation_name:
         frappe.throw("Invalid or expired key")
 
     invitation = frappe.get_doc("Insights User Invitation", invitation_name)
-    invitation.accept()
+    account_was_created = invitation.accept()
     invitation.reload()
 
-    if invitation.status == "Accepted":
-        frappe.local.login_manager.login_as(invitation.email)
-        frappe.local.response["type"] = "redirect"
-        frappe.local.response["location"] = "/insights"
+    if invitation.status != "Accepted":
+        return
 
+    frappe.local.response["type"] = "redirect"
 
-@insights_whitelist()
+    if not account_was_created:
+        # address already had an account; don't auto-login on behalf of the holder
+        frappe.local.response["location"] = "/login"
+        return
+
+    # new account has no password yet — the link is the first-time sign-in
+    frappe.local.login_manager.login_as(invitation.email)
+    frappe.local.response["location"] = "/insights"
+
+@insights_whitelist(role="Insights Admin", methods=["POST"])
 @validate_type
 def invite_users(emails: str):
     frappe.only_for("Insights Admin")

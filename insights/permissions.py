@@ -387,6 +387,37 @@ class InsightsPermissions:
         return frappe.qb.from_(Resource).select(Resource.resource_name.as_("name")).where(condition)
 
 
+def check_chart_query_access(chart):
+    """A chart may only point at a query its author can read.
+
+    The link is a grant: `_build_query_permission_query` gives read on every
+    query linked from a chart the caller can read. So the link must be checked
+    where it is written, or it widens the author's own access.
+    Only a changed link is checked.
+    """
+    if not chart.query or not chart.has_value_changed("query"):
+        return
+    if not frappe.has_permission("Insights Query v3", ptype="read", doc=chart.query):
+        frappe.throw(
+            frappe._("You do not have access to the query this chart is built on"),
+            frappe.PermissionError,
+        )
+
+
+def check_dashboard_chart_access(dashboard):
+    """A dashboard may only hold charts its author can read.
+
+    `_build_chart_permission_query` grants read on every chart placed on a
+    dashboard the caller can read. Naming a chart here is the same kind of grant.
+    """
+    for row in dashboard.linked_charts:
+        if not frappe.has_permission("Insights Chart v3", ptype="read", doc=row.chart):
+            frappe.throw(
+                frappe._("You do not have access to one of the charts on this dashboard"),
+                frappe.PermissionError,
+            )
+
+
 def has_doc_permission(doc, ptype, user):
     return InsightsPermissions(user).has_doc_permission(doc, ptype)
 

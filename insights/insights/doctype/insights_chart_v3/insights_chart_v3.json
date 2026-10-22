@@ -47,7 +47,16 @@
    "fieldname": "is_public",
    "fieldtype": "Check",
    "in_list_view": 1,
-   "label": "Is Public"
+   "label": "Is Public",
+   "permlevel": 1
+  },
+  {
+   "fieldname": "permission_user",
+   "fieldtype": "Link",
+   "label": "Based on Permissions For User",
+   "options": "User",
+   "permlevel": 1,
+   "read_only": 1
   },
   {
    "fieldname": "section_break_vmvi",
@@ -97,7 +106,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-10-18 02:38:53.314449",
+ "modified": "2026-10-22 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Insights",
  "name": "Insights Chart v3",
@@ -126,6 +135,16 @@
    "role": "Insights Admin",
    "share": 1,
    "write": 1
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Insights User"
+  },
+  {
+   "permlevel": 1,
+   "read": 1,
+   "role": "Insights Admin"
   }
  ],
  "row_format": "Dynamic",

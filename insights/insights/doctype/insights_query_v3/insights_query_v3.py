@@ -18,6 +18,7 @@ from insights.insights.doctype.insights_data_source_v3.ibis_utils import (
     get_columns_from_schema,
 )
 from insights.utils import deep_convert_dict_to_dict
+from insights.insights.doctype.insights_team.insights_team import is_admin
 
 
 class InsightsQueryv3(Document):
@@ -161,6 +162,17 @@ class InsightsQueryv3(Document):
 
     @insights_whitelist()
     def download_results(self, format="csv", active_operation_idx=None, adhoc_filters=None):
+        if not is_admin(frappe.session.user) and not (
+            frappe.has_permission(self.doctype, ptype="export")
+            and frappe.has_permission(self.doctype, ptype="read", doc=self)
+        ):
+            frappe.throw(
+                frappe._(
+                    "Your role does not have the export permission for queries. Contact your administrator."
+                ),
+                frappe.PermissionError,
+            )
+
         with set_adhoc_filters(adhoc_filters):
             ibis_query = self.build(active_operation_idx)
 

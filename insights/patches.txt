@@ -14,3 +14,6 @@ insights.patches.create_ai_analytics_dashboards
 insights.patches.remove_v2_doctypes
 insights.patches.migrate_stale_ai_models
 insights.patches.apply_user_permissions_by_default
+insights.patches.strip_default_schema_from_table_names
+insights.patches.hash_invitation_keys
+insights.patches.backfill_permission_user

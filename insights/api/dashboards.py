@@ -58,7 +58,7 @@ def get_dashboards(search_term=None, limit=50):
     return dashboards
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 @validate_type
 def update_dashboard_preview(dashboard_name: str):
     dashboard = frappe.get_doc("Insights Dashboard v3", dashboard_name)

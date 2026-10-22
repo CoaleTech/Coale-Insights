@@ -56,7 +56,7 @@ def get_data_store_tables(data_source=None, search_term=None, limit=100):
     return ret
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 @validate_type
 def import_table(data_source: str, table_name: str):
     frappe.only_for("Insights Admin")

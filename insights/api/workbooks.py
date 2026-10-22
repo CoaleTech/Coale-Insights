@@ -257,7 +257,7 @@ def move_item_to_folder(item_type, item_name, folder_name=None):
     item.db_set("folder", folder_name, update_modified=False)
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def update_sort_orders(workbook, items):
     """Bulk update sort orders"""
     if not frappe.has_permission("Insights Workbook", ptype="write", doc=workbook):

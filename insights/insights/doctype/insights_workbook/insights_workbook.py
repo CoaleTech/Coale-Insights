@@ -344,19 +344,19 @@ class InsightsWorkbook(Document):
 
         return workbook
 
-    @frappe.whitelist()
+    @frappe.whitelist(methods=["POST"])
     def duplicate(self):
         workbook = self.export()
         workbook["doc"]["title"] = None
         return import_workbook(workbook)
 
-    @frappe.whitelist()
+    @frappe.whitelist(methods=["POST"])
     def import_query(self, query):
         from insights.insights.doctype.insights_query_v3.insights_query_v3 import import_query
 
         return import_query(query, self.name)
 
-    @frappe.whitelist()
+    @frappe.whitelist(methods=["POST"])
     def import_chart(self, chart):
         from insights.insights.doctype.insights_chart_v3.insights_chart_v3 import import_chart
 

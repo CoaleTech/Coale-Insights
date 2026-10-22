@@ -32,7 +32,7 @@ from insights.utils import create_execution_log
 from insights.utils import deep_convert_dict_to_dict as _dict
 
 from .ibis.functions import quarter_start, week_start
-from .ibis.utils import get_functions
+from .ibis.utils import assert_expression_has_no_io, get_functions
 
 from insights.concurrency_lease import concurrent_limit_lease
 
@@ -532,34 +532,47 @@ class IbisQueryBuilder:
         if check_permissions:
             parsed = sg.parse_one(raw_sql, dialect=db.dialect)
 
-            tables = set()
-            for table_exp in parsed.find_all(sg.exp.Table):
-                tables.add(table_exp.name)
-
-            cte_aliases = set()
+            # build a {reference: canonical_table_name} map; schema-qualified references
+            # (e.g. "public.tabUser") are mapped to the name stored in Insights Table v3
+            tables: dict[str, str] = {}
+            cte_aliases: set[str] = set()
             for cte_exp in parsed.find_all(sg.exp.CTE):
                 cte_aliases.add(cte_exp.alias)
 
-            tables = tables - cte_aliases
+            for table_exp in parsed.find_all(sg.exp.Table):
+                ref = f"{table_exp.db}.{table_exp.name}" if table_exp.db else table_exp.name
+                bare = table_exp.name
+                if bare in cte_aliases and not table_exp.db:
+                    continue
+                if ref not in tables:
+                    canonical = ds.sql_table_name(bare, table_exp.db or None) if table_exp.db else bare
+                    if canonical:
+                        tables[ref] = canonical
 
             replace_map = {}
-            for table_name in tables:
+            for ref, table_name in tables.items():
                 t = InsightsTablev3.get_ibis_table(
                     data_source,
                     table_name,
                     use_live_connection=True,
                 )
                 t_sql = ibis.to_sql(t)
+
+                # NOTE: This currently works because `apply_sql` uses live connections.
+                # If this flow ever starts using warehouse-backed tables,
+                # this WHERE-based check will be insufficient.
+                # See insights_table_v3.py -> apply_user_permissions()
+
                 # check if t_sql has any where clause, if not, then don't replace
                 t_parsed = sg.parse_one(t_sql, dialect=db.dialect)
                 if not t_parsed.find(sg.exp.Where):
                     continue
-                replace_map[table_name] = t_sql
+                replace_map[ref] = t_sql
 
             with_clauses = []
-            for table_name, table_sql in replace_map.items():
-                quoted_table_name = sg.to_identifier(table_name)
-                with_clauses.append(f"{quoted_table_name} AS ({table_sql})")
+            for ref, table_sql in replace_map.items():
+                quoted_ref = sg.to_identifier(ref)
+                with_clauses.append(f"{quoted_ref} AS ({table_sql})")
 
             if with_clauses:
                 with_clause_sql = "WITH " + ", ".join(with_clauses)
@@ -824,6 +837,7 @@ def exec_with_return(
     _globals: dict | None = None,
     _locals: dict | None = None,
 ):
+    assert_expression_has_no_io(script)
     tree = ast.parse(script)
 
     if not tree.body:

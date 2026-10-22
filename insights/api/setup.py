@@ -15,18 +15,18 @@ def setup_complete():
     return bool(frappe.get_single("Insights Settings").setup_complete)
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def update_erpnext_source_title(title):
     frappe.db.set_value("Insights Data Source v3", "Site DB", "title", title)
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def setup_sample_data(dataset):
     factory = DemoDataFactory()
     factory.run()
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def submit_survey_responses(responses):
     responses = frappe.parse_json(responses)
 
@@ -40,7 +40,7 @@ def submit_survey_responses(responses):
         frappe.log_error(title="Error submitting survey responses")
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def complete_setup():
     settings = frappe.get_single("Insights Settings")
     settings.setup_complete = 1

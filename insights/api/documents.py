@@ -10,20 +10,39 @@ import frappe
 from frappe.handler import is_valid_http_method, is_whitelisted
 from frappe.monitor import add_data_to_monitor
 
-from insights.api.shared import is_public
+from insights.api.shared import get_public_permission_user, is_public
 from insights.decorators import validate_type
 
 
-# Methods that guests are allowed to call on specific DocTypes
-_PUBLIC_METHODS: dict[str, list[str]] = {
-    "Insights Query v3": ["execute", "download_results"],
-    "Insights Dashboard v3": ["get_distinct_column_values"],
+# A public execution runs what the publisher published. The surface is the set
+# of parameter names the published document's methods accept from a viewer,
+# not the builder's own parameters (active_operation_idx, force, …).
+PUBLIC_METHOD_ARGS: dict[tuple[str, str], set[str]] = {
+    ("Insights Query v3", "execute"): {"adhoc_filters"},
+    ("Insights Query v3", "download_results"): {"format", "adhoc_filters"},
+    ("Insights Dashboard v3", "get_distinct_column_values"): {
+        "query",
+        "column_name",
+        "search_term",
+        "adhoc_filters",
+    },
+    ("Insights Dashboard v3", "track_view"): set(),
 }
 
 
 def is_public_method(doctype: str, method: str) -> bool:
-    """Return True if the method is in the allow-list for the given DocType."""
-    return method in _PUBLIC_METHODS.get(doctype, [])
+    return (doctype, method) in PUBLIC_METHOD_ARGS
+
+
+def public_method_args(doctype: str, method: str, args: dict | str | None) -> dict:
+    """The caller's args, stripped of anything the public contract does not name.
+
+    Dropped rather than refused so the published document still renders.
+    """
+    allowed = PUBLIC_METHOD_ARGS.get((doctype, method), set())
+    args = frappe.parse_json(args) or {}
+    return {k: v for k, v in args.items() if k in allowed}
+
 
 
 def _execute_doc_method(doc, method: str, args: dict | None = None, ignore_permissions=False):
@@ -44,17 +63,11 @@ def _execute_doc_method(doc, method: str, args: dict | None = None, ignore_permi
     return response
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True)  # nosemgrep - falls back to is_public() only after the
+# framework has already refused the caller
 @validate_type
 def get_doc(doctype: str, name: str | int):
-    """
-    Fetch a document. Requires standard read permission.
-    Falls back to allow access for public (shared) documents.
-
-    Security note: access is gated by either frappe.has_permission (via the
-    standard frappe.client.get call) or the is_public() check.  Do NOT remove
-    the is_public guard below.
-    """
+    """Fetch a document. Falls back to public access for shared docs."""
     try:
         from frappe.client import get as _get_doc
 
@@ -62,18 +75,15 @@ def get_doc(doctype: str, name: str | int):
     except frappe.PermissionError:
         if not is_public(doctype, name):
             raise
-        return frappe.get_doc(doctype, name).as_dict()
+        doc = frappe.get_doc(doctype, name)
+        doc.apply_fieldlevel_read_permissions()
+        return doc.as_dict()
 
 
-@frappe.whitelist(allow_guest=True)
+@frappe.whitelist(allow_guest=True)  # nosemgrep - guests reach only public documents,
+# and only the methods and arguments PUBLIC_METHOD_ARGS names
 def run_doc_method(method: str, docs: dict | str, args: dict | None = None):
-    """
-    Execute a document method.
-    For guest callers the method must be in the public-methods allow-list.
-
-    Security note: The allow-list (_PUBLIC_METHODS) is the sole gate for
-    unauthenticated execution.  Keep that list minimal.
-    """
+    """Execute a document method. Guest callers are restricted to PUBLIC_METHOD_ARGS."""
     doc = frappe.parse_json(docs)
     doctype = doc.get("doctype")
     name = doc.get("name")
@@ -82,8 +92,7 @@ def run_doc_method(method: str, docs: dict | str, args: dict | None = None):
         raise frappe.ValidationError("Invalid document")
 
     try:
-        docs = frappe.parse_json(docs)
-        doc = frappe.get_doc(docs)
+        doc = frappe.get_doc(frappe.parse_json(docs))
         return _execute_doc_method(doc, method, args)
 
     except frappe.PermissionError:
@@ -92,5 +101,11 @@ def run_doc_method(method: str, docs: dict | str, args: dict | None = None):
         if not is_public_method(doctype, method):
             raise frappe.PermissionError("You don't have permission to access this method")
 
+        from insights.permission_user import permission_user
+
         doc = frappe.get_doc(doctype, name)
-        return _execute_doc_method(doc, method, args, ignore_permissions=True)
+        filtered_args = public_method_args(doctype, method, args)
+        with permission_user(get_public_permission_user(doctype, name)):
+            return _execute_doc_method(doc, method, filtered_args, ignore_permissions=True)
+
+

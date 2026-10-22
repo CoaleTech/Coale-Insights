@@ -94,7 +94,7 @@ class InsightsTablev3(Document):
         t = apply_user_permissions(t, data_source, table_name)
         return t
 
-    @frappe.whitelist()
+    @frappe.whitelist(methods=["POST"])
     def import_to_warehouse(self):
         frappe.only_for("Insights Admin")
         wt = Warehouse().get_table(self.data_source, self.table)
@@ -105,32 +105,47 @@ def get_table_name(data_source, table):
     return md5((data_source + table).encode()).hexdigest()[:10]
 
 
+def strip_schema_prefix(table_name: str) -> str:
+	"""Drop the `<schema>.` prefix postgres table names used to always carry.
+
+	The frappe table -> doctype mapping needs the bare `tab`-prefixed name, so
+	`public.tabUser` has to resolve to the `User` doctype. Names are unqualified
+	for single-schema sources now, but older stored names may still carry the prefix.
+	"""
+	_schema, separator, table = table_name.partition(".")
+	return table if separator and table.startswith("tab") else table_name
+
+
 def apply_user_permissions(t, data_source, table_name):
-    if not frappe.db.get_single_value("Insights Settings", "apply_user_permissions", cache=True):
-        return t
+	if not frappe.db.get_single_value("Insights Settings", "apply_user_permissions", cache=True):
+		return t
 
-    if not frappe.db.get_value("Insights Data Source v3", data_source, "is_site_db", cache=True):
-        return t
+	if not frappe.db.get_value("Insights Data Source v3", data_source, "is_site_db", cache=True):
+		return t
 
-    if table_name == "tabSingles":
-        single_doctypes = frappe.get_all("DocType", filters={"issingle": 1}, pluck="name")
-        allowed_doctypes = get_valid_perms()
-        allowed_doctypes = [p.parent for p in allowed_doctypes if p.read]
-        allowed_single_doctypes = set(single_doctypes) & set(allowed_doctypes)
-        if len(allowed_single_doctypes) == len(single_doctypes):
-            return t
-        return t.filter(t.doctype.isin(allowed_single_doctypes))
+	table_name = strip_schema_prefix(table_name)
 
-    doctype = table_name.replace("tab", "")
-    allowed_docs = get_allowed_documents(doctype)
+	if table_name == "tabSingles":
+		single_doctypes = frappe.get_all("DocType", filters={"issingle": 1}, pluck="name")
+		allowed_doctypes = get_valid_perms()
+		allowed_doctypes = [p.parent for p in allowed_doctypes if p.read]
+		allowed_single_doctypes = set(single_doctypes) & set(allowed_doctypes)
+		if not allowed_single_doctypes:
+			return t.filter(False)
+		if len(allowed_single_doctypes) == len(single_doctypes):
+			return t
+		return t.filter(t.doctype.isin(allowed_single_doctypes))
 
-    if allowed_docs == "*":
-        return t
-    if isinstance(allowed_docs, list):
-        return t.filter(t.name.isin(allowed_docs))
+	doctype = table_name.replace("tab", "")
+	allowed_docs = get_allowed_documents(doctype)
 
-    create_toast("You do not have permissions to access this table", type="error")
-    return t.filter(False)
+	if allowed_docs == "*":
+		return t
+	if isinstance(allowed_docs, list):
+		return t.filter(t.name.isin(allowed_docs))
+
+	create_toast("You do not have permissions to access this table", type="error")
+	return t.filter(False)
 
 
 def get_allowed_documents(doctype):
@@ -162,6 +177,17 @@ def get_allowed_documents(doctype):
             pluck="parent",
             distinct=True,
         )
+
+        custom_parent_doctypes = frappe.get_all(
+            "Custom Field",
+            filters={
+                "fieldtype": ["in", ["Table", "Table MultiSelect"]],
+                "options": child_doctype,
+            },
+            pluck="dt",
+            distinct=True,
+        )
+        parent_doctypes = list(set(parent_doctypes + custom_parent_doctypes))
 
         doctype_perms = get_valid_perms()
         parent_doctypes = [p.parent for p in doctype_perms if p.read and p.parent in parent_doctypes]

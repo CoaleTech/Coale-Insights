@@ -30,12 +30,22 @@ class InsightsDashboardv3(Document):
         items: DF.JSON | None
         linked_charts: DF.TableMultiSelect[InsightsDashboardChartv3]
         old_name: DF.Data | None
+        permission_user: DF.Link | None
         preview_image: DF.Data | None
         share_link: DF.Data | None
         title: DF.Data | None
         vertical_compact_layout: DF.Check
         workbook: DF.Link
     # end: auto-generated types
+
+    def before_validate(self):
+        # linked_charts is derived from items; build it before validate() reads it
+        self.set_linked_charts()
+
+    def validate(self):
+        from insights.permissions import check_dashboard_chart_access
+
+        check_dashboard_chart_access(self)
 
     @frappe.whitelist()
     def track_view(self):
@@ -70,7 +80,6 @@ class InsightsDashboardv3(Document):
         return d
 
     def before_save(self):
-        self.set_linked_charts()
         self.enqueue_update_dashboard_preview()
 
     def set_linked_charts(self):
@@ -183,7 +192,7 @@ class InsightsDashboardv3(Document):
 
         return people_with_access, org_access
 
-    @frappe.whitelist()
+    @frappe.whitelist(methods=["POST"])
     def update_access(self, data):
         if not frappe.has_permission("Insights Dashboard v3", ptype="share", doc=self.name):
             frappe.throw("You do not have permission to share this dashboard")
@@ -192,6 +201,12 @@ class InsightsDashboardv3(Document):
         is_public = data.get("is_public")
         is_shared_with_organization = data.get("is_shared_with_organization")
         people_with_access = data.get("people_with_access") or []
+
+        # check before any share is applied so a refusal leaves nothing half-done
+        if is_public:
+            from insights.permissions import check_dashboard_chart_access
+            check_dashboard_chart_access(self)
+
 
         existing_shares = frappe.get_all(
             "DocShare",
@@ -235,7 +250,10 @@ class InsightsDashboardv3(Document):
             for share in org_shares:
                 frappe.delete_doc("DocShare", share.name, ignore_permissions=True)
 
-        self.db_set("is_public", is_public)
+        self.db_set({
+            "is_public": int(bool(is_public)),
+            "permission_user": frappe.session.user if is_public else None,
+        })
 
 
 def get_page_preview(url: str, headers: dict | None = None) -> bytes:

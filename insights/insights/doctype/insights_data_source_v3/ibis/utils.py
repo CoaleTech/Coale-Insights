@@ -1,7 +1,38 @@
+import ast
+
 import frappe
 import ibis
 from ibis import selectors as s
 from jedi import Script
+
+# An expression describes a query; it must not name any attribute that opens a
+# path, URL or backend connection. Expressed as a rule rather than a list so a
+# new ibis release that adds `read_avro` needs no edit here.
+IO_ATTRIBUTE_PREFIXES = ("read_", "to_", "from_")
+IO_ATTRIBUTE_NAMES = frozenset({"connect", "get_backend", "set_backend", "register"})
+
+
+def is_io_attribute(name: str) -> bool:
+    return name in IO_ATTRIBUTE_NAMES or name.startswith(IO_ATTRIBUTE_PREFIXES)
+
+
+def assert_expression_has_no_io(expression: str) -> None:
+    """Refuse an expression that names an I/O attribute.
+
+    Checked in the source: RestrictedPython compiles `a.b` to a guard call
+    carrying the literal `b`, so an attribute name is always spelled out here.
+    """
+    try:
+        tree = ast.parse(expression)
+    except SyntaxError:
+        return
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and is_io_attribute(node.attr):
+            frappe.throw(
+                f"'{node.attr}' is not available in an expression",
+                frappe.PermissionError,
+            )
+
 
 
 def get_functions():
@@ -66,10 +97,6 @@ def get_functions():
         "range",
         "range_window",
         "rank",
-        "read_csv",
-        "read_delta",
-        "read_json",
-        "read_parquet",
         "row_number",
         "rows_window",
         "schema",
@@ -78,7 +105,6 @@ def get_functions():
         "table",
         "time",
         "timestamp",
-        "to_sql",
         "today",
         "trailing_range_window",
         "trailing_window",
@@ -89,6 +115,8 @@ def get_functions():
     )
     context.ibis = frappe._dict()
     for attr in allowed_ibis_attributes:
+        if is_io_attribute(attr):
+            raise ValueError(f"'{attr}' is an I/O function and does not belong in an expression")
         context.ibis[attr] = getattr(ibis, attr)
 
     return context

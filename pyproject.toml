@@ -75,7 +75,13 @@ dependencies = [
     # unconditionally -- it was only reachable before because some other app
     # in the shared bench env happened to install it transitively. Promoted
     # out of the `vectordb` extra below: this is no longer optional.
-    "chromadb>=0.4.0",
+    # Every chromadb release hard-requires onnxruntime, which ships no cp314
+    # wheel for macOS x86_64 (and no macosx x86_64 wheel at all past 1.23.2), so
+    # the whole `uv pip install -e` fails to resolve there. insights always passes
+    # explicit embeddings (see KnowledgeBaseStore), never chroma's bundled ONNX
+    # embedder, so onnxruntime is never imported. On that platform install
+    # chromadb without it: `python install_deps.py vectordb`.
+    "chromadb>=0.4.0; sys_platform != 'darwin' or platform_machine != 'x86_64' or python_version < '3.14'",
     # Routes AI Knowledge Base embeddings through whichever chat provider
     # Insights Settings already has configured, instead of hard-requiring a
     # second, separate OpenAI key (see insights.ai.base_provider).

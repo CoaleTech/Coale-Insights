@@ -196,7 +196,7 @@ def get_recent_session(dashboard_type: str) -> Dict[str, Any]:
         }
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=False, methods=["POST"])
 def start_new_session(dashboard_type: str | None = None):
     """Create a new chat session for a dashboard."""
     try:
@@ -248,7 +248,7 @@ def start_new_session(dashboard_type: str | None = None):
         }
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=False, methods=["POST"])
 def send_message(session_id: str | None = None, query: str | None = None, context: str | dict | None = None):
     """Send a message to the dashboard AI agent with dashboard context."""
     try:
@@ -442,7 +442,7 @@ def get_quick_actions(dashboard_type: str) -> Dict[str, Any]:
         }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def update_session_context(session_id: str, context: str) -> Dict[str, Any]:
     """
     Update the context for an existing session.
@@ -481,7 +481,7 @@ def update_session_context(session_id: str, context: str) -> Dict[str, Any]:
         }
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=False, methods=["POST"])
 def delete_session(session_id: str) -> Dict[str, Any]:
     """Delete a chat session and all its data."""
     try:
@@ -496,7 +496,7 @@ def delete_session(session_id: str) -> Dict[str, Any]:
         return {"success": False, "error": str(e)}
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=False, methods=["POST"])
 def rename_session(session_id: str, title: str) -> Dict[str, Any]:
     """Set a display title for a chat session."""
     try:
@@ -666,7 +666,7 @@ def get_ai_chat_status() -> Dict[str, Any]:
         }
 
 
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=False, methods=["POST"])
 def send_message_streaming(session_id: str | None = None, query: str | None = None, context: str | dict | None = None):
     """
     Send a message and stream the response token-by-token via frappe.publish_realtime.

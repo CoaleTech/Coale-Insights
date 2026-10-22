@@ -12,7 +12,7 @@ def get_notebooks():
     )
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_notebook(title):
     notebook = frappe.new_doc("Insights Notebook")
     notebook.title = title
@@ -20,7 +20,7 @@ def create_notebook(title):
     return notebook.name
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def create_notebook_page(notebook):
     notebook_page = frappe.new_doc("Insights Notebook Page")
     notebook_page.notebook = notebook

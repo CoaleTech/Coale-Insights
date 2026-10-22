@@ -19,18 +19,77 @@ def check_public_access(doctype, name):
 def is_public(doctype: str, name: str):
     if doctype not in public_doctypes:
         return False
-    if has_valid_preview_key():
+    if get_preview_key():
         return True
-    if doctype == "Insights Workbook":
-        return is_public_workbook(name)
-    if doctype == "Insights Dashboard v3":
-        return is_public_dashboard(name)
-    if doctype == "Insights Chart v3":
-        return is_public_chart(name)
-    if doctype == "Insights Query v3":
-        return is_public_query(name)
+    return get_public_root(doctype, name) is not None
 
-    return False
+
+def get_public_root(doctype: str, name: str) -> tuple[str, str] | None:
+    """The published document that makes `doctype`/`name` reachable without a login.
+
+    Returns the (doctype, name) of the published root so callers can read its
+    `permission_user`. Takes the oldest root so the answer is stable.
+    """
+    if doctype == "Insights Dashboard v3":
+        return ("Insights Dashboard v3", name) if is_public_dashboard(name) else None
+    if doctype == "Insights Chart v3":
+        return _get_chart_root(name)
+    if doctype == "Insights Query v3":
+        for chart in _get_charts_built_on(name):
+            root = _get_chart_root(chart)
+            if root:
+                return root
+    return None
+
+
+def _get_chart_root(name: str) -> tuple[str, str] | None:
+    if frappe.db.get_value("Insights Chart v3", name, "is_public"):
+        return ("Insights Chart v3", name)
+    dashboard = _get_oldest_public_dashboard_holding(name)
+    return ("Insights Dashboard v3", dashboard) if dashboard else None
+
+
+def _get_oldest_public_dashboard_holding(chart: str) -> str | None:
+    """Oldest published dashboard that holds `chart` — stable across calls."""
+    Dashboard = DocType("Insights Dashboard v3")
+    DashboardChart = DocType("Insights Dashboard Chart v3")
+    holders = (
+        frappe.qb.from_(DashboardChart)
+        .select(DashboardChart.parent)
+        .where(DashboardChart.chart == chart)
+    )
+    rows = (
+        frappe.qb.from_(Dashboard)
+        .select(Dashboard.name)
+        .where((Dashboard.is_public == 1) & Dashboard.name.isin(holders))
+        .orderby(Dashboard.creation)
+        .limit(1)
+        .run(pluck=True)
+    )
+    return rows[0] if rows else None
+
+
+def _get_charts_built_on(query: str) -> list[str]:
+    return frappe.get_all(
+        "Insights Chart v3",
+        or_filters=[["query", "=", query], ["data_query", "=", query]],
+        order_by="creation asc",
+        pluck="name",
+    )
+
+
+def get_public_permission_user(doctype: str, name: str) -> str | None:
+    """The user a public execution of `doctype`/`name` filters its rows by.
+
+    A preview runs as the user the key was cut for.  Everything else runs as
+    the user the root recorded when it was published.
+    """
+    key = get_preview_key()
+    if key:
+        return key.get("user")
+    root = get_public_root(doctype, name)
+    return frappe.db.get_value(*root, "permission_user") if root else None
+
 
 
 @validate_type
@@ -55,10 +114,16 @@ def is_public_workbook(name: str):
     )
 
 
+def get_preview_key():
+    """The cached preview-key payload, or None."""
+    key = frappe.request and frappe.request.headers.get("X-Insights-Preview-Key")
+    if not key:
+        return None
+    return frappe.cache.get_value(f"insights_preview_key:{key}")
+
+
 def has_valid_preview_key():
-    # used to generate preview images of a dashboard
-    preview_key = frappe.request.headers.get("X-Insights-Preview-Key")
-    return preview_key and frappe.cache.get_value(f"insights_preview_key:{preview_key}")
+    return bool(get_preview_key())
 
 
 @validate_type

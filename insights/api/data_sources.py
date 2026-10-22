@@ -1,5 +1,4 @@
 import frappe
-from frappe.utils.caching import redis_cache, site_cache
 
 from insights.decorators import insights_whitelist, validate_type
 from insights.insights.doctype.insights_data_source_v3.ibis_utils import (
@@ -16,6 +15,7 @@ from insights.insights.doctype.insights_team.insights_team import (
     check_table_permission,
     get_permission_filter,
 )
+from insights.insights.doctype.insights_table_v3.insights_table_v3 import InsightsTablev3
 
 
 # v3 APIs
@@ -71,12 +71,15 @@ def get_data_source_tables(data_source=None, search_term=None, limit=100):
     return ret
 
 
+def get_permitted_ibis_table(data_source: str, table_name: str):
+    """The table as the current user is allowed to see it (live connection)."""
+    return InsightsTablev3.get_ibis_table(data_source, table_name, use_live_connection=True)
+
+
 @insights_whitelist()
 @validate_type
 def get_data_source_table(data_source: str, table_name: str):
-    check_table_permission(data_source, table_name)
-    ds = frappe.get_doc("Insights Data Source v3", data_source)
-    q = ds.get_ibis_table(table_name).head(100)
+    q = get_permitted_ibis_table(data_source, table_name).head(100)
     data, time_taken = execute_ibis_query(q, cache_expiry=24 * 60 * 60)
 
     return success({
@@ -91,19 +94,15 @@ def get_data_source_table(data_source: str, table_name: str):
 @validate_type
 def get_data_source_table_row_count(data_source: str, table_name: str):
     check_table_permission(data_source, table_name)
-    ds = frappe.get_doc("Insights Data Source v3", data_source)
-    table = ds.get_ibis_table(table_name)
-    result = table.count().execute()
-    return int(result)
+    table = get_permitted_ibis_table(data_source, table_name)
+    return int(table.count().execute())
 
 
 @insights_whitelist()
-@site_cache
 @validate_type
 def get_data_source_table_columns(data_source: str, table_name: str):
     check_table_permission(data_source, table_name)
-    ds = frappe.get_doc("Insights Data Source v3", data_source)
-    table = ds.get_ibis_table(table_name)
+    table = get_permitted_ibis_table(data_source, table_name)
     return [
         frappe._dict(
             column=column,
@@ -114,7 +113,7 @@ def get_data_source_table_columns(data_source: str, table_name: str):
     ]
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 @validate_type
 def update_data_source_tables(data_source: str):
     check_data_source_permission(data_source)
@@ -190,11 +189,9 @@ def get_data_sources_of_tables(table_names: list[str]):
 
 
 @insights_whitelist()
-@site_cache(ttl=24 * 60 * 60)
 @validate_type
 def get_schema(data_source: str):
     check_data_source_permission(data_source)
-    ds = frappe.get_doc("Insights Data Source v3", data_source)
 
     tables = get_data_source_tables(data_source)
     schema = {}
@@ -207,7 +204,10 @@ def get_schema(data_source: str):
             "data_source": data_source,
             "columns": [],
         }
-        _table = ds.get_ibis_table(table_name)
+        try:
+            _table = get_permitted_ibis_table(data_source, table_name)
+        except Exception:
+            continue
         for column, datatype in _table.schema().items():
             schema[table_name]["columns"].append(
                 frappe._dict(

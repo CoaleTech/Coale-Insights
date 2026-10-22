@@ -11,7 +11,7 @@ from insights.processing.processing_pipeline import ProcessingPipeline, Processi
 from insights.integrations.erpnext_v15_integrator import ERPNextV15Integrator
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def get_ai_insights(query: str, context: str = None, complexity: str = "simple") -> Dict[str, Any]:
     """
     Get AI-powered insights for a natural language query
@@ -85,7 +85,7 @@ def get_ai_insights(query: str, context: str = None, complexity: str = "simple")
         }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def get_business_intelligence_insights(module: str, doctype: str = None, filters: str = None) -> Dict[str, Any]:
     """
     Get business intelligence insights for specific ERPNext modules
@@ -147,7 +147,7 @@ def get_business_intelligence_insights(module: str, doctype: str = None, filters
         }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def get_realtime_dashboard_data(dashboard_id: str, widgets: str = None) -> Dict[str, Any]:
     """
     Get real-time data for dashboard widgets
@@ -292,7 +292,7 @@ def _get_table_widget_data(widget_config: Dict[str, Any]) -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def refresh_dashboard_analytics(dashboard_type: str, filters: str = None) -> Dict[str, Any]:
     """
     Refresh ML analytics for a specific dashboard type
@@ -440,7 +440,7 @@ def get_cached_insights(dashboard_type: str, include_stale: bool = True) -> Dict
         }
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def cache_dashboard_insights(dashboard_type: str, insights: str, model_used: str = None) -> Dict[str, Any]:
     """
     Cache AI-generated insights for a dashboard

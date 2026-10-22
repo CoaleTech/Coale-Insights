@@ -62,7 +62,7 @@ def get_resource_access_info(resource_type, resource_name):
     })
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def grant_access(resource_type, resource_name, team):
     if (
         frappe.db.get_value(resource_type, resource_name, "owner")
@@ -85,7 +85,7 @@ def grant_access(resource_type, resource_name, team):
         )
 
 
-@insights_whitelist()
+@insights_whitelist(methods=["POST"])
 def revoke_access(resource_type, resource_name, team):
     if (
         frappe.db.get_value(resource_type, resource_name, "owner")
