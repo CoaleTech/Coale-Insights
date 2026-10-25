@@ -1065,6 +1065,11 @@ def _cohort_analysis(start, end, company):
         return {"cohort_retention": [], "average_retention": {}, "cohort_count": 0}
     cohort_sizes = cohort_pivot.iloc[:, 0].replace(0, 1)
     retention = cohort_pivot.div(cohort_sizes, axis=0) * 100
+    # A cohort has not reached a month past the last month with any activity;
+    # that cell is unknown, not 0%, and must not drag the averages down.
+    last_ord = int(txn_ord.max())
+    reachable = [last_ord - pd.Period(i, freq="M").ordinal for i in retention.index]
+    retention = retention.where(retention.columns.values[None, :] <= pd.Series(reachable).values[:, None])
 
     cohort_result = []
     for idx, row in retention.iterrows():

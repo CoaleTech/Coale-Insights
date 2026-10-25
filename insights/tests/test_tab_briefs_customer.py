@@ -37,7 +37,7 @@ class TestBriefs(unittest.TestCase):
     def test_cust_cohorts(self):
         b = self.b["cust-cohorts"]
         self.assertEqual(b["severity"], "high")
-        for token in ("17.5%", "10.8%", "12 cohorts"):
+        for token in ("17.5%", "10.8%"):
             self.assertIn(token, b["headline"])
 
     def test_cust_rankings(self):

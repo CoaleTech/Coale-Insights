@@ -343,6 +343,16 @@ const paretoAreaPath = computed(() => {
   return `M ${CHART_L},${CHART_B} L ${pts.join(' L ')} L ${CHART_R},${CHART_B} Z`
 })
 
+const retentionCurve = computed(() => {
+  const avg = (cohortAnalysis.value.average_retention ?? {}) as Record<string, number>
+  const rows = Object.entries(avg).map(([m, v]) => ({ month: Number(m), value: Number(v) })).sort((a, b) => a.month - b.month)
+  return rows.map((r, i) => ({ ...r, x: sx((i / Math.max(rows.length - 1, 1)) * 100), y: sy(r.value) }))
+})
+const retentionLinePath = computed(() =>
+  retentionCurve.value.length < 2 ? '' : `M ${retentionCurve.value.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L ')}`)
+const retentionAreaPath = computed(() =>
+  retentionCurve.value.length < 2 ? '' : `${retentionLinePath.value} L ${CHART_R},${CHART_B} L ${CHART_L},${CHART_B} Z`)
+
 const atRiskCustomers = computed<AtRiskRow[]>(() =>
   (props.data.at_risk_customers ?? []) as AtRiskRow[])
 // Already sorted by historical_clv desc from backend
@@ -1440,14 +1450,27 @@ const toneOf = (s: Severity): StatItem['tone'] =>
     <TabBrief :brief="tabBriefs['cust-cohorts']" />
     <StatStrip :items="cohortStrip" :currency="baseCurrency" />
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader variant="caption" title="Average Retention by Month" :level="3" />
-      <div class="flex flex-wrap gap-2 mt-4">
-        <div v-for="(retention, month) in (cohortAnalysis.average_retention as Record<string, number>)" :key="month"
-          class="px-3 py-2 text-center bg-surface-gray-1 rounded-lg">
-          <p class="text-sm text-ink-gray-6">Month {{ month }}</p>
-          <p class="text-lg font-bold text-ink-gray-9">{{ formatPercent(retention) }}</p>
-        </div>
-      </div>
+      <SectionHeader variant="caption" title="Average Retention by Month" hint="Share of each cohort that bought again, by month since first purchase" :level="3" />
+      <svg
+        v-if="retentionCurve.length > 1"
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 560 220"
+        width="100%"
+        class="mt-4 max-h-56"
+        role="img"
+        aria-label="Average cohort retention by month since first purchase"
+      >
+        <line v-for="yp in [25, 50, 75, 100]" :key="yp" :x1="CHART_L" :y1="sy(yp)" :x2="CHART_R" :y2="sy(yp)" style="stroke: var(--outline-gray-1)" stroke-width="1" />
+        <path :d="retentionAreaPath" style="fill: var(--app-accent)" opacity="0.07" />
+        <path :d="retentionLinePath" style="stroke: var(--app-accent); fill: none" stroke-width="2.5" stroke-linejoin="round" />
+        <g v-for="pt in retentionCurve" :key="pt.month">
+          <circle :cx="pt.x" :cy="pt.y" r="3.5" style="fill: var(--app-accent); stroke: var(--app-card)" stroke-width="1.5" />
+          <text :x="pt.x" :y="pt.y - 8" font-size="10" style="fill: var(--ink-gray-7)" text-anchor="middle" font-family="Inter,sans-serif">{{ formatPercent(pt.value) }}</text>
+          <text :x="pt.x" y="189" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="middle" font-family="Inter,sans-serif">M{{ pt.month }}</text>
+        </g>
+        <line :x1="CHART_L" :y1="CHART_B" :x2="CHART_R" :y2="CHART_B" style="stroke: var(--outline-gray-2)" stroke-width="1" />
+        <text v-for="yp in [0, 25, 50, 75, 100]" :key="yp" x="44" :y="sy(yp) + 4" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="end" font-family="Inter,sans-serif">{{ yp }}%</text>
+      </svg>
     </div>
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
       <SectionHeader variant="caption" title="Cohort Retention Matrix" :level="3" />
@@ -1469,6 +1492,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
                 <Badge v-if="(cohort.retention as Record<string, number>)[n - 1] !== undefined"
                   v-bind="severityBadge(retentionSeverity((cohort.retention as Record<string, number>)[n - 1]))"
                   :label="formatPercent((cohort.retention as Record<string, number>)[n - 1])" size="sm" />
+                <span v-else class="text-ink-gray-5" aria-label="Not reached yet">{{ NO_VALUE }}</span>
               </td>
             </tr>
           </tbody>

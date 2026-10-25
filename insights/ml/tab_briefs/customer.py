@@ -126,7 +126,7 @@ def _cust_cohorts(p: dict, cur):
     text = f"{_pct(m1)} of new customers return in month 1"
     if avg.get("2") is not None:
         text += f" and {_pct(avg['2'])} in month 2"
-    text += f", averaged over {plural(ca.get('cohort_count') or 0, 'cohort')}."
+    text += ", averaged across the cohorts that have reached each month."
     sev = "low" if m1 >= RETENTION_GOOD else "medium" if m1 >= RETENTION_WARN else "high"
     details = []
     m2 = avg.get("2")
