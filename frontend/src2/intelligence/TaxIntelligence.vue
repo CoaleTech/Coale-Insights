@@ -219,6 +219,20 @@ const activeTab = computed(() => TAB_IDS[activeTabIndex.value] ?? 'overview')
 const gstSummary = computed((): GstSummaryRow[] =>
   (data.value?.gst_summary ?? []) as unknown as GstSummaryRow[]
 )
+/** Output GST by month with its total and effective rate; the last row is the year to date. */
+const gstTable = computed(() => {
+  const row = (month: string, d: { cgst?: number; sgst?: number; igst?: number; total_revenue?: number }) => {
+    const cgst = Number(d.cgst ?? 0)
+    const sgst = Number(d.sgst ?? 0)
+    const igst = Number(d.igst ?? 0)
+    const total = cgst + sgst + igst
+    const revenue = Number(d.total_revenue ?? 0)
+    return { month, cgst, sgst, igst, total, rate: revenue > 0 ? `${((total / revenue) * 100).toFixed(1)}%` : NO_VALUE, revenue }
+  }
+  const rows = gstSummary.value.map((d) => row(d.month, d))
+  const sum = (k: 'cgst' | 'sgst' | 'igst' | 'revenue') => rows.reduce((s, r) => s + r[k], 0)
+  return { rows, ytd: row('YTD', { cgst: sum('cgst'), sgst: sum('sgst'), igst: sum('igst'), total_revenue: sum('revenue') }) }
+})
 const itcHealth = computed((): Record<string, any> => (data.value?.itc_health ?? {}) as Record<string, any>)
 const tdsSummary = computed((): Record<string, any> => (data.value?.tds_summary ?? {}) as Record<string, any>)
 /**
@@ -1565,25 +1579,39 @@ const actionsStrip = computed<StatItem[]>(() => [
                   <IntelligenceChart v-if="gstStackedBarConfig" :config="gstStackedBarConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No GST data available</div>
                 </div>
-                <table v-if="gstStackedBarConfig" class="sr-only">
-                  <caption>Monthly GST breakdown: CGST, SGST, and IGST by month</caption>
-                  <thead>
-                    <tr>
-                      <th scope="col">Month</th>
-                      <th scope="col">CGST (INR)</th>
-                      <th scope="col">SGST (INR)</th>
-                      <th scope="col">IGST (INR)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="d in gstSummary" :key="d.month">
-                      <th scope="row">{{ d.month }}</th>
-                      <td>{{ formatCurrency(d.cgst ?? 0) }}</td>
-                      <td>{{ formatCurrency(d.sgst ?? 0) }}</td>
-                      <td>{{ formatCurrency(d.igst ?? 0) }}</td>
-                    </tr>
-                  </tbody>
-                </table>
+                <div v-if="gstStackedBarConfig" class="mt-4 overflow-x-auto">
+                  <table class="w-full text-xs whitespace-nowrap [&_td]:!px-1.5 [&_th]:!px-1.5">
+                    <caption class="sr-only">Monthly GST: CGST, SGST, IGST, total and effective rate on revenue</caption>
+                    <thead class="bg-surface-gray-1">
+                      <tr>
+                        <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Month</th>
+                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">CGST</th>
+                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">SGST</th>
+                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">IGST</th>
+                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Total</th>
+                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="d in gstTable.rows" :key="d.month" class="border-b border-outline-gray-1">
+                        <th scope="row" class="px-3 py-2 text-left font-normal text-ink-gray-8">{{ d.month }}</th>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.cgst) }}</td>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.sgst) }}</td>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.igst) }}</td>
+                        <td class="tnum px-3 py-2 text-right font-medium text-ink-gray-9">{{ formatCurrency(d.total) }}</td>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ d.rate }}</td>
+                      </tr>
+                      <tr class="bg-surface-gray-1 font-medium">
+                        <th scope="row" class="px-3 py-2 text-left text-ink-gray-9">{{ gstTable.ytd.month }}</th>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.cgst) }}</td>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.sgst) }}</td>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.igst) }}</td>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.total) }}</td>
+                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ gstTable.ytd.rate }}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
