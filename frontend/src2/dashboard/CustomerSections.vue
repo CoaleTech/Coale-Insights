@@ -1592,6 +1592,18 @@ const toneOf = (s: Severity): StatItem['tone'] =>
               </td>
             </tr>
           </tbody>
+          <tfoot v-if="Object.keys((cohortAnalysis.average_retention ?? {}) as Record<string, number>).length">
+            <tr class="border-t border-outline-gray-2">
+              <td class="px-3 py-2 font-semibold text-ink-gray-8">Average</td>
+              <td class="px-3 py-2 text-right text-ink-gray-5">{{ NO_VALUE }}</td>
+              <td v-for="n in 12" :key="n" class="px-3 py-2 text-center">
+                <Badge v-if="(cohortAnalysis.average_retention as Record<string, number>)[n - 1] !== undefined"
+                  v-bind="severityBadge(retentionSeverity((cohortAnalysis.average_retention as Record<string, number>)[n - 1]))"
+                  :label="formatPercent((cohortAnalysis.average_retention as Record<string, number>)[n - 1])" size="sm" />
+                <span v-else class="text-ink-gray-5" aria-label="Not reached yet">{{ NO_VALUE }}</span>
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
