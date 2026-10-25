@@ -227,11 +227,16 @@
 					<TabActions class="mt-6" :actions="tabBriefs.working?.actions" />
 				</div>
 
-				<!-- Actuals: Efficiency (Ratios & Trends + Cost Structure) -->
-				<div v-if="activeTab === 'efficiency'">
-					<TabBrief class="mb-6" :brief="tabBriefs.efficiency" :as-of="strategicTyped?.generated_at" />
+				<!-- Actuals: Ratios -->
+				<div v-if="activeTab === 'ratios'">
+					<TabBrief class="mb-6" :brief="tabBriefs.ratios" :as-of="strategicTyped?.generated_at" />
 					<FinancialRatiosTab :data="strategicTyped?.ratio_trends" :working-capital="strategicTyped?.working_capital ?? null" />
-					<h2 class="mt-8 mb-3 text-lg font-semibold text-ink-gray-9">Cost structure</h2>
+					<TabActions class="mt-6" :actions="tabBriefs.ratios?.actions" />
+				</div>
+
+				<!-- Actuals: Cost Structure -->
+				<div v-if="activeTab === 'cost'">
+					<TabBrief class="mb-6" :brief="tabBriefs.cost" :as-of="strategicTyped?.generated_at" />
 					<CostStructureTab
 						:data="strategicTyped?.cost_structure ?? null"
 						:forecast="strategicTyped?.expense_forecast ?? null"
@@ -239,16 +244,21 @@
 						:fin-endpoint="FIN_ENDPOINT"
 						:drill-down="drillDown"
 					/>
-					<TabActions class="mt-6" :actions="tabBriefs.efficiency?.actions" />
+					<TabActions class="mt-6" :actions="tabBriefs.cost?.actions" />
 				</div>
 
-				<!-- Planning: Cash Outlook (90-day Cash Forecast + 13-Week Cash Flow) -->
-				<div v-if="activeTab === 'cashoutlook'">
-					<TabBrief class="mb-6" :brief="tabBriefs.cashoutlook" :as-of="strategicTyped?.generated_at" />
+				<!-- Planning: Cash Forecast (90-day) -->
+				<div v-if="activeTab === 'cashforecast'">
+					<TabBrief class="mb-6" :brief="tabBriefs.cashforecast" :as-of="strategicTyped?.generated_at" />
 					<CashForecastingTab :data="strategicTyped?.cash_forecast ?? null" />
-					<h2 class="mt-8 mb-3 text-lg font-semibold text-ink-gray-9">13-week cash flow</h2>
+					<TabActions class="mt-6" :actions="tabBriefs.cashforecast?.actions" />
+				</div>
+
+				<!-- Planning: 13-Week Cash Flow -->
+				<div v-if="activeTab === 'cashflow13'">
+					<TabBrief class="mb-6" :brief="tabBriefs.cashflow13" :as-of="strategicTyped?.generated_at" />
 					<ThirteenWeekCashFlowTab :data="strategicTyped?.thirteen_week_forecast ?? null" />
-					<TabActions class="mt-6" :actions="tabBriefs.cashoutlook?.actions" />
+					<TabActions class="mt-6" :actions="tabBriefs.cashflow13?.actions" />
 				</div>
 
 				<!-- Planning: Capital Planning -->
@@ -453,8 +463,10 @@ const tabs: { id: string; label: string; group: TabGroup }[] = [
 	{ id: 'receivables', label: 'Receivables', group: 'actuals' },
 	{ id: 'payables', label: 'Payables', group: 'actuals' },
 	{ id: 'working', label: 'Working Capital', group: 'actuals' },
-	{ id: 'efficiency', label: 'Efficiency', group: 'actuals' },
-	{ id: 'cashoutlook', label: 'Cash Outlook', group: 'planning' },
+	{ id: 'ratios', label: 'Ratios', group: 'actuals' },
+	{ id: 'cost', label: 'Cost Structure', group: 'actuals' },
+	{ id: 'cashforecast', label: 'Cash Forecast', group: 'planning' },
+	{ id: 'cashflow13', label: '13-Week Cash Flow', group: 'planning' },
 	{ id: 'capital', label: 'Capital Planning', group: 'planning' },
 	{ id: 'scenarios', label: 'Scenario Analysis', group: 'planning' },
 	{ id: 'comparison', label: 'Period Comparison', group: 'planning' },
@@ -494,7 +506,7 @@ const activeTab = computed(() => activeTabDef.value?.id ?? 'overview')
  */
 const usesStrategic = computed(
 	() =>
-		['working', 'efficiency'].includes(activeTab.value) ||
+		['working', 'ratios', 'cost'].includes(activeTab.value) ||
 		(activeGroup.value === 'planning' && !['budget', 'beOverview'].includes(activeTab.value)),
 )
 

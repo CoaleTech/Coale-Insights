@@ -10,7 +10,7 @@ class TestBriefs(unittest.TestCase):
         self.b = briefs(self.p)
 
     def test_tabs(self):
-        self.assertEqual(set(self.b), {"working", "capital", "scenarios", "comparison", "efficiency", "cashoutlook"})
+        self.assertEqual(set(self.b), {"working", "capital", "scenarios", "comparison", "ratios", "cost", "cashforecast", "cashflow13"})
 
     def test_working(self):
         b = self.b["working"]
@@ -31,20 +31,40 @@ class TestBriefs(unittest.TestCase):
     def test_comparison_handles_signs(self):
         self.assertIn("Revenue down 16.5% and net income up 32%", self.b["comparison"]["headline"])
 
-    def test_efficiency_ignores_unavailable_ratios(self):
-        b = self.b["efficiency"]
+    def test_ratios_ignores_unavailable_ratios(self):
+        b = self.b["ratios"]
         self.assertEqual(b["severity"], "medium")
         self.assertIn("6 of 6 measurable ratios", b["headline"])
         self.assertIn("gross margin 7.5% against 35%", b["headline"])
         self.assertIn("asset turnover 0.68 against 1.2", b["headline"])
 
-    def test_cashoutlook_negative_base_is_high(self):
-        b = self.b["cashoutlook"]
+    def test_cost_states_margins_and_ungradable_ratios(self):
+        b = self.b["cost"]
+        self.assertEqual(b["severity"], "low")
+        self.assertIn("Gross profit is 8.7% of revenue", b["headline"])
+        self.assertIn("net profit is 4.3%", b["headline"])
+        self.assertIn("have no data", b["headline"])
+        self.p["cost_structure"]["overall_status"] = "risky"
+        self.assertEqual(briefs(self.p)["cost"]["severity"], "high")
+
+    def test_cost_omitted_without_revenue(self):
+        self.p["cost_structure"]["figures"]["revenue"] = 0
+        self.assertNotIn("cost", briefs(self.p))
+
+    def test_cashforecast_negative_base_is_high(self):
+        b = self.b["cashforecast"]
         self.assertEqual(b["severity"], "high")
         self.assertIn("from ₹424,273 to -₹65,785", b["headline"])
-        self.assertIn("opens at ₹683,637 and ends at ₹16,588,177", b["headline"])
+        self.assertNotIn("13-week model opens", b["headline"])
         self.p["cash_forecast"]["end_of_period"]["base"] = 10
-        self.assertEqual(briefs(self.p)["cashoutlook"]["severity"], "medium")
+        self.assertEqual(briefs(self.p)["cashforecast"]["severity"], "medium")
+
+    def test_cashflow13_reads_the_weekly_model(self):
+        b = self.b["cashflow13"]
+        self.assertIn("opens at ₹683,637 and ends at ₹16,588,177", b["headline"])
+        self.assertIn("lowest balance of", b["headline"])
+        self.p["thirteen_week_forecast"]["summary"]["minimum_balance"] = -5
+        self.assertEqual(briefs(self.p)["cashflow13"]["severity"], "high")
 
 
 class TestLazy(unittest.TestCase):

@@ -1,7 +1,7 @@
 """Tab briefs for the Financial dashboard's planning tabs (Rule 7: server-built sentences).
 
-``efficiency`` merges Ratios and Cost Structure; ``cashoutlook`` merges the 90-day
-Cash Forecast and the 13-Week Cash Flow.
+``ratios`` and ``cost`` are the Ratios and Cost Structure tabs; ``cashforecast`` and
+``cashflow13`` are the 90-day Cash Forecast and the 13-Week Cash Flow tabs.
 """
 
 import calendar
@@ -147,7 +147,7 @@ def _unit(card: dict) -> str:
     return "%" if "Margin" in card["name"] or card["name"] in ("ROA", "ROE") else ""
 
 
-def _efficiency(p: dict):
+def _ratios(p: dict):
     cards = [c for c in (p.get("ratio_trends") or {}).get("ratio_cards") or [] if c.get("value") is not None]
     if not cards:
         return None
@@ -168,31 +168,56 @@ def _efficiency(p: dict):
     return brief(sev, text + ".", details, actions)
 
 
-def _cashoutlook(p: dict):
+def _cost(p: dict):
+    cs = p.get("cost_structure") or {}
+    f = cs.get("figures") or {}
+    cur = p.get("base_currency")
+    rev, gp, net = f.get("revenue"), f.get("gross_profit"), f.get("net_profit")
+    if not rev or gp is None:
+        return None
+    cards = cs.get("ratio_cards") or []
+    graded = [c for c in cards if c.get("value") is not None]
+    off = [c for c in graded if c.get("status") != "good"]
+    ungraded = [c for c in cards if c.get("value") is None]
+    text = f"Gross profit is {gp / rev * 100:.1f}% of revenue ({money(gp, cur)} of {money(rev, cur)})"
+    if net is not None:
+        text += f" and net profit is {net / rev * 100:.1f}%"
+    if graded:
+        text += f". {len(graded) - len(off)} of {plural(len(graded), 'graded cost ratio')} are within target"
+    else:
+        text += ". No cost ratio can be graded for this period"
+    if ungraded:
+        text += f"; {plural(len(ungraded), 'ratio')} have no data"
+    sev = {"risky": "high", "moderate": "medium"}.get(cs.get("overall_status"), "low")
+
+    def val(c: dict, key: str) -> str:
+        return f"{c[key]:g}{c.get('unit') or ''}"
+
+    details = [detail(c["name"], f"{val(c, 'value')} against an ideal of {val(c, 'ideal')}, status {c['status']}.") for c in off if c.get("ideal") is not None]
+    if ungraded:
+        details.append(detail("No data", ", ".join(c["name"] for c in ungraded) + " have no activity recorded against their accounts this period."))
+    actions = [action(f"Bring {c['name']} back to target", f"It is {val(c, 'value')} against an ideal of {val(c, 'ideal')}.") for c in off[:3] if c.get("ideal") is not None]
+    return brief(sev, text + ".", details, actions)
+
+
+def _cashforecast(p: dict):
     f = p.get("cash_forecast") or {}
     cur = p.get("base_currency")
-    end = (f.get("end_of_period") or {}).get("base")
+    eop = f.get("end_of_period") or {}
+    end, pess = eop.get("base"), eop.get("pessimistic")
     if end is None or f.get("current_cash") is None:
         return None
     text = (
         f"The 90-day base forecast moves cash from {money(f['current_cash'], cur)} to {money(end, cur)}, "
         f"with {money(f.get('expected_ar_inflows'), cur)} of receivable inflows against {money(f.get('expected_ap_outflows'), cur)} of payable outflows"
     )
-    s = (p.get("thirteen_week_forecast") or {}).get("summary") or {}
-    opening = (p.get("thirteen_week_forecast") or {}).get("opening_balance")
-    if s.get("ending_cash") is not None and opening is not None:
-        text += f". The 13-week model opens at {money(opening, cur)} and ends at {money(s['ending_cash'], cur)}"
-    pess = (f.get("end_of_period") or {}).get("pessimistic")
     sev = "high" if end < 0 else "medium" if pess is not None and pess < 0 else "low"
-    eop = f.get("end_of_period") or {}
     details = [detail("90-day scenarios", f"Base {money(end, cur)}, optimistic {money(eop.get('optimistic'), cur)}, pessimistic {money(pess, cur)}.")]
     if f.get("base_runway_days") is not None:
         details.append(detail("Runway", f"Base case runs out of cash in {plural(f['base_runway_days'], 'day')}; pessimistic in {plural(f.get('pessimistic_runway_days') or 0, 'day')}."))
-    if s.get("minimum_balance") is not None:
-        details.append(detail("13-week low", f"Week {s.get('minimum_balance_week')} ({s.get('minimum_balance_date')}) at {money(s['minimum_balance'], cur)}; {plural(s.get('weeks_below_threshold') or 0, 'week')} below the minimum."))
-    pay = (p.get("thirteen_week_forecast") or {}).get("payroll_detection") or {}
-    if pay.get("detected"):
-        details.append(detail("Payroll", f"{pay.get('frequency', '').capitalize()} payroll of {money(pay.get('typical_amount'), cur)} detected, next {pay.get('next_date')}."))
+    ending = ((p.get("thirteen_week_forecast") or {}).get("summary") or {}).get("ending_cash")
+    if ending is not None:
+        details.append(detail("13-week model", f"Ends at {money(ending, cur)}, built from open invoices by due date rather than a trend; see the 13-Week Cash Flow tab."))
     actions = []
     weeks = f.get("weekly_summary") or []
     if end < 0 and weeks:
@@ -203,6 +228,31 @@ def _cashoutlook(p: dict):
     return brief(sev, text + ".", details, actions)
 
 
+def _cashflow13(p: dict):
+    t = p.get("thirteen_week_forecast") or {}
+    cur = p.get("base_currency")
+    s = t.get("summary") or {}
+    opening = t.get("opening_balance")
+    if s.get("ending_cash") is None or opening is None:
+        return None
+    text = f"The 13-week model opens at {money(opening, cur)} and ends at {money(s['ending_cash'], cur)}"
+    low = s.get("minimum_balance")
+    below = s.get("weeks_below_threshold") or 0
+    if low is not None:
+        text += f", with its lowest balance of {money(low, cur)} in week {s.get('minimum_balance_week')} ({s.get('minimum_balance_date')})"
+    sev = "high" if low is not None and low < 0 else "medium" if below else "low"
+    details = []
+    if low is not None:
+        details.append(detail("13-week low", f"Week {s.get('minimum_balance_week')} ({s.get('minimum_balance_date')}) at {money(low, cur)}; {plural(below, 'week')} below the minimum."))
+    pay = t.get("payroll_detection") or {}
+    if pay.get("detected"):
+        details.append(detail("Payroll", f"{pay.get('frequency', '').capitalize()} payroll of {money(pay.get('typical_amount'), cur)} detected, next {pay.get('next_date')}."))
+    actions = []
+    if low is not None and low < 0:
+        actions.append(action("Cover the 13-week cash gap", f"Week {s.get('minimum_balance_week')} is the lowest at {money(low, cur)}.", impact=money(-low, cur)))
+    return brief(sev, text + ".", details, actions)
+
+
 def briefs(p: dict) -> dict:
     out = {}
     for tab, fn in (
@@ -210,8 +260,10 @@ def briefs(p: dict) -> dict:
         ("capital", _capital),
         ("scenarios", _scenarios),
         ("comparison", _comparison),
-        ("efficiency", _efficiency),
-        ("cashoutlook", _cashoutlook),
+        ("ratios", _ratios),
+        ("cost", _cost),
+        ("cashforecast", _cashforecast),
+        ("cashflow13", _cashflow13),
     ):
         b = fn(p)
         if b:
