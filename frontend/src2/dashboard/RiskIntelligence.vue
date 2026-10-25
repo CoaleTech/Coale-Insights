@@ -159,8 +159,8 @@ interface ComplianceSection {
 }
 /** Typed predictive analytics sub-section. */
 interface PredictiveSection {
-  cash_flow_forecast?: { status?: string; forecast?: { ds: string; yhat: number; yhat_lower?: number; yhat_upper?: number }[]; model_performance?: { trend?: string } }
-  revenue_forecast?: { status?: string }
+  cash_flow_forecast?: { status?: string; forecast?: { ds: string; yhat: number; yhat_lower?: number; yhat_upper?: number }[]; model_performance?: { trend?: string; method?: string; data_points?: number } }
+  revenue_forecast?: { status?: string; forecast?: { ds: string }[]; total_forecasted_revenue?: number; model_performance?: { trend?: string; method?: string; data_points?: number } }
   anomalies?: AnomalyRow[]
   early_warnings?: EarlyWarningRow[]
   payment_risk_forecast?: { average_market_delay?: number; high_risk_customers?: PaymentRiskCustomer[] }
@@ -322,10 +322,27 @@ const predictiveStrip = computed<StatItem[]>(() => {
   const risky = p.payment_risk_forecast?.high_risk_customers ?? []
   const delay = p.payment_risk_forecast?.average_market_delay
   return [
-    { label: `${fc.length}-Day Cash Forecast`, amount: last?.yhat ?? null, sublabel: last ? formatDate(last.ds) : undefined },
-    { label: 'Forecast Trend', value: p.cash_flow_forecast?.model_performance?.trend ?? null },
+    { label: `${fc.length}-Day Cash Forecast`, amount: last?.yhat ?? null, sublabel: last ? `${formatDate(last.ds)}${last.yhat_lower == null ? '' : ` · lower ${formatMoney(Math.min(last.yhat_lower, last.yhat_upper ?? last.yhat_lower), baseCurrency.value)}`}` : undefined },
+    { label: 'Forecast Trend', value: p.cash_flow_forecast?.model_performance?.trend ?? null, sublabel: fc.length > 1 ? `${formatMoney(fc[0].yhat, baseCurrency.value)} to ${formatMoney(fc[fc.length - 1].yhat, baseCurrency.value)}` : undefined },
     { label: 'High-Risk Customers', value: risky.length, sublabel: delay == null ? undefined : `Avg market delay ${delay} days` },
+    { label: 'Anomalies Detected', value: (p.anomalies ?? []).length, sublabel: 'Model scan' },
   ]
+})
+
+const revenueForecast = computed(() => {
+  const r = predictiveData.value.revenue_forecast
+  const fc = r?.forecast ?? []
+  if (!r || r.status !== 'success' || !fc.length) return null
+  const end = fc[fc.length - 1].ds
+  const asOf = riskData.value?.generated_at
+  return {
+    method: r.model_performance?.method,
+    window: `${formatDate(fc[0].ds)} to ${formatDate(end)}`,
+    total: r.total_forecasted_revenue == null ? NO_VALUE : formatMoney(r.total_forecasted_revenue, baseCurrency.value),
+    trend: r.model_performance?.trend ?? NO_VALUE,
+    points: formatCount(r.model_performance?.data_points ?? null),
+    stale: !!asOf && end < asOf.slice(0, 10),
+  }
 })
 
 /**
@@ -1601,6 +1618,18 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </div>
           </div>
         </div>
+
+          <!-- Revenue Forecast: window and total come from the payload; stale when the last forecast date is before the as-of date -->
+          <div v-if="revenueForecast" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Revenue Forecast" :hint="revenueForecast.method" :level="3" />
+            <dl class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div><dt class="text-ink-gray-6">Window</dt><dd class="text-ink-gray-9 tnum">{{ revenueForecast.window }}</dd></div>
+              <div><dt class="text-ink-gray-6">Total forecasted</dt><dd class="text-ink-gray-9 tnum">{{ revenueForecast.total }}</dd></div>
+              <div><dt class="text-ink-gray-6">Trend</dt><dd class="text-ink-gray-9 tnum">{{ revenueForecast.trend }}</dd></div>
+              <div><dt class="text-ink-gray-6">Data points</dt><dd class="text-ink-gray-9 tnum">{{ revenueForecast.points }}</dd></div>
+            </dl>
+            <p v-if="revenueForecast.stale" class="mt-4 text-sm text-ink-amber-3">The forecast window ends before the as-of date, so no forward-looking revenue forecast is available. Re-run the model.</p>
+          </div>
           <TabActions class="mt-6" :actions="tabBriefs.predictive?.actions" />
         </div>
       </div>
