@@ -70,6 +70,8 @@ interface SalesForecastPayload {
   metrics?: Record<string, number>
   data_range?: { start?: string; end?: string }
 }
+/** Daily forecast rows carry their date; the sales-forecast type above only lists the fields read elsewhere. */
+interface DailyForecastRow { ds?: string; yhat?: number; yhat_lower?: number; yhat_upper?: number }
 const salesForecast = computed(
   () => (forecasts.value.sales_forecast ?? null) as SalesForecastPayload | null,
 )
@@ -878,6 +880,29 @@ const forecastStrip = computed<StatItem[]>(() => {
   ]
 })
 
+/** The 30 daily forecast values with their confidence band, one line each. */
+const dailyForecastConfig = computed(() => {
+  const rows = (salesForecast.value?.forecast ?? []) as DailyForecastRow[]
+  if (!rows.length || rows.some((r) => !r.ds || typeof r.yhat !== 'number')) return null
+  const palette = chartPalette(3)
+  return {
+    data: rows.map((r) => ({
+      day: r.ds!,
+      'Upper bound': Number(r.yhat_upper ?? r.yhat),
+      'Point estimate': Number(r.yhat),
+      'Lower bound': Number(r.yhat_lower ?? r.yhat),
+    })),
+    title: '',
+    xAxis: { key: 'day', type: 'category' as const },
+    yAxis: { title: 'Revenue per day' },
+    series: [
+      { name: 'Upper bound', type: 'area' as const, color: palette[1], fillOpacity: 0.12, showDataPoints: false },
+      { name: 'Point estimate', type: 'line' as const, color: palette[0], showDataPoints: false },
+      { name: 'Lower bound', type: 'line' as const, color: palette[2], lineType: 'dashed' as const, showDataPoints: false },
+    ],
+  }
+})
+
 const sourcesStrip = computed<StatItem[]>(() => {
   const s = attributionSummary.value
   return [
@@ -1444,6 +1469,12 @@ const scenarioRows = computed(() => {
           </div>
         </dl>
       </section>
+      <section v-if="dailyForecastConfig" class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
+        <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">{{ forecastDays }}-day projection with confidence interval</h3>
+        <div class="p-4"><IntelligenceChart :config="dailyForecastConfig" class="h-72" /></div>
+      </section>
+    </div>
+    <div class="mb-6">
       <section v-if="scenarioRows.length" class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
         <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">{{ forecastDays }}-day revenue scenarios</h3>
         <ul class="divide-y divide-outline-gray-1">
