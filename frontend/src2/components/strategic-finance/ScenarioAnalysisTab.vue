@@ -7,6 +7,7 @@
 -->
 <template>
   <div class="space-y-6">
+    <StatStrip :items="scenarioStrip" :currency="getCurrency()" />
 
     <!-- View Selector: Tabs replaces hand-rolled button group -->
     <Tabs v-model="selectedViewIndex" :tabs="viewTabs" />
@@ -382,6 +383,7 @@ import { Tabs, Badge } from 'frappe-ui'
 import { scoreSeverity, severityBadge, severityFill, severityTint, type BadgeSpec } from '../../utils/status'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
+import StatStrip, { type StatItem } from '../../intelligence/components/StatStrip.vue'
 
 interface ScenarioEntry {
   revenue_change: number
@@ -440,6 +442,17 @@ const props = defineProps<Props>()
 
 const currency = useCurrency('')
 const getCurrency = () => currency.value
+
+const scenarioStrip = computed<StatItem[]>(() => {
+  const mc = props.data?.monte_carlo
+  const be = props.data?.break_even
+  return [
+    { label: 'Loss Probability', percent: mc?.probability_of_loss ?? null, sublabel: mc?.simulations == null ? undefined : `${mc.simulations.toLocaleString()} simulations` },
+    { label: 'Safety Margin', percent: be?.margin_of_safety ?? null, sublabel: 'Revenue above break-even' },
+    { label: 'Break-Even Revenue', amount: be?.revenue ?? null, sublabel: be?.fixed_cost_basis === 'assumed_40pct' ? 'Assumes 40% of expenses are fixed' : undefined },
+    { label: 'Median Net Profit', amount: mc?.percentiles?.p50 ?? null, sublabel: 'Monte Carlo P50' },
+  ]
+})
 
 // Tabs model: numeric index mapped to string key
 const viewTabs = [
