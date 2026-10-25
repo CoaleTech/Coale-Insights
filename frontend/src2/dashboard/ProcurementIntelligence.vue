@@ -450,6 +450,16 @@
                   <td class="px-4 py-3 text-sm text-ink-gray-6">{{ po.status }}</td>
                 </tr>
               </tbody>
+              <tfoot v-if="Number.isFinite(purchaseData.pending_count)">
+                <tr v-if="(purchaseData.pending_count as number) > Math.min(15, purchaseData.pending_pos?.length ?? 0)" class="bg-surface-gray-1">
+                  <td colspan="6" class="px-4 py-2 text-center text-xs text-ink-gray-6">+ {{ formatCount((purchaseData.pending_count as number) - Math.min(15, purchaseData.pending_pos?.length ?? 0)) }} more pending purchase orders</td>
+                </tr>
+                <tr class="border-t border-outline-gray-1">
+                  <td colspan="3" class="px-4 py-3 text-sm font-semibold text-ink-gray-9">Total {{ formatCount(purchaseData.pending_count) }} POs</td>
+                  <td class="px-4 py-3 text-right text-sm font-semibold text-ink-gray-9">{{ Number.isFinite(purchaseData.pending_value) ? formatCurrency(purchaseData.pending_value) : NO_VALUE }}</td>
+                  <td colspan="2"></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
           <div v-else class="text-center py-6 text-sm text-ink-gray-6">No pending purchase orders</div>
