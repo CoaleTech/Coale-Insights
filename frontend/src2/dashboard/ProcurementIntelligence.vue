@@ -40,7 +40,7 @@
       @retry="retry"
     >
     <!-- Summary Cards -->
-    <div class="p-6 grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4">
+    <div v-if="activeTab === 'spend'" class="p-6 grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4">
       <KpiCard
         label="Total Spend"
         :amount="spendData.total_spend"

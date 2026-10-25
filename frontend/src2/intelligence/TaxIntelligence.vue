@@ -1167,7 +1167,7 @@ const actionsStrip = computed<StatItem[]>(() => [
       <div class="p-6">
 
       <!-- Variant B KPI ribbon: 6 headline metrics, control-room compact. -->
-      <div class="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-3 mb-5">
+      <div v-if="activeTab === 'overview'" class="grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-3 mb-5">
         <KpiCard
           label="Compliance Health"
           :value="data?.compliance_score" unit="/100"

@@ -617,7 +617,7 @@ function handleChatNavigation(path: string) {
       </template>
 
       <!-- KPI Cards -->
-      <div class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div v-if="activeTab === 'overview'" class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           v-for="kpi in kpis"
           :key="kpi.label"

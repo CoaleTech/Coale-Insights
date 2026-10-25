@@ -765,7 +765,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         The shell renders this slot only when `hasData` and never while
         `loading`, so no card needs a `hasData`/`:loading` guard.
       -->
-      <div class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div v-if="activeTab === 'overview'" class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           label="Overall Risk Score"
           :value="summary.overallScore"
