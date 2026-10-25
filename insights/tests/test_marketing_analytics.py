@@ -28,31 +28,31 @@ class TestBuildMarketingFunnel(FrappeTestCase):
         self.assertEqual(len(funnel), 4)
         self.assertEqual(funnel[0]["count"], 100)
         self.assertEqual(funnel[1]["count"], 10 + 5 + 3)
-        self.assertEqual(funnel[2]["count"], 12)
+        # Quoted counts leads at Quotation or beyond; the 12 quotation documents ride doc_count.
+        self.assertEqual(funnel[2]["count"], 5 + 3)
+        self.assertEqual(funnel[2]["doc_count"], 12)
         self.assertEqual(funnel[2]["value"], 3000.0)
         self.assertEqual(funnel[3]["count"], 3)
         self.assertEqual(funnel[3]["value"], 1500.0)
 
-    def test_conversion_from_prev_only_on_comparable_stages(self):
-        """Stage 0 and stage 2 have no comparable prior stage (documented in
-        the source: stage 1->2 crosses from leads to quotation records)."""
-        lead_totals = {"at_opportunity": 0, "at_quotation": 0, "converted": 0}
-        quote_totals = [{"count": 10}]
-        won = {"count": 5}
+    def test_conversion_from_prev_is_lead_based_at_every_stage(self):
+        """All four stages count distinct leads, so every stage after the first
+        converts from the one before it; lost leads still reached Opportunity and Quotation."""
+        lead_totals = {"at_opportunity": 4, "at_quotation": 6, "converted": 3, "lost": 1}
         funnel = _build_marketing_funnel(
             lead_totals=lead_totals,
-            quote_totals=quote_totals,
-            won=won,
+            quote_totals=[{"count": 10}],
+            won={"count": 5},
             won_value=0.0,
             total=20,
-            converted=0,
+            converted=3,
         )
         self.assertIsNone(funnel[0]["conversion_from_prev"])
-        self.assertIsNone(funnel[2]["conversion_from_prev"])
-        # Stage 1 is comparable to stage 0 (both Lead.status-derived).
-        self.assertEqual(funnel[1]["conversion_from_prev"], 0.0)
-        # Stage 3 is comparable to stage 2 (both Quotation-derived): 5/10 = 50%.
-        self.assertEqual(funnel[3]["conversion_from_prev"], 50.0)
+        self.assertEqual(funnel[1]["count"], 14)
+        self.assertEqual(funnel[1]["conversion_from_prev"], 70.0)
+        self.assertEqual(funnel[2]["count"], 10)
+        self.assertEqual(funnel[2]["conversion_from_prev"], 71.4)
+        self.assertEqual(funnel[3]["conversion_from_prev"], 30.0)
 
     def test_conversion_from_prev_is_none_when_prior_stage_is_zero(self):
         """Guards the division; a zero prior count must not raise ZeroDivisionError."""
