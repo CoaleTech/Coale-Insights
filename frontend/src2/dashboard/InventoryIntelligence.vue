@@ -776,9 +776,9 @@ function handleDashboardRedirect(target: string) {
           <div v-if="activeTab === 'warehouses'">
             <TabBrief class="mb-6" :brief="tabBriefs.warehouses" :as-of="inventoryData?.generated_at" />
           <div>
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <!-- Warehouse Stock -->
-              <div>
+              <div class="lg:col-span-2">
                 <SectionHeader variant="caption" title="Stock by Warehouse" :level="3" />
                 <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
                   <table class="w-full text-sm">
@@ -786,6 +786,9 @@ function handleDashboardRedirect(target: string) {
                       <tr>
                         <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Warehouse</th>
                         <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">On hand</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Reserved</th>
+                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">On order</th>
                         <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
                         <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">% Total</th>
                       </tr>
@@ -803,6 +806,9 @@ function handleDashboardRedirect(target: string) {
                       >
                         <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[200px]">{{ (wh as Record<string, unknown>).warehouse }}</td>
                         <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((wh as Record<string, unknown>).item_count as number) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount(Number((wh as Record<string, unknown>).total_qty)) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount(Number((wh as Record<string, unknown>).reserved_qty)) }}</td>
+                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount(Number((wh as Record<string, unknown>).ordered_qty)) }}</td>
                         <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money((wh as Record<string, unknown>).stock_value as number) }}</td>
                         <td class="px-4 py-2 text-right">
                           <div class="flex items-center justify-end gap-2">

@@ -57,7 +57,7 @@ interface RiskMatrixRow { name: string; category?: string; probability: number; 
 /** Receivables aging bucket. */
 interface AgingBucket { aging_bucket: string; outstanding_amount?: number; invoice_count?: number }
 /** Customer credit risk score row. */
-interface CustomerRiskScore { customer: string; customer_name?: string; outstanding?: number; avg_overdue_days?: number; risk_category?: string; risk_score?: number }
+interface CustomerRiskScore { customer: string; customer_name?: string; outstanding?: number; avg_overdue_days?: number; max_overdue_days?: number; risk_category?: string; risk_score?: number }
 /** Supplier credit risk score row (payables side). */
 interface SupplierRiskScore { supplier: string; supplier_name?: string; outstanding?: number; avg_overdue_days?: number; risk_category?: string; risk_score?: number }
 /** Revenue concentration customer row. */
@@ -237,6 +237,34 @@ const showLedger = ref(false)
 const cashForecastWeekly = computed(() =>
   (cashflowData.value.cash_forecast?.forecast ?? []).filter((_, i) => i % 7 === 0),
 )
+const creditStrip = computed<StatItem[]>(() => {
+  const c = creditData.value
+  const buckets = c.aging_analysis ?? []
+  const sum = (bs: AgingBucket[], k: 'outstanding_amount' | 'invoice_count') => bs.reduce((n, b) => n + (Number(b[k]) || 0), 0)
+  const total = c.total_outstanding == null ? null : Number(c.total_outstanding)
+  const late = buckets.filter((b) => b.aging_bucket !== 'Current' && b.aging_bucket !== '1-30 Days')
+  const lateAmt = buckets.length ? sum(late, 'outstanding_amount') : null
+  return [
+    { label: 'Total AR', amount: total, sublabel: buckets.length ? `${formatCount(sum(buckets, 'invoice_count'))} invoices` : undefined },
+    { label: 'Overdue over 30 days', amount: lateAmt, tone: lateAmt ? 'neg' : undefined, sublabel: lateAmt != null && total ? `${formatPercent((lateAmt / total) * 100)} of total AR` : undefined },
+    { label: 'High Risk Customers', value: c.high_risk_customers ?? null, tone: (c.high_risk_customers ?? 0) > 0 ? 'neg' : undefined },
+    { label: 'Credit Risk Score', value: summary.value.creditScore ?? null, unit: '/100', sublabel: summary.value.creditRisk ?? undefined },
+  ]
+})
+const TIER_ORDER = ['Critical', 'High', 'Medium', 'Low']
+const creditTiers = computed(() => {
+  const rows = creditData.value.customer_risk_scores ?? []
+  const by = new Map<string, { category: string; count: number; outstanding: number }>()
+  for (const r of rows) {
+    const key = r.risk_category ?? 'Unrated'
+    const t = by.get(key) ?? { category: key, count: 0, outstanding: 0 }
+    t.count += 1
+    t.outstanding += Number(r.outstanding) || 0
+    by.set(key, t)
+  }
+  const rank = (c: string) => (TIER_ORDER.includes(c) ? TIER_ORDER.indexOf(c) : TIER_ORDER.length)
+  return { rows: [...by.values()].sort((a, b) => rank(a.category) - rank(b.category)), scored: rows.length }
+})
 const cashflowStrip = computed<StatItem[]>(() => {
   const c = cashflowData.value
   const dso = c.overdue_days_trend?.at(-1)
@@ -950,25 +978,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         <!-- Tab 2: Credit Risk -->
         <div v-if="activeTab === 'credit'" class="space-y-6">
           <TabBrief :brief="tabBriefs.credit" :as-of="riskData?.generated_at" />
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <KpiCard
-              label="Total Outstanding"
-              :value="formatCurrency(creditData.total_outstanding as number)"
-              :clickable="true"
-              @click="drillDown.open(RISK_ENDPOINT, 'Overdue Invoices', { metric: 'overdue_invoices' })"
-            />
-            <KpiCard
-              label="High Risk Customers"
-              :value="creditData.high_risk_customers"
-              :severity="(creditData.high_risk_customers as number) > 0 ? 'high' : undefined"
-            />
-            <KpiCard
-              label="Avg Days Overdue"
-              :value="creditData.avg_days_overdue == null ? undefined : Math.round(creditData.avg_days_overdue as number)"
-              unit=" days"
-              :severity="scoreSeverity(creditData.avg_days_overdue as number, { good: 30, warn: 60, higherIsBetter: false })"
-            />
-          </div>
+          <StatStrip :items="creditStrip" :currency="baseCurrency" />
 
           <!-- Aging Analysis -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -990,6 +1000,29 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
             </div>
           </div>
 
+          <!-- Risk tiers (grouped from the scored customer rows) -->
+          <div v-if="creditTiers.rows.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Risk Tiers" :hint="`Scored customers: ${creditTiers.scored}, by outstanding`" :level="3" />
+            <div class="mt-4 overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-outline-gray-1">
+                    <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Tier</th>
+                    <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Customers</th>
+                    <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Outstanding</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="tier in creditTiers.rows" :key="tier.category" class="border-b border-outline-gray-1">
+                    <td class="py-2"><Badge v-bind="severityBadge(tier.category)" size="sm" /></td>
+                    <td class="py-2 text-right text-ink-gray-8">{{ formatCount(tier.count) }}</td>
+                    <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency(tier.outstanding) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           <!-- Customer Risk Scores -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
           <SectionHeader variant="caption" title="Customer Risk Scores" hint="Payment behaviour and default probability" :level="3" />
@@ -1001,8 +1034,10 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                       <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Customer</th>
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Outstanding</th>
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Avg Overdue Days</th>
+                      <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Max Overdue</th>
                       <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Risk Category</th>
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Risk Score</th>
+                      <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Exposure × Risk</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1014,10 +1049,12 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                       <td class="py-2 text-ink-gray-8">{{ customer.customer_name }}</td>
                       <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency(customer.outstanding) }}</td>
                       <td class="py-2 text-right text-ink-gray-8">{{ Math.round(customer.avg_overdue_days || 0) }}</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ customer.max_overdue_days == null ? NO_VALUE : Math.round(customer.max_overdue_days) }}</td>
                       <td class="py-2 text-center">
                         <Badge v-bind="severityBadge(customer.risk_category)" size="sm" />
                       </td>
                       <td class="py-2 text-right font-medium text-ink-gray-8">{{ customer.risk_score }}/100</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency((Number(customer.outstanding) || 0) * (Number(customer.risk_score) || 0) / 100) }}</td>
                     </tr>
                   </tbody>
                 </table>
