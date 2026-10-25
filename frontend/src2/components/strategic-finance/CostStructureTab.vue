@@ -37,6 +37,25 @@
         <KpiCard label="Fixed Cost (YTD)" :amount="data.figures.fixed_cost" :currency="currency" :clickable="true" @click="drillDown.open(finEndpoint, 'Fixed Costs', { metric: 'cost_structure_accounts' })" />
       </div>
 
+      <!-- Revenue to profit waterfall: every step is arithmetic on the figures above -->
+      <div v-if="waterfall.length" class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+        <SectionHeader
+          variant="caption"
+          title="Revenue to Profit Waterfall"
+          hint="Revenue less cost of sales is gross profit; less the remaining expenses is net profit"
+          :level="3"
+        />
+        <div class="mt-4 space-y-3">
+          <div v-for="row in waterfall" :key="row.label" class="grid grid-cols-[8rem_1fr_auto] sm:grid-cols-[14rem_1fr_auto] items-center gap-3 text-sm">
+            <span class="text-ink-gray-7">{{ row.label }}</span>
+            <div class="h-3 bg-surface-gray-2 rounded-full overflow-hidden" role="img" :aria-label="`${row.label}: ${row.text}`">
+              <div :class="['h-full rounded-full', row.fill]" :style="{ width: `${row.pct}%` }" />
+            </div>
+            <span class="tnum text-right font-medium text-ink-gray-9">{{ row.text }}</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Ratio cards -->
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
         <SectionHeader
@@ -179,6 +198,30 @@ function bannerSubtitle(status: CostRatioStatus): string {
   if (status === 'unknown') return 'No ratio could be graded yet: the cards below have no data for this fiscal year to date.'
   return 'Every cost ratio is within its ideal target for the current fiscal year to date.'
 }
+
+// ── Waterfall ────────────────────────────────────────────────────────────────
+
+const waterfall = computed(() => {
+  const f = props.data?.figures
+  if (!f) return []
+  const rev = Number(f.revenue)
+  const gp = f.gross_profit == null ? null : Number(f.gross_profit)
+  const np = Number(f.net_profit)
+  if (!rev || gp === null) return []
+  const row = (label: string, amount: number, fill: string, sign = '') => ({
+    label,
+    fill,
+    pct: Math.min(Math.abs(amount) / Math.abs(rev) * 100, 100),
+    text: `${sign}${formatMoney(sign ? Math.abs(amount) : amount, props.currency)} (${(amount / rev * 100).toFixed(1)}%)`,
+  })
+  return [
+    row('Revenue', rev, 'bg-muted-fill'),
+    row('Cost of sales', rev - gp, 'bg-warn-fill', '-'),
+    row('Gross profit', gp, gp >= 0 ? 'bg-pos-fill' : 'bg-neg-fill'),
+    row('Expenses below gross profit', gp - np, 'bg-warn-fill', '-'),
+    row('Net profit', np, np >= 0 ? 'bg-pos-fill' : 'bg-neg-fill'),
+  ]
+})
 
 // ── Card rendering ───────────────────────────────────────────────────────────
 
