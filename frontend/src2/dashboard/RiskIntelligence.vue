@@ -444,6 +444,19 @@ const exposureTrendConfig = computed(() => ({
   ],
 }))
 
+/** Average days overdue by month, drawn as one line (mock: Overdue Days Trend chart). */
+const overdueTrendConfig = computed(() => ({
+  title: '',
+  data: (cashflowData.value?.overdue_days_trend ?? []).map(p => ({
+    period: p.period,
+    'Avg days overdue': Number(p.avg_days_overdue),
+  })),
+  xAxis: { key: 'period', type: 'category' as const },
+  yAxis: { title: 'Days' },
+  colors: [themeColor('--app-accent-strong')],
+  series: [{ name: 'Avg days overdue', type: 'line' as const, showDataPoints: true }],
+}))
+
 /**
  * States the actual move over the window instead of leaving the reader to
  * eyeball two endpoints. Direction words only -- no percentage, because a
@@ -1243,17 +1256,12 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Overdue Days Trend" hint="Average days overdue, by month" :level="3" />
             <div class="mt-4">
-              <div class="grid grid-cols-5 gap-4">
-                <KpiCard
-                  v-for="period in cashflowData.overdue_days_trend"
-                  :key="period.period"
-                  :label="period.period"
-                  :value="period.avg_days_overdue"
-                  unit=" days"
-                  variant="tile"
-                  :loading="loading && !hasData"
-                />
-              </div>
+              <IntelligenceChart
+                v-if="cashflowData.overdue_days_trend?.length"
+                :config="overdueTrendConfig"
+                class="h-64"
+              />
+              <p v-else class="text-sm text-ink-gray-6 text-center py-8">No overdue trend data yet.</p>
             </div>
           </div>
 
