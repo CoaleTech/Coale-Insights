@@ -1028,6 +1028,13 @@ const overviewFilingRows = computed<FilingStatusRow[]>(() => {
   return rows
 })
 
+/** 2A/2B reconciliation table for the GST tab; counts and amounts straight from the payload. */
+const reconTable = computed(() => {
+  const r = reconciliationScore.value
+  const row = (label: string, k: string) => ({ label, count: asNumber(r[`${k}_count`]), amount: asNumber(r[`${k}_amount`]) })
+  return [row('Matched', 'matched'), row('Suggested', 'suggested'), row('Mismatch', 'mismatch'), row('Unmatched', 'unmatched')]
+})
+
 /** Reconciliation breakdown for col 3 score panel. */
 const reconRows = computed(() => [
   { label: 'Matched', count: reconciliationScore.value.matched_count as number | undefined },
@@ -1545,61 +1552,6 @@ const actionsStrip = computed<StatItem[]>(() => [
                 weekly against the whole ledger, not a rolling window.
               </p>
             </div>
-
-            <!-- Compliance coverage matrix -->
-            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
-              <SectionHeader
-                variant="caption"
-                title="Compliance coverage matrix"
-                hint="Reconciliation, filing, evidence and escalation per tax area"
-                :level="3"
-              />
-              <div class="mt-3 overflow-x-auto">
-                <table class="w-full text-sm">
-                  <caption class="sr-only">Control status by tax area</caption>
-                  <thead class="bg-surface-gray-1 text-left text-xs uppercase tracking-wide text-ink-gray-6">
-                    <tr>
-                      <th scope="col" class="px-3 py-2 font-medium">Area</th>
-                      <th scope="col" class="px-3 py-2 font-medium">Status</th>
-                      <th scope="col" class="px-3 py-2 font-medium">Reconciliation</th>
-                      <th scope="col" class="px-3 py-2 font-medium">Filing</th>
-                      <th scope="col" class="px-3 py-2 font-medium">Evidence</th>
-                      <th scope="col" class="px-3 py-2 font-medium">Escalates to</th>
-                      <th scope="col" class="px-3 py-2 font-medium text-right">Open</th>
-                    </tr>
-                  </thead>
-                  <tbody class="divide-y divide-outline-gray-1">
-                    <tr v-for="row in complianceMatrix" :key="row.area">
-                      <th scope="row" class="px-3 py-2.5 text-left text-xs font-medium text-ink-gray-8">
-                        {{ row.area }}
-                      </th>
-                      <td class="px-3 py-2.5">
-                        <Badge v-bind="severityBadge(matrixSeverity(row.status))" :label="row.status" size="sm" />
-                      </td>
-                      <td
-                        v-for="cell in ['reconciliation', 'filing', 'evidence', 'escalation']"
-                        :key="cell"
-                        class="px-3 py-2.5 text-xs"
-                      >
-                        <template v-if="matrixCell(row, cell).value === null">
-                          <span class="text-ink-gray-5">—</span>
-                        </template>
-                        <template v-else>
-                          <span class="text-ink-gray-8">{{ matrixCellText(row, cell) }}</span>
-                        </template>
-                        <p class="mt-0.5 text-ink-gray-5">{{ matrixCell(row, cell).note }}</p>
-                      </td>
-                      <td class="px-3 py-2.5 text-right tnum text-xs text-ink-gray-8">
-                        {{ formatNumber(row.open_actions) }}
-                        <p v-if="(asNumber(row.exposure) ?? 0) > 0" class="mt-0.5 text-ink-gray-5">
-                          {{ formatCurrency(asNumber(row.exposure)) }}
-                        </p>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </div>
 
           <!-- GST Overview -->
@@ -1715,6 +1667,38 @@ const actionsStrip = computed<StatItem[]>(() => [
               </div>
             </div>
 
+            <div v-if="asNumber(reconciliationScore.total_count)" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader
+                variant="caption"
+                title="GSTR-2A/2B reconciliation"
+                :hint="`Data runs to ${formatDate(String(reconciliationScore.data_through ?? ''))}`"
+                :level="3"
+              />
+              <div class="overflow-x-auto mt-4">
+                <table class="w-full text-sm">
+                  <thead class="bg-surface-gray-1">
+                    <tr>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Status</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Rows</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="r in reconTable" :key="r.label" class="border-b border-outline-gray-1">
+                      <td class="px-4 py-2 text-ink-gray-8">{{ r.label }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(r.count) }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-8">{{ formatCurrency(r.amount) }}</td>
+                    </tr>
+                    <tr class="font-medium">
+                      <td class="px-4 py-2 text-ink-gray-8">Total rows</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-8">{{ formatNumber(reconciliationScore.total_count) }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(reconciliationScore.unactioned_count) }} unactioned</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
             <!-- HSN Summary -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <!-- Row count comes from the server cap (`HSN_TOP_N`), so the
@@ -1771,6 +1755,61 @@ const actionsStrip = computed<StatItem[]>(() => [
           <div v-if="activeTab === 'compliance'" class="space-y-6">
             <TabBrief :brief="tabBriefs.compliance" :as-of="data?.generated_at" />
             <StatStrip :items="complianceStrip" :currency="baseCurrency" />
+
+            <!-- Compliance coverage matrix -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
+              <SectionHeader
+                variant="caption"
+                title="Compliance coverage matrix"
+                hint="Reconciliation, filing, evidence and escalation per tax area"
+                :level="3"
+              />
+              <div class="mt-3 overflow-x-auto">
+                <table class="w-full text-sm">
+                  <caption class="sr-only">Control status by tax area</caption>
+                  <thead class="bg-surface-gray-1 text-left text-xs uppercase tracking-wide text-ink-gray-6">
+                    <tr>
+                      <th scope="col" class="px-3 py-2 font-medium">Area</th>
+                      <th scope="col" class="px-3 py-2 font-medium">Status</th>
+                      <th scope="col" class="px-3 py-2 font-medium">Reconciliation</th>
+                      <th scope="col" class="px-3 py-2 font-medium">Filing</th>
+                      <th scope="col" class="px-3 py-2 font-medium">Evidence</th>
+                      <th scope="col" class="px-3 py-2 font-medium">Escalates to</th>
+                      <th scope="col" class="px-3 py-2 font-medium text-right">Open</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-outline-gray-1">
+                    <tr v-for="row in complianceMatrix" :key="row.area">
+                      <th scope="row" class="px-3 py-2.5 text-left text-xs font-medium text-ink-gray-8">
+                        {{ row.area }}
+                      </th>
+                      <td class="px-3 py-2.5">
+                        <Badge v-bind="severityBadge(matrixSeverity(row.status))" :label="row.status" size="sm" />
+                      </td>
+                      <td
+                        v-for="cell in ['reconciliation', 'filing', 'evidence', 'escalation']"
+                        :key="cell"
+                        class="px-3 py-2.5 text-xs"
+                      >
+                        <template v-if="matrixCell(row, cell).value === null">
+                          <span class="text-ink-gray-5">—</span>
+                        </template>
+                        <template v-else>
+                          <span class="text-ink-gray-8">{{ matrixCellText(row, cell) }}</span>
+                        </template>
+                        <p class="mt-0.5 text-ink-gray-5">{{ matrixCell(row, cell).note }}</p>
+                      </td>
+                      <td class="px-3 py-2.5 text-right tnum text-xs text-ink-gray-8">
+                        {{ formatNumber(row.open_actions) }}
+                        <p v-if="(asNumber(row.exposure) ?? 0) > 0" class="mt-0.5 text-ink-gray-5">
+                          {{ formatCurrency(asNumber(row.exposure)) }}
+                        </p>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
             <!--
               Exposure in rupees, above the coverage percentages.
               A coverage figure tells you a ratio; a CFO needs the amount at
@@ -2104,6 +2143,28 @@ const actionsStrip = computed<StatItem[]>(() => [
                 <DateCalendar :rows="complianceCalendar" />
               </div>
             </div>
+
+            <div v-if="compliancePulse.available" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="Compliance pulse" hint="Counts from the action board and legal register" :level="3" />
+              <dl class="mt-4 grid grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
+                <div
+                  v-for="r in [
+                    ['Open action items', formatNumber(compliancePulse.open_items)],
+                    ['Overdue items', formatNumber(compliancePulse.overdue)],
+                    ['Due soon', formatNumber(compliancePulse.due_soon)],
+                    ['On track', formatNumber(compliancePulse.on_track)],
+                    ['Total exposure', formatCurrency(asNumber(compliancePulse.exposure))],
+                    ['Unassigned items', formatNumber(compliancePulse.unassigned)],
+                    ['Without evidence', formatNumber(compliancePulse.without_evidence)],
+                  ]"
+                  :key="r[0]"
+                  class="flex justify-between gap-3 border-b border-outline-gray-1 py-1"
+                >
+                  <dt class="text-ink-gray-7">{{ r[0] }}</dt>
+                  <dd class="tnum font-semibold text-ink-gray-8">{{ r[1] }}</dd>
+                </div>
+              </dl>
+            </div>
             <TabActions class="mt-6" :actions="tabBriefs.compliance?.actions" />
           </div>
 
@@ -2235,6 +2296,55 @@ const actionsStrip = computed<StatItem[]>(() => [
                   ]"
                 />
               </div>
+            </div>
+
+            <div v-if="rcmSummary.available" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="RCM reconciliation" hint="Books against the GST portal" :level="3" />
+              <div class="overflow-x-auto mt-4">
+                <table class="w-full text-sm">
+                  <thead class="bg-surface-gray-1">
+                    <tr>
+                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Source</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Rows</th>
+                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Tax</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr class="border-b border-outline-gray-1">
+                      <td class="px-4 py-2 text-ink-gray-8">Books (invoices)</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber((rcmSummary.books ?? {}).invoices) }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-8">{{ formatCurrency(asNumber((rcmSummary.books ?? {}).tax)) }}</td>
+                    </tr>
+                    <tr class="border-b border-outline-gray-1">
+                      <td class="px-4 py-2 text-ink-gray-8">Portal (GSTR-2A/2B)</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ (rcmSummary.portal ?? {}).available ? formatNumber((rcmSummary.portal ?? {}).rows) : NO_VALUE }}</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-8">{{ (rcmSummary.portal ?? {}).available ? formatCurrency(asNumber((rcmSummary.portal ?? {}).tax)) : NO_VALUE }}</td>
+                    </tr>
+                    <tr class="font-medium">
+                      <td class="px-4 py-2 text-ink-gray-8" colspan="2">Gap</td>
+                      <td class="px-4 py-2 text-right text-ink-gray-8">{{ formatCurrency(asNumber(rcmSummary.gap)) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div v-if="panExceptions.available" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="PAN exceptions" :hint="String(panSummary.statutory_basis ?? '')" :level="3" />
+              <dl class="mt-4 space-y-2 text-sm">
+                <div class="flex justify-between gap-3">
+                  <dt class="text-ink-gray-7">Suppliers missing PAN</dt>
+                  <dd class="tnum font-semibold text-ink-gray-8">{{ formatNumber(panSummary.suppliers_missing_pan) }}</dd>
+                </div>
+                <div class="flex justify-between gap-3">
+                  <dt class="text-ink-gray-7">Transacted in window</dt>
+                  <dd class="tnum font-semibold text-ink-gray-8">{{ formatNumber(panSummary.transacted_in_window) }}</dd>
+                </div>
+                <div class="flex justify-between gap-3">
+                  <dt class="text-ink-gray-7">Exposure</dt>
+                  <dd class="tnum font-semibold text-ink-gray-8">{{ formatCurrency(asNumber(panSummary.exposure)) }}</dd>
+                </div>
+              </dl>
             </div>
             <TabActions class="mt-6" :actions="tabBriefs.tds?.actions" />
           </div>
