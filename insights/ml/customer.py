@@ -2214,6 +2214,16 @@ _MONTH_ORDER = ["January", "February", "March", "April", "May", "June",
                 "July", "August", "September", "October", "November", "December"]
 
 
+def _fiscal_start_month() -> int:
+    """Start month (1-12) of the newest Fiscal Year record; January if none."""
+    fy = frappe.qb.DocType("Fiscal Year")
+    row = (
+        frappe.qb.from_(fy).select(fy.year_start_date)
+        .orderby(fy.year_start_date, order=frappe.qb.desc).limit(1).run()
+    )
+    return row[0][0].month if row else 1
+
+
 def compute_purchase_patterns(top_percentile: int = 20,
                                 date_filter: str = "12m",
                                 company: Optional[str] = None) -> Dict[str, Any]:
@@ -2247,8 +2257,11 @@ def compute_purchase_patterns(top_percentile: int = 20,
         return {"status": "success", "message": _("No transaction data"), "patterns": None}
     df["net_total"] = df["net_total"].astype(float)
 
+    fy_start = _fiscal_start_month()
+    month_order = _MONTH_ORDER[fy_start - 1:] + _MONTH_ORDER[:fy_start - 1]
+
     def _quarter(d):
-        return (d.month - 1) // 3 + 1
+        return ((d.month - fy_start) % 12) // 3 + 1
 
     df["posting_date"] = pd.to_datetime(df["posting_date"])
     df["day_name"] = df["posting_date"].dt.day_name()
@@ -2283,7 +2296,7 @@ def compute_purchase_patterns(top_percentile: int = 20,
         total_revenue=("net_total", "sum"),
         avg_order_value=("net_total", "mean"),
         gross_profit=("gross_profit", "sum"),
-    ).reindex(_MONTH_ORDER).fillna(0).reset_index()
+    ).reindex(month_order).fillna(0).reset_index()
     month_analysis["total_revenue"] = month_analysis["total_revenue"].round(2)
     month_analysis["avg_order_value"] = month_analysis["avg_order_value"].round(2)
     month_analysis["gross_profit"] = month_analysis["gross_profit"].round(2)
@@ -2293,7 +2306,9 @@ def compute_purchase_patterns(top_percentile: int = 20,
         total_revenue=("net_total", "sum"),
         avg_order_value=("net_total", "mean"),
     ).fillna(0).reset_index()
-    quarter_names = {1: "Q1 (Jan-Mar)", 2: "Q2 (Apr-Jun)", 3: "Q3 (Jul-Sep)", 4: "Q4 (Oct-Dec)"}
+    quarter_names = {
+        q: f"Q{q} ({month_order[(q - 1) * 3][:3]}-{month_order[(q - 1) * 3 + 2][:3]})" for q in range(1, 5)
+    }
 
     peak_day = day_analysis.loc[day_analysis["total_revenue"].idxmax(), "day_name"] if not day_analysis.empty else None
     peak_month = month_analysis.loc[month_analysis["total_revenue"].idxmax(), "month_name"] if not month_analysis.empty else None

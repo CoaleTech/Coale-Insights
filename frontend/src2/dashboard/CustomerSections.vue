@@ -91,6 +91,7 @@ interface ScorecardRow {
   churn_risk?: string
   health_status?: string
   health_score?: number
+  quadrant?: Quadrant | null
 }
 interface ScorecardData {
   customers: ScorecardRow[]
@@ -240,6 +241,64 @@ const rankMeta = computed(() => {
   }
   return m
 })
+// Quadrants split the whole scorecard at its own median margin and median
+// consistency; a customer is "high" only when strictly above the median (many
+// customers share the median consistency of a single active month).
+type Quadrant = 'Stars' | 'Cash Traps' | 'Growing' | 'Drag'
+const QUADRANT_THEME: Record<Quadrant, 'green' | 'red' | 'blue' | 'gray'> = {
+  Stars: 'green', 'Cash Traps': 'red', Growing: 'blue', Drag: 'gray',
+}
+const QUADRANT_FILL: Record<Quadrant, string> = {
+  Stars: 'var(--app-pos)', 'Cash Traps': 'var(--app-neg)', Growing: 'var(--app-accent)', Drag: 'var(--ink-gray-5)',
+}
+function median(xs: number[]): number | null {
+  if (!xs.length) return null
+  const s = [...xs].sort((a, b) => a - b)
+  const n = s.length
+  return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2
+}
+const quadrantCut = computed(() => {
+  const rows = scorecard.value?.customers ?? []
+  const m = median(rows.filter(r => r.margin_pct != null).map(r => Number(r.margin_pct)))
+  const k = median(rows.filter(r => r.consistency_score != null).map(r => Number(r.consistency_score)))
+  return m != null && k != null ? { margin: m, consistency: k } : null
+})
+function quadrantOf(r: { margin_pct: number | null; consistency_score: number | null }): Quadrant | null {
+  const cut = quadrantCut.value
+  if (!cut || r.margin_pct == null || r.consistency_score == null) return null
+  const hiMargin = Number(r.margin_pct) > cut.margin
+  const hiConsistency = Number(r.consistency_score) > cut.consistency
+  return hiMargin ? (hiConsistency ? 'Stars' : 'Growing') : (hiConsistency ? 'Cash Traps' : 'Drag')
+}
+const QP = { L: 50, R: 540, T: 20, B: 220 }
+const quadrantPlot = computed(() => {
+  const cut = quadrantCut.value
+  const pts = (scorecard.value?.customers ?? []).filter(r => r.margin_pct != null && r.consistency_score != null)
+  if (!cut || pts.length < 2) return null
+  const xs = pts.map(r => Number(r.margin_pct))
+  const xmin = Math.min(...xs), xmax = Math.max(...xs)
+  const ymax = Math.max(...pts.map(r => Number(r.consistency_score)))
+  if (xmax === xmin || ymax <= 0) return null
+  const px = (v: number) => QP.L + ((v - xmin) / (xmax - xmin)) * (QP.R - QP.L)
+  const py = (v: number) => QP.B - (v / ymax) * (QP.B - QP.T)
+  const points = pts.map(r => ({
+    id: r.customer, name: r.customer_name, margin: Number(r.margin_pct), consistency: Number(r.consistency_score),
+    x: px(Number(r.margin_pct)), y: py(Number(r.consistency_score)), q: quadrantOf(r) as Quadrant,
+  }))
+  const counts: Record<Quadrant, number> = { Stars: 0, 'Cash Traps': 0, Growing: 0, Drag: 0 }
+  for (const p of points) counts[p.q]++
+  return { points, counts, xmin, xmax, ymax, cx: px(cut.margin), cy: py(cut.consistency), cut }
+})
+const quadrantStrip = computed<StatItem[]>(() => {
+  const c = quadrantPlot.value?.counts
+  if (!c) return []
+  return [
+    { label: 'Stars', value: String(c.Stars), sublabel: 'margin and consistency above median', tone: 'pos' },
+    { label: 'Cash Traps', value: String(c['Cash Traps']), sublabel: 'consistent, margin at or below median', tone: 'neg' },
+    { label: 'Growing', value: String(c.Growing), sublabel: 'margin above median, less consistent' },
+    { label: 'Drag', value: String(c.Drag), sublabel: 'margin and consistency at or below median' },
+  ]
+})
 const scorecardRows = computed<ScorecardRow[]>(() => {
   const meta = rankMeta.value
   let rows = (scorecard.value?.customers ?? []).map((r) => {
@@ -251,6 +310,7 @@ const scorecardRows = computed<ScorecardRow[]>(() => {
       churn_risk: md?.churn_risk,
       health_status: md?.health_status,
       health_score: md?.health_score,
+      quadrant: quadrantOf(r),
     } as ScorecardRow
   })
   const q = rankSearch.value.trim().toLowerCase()
@@ -504,6 +564,25 @@ const actionsSummary = computed(() => {
   return { revenueAtRisk, outstanding, upside, high, total: nextActions.value.length }
 })
 function clearActionFilters() { actionType.value = ''; actionPriority.value = '' }
+// Customers per action type among the loaded flagged customers; a customer
+// with several recommendations of one type counts once for that type.
+const ACTION_BREAKDOWN_SEVERITY: Record<string, Severity> = {
+  CHURN_PREVENTION: 'high', RE_ENGAGEMENT: 'medium', PAYMENT_FOLLOW_UP: 'medium',
+  UPSELL_OPPORTUNITY: 'low', NEW_CUSTOMER_NURTURE: 'low',
+}
+const actionTypeBreakdown = computed(() => {
+  const counts = new Map<string, number>()
+  for (const a of nextActions.value)
+    for (const k of new Set(a.recommendations.map(r => r.action))) counts.set(k, (counts.get(k) ?? 0) + 1)
+  const max = Math.max(0, ...counts.values())
+  return actionTypeOptions
+    .filter(o => o.value && counts.get(o.value))
+    .map(o => ({
+      value: o.value, label: o.label, count: counts.get(o.value) as number,
+      width: ((counts.get(o.value) as number) / max) * 100,
+      fillClass: severityFill(ACTION_BREAKDOWN_SEVERITY[o.value] ?? 'none'),
+    }))
+})
 const ACTION_CARD_LIMIT = 50
 const actionsCountLabel = computed(() => {
   const shown = Math.min(filteredActions.value.length, ACTION_CARD_LIMIT)
@@ -1381,6 +1460,23 @@ const toneOf = (s: Severity): StatItem['tone'] =>
   <div v-if="activeTab === 'cust-actions'" class="space-y-6">
     <TabBrief :brief="tabBriefs['cust-actions']" />
     <StatStrip :items="actionsStrip" :currency="baseCurrency" />
+    <div v-if="actionTypeBreakdown.length" class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+      <SectionHeader variant="caption" title="Action Type Breakdown"
+        :hint="`Customers per action type among the ${formatNumber(nextActions.length)} loaded of ${formatNumber(nextActionsTotal)} flagged; a customer can appear under several types`" :level="3" />
+      <div class="mt-4 space-y-3">
+        <button v-for="row in actionTypeBreakdown" :key="row.value" type="button"
+          class="flex w-full items-center gap-3 min-w-0 text-left"
+          :aria-label="`Filter the queue to ${row.label}`" @click="actionType = row.value">
+          <span class="w-40 shrink-0 text-sm text-ink-gray-7 truncate">{{ row.label }}</span>
+          <div class="flex-1 min-w-0">
+            <div class="h-2 rounded-full bg-surface-gray-2" role="img" :aria-label="`${row.label}: ${row.count} customers`">
+              <div class="h-full rounded-full" :class="row.fillClass" :style="{ width: `${row.width}%` }" />
+            </div>
+          </div>
+          <span class="tnum text-sm font-medium text-ink-gray-9 w-10 text-right shrink-0">{{ formatNumber(row.count) }}</span>
+        </button>
+      </div>
+    </div>
 
     <!-- Filters -->
     <div class="flex flex-wrap items-center gap-3 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
@@ -1646,6 +1742,33 @@ const toneOf = (s: Severity): StatItem['tone'] =>
   <!-- ═══ Rankings ═══ -->
   <div v-if="activeTab === 'cust-rankings'" class="p-6 space-y-4">
     <TabBrief :brief="tabBriefs['cust-rankings']" />
+    <template v-if="quadrantPlot">
+      <StatStrip :items="quadrantStrip" :currency="baseCurrency" />
+      <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
+        <SectionHeader variant="caption" title="Margin and Consistency Quadrant"
+          :hint="`Split at the median margin ${formatPercent(quadrantPlot.cut.margin)} and median consistency ${formatPercent(quadrantPlot.cut.consistency * 100)}; one dot per customer`" :level="3" />
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 250" width="100%" class="mt-4 max-h-72" role="img"
+          aria-label="Each customer plotted by gross margin percent and consistency score, split into four quadrants at the median of each">
+          <line :x1="QP.L" :y1="QP.B" :x2="QP.R" :y2="QP.B" style="stroke: var(--outline-gray-2)" stroke-width="1" />
+          <line :x1="QP.L" :y1="QP.T" :x2="QP.L" :y2="QP.B" style="stroke: var(--outline-gray-2)" stroke-width="1" />
+          <line :x1="quadrantPlot.cx" :y1="QP.T" :x2="quadrantPlot.cx" :y2="QP.B" style="stroke: var(--app-warn)" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.7" />
+          <line :x1="QP.L" :y1="quadrantPlot.cy" :x2="QP.R" :y2="quadrantPlot.cy" style="stroke: var(--app-warn)" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.7" />
+          <circle v-for="p in quadrantPlot.points" :key="p.id" :cx="p.x" :cy="p.y" r="3" :style="{ fill: QUADRANT_FILL[p.q] }" opacity="0.6">
+            <title>{{ p.name }}: margin {{ formatPercent(p.margin) }}, consistency {{ formatPercent(p.consistency * 100) }}</title>
+          </circle>
+          <text :x="QP.L + 6" :y="QP.T + 12" font-size="11" font-weight="600" style="fill: var(--ink-gray-7)" font-family="Inter,sans-serif">Cash Traps</text>
+          <text :x="QP.R - 6" :y="QP.T + 12" font-size="11" font-weight="600" style="fill: var(--ink-gray-7)" text-anchor="end" font-family="Inter,sans-serif">Stars</text>
+          <text :x="QP.L + 6" :y="QP.B - 6" font-size="11" font-weight="600" style="fill: var(--ink-gray-7)" font-family="Inter,sans-serif">Drag</text>
+          <text :x="QP.R - 6" :y="QP.B - 6" font-size="11" font-weight="600" style="fill: var(--ink-gray-7)" text-anchor="end" font-family="Inter,sans-serif">Growing</text>
+          <text :x="QP.L" y="236" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="start" font-family="Inter,sans-serif">{{ formatPercent(quadrantPlot.xmin) }}</text>
+          <text :x="QP.R" y="236" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="end" font-family="Inter,sans-serif">{{ formatPercent(quadrantPlot.xmax) }}</text>
+          <text :x="(QP.L + QP.R) / 2" y="248" font-size="11" style="fill: var(--ink-gray-5)" text-anchor="middle" font-family="Inter,sans-serif">Gross margin %</text>
+          <text x="44" :y="QP.B + 4" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="end" font-family="Inter,sans-serif">0%</text>
+          <text x="44" :y="QP.T + 4" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="end" font-family="Inter,sans-serif">{{ formatPercent(quadrantPlot.ymax * 100) }}</text>
+          <text x="10" :y="(QP.T + QP.B) / 2" font-size="11" style="fill: var(--ink-gray-5)" text-anchor="middle" :transform="`rotate(-90,10,${(QP.T + QP.B) / 2})`" font-family="Inter,sans-serif">Consistency</text>
+        </svg>
+      </div>
+    </template>
     <!-- Category filters -->
     <div class="flex flex-wrap items-center gap-3 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
       <div class="flex-1 min-w-[200px]">
@@ -1704,6 +1827,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
                     :class="rankDir === 'asc' ? '-rotate-90' : 'rotate-90'" aria-hidden="true" />
                 </span>
               </th>
+              <th scope="col" class="px-4 py-3 text-left font-medium text-ink-gray-6">Quadrant</th>
             </tr>
           </thead>
           <tbody>
@@ -1732,9 +1856,13 @@ const toneOf = (s: Severity): StatItem['tone'] =>
                 <Badge v-if="c.health_score != null" v-bind="severityBadge(healthSeverity(c.health_status))" :label="String(Math.round(c.health_score))" size="sm" />
                 <span v-else class="text-ink-gray-4">—</span>
               </td>
+              <td class="px-4 py-2">
+                <Badge v-if="c.quadrant" :theme="QUADRANT_THEME[c.quadrant]" variant="subtle" :label="c.quadrant" size="sm" />
+                <span v-else class="text-ink-gray-4">{{ NO_VALUE }}</span>
+              </td>
             </tr>
             <tr v-if="!scorecardRows.length">
-              <td colspan="10" class="px-4 py-12 text-center text-ink-gray-6">No customers match these filters.</td>
+              <td colspan="11" class="px-4 py-12 text-center text-ink-gray-6">No customers match these filters.</td>
             </tr>
           </tbody>
         </table>
