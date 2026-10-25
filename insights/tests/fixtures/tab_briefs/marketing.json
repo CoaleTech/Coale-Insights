@@ -1,0 +1,448 @@
+{
+ "data": {
+  "alerts": [
+   {
+    "description": "\u20b9359,696,392 expired versus \u20b917,341,061 ordered in this period.",
+    "severity": "critical",
+    "title": "Quotations are expiring unconverted"
+   },
+   {
+    "description": "IndiaMart accounts for 71% of all leads, so the pipeline depends on a single source.",
+    "severity": "medium",
+    "title": "Lead supply is concentrated in one channel"
+   }
+  ],
+  "currency": "INR",
+  "data_freshness": {
+   "days_stale": 38,
+   "latest_activity": "2026-09-14 17:28:15.451057"
+  },
+  "funnel": [
+   {
+    "conversion_from_prev": null,
+    "count": 3763,
+    "label": "Leads",
+    "value": null
+   },
+   {
+    "conversion_from_prev": 71.0,
+    "count": 2671,
+    "label": "Reached Opportunity",
+    "value": null
+   },
+   {
+    "conversion_from_prev": null,
+    "count": 4175,
+    "label": "Quoted",
+    "value": 634777970.17
+   },
+   {
+    "conversion_from_prev": 14.0,
+    "count": 585,
+    "label": "Ordered",
+    "value": 17341060.92
+   }
+  ],
+  "kpis": {
+   "converted_leads": 332,
+   "expired_value": 359696391.55,
+   "lead_conversion_rate": 8.8,
+   "new_leads": 814,
+   "open_leads": 661,
+   "open_quote_value": 132485981.82,
+   "total_leads": 3763,
+   "win_rate_by_value": 3.5,
+   "won_value": 17341060.92
+  },
+  "lead_trend": [
+   {
+    "converted": 2,
+    "leads": 12,
+    "month": "2024-10"
+   },
+   {
+    "converted": 8,
+    "leads": 67,
+    "month": "2024-11"
+   },
+   {
+    "converted": 24,
+    "leads": 131,
+    "month": "2024-12"
+   },
+   {
+    "converted": 15,
+    "leads": 133,
+    "month": "2025-01"
+   },
+   {
+    "converted": 21,
+    "leads": 246,
+    "month": "2025-02"
+   },
+   {
+    "converted": 23,
+    "leads": 329,
+    "month": "2025-03"
+   },
+   {
+    "converted": 20,
+    "leads": 235,
+    "month": "2025-04"
+   },
+   {
+    "converted": 17,
+    "leads": 172,
+    "month": "2025-05"
+   },
+   {
+    "converted": 18,
+    "leads": 195,
+    "month": "2025-06"
+   },
+   {
+    "converted": 27,
+    "leads": 222,
+    "month": "2025-07"
+   },
+   {
+    "converted": 7,
+    "leads": 175,
+    "month": "2025-08"
+   },
+   {
+    "converted": 17,
+    "leads": 151,
+    "month": "2025-09"
+   },
+   {
+    "converted": 6,
+    "leads": 98,
+    "month": "2025-10"
+   },
+   {
+    "converted": 19,
+    "leads": 147,
+    "month": "2025-11"
+   },
+   {
+    "converted": 12,
+    "leads": 93,
+    "month": "2025-12"
+   },
+   {
+    "converted": 14,
+    "leads": 108,
+    "month": "2026-01"
+   },
+   {
+    "converted": 8,
+    "leads": 52,
+    "month": "2026-02"
+   },
+   {
+    "converted": 7,
+    "leads": 89,
+    "month": "2026-03"
+   },
+   {
+    "converted": 8,
+    "leads": 68,
+    "month": "2026-04"
+   },
+   {
+    "converted": 2,
+    "leads": 25,
+    "month": "2026-05"
+   },
+   {
+    "converted": 4,
+    "leads": 37,
+    "month": "2026-06"
+   },
+   {
+    "converted": 10,
+    "leads": 63,
+    "month": "2026-07"
+   },
+   {
+    "converted": 9,
+    "leads": 48,
+    "month": "2026-08"
+   },
+   {
+    "converted": 6,
+    "leads": 64,
+    "month": "2026-09"
+   }
+  ],
+  "owner_performance": [
+   {
+    "conversion_rate": 9.6,
+    "converted": 135,
+    "leads": 1407,
+    "owner": "domestic@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 6.9,
+    "converted": 70,
+    "leads": 1010,
+    "owner": "sales@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 8.8,
+    "converted": 69,
+    "leads": 784,
+    "owner": "chem@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 7.3,
+    "converted": 26,
+    "leads": 354,
+    "owner": "kalpesh@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 6.8,
+    "converted": 9,
+    "leads": 132,
+    "owner": "export@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 37.7,
+    "converted": 20,
+    "leads": 53,
+    "owner": "admin@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 8.3,
+    "converted": 1,
+    "leads": 12,
+    "owner": "dhaval@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 20.0,
+    "converted": 1,
+    "leads": 5,
+    "owner": "lead@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 20.0,
+    "converted": 1,
+    "leads": 5,
+    "owner": "exim@jkmchemtrade.com"
+   },
+   {
+    "conversion_rate": 0.0,
+    "converted": 0,
+    "leads": 1,
+    "owner": "Unassigned"
+   }
+  ],
+  "period": "TTM",
+  "pipeline_by_status": [
+   {
+    "count": 1790,
+    "status": "Quotation"
+   },
+   {
+    "count": 609,
+    "status": "Inquiry"
+   },
+   {
+    "count": 549,
+    "status": "Opportunity"
+   },
+   {
+    "count": 431,
+    "status": "Lost Quotation"
+   },
+   {
+    "count": 332,
+    "status": "Converted"
+   },
+   {
+    "count": 44,
+    "status": "Open"
+   },
+   {
+    "count": 8,
+    "status": "Interested"
+   }
+  ],
+  "source_performance": [
+   {
+    "conversion_rate": 8.1,
+    "converted": 214,
+    "leads": 2651,
+    "quotations": 2444,
+    "quoted_value": 325650073.58,
+    "source": "IndiaMart",
+    "value_per_lead": 1487.14,
+    "won_value": 3942400.32
+   },
+   {
+    "conversion_rate": 6.6,
+    "converted": 41,
+    "leads": 622,
+    "quotations": 620,
+    "quoted_value": 108377455.78,
+    "source": "Trade India",
+    "value_per_lead": 1434.19,
+    "won_value": 892067.7
+   },
+   {
+    "conversion_rate": 13.7,
+    "converted": 25,
+    "leads": 182,
+    "quotations": 347,
+    "quoted_value": 31517571.32,
+    "source": "Unattributed",
+    "value_per_lead": 18072.48,
+    "won_value": 3289191.69
+   },
+   {
+    "conversion_rate": 5.8,
+    "converted": 3,
+    "leads": 52,
+    "quotations": 25,
+    "quoted_value": 31975971.2,
+    "source": "Google",
+    "value_per_lead": 292.79,
+    "won_value": 15225.0
+   },
+   {
+    "conversion_rate": 30.4,
+    "converted": 14,
+    "leads": 46,
+    "quotations": 487,
+    "quoted_value": 43277356.0,
+    "source": "Existing Customer",
+    "value_per_lead": 174485.14,
+    "won_value": 8026316.62
+   },
+   {
+    "conversion_rate": 10.0,
+    "converted": 3,
+    "leads": 30,
+    "quotations": 37,
+    "quoted_value": 13255341.1,
+    "source": "Cold Calling",
+    "value_per_lead": 275.33,
+    "won_value": 8260.0
+   },
+   {
+    "conversion_rate": 6.7,
+    "converted": 2,
+    "leads": 30,
+    "quotations": 35,
+    "quoted_value": 18696091.28,
+    "source": "Exhibition",
+    "value_per_lead": 3235.87,
+    "won_value": 97076.0
+   },
+   {
+    "conversion_rate": 16.7,
+    "converted": 4,
+    "leads": 24,
+    "quotations": 34,
+    "quoted_value": 31515154.38,
+    "source": "Campaign",
+    "value_per_lead": 0.0,
+    "won_value": 0.0
+   },
+   {
+    "conversion_rate": 45.0,
+    "converted": 9,
+    "leads": 20,
+    "quotations": 19,
+    "quoted_value": 1151363.89,
+    "source": "Direct Call",
+    "value_per_lead": 2407.97,
+    "won_value": 48159.49
+   },
+   {
+    "conversion_rate": 35.0,
+    "converted": 7,
+    "leads": 20,
+    "quotations": 22,
+    "quoted_value": 2358427.1,
+    "source": "Reference",
+    "value_per_lead": 7372.9,
+    "won_value": 147458.0
+   },
+   {
+    "conversion_rate": 0.0,
+    "converted": 0,
+    "leads": 19,
+    "quotations": 18,
+    "quoted_value": 13210444.95,
+    "source": "Chem Expo-2026",
+    "value_per_lead": 0.0,
+    "won_value": 0.0
+   },
+   {
+    "conversion_rate": 0.0,
+    "converted": 0,
+    "leads": 14,
+    "quotations": 18,
+    "quoted_value": 2352452.44,
+    "source": "Sheet",
+    "value_per_lead": 0.0,
+    "won_value": 0.0
+   }
+  ],
+  "territory_performance": [
+   {
+    "converted": 105,
+    "leads": 534,
+    "territory": "Surat"
+   },
+   {
+    "converted": 9,
+    "leads": 211,
+    "territory": "Mumbai"
+   },
+   {
+    "converted": 30,
+    "leads": 195,
+    "territory": "Unassigned"
+   },
+   {
+    "converted": 3,
+    "leads": 118,
+    "territory": "Ahmedabad"
+   },
+   {
+    "converted": 11,
+    "leads": 104,
+    "territory": "Pune"
+   },
+   {
+    "converted": 3,
+    "leads": 103,
+    "territory": "Hyderabad"
+   },
+   {
+    "converted": 6,
+    "leads": 81,
+    "territory": "Vadodara"
+   },
+   {
+    "converted": 7,
+    "leads": 69,
+    "territory": "Nashik"
+   },
+   {
+    "converted": 3,
+    "leads": 63,
+    "territory": "Bengaluru"
+   },
+   {
+    "converted": 2,
+    "leads": 56,
+    "territory": "Indore"
+   }
+  ]
+ },
+ "status": "success"
+}

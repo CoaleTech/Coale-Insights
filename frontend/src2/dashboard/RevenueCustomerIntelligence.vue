@@ -239,7 +239,7 @@ function handleDashboardRedirect(_target: string) {
       @retry="retryAll"
     >
       <!-- Unified KPI strip: 6 cards mixing revenue + customer metrics -->
-      <div class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 2xl:grid-cols-6">
         <KpiCard
           label="Total Revenue"
           :value="money(salesSummary.total_revenue)"
@@ -263,9 +263,9 @@ function handleDashboardRedirect(_target: string) {
         />
         <KpiCard
           label="At Risk"
-          :value="atRiskCount"
+          :value="atRiskCount ?? undefined"
           :severity="(atRiskCount ?? 0) > 0 ? 'high' : 'none'"
-          :loading="!custData || custWarming"
+          :loading="(!custData && !custError) || custWarming"
         />
         <KpiCard
           label="YoY Growth"
@@ -293,6 +293,7 @@ function handleDashboardRedirect(_target: string) {
           :date-filter="dateFilter"
           :currency="salesCurrency"
           :drill-down-endpoint="'insights.api.ml.sales.get_sales_detail'"
+          :at-risk-count="atRiskCount"
           @drill-down="drillDown.open"
         />
         <!-- Warming: the cache is cold and a background job is computing.

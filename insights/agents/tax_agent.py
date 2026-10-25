@@ -139,7 +139,7 @@ class TaxIntelligenceAgent(BaseIntelligenceAgent):
             "matched_count": recon.get("matched_count", 0),
             "unmatched_count": recon.get("unmatched_count", 0),
             "mismatch_count": recon.get("mismatch_count", 0),
-            "reconciliation_score": recon.get("reconciliation_score", 0),
+            "match_rate_pct": recon.get("match_rate_pct", 0),
         }
 
     def _extract_hsn_summary(self, context: Dict) -> List[Dict]:

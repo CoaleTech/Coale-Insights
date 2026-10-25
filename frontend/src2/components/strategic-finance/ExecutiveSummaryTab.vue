@@ -38,9 +38,9 @@
         />
         <KpiCard
           label="Cash Position"
-          :amount="data?.cash_balance"
+          :amount="data?.cash_total ?? data?.cash_balance"
           :currency="currencyVal"
-          :sublabel="runwayLabel"
+          :sublabel="cashPositionLabel"
         />
       </div>
 
@@ -316,10 +316,18 @@ interface Props {
     prior_period_revenue?: number
     ytd_expenses?: number
     ytd_net_income?: number
+    /** Old-cache fallback; prefer cash_total when present. */
     cash_balance?: number
+    /** Liquid cash (bank+cash, no FDs). May be negative when bank is overdrawn. */
+    cash_liquid?: number
+    /** Fixed deposit balance — not immediately spendable. */
+    cash_fd?: number
+    /** Total cash including fixed deposits. */
+    cash_total?: number
     revenue_growth?: number
     net_margin?: number
     cash_runway_months?: number
+    monthly_burn_rate?: number
     kpis?: Array<{ label: string; value: number; format: string; subtitle?: string }>
     monthly_trends?: Array<{
       period: string
@@ -373,6 +381,20 @@ const runwayLabel = computed(() => {
   const months = props.data?.cash_runway_months
   if (months === null || months === undefined || !Number.isFinite(months)) return undefined
   return `${formatCount(months, { decimals: 1 })} months runway`
+})
+
+/**
+ * Sublabel for Cash Position KPI: shows liquid/FD split when FDs are present,
+ * falls back to runway months otherwise.
+ */
+const cashPositionLabel = computed(() => {
+  const d = props.data
+  const fd = d?.cash_fd
+  const liquid = d?.cash_liquid
+  if (fd != null && fd > 0 && liquid != null) {
+    return `incl. ${formatMoney(fd, getCurrency(), { compact: true })} FDs; liquid ${formatMoney(liquid, getCurrency(), { compact: true })}`
+  }
+  return runwayLabel.value
 })
 
 /**

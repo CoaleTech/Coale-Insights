@@ -224,36 +224,41 @@ def _build_marketing_funnel(
     Pure function of already-fetched query results -- no I/O, unit-testable
     without a DB fixture.
     """
+    lost = int(lead_totals.get("lost") or 0)
+    at_opp = int(lead_totals.get("at_opportunity") or 0)
+    at_quot = int(lead_totals.get("at_quotation") or 0)
+
     funnel = [
         {"label": _("Leads"), "count": total, "value": None},
         {
             "label": _("Reached Opportunity"),
-            "count": int(lead_totals.get("at_opportunity") or 0)
-            + int(lead_totals.get("at_quotation") or 0)
-            + converted,
+            # All leads at Opportunity status or beyond (includes those whose
+            # quote was later lost: they DID reach Opportunity).
+            "count": at_opp + at_quot + converted + lost,
             "value": None,
         },
         {
             "label": _("Quoted"),
-            # Value must sum the SAME rows as count above (every docstatus<2
-            # quotation, all 6 statuses) -- `open_value + decided_value` used
-            # to leave out "Open" and "Partially Ordered", silently dropping
-            # their value from this stage while still counting them.
-            "count": sum(int(r["count"] or 0) for r in quote_totals),
+            # Lead-based: leads whose status reached Quotation or beyond.
+            # doc_count carries the total quotation document count; it can
+            # exceed the lead count when multiple quotes are raised per lead.
+            "count": at_quot + converted + lost,
             "value": sum(float(r.get("value") or 0) for r in quote_totals),
+            "doc_count": sum(int(r["count"] or 0) for r in quote_totals),
         },
         {
             "label": _("Ordered"),
-            "count": int(won.get("count") or 0),
+            # Lead-based: leads converted to customers. doc_count carries the
+            # ordered quotation document count (one customer can have multiple
+            # ordered quotes).
+            "count": converted,
             "value": won_value,
+            "doc_count": int(won.get("count") or 0),
         },
     ]
-    # Conversion is only meaningful between stages counted off the SAME base.
-    # Stages 0-1 both come from Lead.status; stages 2-3 both come from
-    # Quotation. Stage 1 -> 2 crosses from leads to quotation records, and
-    # a quotation can exist for a lead that never reached status 'Opportunity',
-    # so that hop is left null rather than reported as a >100% rate.
-    _COMPARABLE_TO_PREV = {1, 3}
+    # All four stages now count the same unit (distinct leads), so
+    # conversion_from_prev is meaningful at every stage.
+    _COMPARABLE_TO_PREV = {1, 2, 3}
     for i, stage in enumerate(funnel):
         prev = funnel[i - 1]["count"] if i in _COMPARABLE_TO_PREV else None
         stage["conversion_from_prev"] = (
@@ -428,10 +433,17 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
         .aggregate(
             count=quote_total.count(),
             value=quote_total["base_grand_total"].sum(),
+            # Period-scoped totals ride the same scan (conditional aggregate)
+            # instead of a second Quotation group_by.
+            period_count=quote_total.count(where=quote_total["creation"] >= start_str),
+            period_value=quote_total["base_grand_total"].sum(
+                where=quote_total["creation"] >= start_str
+            ),
         )
         .execute()
     )
     quote_totals = []
+    period_by_status: dict = {}
     if quote_totals_df is not None and len(quote_totals_df):
         for _, r in quote_totals_df.iterrows():
             quote_totals.append({
@@ -439,6 +451,10 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
                 "count": int(r.get("count") or 0),
                 "value": float(r.get("value") or 0),
             })
+            period_by_status[str(r.get("status") or "")] = {
+                "count": int(r.get("period_count") or 0),
+                "value": float(r.get("period_value") or 0),
+            }
 
     # How current is the CRM at all? A dashboard over abandoned data must
     # say so rather than rendering a wall of confident zeros.
@@ -461,15 +477,17 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     latest = max([d for d in (latest_lead, latest_quotation) if d], default=None)
     days_stale = date_diff(nowdate(), latest.date()) if latest else None
     by_status = {r["status"]: r for r in quote_totals}
-    won = by_status.get("Ordered", {})
-    expired = by_status.get("Expired", {})
+    won = by_status.get("Ordered", {})   # all-time count kept for funnel doc_count
     draft = by_status.get("Draft", {})
+    open_value = float(draft.get("value") or 0)   # all-time: live Draft is actionable regardless of age
 
-    won_value = float(won.get("value") or 0)
-    open_value = float(draft.get("value") or 0)
-    expired_value = float(expired.get("value") or 0)
+    # Period-scoped KPI financials: won/expired/win-rate should reflect the
+    # period the user chose. open_value stays all-time (a Draft quote is live
+    # pipeline whether it was raised yesterday or a year ago).
+    won_value = float(period_by_status.get("Ordered", {}).get("value") or 0)
+    expired_value = float(period_by_status.get("Expired", {}).get("value") or 0)
     decided_value = won_value + expired_value + float(
-        by_status.get("Lost", {}).get("value") or 0
+        period_by_status.get("Lost", {}).get("value") or 0
     )
 
     # ── Source performance. The one panel that answers "which channel ──

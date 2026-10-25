@@ -24,7 +24,8 @@
 -->
 <template>
   <div class="w-full">
-    <ECharts :options="options" :error="error" />
+    <!-- frappe-ui's ECharts applies `options` only on mount, so a theme switch needs a remount. -->
+    <ECharts :key="theme" :options="options" :error="error" />
   </div>
 </template>
 
@@ -38,6 +39,8 @@ import type {
 } from 'frappe-ui/src/components/Charts/types'
 import { computed, ref } from 'vue'
 import { usePrefersReducedMotion } from '../../composables/usePrefersReducedMotion'
+import { useTheme } from '../../composables/useTheme'
+import { themeColor } from '../../utils/chartTheme'
 
 const props = withDefaults(
   defineProps<{
@@ -52,6 +55,31 @@ const props = withDefaults(
 
 const error = ref('')
 const reduceMotion = usePrefersReducedMotion()
+const { theme } = useTheme()
+
+interface Retintable {
+  splitLine?: object
+  axisLabel?: object
+  nameTextStyle?: object
+}
+
+/**
+ * frappe-ui leaves ECharts' light-theme grid and legend text and hardcodes a
+ * white `#fff` background on the axis-name label, so in dark mode the grid is
+ * near-white and the "↑ INR" label is a white box. Retint from the theme tokens.
+ */
+function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | Retintable[]; legend?: { textStyle?: object } }) {
+  const grid = themeColor('--outline-gray-2')
+  const ink = themeColor('--ink-gray-6')
+  const surface = themeColor('--surface-white')
+  for (const axis of [opts.xAxis, opts.yAxis].flat()) {
+    if (!axis) continue
+    axis.splitLine = { ...axis.splitLine, lineStyle: { color: grid } }
+    axis.axisLabel = { ...axis.axisLabel, color: ink }
+    axis.nameTextStyle = { ...axis.nameTextStyle, color: ink, backgroundColor: surface, borderColor: surface }
+  }
+  if (opts.legend) opts.legend.textStyle = { ...opts.legend.textStyle, color: ink }
+}
 
 const options = computed(() => {
   try {
@@ -65,6 +93,8 @@ const options = computed(() => {
     if (props.hideLegend && base && typeof base === 'object') {
       delete (base as { legend?: unknown }).legend
     }
+    // Reading `theme` re-runs this computed on a light/dark switch.
+    if (props.kind !== 'donut' && theme.value) retint(base as Parameters<typeof retint>[0])
     if (!reduceMotion.value) return base
     // Drop the entrance and update tweens; the chart still renders in full.
     return {

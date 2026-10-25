@@ -229,7 +229,12 @@ const periodTabs = [
   { label: 'Year-over-Year' },
 ]
 const periodKeys = ['mom', 'qoq', 'yoy'] as const
-const selectedPeriodIndex = ref(0)
+// Open on the first comparison that is not partial, so the default view never
+// shows a current period of zero for a month that has no activity yet.
+const isPartialPeriod = (p?: PeriodComparison) => !!(p?.is_partial ?? p?.current?.is_partial)
+const selectedPeriodIndex = ref(
+  Math.max(periodKeys.findIndex((k) => !isPartialPeriod(props.data?.[k])), 0),
+)
 const selectedPeriod = computed(() => periodKeys[selectedPeriodIndex.value])
 const selectedPeriodLabel = computed(() => periodTabs[selectedPeriodIndex.value]?.label || '')
 

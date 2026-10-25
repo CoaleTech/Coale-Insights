@@ -239,6 +239,6 @@ const formatCompact = (value: number | null | undefined) => formatCount(value, {
 
 const runwayLabel = (days: number | null | undefined) => {
   if (days === null || days === undefined) return NO_VALUE
-  return days >= 90 ? '90+ days' : `${days} days`
+  return days >= 90 ? '90+ days' : `${days} ${days === 1 ? 'day' : 'days'}`
 }
 </script>

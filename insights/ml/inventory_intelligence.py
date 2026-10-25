@@ -64,7 +64,7 @@ def _projection(values: list[float], periods: int) -> list[float]:
     return [max(0.0, intercept + slope * (n + i)) for i in range(periods)]
 
 
-def _health_score(total_value: float, overstock_count: int, low_stock_count: int, out_of_stock_count: int) -> float:
+def _health_score(total_value: float, overstock_count: int, low_stock_count: int, out_of_stock_count: int) -> float | None:
     """0-100 inventory health score. Higher is healthier.
 
     Penalizes inventory health problems weighted by severity. Inputs are
@@ -79,7 +79,7 @@ def _health_score(total_value: float, overstock_count: int, low_stock_count: int
     even when 36 items were out of stock.
     """
     if total_value <= 0:
-        return 50.0
+        return None  # no inventory data; caller renders '-' not a fake 50
     # Use total_value to scale: a business with $10K in stock shouldn't
     # be penalized the same as one with $10M. Reference scale: a
     # $1M baseline; below that, problems hurt more; above, the score
@@ -889,8 +889,13 @@ class InventoryIntelligence:
         )
         rl_map = dict(zip(reorder_levels["parent"], reorder_levels["reorder_level"]))
 
+        # Restrict to the same "active SKU" population as total_skus (any of
+        # actual_qty/reserved_qty/ordered_qty != 0). Items with all-zero Bins
+        # have no inventory movement; treating their stock=0 as a reorder
+        # signal inflated the count from ~38 to 287 on jkm.
         stock_per_item = (
-            Bin.group_by(Bin.item_code)
+            Bin.filter((Bin.actual_qty != 0) | (Bin.reserved_qty != 0) | (Bin.ordered_qty != 0))
+            .group_by(Bin.item_code)
             .aggregate(current_stock=Bin.actual_qty.sum())
             .execute()
         )
@@ -902,7 +907,10 @@ class InventoryIntelligence:
             avg_daily = float(r["avg_daily_sales"] or 0)
             if avg_daily <= 0:
                 continue
-            current = float(si_map.get(item, 0) or 0)
+            current_raw = si_map.get(item)
+            if current_raw is None:
+                continue  # not in active SKU population
+            current = float(current_raw or 0)
             rl = float(rl_map.get(item, 0) or 0)
             if current <= max(rl, avg_daily * 14):
                 candidates.append(

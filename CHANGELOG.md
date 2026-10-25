@@ -4,6 +4,73 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-10-24
+
+### Changed — Intelligence tabs: server-built headline per tab, merged and cut tabs
+
+Every non-Overview tab opens with one server-written sentence and a severity (`TabBrief`), built in `insights/ml/tab_briefs/<dashboard>.py` from the payload the dashboard already computed. No new query, scan or endpoint; the refresh cron, `_scoped` keys and 24 h TTL are unchanged. `cached_run` attaches `tab_briefs` to the payload (lazy tabs attach `brief` to their own response). Missing data omits the brief; the client never builds headline text. Run `warm_all` after deploy so cached payloads carry `tab_briefs`.
+
+- **Stat strip** (`StatStrip`) replaces KPI-card grids on Revenue, Customer, Procurement, Inventory (Turnover), Risk (Cash Flow, Operational, Signals), Tax, HR, Marketing and Manufacturing. Finance keeps its existing KPI cards.
+- **Finance**: Ratios & Trends + Cost Structure → **Efficiency**; Cash Forecast + 13-Week Cash Flow → **Cash Outlook**; **Forex Exposure** tab removed (`ForexExposureTab.vue` deleted; the backend `forex` payload is untouched). Budget and Break-Even briefs ride their lazy responses; the Break-Even brief says "not configured" on `jkm`. `breakeven_summary` now returns `base_currency`.
+- **Risk**: 7 → 5 tabs (Counterparty = Credit + Payables; Signals = Predictive + Anomalies). The ledger anomaly scan now runs behind a "Run ledger scan" button because it scans on mount.
+- **Tax**: Customs folded into Notices & Customs (7 tabs). **HR**: Department Health folded into Attrition; Payroll hidden while there are no Salary Slips. **Manufacturing**: tabs collapse to Overview and Production while there are no Work Orders. **Inventory**: Warehouses moved into Overview. **Marketing**: the shared KPI row (and its drill-downs) is replaced by per-tab strips. **ESG**: the dead "Not available yet" tabs are removed (the backend still returns `not_implemented`).
+- Dropped rather than invented: external ratio/OEE benchmark text, the procurement rate-contract and budget advice lines, and design-mock figures that the payload cannot back.
+- **Detail lines and Actions**: each brief now also carries `details` (label and sentence pairs, shown under the headline) and `actions` (numbered, with an optional money `impact`), built by the same `tab_briefs/<dashboard>.py` modules and rendered verbatim by `TabBrief` and the new `TabActions` card at the bottom of each tab. Every figure is a payload field or arithmetic on payload fields. The field-path "source" footer was removed from `TabBrief` (it now shows only "As of"). Revenue gained the cash/credit cards with a working-capital bridge, rep concentration and spotlight cards, a taxonomy-gap badge on the `All Item Groups` margin row, and forecast model-health and scenario panels, all computed in the browser from fields already in the payload.
+- **Deviation from the design mocks**: the mock's "37.2 d × ₹41.7K = ₹1.5M" working-capital figure mixes credit-only daily sales with a total-sales DSO. It is replaced by `AR − 30 × average daily sales` (DSO = AR ÷ average daily sales). Mock lines that were judgement or projection (for example "management failure", "N× more valuable", "~N leads projected", "no documented playbook", statutory penalty per day, owner and deadline columns) are not built.
+- **Inventory Turnover tab**: the group table is full width with Sales, COGS, Inventory Value, ITR, DSI and GM% columns and a Total row (`revenue_12m`, `cogs_12m`, `current_inventory_value`, `overall_turnover_ratio`, `days_sales_inventory`, `gross_margin_pct`). Fast movers show name, quantity sold, sales value and stock now; slow movers show name, on hand, valuation rate and stock value. The mock's "Definitions & Lineage" card is not built: it repeats the stat-strip sublabels and its COGS-source claim is unverified.
+- **Customers list tab**: a "Critical accounts" card (top 5 `churn_risk === 'Critical'` by `total_clv`) and a "Health by tier" table (`clv_tier` by `health_status`) sit above the directory. Both are computed client-side from the existing customer rows, so there is no new query.
+- **Marketing Channels tab**: a "Won revenue by channel" bar card (top 5 channels with won value, widths relative to the largest) and a "Vol %" column (`leads ÷ total_leads`). Both come from `source_performance` and `kpis.total_leads`, no new query.
+- **Risk Cash Flow tab**: a "30-day cash forecast" table (one row a week from `cashflow_risk.cash_forecast.forecast`, range sorted low to high), the Actions card moved to the bottom of the tab (it sat inside the Revenue Concentration card), and the Overdue Days tiles shortened from "N days overdue" to "N days" so they no longer truncate.
+- **Not built from the mocks**: the ESG data-gap decision queue (owners, effort estimates and an 80%-of-spend claim are not payload fields; ESG keeps its honest "not yet backed by real data" state).
+- **Rollout**: payload shape changed (`tab_briefs.*.details`, `.actions`); run `warm_all` after deploy. No query, scan, endpoint, cache key or cron change.
+
+### Fixed — Tax GST brief and Recon Match Rate tile read a key that no longer exists
+
+`get_reconciliation_score` returns `match_rate_pct` (the key was renamed earlier), but the GST tab brief and the Tax GST stat strip still read `reconciliation_score.reconciliation_score`. The GST brief was therefore never produced and the "Recon Match Rate" tile showed `-`. Both now read `match_rate_pct`, and the test fixture carries the real key, so the GST test fails if the key drifts again.
+
+### Fixed — Inventory ABC/XYZ matrix "Sales Value" column was blank
+
+The matrix table read `sales_value`, but `abc_xyz.matrix[]` carries `total_value`, so every row showed `-`. It now shows the payload value (AX ₹27,257,706, AY ₹68,082,402, AZ ₹22,801,182). The Class A/B/C tile sublabels no longer state a fixed "~80% / ~15% / ~5%"; they show each class's actual share of classified sales, computed from `abc_summary` (79.8%, 15.1%, 5.1%).
+
+### Changed — Mock-alignment pass: panels the approved mocks showed from fields the payload already carries
+
+No new query, scan or endpoint; every figure is a payload field or arithmetic on payload fields, and an absent value renders `-`.
+
+- **Inventory**: Aging gains a "Days to 365+ bucket" column. Revenue Forecasts "Training window" renders dates with their years.
+- **Customers**: new "Customer group breakdown" card.
+- **Procurement**: "Savings by Item" card on Price and a "3-month total" row on Forecasts. The brief's rate symbol and "analyzed" spelling now follow the site.
+- **Tax**: all money renders exact (no compact form); new "TDS challans by period" table on the TDS tab (6 periods, ₹82,434 on jkm).
+- **Marketing & CRM**: "Recent months" table on Trend and a "Conv." column on Coverage territories. Win Probability headers got padding and a blank source reads "No source".
+- **Risk**: Signals gains a weekly "Cash forecast" table and shows customer names on payment-delay rows (code underneath). Compliance shows GST periods as "Oct 2026" and document counts with separators. The invoice error rate strip tile shows two decimals, matching the brief.
+- **HR**: department "Payroll Cost" and "Cost/Employee" show `-` when payroll is `no_data` (was a fabricated ₹0); "1 employee" singular.
+- **Finance**: the 90-day and 13-week charts no longer draw a second legend over the caller's own; the 13-week stats row no longer overflows into the next card; cash runway says "1 day"; Period Comparison opens on the first non-partial period (YoY when MoM is partial) instead of ₹0 for an empty current month; Break-Even "Fixed Costs" / "Variable Costs" show `-` while the cost structure is unconfigured.
+- **Layout**: the 6-KPI strips on Revenue, Procurement, Finance and Tax go six-up from `2xl` (they truncated at `xl`). `KpiCard` sublabels wrap instead of truncating.
+- **Dark mode charts**: frappe-ui leaves ECharts' light grid and legend text and hardcodes `#fff` behind the axis-name label, so every axis chart drew near-white gridlines and a white "↑" box on the dark surface. `IntelligenceChart` now retints grid, axis labels, legend text and the axis-name background from the `--outline-gray-2` / `--ink-gray-6` / `--surface-white` tokens, and re-tints on a light/dark switch.
+- **Marketing Funnel**: the "Ordered" zone amount was fixed white on amber, 2.2:1 in dark mode; it now uses `text-ink-white`, which flips with the theme.
+- **Side stripes removed**: the Procurement verdict, the HR "Needs Attention" rail and the Tax Action Queue overdue rows drew a coloured left border. Severity was already carried by the badge, the "days late" text and the Escalate badge, so the stripe was dropped.
+- **Finance bugs found while checking the above**: the 90-day chart's "Day 90" tiles read day 84 (the weekly sample stops at day 84 of 90), so Base showed -₹132K while the scenario card said -₹199,917; the tiles now read the real last day. Break-Even "Employee Break-Even by Department" showed ₹0 payroll and 0 orders needed when no department has payroll; both now show `-`.
+
+## [Unreleased] — 2026-10-22
+
+### Changed — Overview tab redesign across all 12 intelligence dashboards, plus the data problems it exposed
+
+Each Overview follows the chosen design-shotgun variant (headline strip ≤6 KPIs, one hero chart, ranked "Needs attention", server-computed verdicts). Chart wrappers are `h-80` because the frappe-ui ECharts root has `min-h-[300px]`. Live `jkm` before → after:
+
+- **Executive**: MTD revenue ₹0 → Revenue (YTD) ₹80.1M, Net Margin 4.33%. `financial_intelligence._calculate_financial_overview` used a hardcoded `mtd_start`; `_financial_kpis` now uses YTD for non-MTD periods. Payload adds `trends.revenue_months` and `trends.revenue_12m` (₹149.3M, the sum of the chart series). The `pipeline_value` KPI is relabelled "Sales Revenue (period)" (it was labelled "12m" but follows the selected period).
+- **Finance**: `executive_summary.cash_balance` ₹424K vs `cash_flow.total_cash` ₹9.6M disagreed (only one included FDs). Payload now has `cash_liquid` (-₹246K), `cash_fd`, `cash_total` (₹9.6M); `runway_months` is `null` when there is no net burn (cash positive, as before), `0.0` only when liquid cash ≤ 0 and cash is draining, else liquid cash ÷ net burn.
+- **Strategic Finance forecasts**: `strategic_finance.data.get_cash_balance` is liquid cash (Bank + Cash, FDs excluded; -₹246K on jkm, was ₹424K), so `forecast_cash_flow`, the 13-week forecast and the liquidity score open from liquid cash, not the ₹9.6M total shown on the Executive Summary card. FDs are treated as non-operating until released; the forecast tabs must label this basis.
+- **Revenue**: `daily_sales` was always empty (anchored on the window end, not the last invoice date) → 24 rows. Adds `mom_growth_full` (-47.5%) / `yoy_growth_full` (-38.3%) beside the like-for-like figures, and a server `verdict_headline` that states both YoY bases instead of "strong growth".
+- **Customer**: `pareto_curve` is now 101 downsampled points over all 581 customers, points are `{customer_pct, cumulative_percent}`, with `pareto_80_threshold_pct` (8.95%).
+- **Tax**: `reconciliation_score.reconciliation_score` renamed `match_rate_pct`; header FY label is derived from the fiscal-year dates (`2627` → `FY 2026-27`).
+- **Risk**: `cashflow_risk` carries `cashflow_score`, `total_receivables`, `total_payables`, `net_exposure`, `cash_position`, `net_working_capital`; server `risk_verdict` (`_risk_verdict`, tested in `ml/test_risk_verdict.py`).
+- **Inventory**: `health_score` no-data branch returns null (was 50); `reorder_count` 287 → 38 (stock population was every Bin, now active SKUs).
+- **Procurement**: root group "All Item Groups" labelled "Uncategorised"; `pct_of_total` is relative to total spend (categories sum to 86%, the rest is taxes/charges in the PI grand total); the partial month is excluded from the trend.
+- **Manufacturing**: `production_health` is now a sentence with `production_health_severity`; JKM has no Work Orders/BOMs, so the empty state is genuine.
+- **Marketing & CRM**: funnel is lead-based (Quoted 4,175 docs → 2,553 leads); expired/won/decided quote values are TTM-scoped (expired ₹35.97 Cr → ₹5.04 Cr). `_LAZY_MAP` gained the marketing endpoints so `warm_all` warms them.
+- **HR**: headcount, hires and exits now show their denominators; no Salary Slips exist, so payroll renders `-`.
+- **ESG**: honest "not yet backed by real data" state with a per-pillar ERPNext source list (no engine built).
+- **Resource budget (2 vCPU / 8 GB plan)**: the redesign adds no scans. Extra figures ride existing queries: Marketing period quote totals are conditional aggregates on the all-time `group_by` (was a second Quotation scan); Revenue `last_posting` rides the headline aggregate and the full-month last-month/last-year totals ride the like-for-like slices (3 queries saved per compute). Cached payloads change shape (e.g. Customer `pareto_curve`) and `CACHE_TTL` is 24 h, so run `warm_all` after deploy.
+
 ## [Unreleased] — 2026-09-22
 
 ### Fixed — Revenue / Customer / Finance follow-ups: one gross margin, full-window daily table, avg order gap, reactivated, At Risk

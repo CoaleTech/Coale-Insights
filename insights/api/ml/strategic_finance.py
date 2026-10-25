@@ -11,6 +11,8 @@ from typing import Dict, Any
 from insights.api.response import success, error
 from insights.api.ml.permissions import authorize_dashboard
 from insights.api.ml.utils import cached_run
+from insights.ml.tab_briefs import attach_lazy
+from insights.ml.tab_briefs.finance_planning import lazy_beoverview, lazy_budget
 
 
 @frappe.whitelist()
@@ -44,7 +46,7 @@ def get_budget_variance_overview(company: str = None, fiscal_year: str = None) -
     
         model = BudgetVarianceIntelligence()
         result = model.get_budget_variance_overview()
-        return success(result)
+        return attach_lazy(success(result), lazy_budget, "budget")
     except frappe.PermissionError:
         raise
     except Exception as e:

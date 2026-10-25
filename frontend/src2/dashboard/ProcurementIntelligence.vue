@@ -40,7 +40,7 @@
       @retry="retry"
     >
     <!-- Summary Cards -->
-    <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div class="p-6 grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4">
       <KpiCard
         label="Total Spend"
         :amount="spendData.total_spend"
@@ -102,135 +102,128 @@
 
     <!-- Tab Content -->
     <div class="flex-1 p-6 overflow-auto">
-      <!-- Tab 1: Spend Overview -->
-      <div v-if="activeTab === 'spend'" class="space-y-6">
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <!-- Monthly Spend Trend -->
-          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
-            <SectionHeader variant="caption" title="Monthly Spend Trend" :hint="baseCurrency" :level="3" />
-            <IntelligenceChart v-if="spendData.monthly_trend?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="monthlySpendConfig" />
-            <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
-              No spend data available
-            </div>
-            <table v-if="spendData.monthly_trend?.length" class="sr-only">
-              <caption>Monthly procurement spend</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Month</th>
-                  <th scope="col">Spend</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="month in spendData.monthly_trend" :key="month.period">
-                  <th scope="row">{{ monthLabel(month) }}</th>
-                  <td>{{ formatCurrency(month.spend) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <!-- Spend by Category -->
-          <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
-            <SectionHeader variant="caption" title="Spend by Category" hint="% of period spend" :level="3" />
-            <IntelligenceChart v-if="spendData.by_category?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="spendByCategoryConfig" />
-            <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
-              No category data available
-            </div>
-            <table v-if="spendData.by_category?.length" class="sr-only">
-              <caption>Spend by category as percent of total</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Category</th>
-                  <th scope="col">Spend</th>
-                  <th scope="col">% of total</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="cat in spendData.by_category" :key="cat.category">
-                  <th scope="row">{{ cat.category }}</th>
-                  <td>{{ formatCurrency(cat.spend) }}</td>
-                  <td>{{ formatPercent(cat.pct_of_total) }}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+      <!-- Tab 1: Spend Overview — Variant A (Briefing) -->
+      <div v-if="activeTab === 'spend'" class="space-y-5">
+        <!-- Verdict headline: assembled from real payload fields only (Rule 7) -->
+        <div
+          v-if="verdictMessage"
+          class="bg-surface-blue-1 rounded-lg px-4 py-3 text-sm text-ink-gray-8 leading-relaxed"
+        >
+          {{ verdictMessage }}
         </div>
 
-        <!-- Top Suppliers by Spend -->
-        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
-          <SectionHeader variant="caption" title="Top Suppliers by Spend" hint="Select a supplier to see its invoices" :level="3" />
-          <div class="mt-4 overflow-x-auto" v-if="spendData.top_suppliers?.length">
-            <table class="min-w-full">
-              <thead>
-                <tr class="bg-surface-gray-1">
-                  <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-ink-gray-6 uppercase">Supplier</th>
-                  <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Invoices</th>
-                  <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Total Spend</th>
-                  <th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">% of Total</th>
-                  <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-ink-gray-6 uppercase">Share</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-outline-gray-1">
-                <tr v-for="sup in spendData.top_suppliers" :key="sup.supplier"
-                    class="cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
-                    @click="openSupplierInvoices(sup)">
-                  <td class="px-4 py-3">
-                    <button type="button" :class="LINK_BUTTON_CLASS">{{ supplierLabel(sup) }}</button>
-                  </td>
-                  <td class="px-4 py-3 text-right text-sm text-ink-gray-6">{{ formatCount(sup.invoice_count) }}</td>
-                  <td class="px-4 py-3 text-right text-sm font-medium text-ink-gray-9">
-                    {{ formatCurrency(sup.spend) }}
-                  </td>
-                  <td class="px-4 py-3 text-right text-sm text-ink-gray-6">{{ formatPercent(sup.pct_of_total) }}</td>
-                  <td class="px-4 py-3 w-32">
-                    <div class="bg-surface-gray-2 rounded-full h-2 overflow-hidden">
-                      <div
-                        class="bg-surface-blue-3 h-full rounded-full"
-                        :style="{ width: `${sup.pct_of_total ?? 0}%` }"
-                        role="img"
-                        :aria-label="`${formatPercent(sup.pct_of_total)} of period spend`"
-                      ></div>
-                    </div>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div v-else class="text-center py-6 text-sm text-ink-gray-6">No suppliers found</div>
-        </div>
+        <!-- Two-column body: diagnostic charts left, Needs Attention rail right -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+          <!-- Main column -->
+          <div class="col-span-1 lg:col-span-2 space-y-6">
+
+            <!-- Monthly Spend Trend (partial months excluded; flagged in hint) -->
+            <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+              <SectionHeader variant="caption" title="Monthly Spend Trend" :hint="monthlyTrendHint" :level="3" />
+              <IntelligenceChart
+                v-if="completeTrendData.length"
+                class="mt-4 h-80"
+                :config="monthlySpendConfig"
+              />
+              <div v-else class="h-48 flex items-center justify-center text-sm text-ink-gray-6">
+                No spend data available
+              </div>
+              <p v-if="lastMonthDipNote" class="mt-3 text-xs text-ink-gray-6">⚑ {{ lastMonthDipNote }}</p>
+              <table v-if="completeTrendData.length" class="sr-only">
+                <caption>Monthly procurement spend (complete months)</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <th scope="col">Spend</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in completeTrendData" :key="row.period">
+                    <th scope="row">{{ row.period }}</th>
+                    <td>{{ formatCurrency(row.Spend) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Top Suppliers by Spend (ranked bar list; Rule 2 compliance) -->
+            <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+              <SectionHeader
+                variant="caption"
+                title="Top Suppliers by Spend"
+                :hint="`Period spend · % of ${formatCurrency(spendData.total_spend)} total · click to view invoices`"
+                :level="3"
+              />
+              <div v-if="spendData.top_suppliers?.length" class="mt-4 space-y-0.5">
+                <div
+                  v-for="(sup, idx) in spendData.top_suppliers"
+                  :key="sup.supplier"
+                  class="flex items-center gap-3 py-2 px-1 rounded cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`View ${supplierLabel(sup)} invoices`"
+                  @click="openSupplierInvoices(sup)"
+                  @keydown.enter.prevent="openSupplierInvoices(sup)"
+                  @keydown.space.prevent="openSupplierInvoices(sup)"
+                >
+                  <span class="w-5 text-xs text-ink-gray-6 text-right flex-shrink-0">{{ idx + 1 }}</span>
+                  <span class="flex-1 text-sm text-ink-gray-9 truncate">{{ supplierLabel(sup) }}</span>
+                  <!-- bar is decorative: pct text carries the value (Rule 2) -->
+                  <div class="w-24 h-1.5 bg-surface-gray-2 rounded-full flex-shrink-0" aria-hidden="true">
+                    <div
+                      class="h-full rounded-full bg-surface-blue-3"
+                      :style="{ width: `${supBarWidth(sup)}%` }"
+                    ></div>
+                  </div>
+                  <span class="w-10 text-right text-xs text-ink-gray-6 flex-shrink-0">{{ formatPercent(sup.pct_of_total) }}</span>
+                  <span class="w-16 text-right text-xs font-medium text-ink-gray-9 flex-shrink-0">
+                    {{ formatMoney(sup.spend, baseCurrency, { compact: true }) }}
+                  </span>
+                </div>
+                <p class="mt-2 px-1 text-xs text-ink-gray-6">
+                  Top {{ spendData.top_suppliers?.length }} suppliers =
+                  {{ formatPercent((spendData.top_suppliers ?? []).reduce((s, r) => s + (r.pct_of_total ?? 0), 0)) }}
+                  of period spend.
+                </p>
+              </div>
+              <div v-else class="py-6 text-center text-sm text-ink-gray-6">No suppliers found</div>
+            </div>
+
+          </div><!-- /main column -->
+
+          <!-- Needs Attention rail -->
+          <div class="col-span-1 bg-surface-white rounded-lg border border-outline-gray-1 p-5 self-start">
+            <SectionHeader variant="caption" title="Needs Attention" :level="3" />
+            <p v-if="!attentionItems.length" class="mt-3 text-sm text-ink-gray-6">No issues flagged this period.</p>
+            <div
+              v-for="(item, i) in attentionItems"
+              :key="i"
+              class="py-3 border-b border-outline-gray-1 last:border-b-0"
+            >
+              <div class="flex items-center gap-2 mb-1.5">
+                <div class="h-2 w-2 rounded-full flex-shrink-0" :class="severityFill(item.severity)" aria-hidden="true"></div>
+                <span class="text-xs font-semibold uppercase tracking-wide text-ink-gray-6">{{ item.label }}</span>
+              </div>
+              <p class="text-sm text-ink-gray-8 leading-snug">{{ item.body }}</p>
+              <button
+                v-if="item.onClick"
+                type="button"
+                class="mt-1.5 text-xs font-medium text-ink-gray-9 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 rounded"
+                @click="item.onClick?.()"
+              >
+                {{ item.actionLabel }} →
+              </button>
+            </div>
+          </div><!-- /attention rail -->
+
+        </div><!-- /body grid -->
       </div>
 
       <!-- Tab 2: Supplier Performance -->
       <div v-if="activeTab === 'suppliers'" class="space-y-6">
-        <!-- Performance Summary -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <KpiCard
-            label="Avg Performance Score"
-            :value="supplierData.avg_score"
-            unit="/100"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-          <KpiCard
-            label="Avg On-Time Rate"
-            :percent="supplierData.avg_on_time_rate"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-          <KpiCard
-            :label="qualityStatus === 'not_implemented' ? 'Avg Quality Rate (not tracked)' : 'Avg Quality Rate'"
-            :percent="qualityStatus === 'not_implemented' ? null : (supplierData.avg_quality_rate ?? null)"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-          <KpiCard
-            label="Avg Lead Time"
-            :value="supplierData.avg_lead_time"
-            unit=" days"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-        </div>
+        <TabBrief :brief="tabBriefs.suppliers" :as-of="procurementData?.generated_at" />
+        <StatStrip :items="suppliersStrip" />
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Top Performers -->
@@ -329,10 +322,12 @@
           </div>
           <div v-else class="text-center py-6 text-sm text-ink-gray-6">No supplier data available</div>
         </div>
+        <TabActions class="mt-6" :actions="tabBriefs.suppliers?.actions" />
       </div>
 
       <!-- Tab 3: Purchase Analytics -->
       <div v-if="activeTab === 'analytics'" class="space-y-6">
+        <TabBrief :brief="tabBriefs.analytics" :as-of="procurementData?.generated_at" />
         <!-- Cycle Times -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
           <KpiCard
@@ -459,34 +454,13 @@
           </div>
           <div v-else class="text-center py-6 text-sm text-ink-gray-6">No pending purchase orders</div>
         </div>
+        <TabActions class="mt-6" :actions="tabBriefs.analytics?.actions" />
       </div>
 
       <!-- Tab 4: Price Intelligence -->
       <div v-if="activeTab === 'pricing'" class="space-y-6">
-        <!-- Summary -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <KpiCard
-            label="Items Analyzed"
-            :value="priceData.items_analyzed"
-            sublabel="Stock items purchased in period"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-          <KpiCard
-            label="Items with Price Increases"
-            :value="priceData.price_increases_count"
-            sublabel="Last price over 5% above average"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-          <KpiCard
-            label="Potential Savings"
-            :amount="priceData.total_potential_savings"
-            :currency="baseCurrency"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-        </div>
+        <TabBrief :brief="tabBriefs.pricing" :as-of="procurementData?.generated_at" />
+        <StatStrip :items="pricingStrip" :currency="baseCurrency" />
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <!-- Price Increases -->
@@ -550,6 +524,19 @@
           </div>
         </div>
 
+        <!-- Savings by item -->
+        <div v-if="topSavings.length" class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+          <SectionHeader variant="caption" title="Savings by Item" hint="Top six items by potential savings" :level="3" />
+          <div class="mt-4 space-y-3">
+            <div v-for="item in topSavings" :key="item.item_code" class="grid grid-cols-[minmax(0,14rem)_1fr_auto] items-center gap-4 text-sm">
+              <span class="truncate text-ink-gray-8">{{ item.item_name || item.item_code }}</span>
+              <div class="h-2 rounded-full bg-surface-gray-2">
+                <div class="h-2 rounded-full bg-surface-gray-5" :style="{ width: `${item.width}%` }" />
+              </div>
+              <span class="tnum font-medium text-ink-gray-9">{{ formatCurrency(item.potential_savings) }}</span>
+            </div>
+          </div>
+        </div>
         <!-- Price Variance Table -->
         <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <SectionHeader variant="caption" title="Item Price Analysis" hint="Per stock UOM, select an item for its purchases" :level="3" />
@@ -591,10 +578,12 @@
           </div>
           <div v-else class="text-center py-6 text-sm text-ink-gray-6">No price variance data available</div>
         </div>
+        <TabActions class="mt-6" :actions="tabBriefs.pricing?.actions" />
       </div>
 
       <!-- Tab 5: Risk Analysis -->
       <div v-if="activeTab === 'risks'" class="space-y-6">
+        <TabBrief :brief="tabBriefs.risks" :as-of="procurementData?.generated_at" />
         <!-- Risk Score Card -->
         <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center justify-between">
@@ -727,36 +716,13 @@
             </div>
           </div>
         </div>
+        <TabActions class="mt-6" :actions="tabBriefs.risks?.actions" />
       </div>
 
       <!-- Tab 6: Forecasts & Planning -->
       <div v-if="activeTab === 'forecasts'" class="space-y-6">
-        <!-- Forecast Summary -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <KpiCard
-            label="Avg Monthly Spend"
-            :amount="forecastData.avg_monthly_spend"
-            :currency="baseCurrency"
-            sublabel="Last 6 complete months"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-          <KpiCard
-            label="Trend Direction"
-            :value="trendLabel"
-            :sublabel="forecastData.trend_amount ? `${formatCurrency(forecastData.trend_amount)}/month` : undefined"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-          <KpiCard
-            label="Data Points"
-            :value="completeMonthCount"
-            unit=" months"
-            sublabel="Complete months in fit"
-            variant="tile"
-            :loading="loading && !hasData"
-          />
-        </div>
+        <TabBrief :brief="tabBriefs.forecasts" :as-of="procurementData?.generated_at" />
+        <StatStrip :items="forecastStrip" :currency="baseCurrency" />
 
         <div v-if="forecastData.status === 'insufficient_data'" class="bg-surface-gray-1 border border-outline-gray-2 rounded-lg p-4">
           <p class="text-ink-gray-7">{{ forecastData.message }}</p>
@@ -775,6 +741,10 @@
                 <div class="text-xl font-bold text-ink-gray-9">
                   {{ formatCurrency(forecast.predicted_spend) }}
                 </div>
+              </div>
+              <div class="flex items-center justify-between border-t border-outline-gray-1 px-4 pt-3">
+                <span class="text-sm font-medium text-ink-gray-6">3-month total</span>
+                <span class="tnum text-xl font-bold text-ink-gray-9">{{ formatCurrency(forecastTotal) }}</span>
               </div>
             </div>
             <div v-else class="text-center py-6 text-sm text-ink-gray-6">No forecast data available</div>
@@ -824,6 +794,7 @@
             </tbody>
           </table>
         </div>
+        <TabActions class="mt-6" :actions="tabBriefs.forecasts?.actions" />
       </div>
     </div>
     </IntelligenceDashboardShell>
@@ -872,6 +843,9 @@ import IntelligenceDashboardShell from '../intelligence/components/IntelligenceD
 import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
+import TabBrief, { type Brief } from '../intelligence/components/TabBrief.vue'
+import TabActions from '../intelligence/components/TabActions.vue'
+import StatStrip, { type StatItem } from '../intelligence/components/StatStrip.vue'
 import { chartPalette, themeColor } from '../utils/chartTheme'
 import { formatCount, formatDate, formatMoney, formatPercent, NO_VALUE } from '../utils/format'
 import { formatPeriod } from '../components/financial/format'
@@ -1058,6 +1032,7 @@ interface ProcurementData {
   forecasts?: ForecastData
   generated_at?: string
   base_currency?: string
+  tab_briefs?: Record<string, Brief>
   date_filter?: string
   /** `start` is null when the window is all history. */
   period?: { start: string | null; end: string }
@@ -1094,6 +1069,32 @@ const riskData = computed(() => procurementData.value?.risk_analysis ?? ({} as P
 const forecastData = computed(() => procurementData.value?.forecasts ?? ({} as ForecastData))
 const baseCurrency = computed(() => procurementData.value?.base_currency)
 const lastUpdated = computed(() => procurementData.value?.generated_at ?? null)
+const tabBriefs = computed(() => procurementData.value?.tab_briefs ?? {})
+const suppliersStrip = computed<StatItem[]>(() => [
+  { label: 'Avg Performance Score', value: supplierData.value.avg_score ?? null, unit: '/100' },
+  { label: 'Avg On-Time Rate', percent: supplierData.value.avg_on_time_rate ?? null },
+  { label: qualityStatus.value === 'not_implemented' ? 'Avg Quality Rate (not tracked)' : 'Avg Quality Rate', percent: qualityStatus.value === 'not_implemented' ? null : (supplierData.value.avg_quality_rate ?? null) },
+  { label: 'Avg Lead Time', value: supplierData.value.avg_lead_time ?? null, unit: ' days' },
+])
+const pricingStrip = computed<StatItem[]>(() => [
+  { label: 'Items Analyzed', value: priceData.value.items_analyzed ?? null, sublabel: 'Stock items purchased in period' },
+  { label: 'Items with Price Increases', value: priceData.value.price_increases_count ?? null, sublabel: 'Last price over 5% above average' },
+  { label: 'Potential Savings', amount: priceData.value.total_potential_savings ?? null },
+])
+const forecastTotal = computed(() => (forecastData.value.forecasts ?? []).reduce((s, f) => s + (f.predicted_spend ?? 0), 0))
+const topSavings = computed(() => {
+  const rows = [...(priceData.value.price_variance_items ?? [])]
+    .filter(i => (i.potential_savings ?? 0) > 0)
+    .sort((a, b) => (b.potential_savings ?? 0) - (a.potential_savings ?? 0))
+    .slice(0, 6)
+  const max = rows[0]?.potential_savings ?? 0
+  return rows.map(i => ({ ...i, width: max > 0 ? Math.round(((i.potential_savings ?? 0) / max) * 100) : 0 }))
+})
+const forecastStrip = computed<StatItem[]>(() => [
+  { label: 'Avg Monthly Spend', amount: forecastData.value.avg_monthly_spend ?? null, sublabel: 'Last 6 complete months' },
+  { label: 'Trend Direction', value: trendLabel.value, sublabel: forecastData.value.trend_amount ? `${formatCurrency(forecastData.value.trend_amount)}/month` : undefined },
+  { label: 'Data Points', value: completeMonthCount.value, unit: ' months', sublabel: 'Complete months in fit' },
+])
 
 const windowLabel = computed(() => {
   const period = procurementData.value?.period
@@ -1166,28 +1167,157 @@ const completeMonthCount = computed(() => {
 })
 
 // Chart configs — ECharts cannot resolve CSS custom properties from canvas; use themeColor().
+
+// completeTrendData: complete (non-partial) months only; used by the chart and the attention rail.
+// is_partial flag comes from the server-side _month_series helper; partial months at either window
+// edge or the current in-progress month are excluded from the trend so a 0-spend current month
+// does not create a visual cliff.
+interface SpendTrendRow { period: string; Spend: number }
+const completeTrendData = computed<SpendTrendRow[]>(() =>
+  (spendData.value.monthly_trend ?? [])
+    .filter(m => !m.partial)
+    .map(m => ({ period: formatPeriod(m.period), Spend: m.spend })),
+)
+
+/** Average of complete months with non-zero spend; used for the dip note and attention rail. */
+const avgMonthlySpend = computed(() => {
+  const rows = completeTrendData.value.filter(r => r.Spend > 0)
+  return rows.length ? rows.reduce((s, r) => s + r.Spend, 0) / rows.length : null
+})
+
+const monthlyTrendHint = computed(() => {
+  const partial = (spendData.value.monthly_trend ?? []).filter(m => m.partial).map(m => formatPeriod(m.period))
+  const base = baseCurrency.value ?? ''
+  return partial.length ? `${base} · ${partial.join(', ')} excluded (incomplete)` : base
+})
+
+/** Non-null when the last complete month is >30% below the period average; prompts a data-lag check. */
+const lastMonthDipNote = computed(() => {
+  const avg = avgMonthlySpend.value
+  const data = completeTrendData.value
+  if (!avg || data.length < 3) return null
+  const last = data[data.length - 1]
+  if (last.Spend < avg * 0.7) {
+    const dip = Math.round((1 - last.Spend / avg) * 100)
+    return `${last.period} ${formatCurrency(last.Spend)} — ${dip}% below ${formatCurrency(avg)} full-month average. Verify if reporting lag.`
+  }
+  return null
+})
+
 const monthlySpendConfig = computed(() => ({
   title: '',
-  data: (spendData.value.monthly_trend ?? []).map(m => ({
-    period: monthLabel(m),
-    Spend: m.spend,
-  })),
+  data: completeTrendData.value,
   xAxis: { key: 'period', type: 'category' as const },
   yAxis: { title: baseCurrency.value ?? '', yMin: 0 },
-  series: [{ name: 'Spend', type: 'area' as const, color: themeColor('--app-info-fill') }],
+  series: [{ name: 'Spend', type: 'area' as const, color: themeColor('--app-accent') }],
 }))
 
-const spendByCategoryConfig = computed(() => ({
-  title: '',
-  data: (spendData.value.by_category ?? []).slice(0, 10).map(c => ({
-    category: c.category,
-    'Pct of total': c.pct_of_total,
-  })),
-  xAxis: { key: 'category', type: 'category' as const },
-  yAxis: { title: '% of spend', yMin: 0 },
-  swapXY: true,
-  series: [{ name: 'Pct of total', type: 'bar' as const, color: themeColor('--app-info-fill') }],
-}))
+/** Verdict sentence assembled from real payload fields (no heuristic framing, Rule 7). */
+const verdictMessage = computed(() => {
+  if (!hasData.value) return null
+  const spend = spendData.value.total_spend
+  if (!spend) return null
+  const growth = spendData.value.prior_period_growth
+  const spendStr = formatMoney(spend, baseCurrency.value, { compact: true })
+  const growthStr = growth != null ? ` (${growth >= 0 ? '+' : ''}${formatPercent(growth)} vs prior period)` : ''
+  let msg = `Spend ${spendStr}${growthStr} across ${formatCount(spendData.value.invoice_count)} invoices from ${formatCount(spendData.value.supplier_count)} suppliers.`
+  const onTime = supplierData.value.avg_on_time_rate
+  if (onTime != null && onTime < RATE_THRESHOLDS.good) {
+    msg += ` On-time delivery ${formatPercent(onTime)} — below ${RATE_THRESHOLDS.good}% target.`
+  }
+  return msg
+})
+
+/** Bar width for the ranked supplier list; scaled to the top supplier's share. */
+const supBarWidth = (sup: TopSupplierRow) => {
+  const max = spendData.value.top_suppliers?.[0]?.pct_of_total ?? 1
+  return Math.min(100, ((sup.pct_of_total ?? 0) / max) * 100)
+}
+
+interface AttentionItem {
+  severity: Severity
+  label: string
+  body: string
+  actionLabel?: string
+  onClick?: () => void
+}
+
+/** Dynamically ranked attention items derived from the live payload. */
+const attentionItems = computed<AttentionItem[]>(() => {
+  if (!hasData.value) return []
+  const items: AttentionItem[] = []
+  // 1. Pending POs (current state, most actionable)
+  const pendingCount = purchaseData.value.pending_count ?? 0
+  if (pendingCount > 0) {
+    items.push({
+      severity: 'critical',
+      label: 'Action Required',
+      body: `${formatCount(pendingCount)} pending POs — ${formatCurrency(purchaseData.value.pending_value)} open value`,
+      actionLabel: 'View pending POs',
+      onClick: () => drillDown.open(PROC_ENDPOINT, 'Pending Purchase Orders', { metric: 'pending_pos' }),
+    })
+  }
+  // 2. On-time delivery below 90% threshold
+  const onTime = supplierData.value.avg_on_time_rate
+  if (onTime != null && onTime < RATE_THRESHOLDS.good) {
+    const gap = Math.round(RATE_THRESHOLDS.good - onTime)
+    items.push({
+      severity: onTime < RATE_THRESHOLDS.warn ? 'high' : 'medium',
+      label: 'Warning',
+      body: `On-time delivery ${formatPercent(onTime)} — ${gap} pp below ${RATE_THRESHOLDS.good}% target`,
+      actionLabel: 'Supplier performance',
+      onClick: () => { tabIndex.value = tabs.findIndex(t => t.value === 'suppliers') },
+    })
+  }
+  // 3. Single-source supply risk
+  const ssCount = riskData.value.single_source_count ?? 0
+  if (ssCount > 0) {
+    items.push({
+      severity: 'medium',
+      label: 'Supply Risk',
+      body: `${formatCount(ssCount)} single-sourced items — ${formatCurrency(riskData.value.single_source_value)} at sole-supplier risk`,
+      actionLabel: 'Risk analysis',
+      onClick: () => { tabIndex.value = RISKS_TAB_INDEX },
+    })
+  }
+  // 4. Top supplier concentration (>5% = notable)
+  const topSup = spendData.value.top_suppliers?.[0]
+  if (topSup && topSup.pct_of_total > 5) {
+    items.push({
+      severity: 'none',
+      label: 'Monitor',
+      body: `${supplierLabel(topSup)} ${formatPercent(topSup.pct_of_total)} concentration — ${formatCurrency(topSup.spend)} across ${formatCount(topSup.invoice_count)} invoices`,
+      actionLabel: 'View invoices',
+      onClick: () => openSupplierInvoices(topSup),
+    })
+  }
+  // 5. Last complete month >30% below period average (possible reporting lag)
+  const avg = avgMonthlySpend.value
+  const trendData = completeTrendData.value
+  if (avg && trendData.length >= 3) {
+    const last = trendData[trendData.length - 1]
+    if (last.Spend < avg * 0.7) {
+      const dipPct = Math.round((1 - last.Spend / avg) * 100)
+      items.push({
+        severity: 'none',
+        label: 'Investigate',
+        body: `${last.period} spend ${formatCurrency(last.Spend)} — ${dipPct}% below ${formatCurrency(avg)} monthly average`,
+      })
+    }
+  }
+  // 6. Uncategorised spend (after backend fix, root-group items appear as "Uncategorised")
+  const uncatRow = spendData.value.by_category?.find(c => c.category === 'Uncategorised')
+  const totalSpendVal = spendData.value.total_spend
+  if (uncatRow?.spend && totalSpendVal && uncatRow.spend > totalSpendVal * 0.05) {
+    const pct = Math.round((uncatRow.spend / totalSpendVal) * 100)
+    items.push({
+      severity: 'none',
+      label: 'Data Quality',
+      body: `${formatCurrency(uncatRow.spend)} uncategorised (${pct}% of spend) — items assigned to root item group`,
+    })
+  }
+  return items
+})
 
 const monthlyPOConfig = computed(() => ({
   title: '',

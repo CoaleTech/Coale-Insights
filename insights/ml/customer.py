@@ -944,25 +944,63 @@ def _geographic_analysis(df, company, start, end):
 
 
 def _pareto_analysis(df):
-    """Top-N contribution to total revenue. Pure-Python sort, no ML."""
+    """Top-N contribution to total revenue. Pure-Python sort, no ML.
+
+    The ``pareto_curve`` previously returned only the top-50 customers (≈8.6%
+    of 581), so the long tail was absent and the 80% threshold crossing was
+    the final point rather than an annotated milestone. Now returns the full
+    581-customer curve downsampled to ≤100 evenly-spaced points plus the
+    exact 80%-revenue threshold crossing, keeping the payload growth small
+    (~10 → ~18 KB).
+
+    Curve point format changed from
+        ``{customer_name, historical_clv, cumulative_percent}``
+    to
+        ``{customer_pct, cumulative_percent}``
+    (``customer_pct`` = x-axis position as % of all customers; removes the
+    per-customer name/CLV that were unused by the frontend and added noise).
+    ``pareto_80_threshold_pct`` is the customer-percent where cumulative
+    revenue first crosses 80%, exposed as a convenience for the SVG annotation.
+    """
     if df.empty or float(df["historical_clv"].sum()) == 0:
         return {
             "total_customers": 0, "total_revenue": 0.0, "top_80_percent_customers": 0,
             "top_10_percent_contribute": 0, "top_20_percent_contribute": 0,
-            "top_customers": [], "pareto_curve": [],
+            "top_customers": [], "pareto_curve": [], "pareto_80_threshold_pct": 0.0,
         }
-    sorted_df = df.sort_values("historical_clv", ascending=False).copy()
+    sorted_df = df.sort_values("historical_clv", ascending=False).reset_index(drop=True)
     total_revenue = float(sorted_df["historical_clv"].sum())
     sorted_df["cumulative_revenue"] = sorted_df["historical_clv"].cumsum()
     sorted_df["cumulative_percent"] = (sorted_df["cumulative_revenue"] / total_revenue * 100) if total_revenue else 0
+    n = len(sorted_df)
+    sorted_df["customer_pct"] = [(i + 1) / n * 100 for i in range(n)]
     top_80 = sorted_df[sorted_df["cumulative_percent"] <= 80]
-    top_80_pct = round((len(top_80) / len(sorted_df) * 100) if len(sorted_df) else 0, 1)
-    n_10 = max(1, int(len(sorted_df) * 0.10))
-    n_20 = max(1, int(len(sorted_df) * 0.20))
+    top_80_pct = round((len(top_80) / n * 100) if n else 0, 1)
+    n_10 = max(1, int(n * 0.10))
+    n_20 = max(1, int(n * 0.20))
     top_10_revenue = float(sorted_df.head(n_10)["historical_clv"].sum())
     top_20_revenue = float(sorted_df.head(n_20)["historical_clv"].sum())
+    # 80% threshold: first customer whose cumulative revenue >= 80%
+    crossing_mask = sorted_df["cumulative_percent"] >= 80
+    threshold_idx = int(crossing_mask.idxmax()) if crossing_mask.any() else n - 1
+    threshold_customer_pct = round(float(sorted_df.loc[threshold_idx, "customer_pct"]), 2)
+    # Downsample: ≤100 evenly-spaced positions + the threshold crossing
+    if n <= 100:
+        indices = list(range(n))
+    else:
+        step = (n - 1) / 99
+        idx_set = {round(i * step) for i in range(100)}
+        idx_set.add(threshold_idx)
+        indices = sorted(idx_set)
+    pareto_curve = [
+        {
+            "customer_pct": round(float(sorted_df.loc[i, "customer_pct"]), 2),
+            "cumulative_percent": round(float(sorted_df.loc[i, "cumulative_percent"]), 2),
+        }
+        for i in indices
+    ]
     return {
-        "total_customers": int(len(sorted_df)),
+        "total_customers": int(n),
         "total_revenue": total_revenue,
         "top_80_percent_customers": top_80_pct,
         "top_10_percent_contribute": round((top_10_revenue / total_revenue * 100) if total_revenue else 0, 1),
@@ -971,7 +1009,8 @@ def _pareto_analysis(df):
             "customer", "customer_name", "historical_clv", "order_count",
             "avg_order_value", "clv_tier", "health_status"
         ]].assign(cumulative_percent=sorted_df.head(20)["cumulative_percent"]).to_dict("records"),
-        "pareto_curve": sorted_df[["customer_name", "historical_clv", "cumulative_percent"]].head(50).to_dict("records"),
+        "pareto_curve": pareto_curve,
+        "pareto_80_threshold_pct": threshold_customer_pct,
     }
 
 

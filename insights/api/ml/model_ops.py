@@ -294,8 +294,10 @@ def lead_conversion(refresh: bool = False) -> Dict[str, Any]:
     try:
         frappe.has_permission("Lead", "read", throw=True)
         from insights.ml.lead_conversion import LeadConversion
+        from insights.ml.tab_briefs import attach_lazy
+        from insights.ml.tab_briefs.marketing import lazy_winprob
 
-        return success(LeadConversion().predict())
+        return attach_lazy(success(LeadConversion().predict()), lazy_winprob, "mkt-winprob")
     except frappe.PermissionError:
         raise
     except Exception as e:

@@ -85,7 +85,7 @@
       <!-- Chart -->
       <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
         <SectionHeader variant="caption" title="Cash Flow Visualization" :level="4" />
-        <div v-if="chartData" class="h-56 sm:h-72 lg:h-80 mt-4">
+        <div v-if="chartData" class="mt-4">
           <ThirteenWeekChart :data="chartData" :threshold="threshold" />
         </div>
         <div v-else class="h-80 flex items-center justify-center text-ink-gray-6">

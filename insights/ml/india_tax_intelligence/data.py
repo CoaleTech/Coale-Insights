@@ -1174,7 +1174,7 @@ def get_reconciliation_score(intelligence, start: date, end: date) -> Dict[str, 
         "unactioned_count": unactioned_count,
         "data_from": data_from,
         "data_through": data_through,
-        "reconciliation_score": (
+        "match_rate_pct": (
             round((exact_count / total_count * 100), 2) if total_count > 0 else 0.0
         ),
     }

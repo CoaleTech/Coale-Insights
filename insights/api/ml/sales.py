@@ -216,7 +216,9 @@ def quotation_analytics(date_filter: str = '12m') -> Dict[str, Any]:
         start_dt, end_dt = parse_date_filter(date_filter)
         start = start_dt.strftime("%Y-%m-%d") if start_dt else "2000-01-01"
         end = end_dt.strftime("%Y-%m-%d") if end_dt else frappe.utils.nowdate()
-        return success(get_quotation_analytics(start, end))
+        from insights.ml.tab_briefs import attach_lazy
+        from insights.ml.tab_briefs.revenue import lazy_rev_sources
+        return attach_lazy(success(get_quotation_analytics(start, end)), lazy_rev_sources, "rev-sources")
     except frappe.PermissionError:
         raise
     except Exception as e:

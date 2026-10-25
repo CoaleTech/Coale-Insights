@@ -21,7 +21,12 @@ def get_manufacturing_overview(period: str = "YTD") -> Dict[str, Any]:
         )
     
         result = _get_manufacturing_overview(period=period)
-        return success(result) if isinstance(result, dict) and "status" not in result else result
+        from insights.ml.tab_briefs import attach
+
+        return attach(
+            "insights_ml_manufacturing_overview",
+            success(result) if isinstance(result, dict) and "status" not in result else result,
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:

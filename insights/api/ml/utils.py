@@ -55,6 +55,7 @@ from frappe import _
 from frappe.utils import add_months
 
 from insights.api.response import error, success
+from insights.ml.tab_briefs import attach
 
 # How long a computed payload stays servable. `refresh_dashboard_caches`
 # rewrites it every hour, so this is only the backstop for a bench whose
@@ -254,7 +255,7 @@ def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = CACHE_TTL) -> 
             if cached is not None:
                 return cached
 
-        result = _compute(fn)
+        result = attach(cache_key, _compute(fn))
         if isinstance(result, dict) and result.get("status") == "success":
             frappe.cache.set_value(key, result, expires_in_sec=ttl)
         return result

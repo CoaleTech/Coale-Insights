@@ -1,0 +1,982 @@
+{
+ "data": {
+  "action_queue": {
+   "available": true,
+   "rows": [
+    {
+     "action_key": "Tax::tax.missing_irn",
+     "age_days": 46,
+     "area": "tax.missing_irn",
+     "assigned_to": "",
+     "due_date": "2026-09-04",
+     "due_in_days": -48,
+     "exposure": 28138168.84,
+     "name": "JKM-A-00027",
+     "overdue": true,
+     "owner_role": "Tax Accountant",
+     "owner_type": "Staff",
+     "plan_state": "Carried Over",
+     "priority": "High",
+     "rationale": "Sourced from the tax_compliance intelligence agent. Observed across 264 record(s). Aggregate impact: \u20b9 2,81,38,168.84. Severity: high.",
+     "status": "Blocked",
+     "steps": "1. Review the underlying records flagged in the Weekly Report's findings panel.\n2. Validate the root cause and confirm whether it matches the agent's signal.\n3. Apply the corrective action and mark the action plan item 'Tax' as In Progress / Done.",
+     "title": "264 sales invoices to registered counterparties with no IRN (\u20b9 2,81,38,168.84 not e-invoiced), oldest 2025-01-03. Unchanged from last week."
+    }
+   ],
+   "summary": {
+    "by_owner_role": [
+     {
+      "count": 1,
+      "exposure": 28138168.84,
+      "key": "Tax Accountant"
+     }
+    ],
+    "by_priority": [
+     {
+      "count": 1,
+      "exposure": 28138168.84,
+      "key": "High"
+     }
+    ],
+    "due_soon": 0,
+    "exposure": 28138168.84,
+    "open": 1,
+    "overdue": 1,
+    "overdue_exposure": 28138168.84,
+    "unassigned": 1
+   }
+  },
+  "advance_tax_schedule": [
+   {
+    "cumulative_pct": 15,
+    "due_date": "15 Jun 2026",
+    "label": "1st Instalment",
+    "note": "Pay \u2265 15% of estimated annual tax (Section 207(1)(a))"
+   },
+   {
+    "cumulative_pct": 45,
+    "due_date": "15 Sep 2026",
+    "label": "2nd Instalment",
+    "note": "Cumulative 45% \u2014 pay shortfall from 1st instalment"
+   },
+   {
+    "cumulative_pct": 75,
+    "due_date": "15 Dec 2026",
+    "label": "3rd Instalment",
+    "note": "Cumulative 75% \u2014 pay shortfall from earlier instalments"
+   },
+   {
+    "cumulative_pct": 100,
+    "due_date": "15 Mar 2027",
+    "label": "4th (Final) Instalment",
+    "note": "100% balance due. Presumptive taxpayers (44AD/44ADA): entire advance tax due on this date only."
+   }
+  ],
+  "base_currency": "INR",
+  "company": "company-3582cc",
+  "compliance_matrix": [
+   {
+    "area": "GST",
+    "escalation": {
+     "note": "Owners on the open GST queue",
+     "unit": "text",
+     "value": "Tax Accountant"
+    },
+    "evidence": {
+     "note": "e-Invoice IRN coverage of invoices that require one",
+     "unit": "percent",
+     "value": 100.0
+    },
+    "exposure": 2429335.31,
+    "filing": {
+     "note": "GSTR-1 5/12",
+     "unit": "text",
+     "value": "4/12 GSTR-3B"
+    },
+    "open_actions": 1,
+    "reconciliation": {
+     "note": "Purchase vs GSTR-2A/2B match rate",
+     "unit": "percent",
+     "value": 49.0
+    },
+    "status": "Overdue"
+   },
+   {
+    "area": "ITC",
+    "escalation": {
+     "note": "Owners on the open ITC queue",
+     "unit": "text",
+     "value": null
+    },
+    "evidence": {
+     "note": "Input credit set off against output tax",
+     "unit": "currency",
+     "value": 9384434.41
+    },
+    "exposure": 2429335.31,
+    "filing": {
+     "note": "Credit utilisation %",
+     "unit": "percent",
+     "value": 77.43
+    },
+    "open_actions": 0,
+    "reconciliation": {
+     "note": "Inward supply rows with no action taken",
+     "unit": "count",
+     "value": 1807
+    },
+    "status": "At Risk"
+   },
+   {
+    "area": "TDS / TCS",
+    "escalation": {
+     "note": "Owners on the open TDS queue",
+     "unit": "text",
+     "value": null
+    },
+    "evidence": {
+     "note": "Challan / certificate evidence is not recorded on this install",
+     "unit": "text",
+     "value": null
+    },
+    "exposure": 0.0,
+    "filing": {
+     "note": "Deducted and payable",
+     "unit": "currency",
+     "value": 82433.8
+    },
+    "open_actions": 0,
+    "reconciliation": {
+     "note": "TDS suffered on sales, to reconcile to customer certificates",
+     "unit": "currency",
+     "value": 323.3
+    },
+    "status": "On Track"
+   },
+   {
+    "area": "e-Waybill",
+    "escalation": {
+     "note": "Owners on the open e-Waybill queue",
+     "unit": "text",
+     "value": null
+    },
+    "evidence": {
+     "note": "Cancelled covers",
+     "unit": "count",
+     "value": 26
+    },
+    "exposure": null,
+    "filing": {
+     "note": "Pending or failed generation",
+     "unit": "count",
+     "value": 1
+    },
+    "open_actions": 0,
+    "reconciliation": {
+     "note": "Active covers in the window",
+     "unit": "count",
+     "value": 372
+    },
+    "status": "Action Required"
+   },
+   {
+    "area": "Customs / Import",
+    "escalation": {
+     "note": "",
+     "unit": "text",
+     "value": null
+    },
+    "evidence": {
+     "note": "Bill of Entry to purchase-invoice linkage",
+     "unit": "text",
+     "value": null
+    },
+    "exposure": null,
+    "filing": {
+     "note": "Customs duty paid",
+     "unit": "currency",
+     "value": 0.0
+    },
+    "open_actions": 0,
+    "reconciliation": {
+     "note": "No Bill of Entry documents recorded for this window",
+     "unit": "count",
+     "value": 0
+    },
+    "status": "No Activity"
+   },
+   {
+    "area": "Notices, Demands & Legal",
+    "escalation": {
+     "note": "",
+     "unit": "text",
+     "value": null
+    },
+    "evidence": {
+     "note": "Open matters with no evidence recorded",
+     "unit": "count",
+     "value": 0
+    },
+    "exposure": 0.0,
+    "filing": {
+     "note": "Replies or hearings within 7 days",
+     "unit": "count",
+     "value": 0
+    },
+    "open_actions": 0,
+    "reconciliation": {
+     "note": "Disputed amount across open matters",
+     "unit": "currency",
+     "value": 0.0
+    },
+    "status": "Clear"
+   }
+  ],
+  "compliance_pulse": {
+   "available": true,
+   "compliance_score": 78.42,
+   "due_soon": 0,
+   "exposure": 28138168.84,
+   "on_track": 0,
+   "open_items": 1,
+   "overdue": 1,
+   "sources": {
+    "action_board": true,
+    "legal_register": true
+   },
+   "unassigned": 1,
+   "without_evidence": 0
+  },
+  "compliance_score": 78.42,
+  "counterparty_risk": {
+   "active": 2532,
+   "blocked": 18,
+   "cancelled": 165,
+   "registry_total": 2757,
+   "status_unknown": 11,
+   "suspended": 26,
+   "transacted_at_risk_parties": 2,
+   "transacted_at_risk_value": 206245.0
+  },
+  "customs_summary": {
+   "available": true,
+   "by_reconciliation_status": [],
+   "customs_duty": 0.0,
+   "documents": 0,
+   "note": "No Bill of Entry documents recorded for this window",
+   "unreconciled": 0
+  },
+  "effective_tax_rate": 16.04,
+  "einvoice_compliance_info": {
+   "exemptions": [
+    "Special Economic Zone (SEZ) units",
+    "Financial institutions & NBFCs",
+    "Insurance companies",
+    "Goods Transport Agencies (GTA)",
+    "Passenger transport services",
+    "B2C / unregistered supplies (no IRN required)"
+   ],
+   "interest_rate_pct_pa_delayed_payment": 18,
+   "interest_rate_pct_pa_itc_availed_and_utilised": 24,
+   "itc_requires_supplier_filing": "Sec 16(2)(aa): credit only if the invoice appears in GSTR-2B",
+   "itc_time_limit": "earlier of 30 Nov of the following FY or the GSTR-9 filing date (Sec 16(4))",
+   "mandatory_since": "2023-08-01",
+   "mandatory_threshold_crore": 5,
+   "penalty_basis": "higher of \u20b910,000 or 100% of tax evaded, per invoice (Sec 122(1))",
+   "penalty_incorrect_particulars_inr": 25000,
+   "penalty_min_per_invoice_inr": 10000,
+   "rule_37_days": 180,
+   "upload_30day_mandatory_from": "2025-04-01",
+   "upload_30day_threshold_crore": 10,
+   "upload_within_days": 30
+  },
+  "einvoice_status": {
+   "all_invoices": 944,
+   "coverage_pct": 100.0,
+   "exempt": 76,
+   "failed": 0,
+   "filed": 868,
+   "pending": 0,
+   "pending_value": 0.0,
+   "total": 868
+  },
+  "ewaybill_status": {
+   "active": 372,
+   "by_status": [
+    {
+     "count": 570,
+     "status": "Not Applicable",
+     "value": 9268466.74
+    },
+    {
+     "count": 370,
+     "status": "Generated",
+     "value": 82507994.91
+    },
+    {
+     "count": 2,
+     "status": "Manually Generated",
+     "value": 157766.0
+    },
+    {
+     "count": 1,
+     "status": "Failed",
+     "value": 166380.0
+    },
+    {
+     "count": 1,
+     "status": "Pending",
+     "value": 851004.0
+    }
+   ],
+   "cancelled": 26,
+   "failed": 1,
+   "not_applicable": 570,
+   "pending": 1,
+   "total": 944
+  },
+  "filing_compliance": {
+   "gstr1": {
+    "due": 6,
+    "due_through": "2026-09",
+    "filed": 5,
+    "filed_due": 5,
+    "late": 0,
+    "latest_period": "122026",
+    "overdue": 1,
+    "pending": 0,
+    "status": "Overdue",
+    "total": 12,
+    "unknown": 7
+   },
+   "gstr3b": {
+    "due": 6,
+    "due_through": "2026-09",
+    "filed": 4,
+    "filed_due": 4,
+    "late": 0,
+    "latest_period": "122026",
+    "overdue": 2,
+    "pending": 0,
+    "status": "Overdue",
+    "total": 12,
+    "unknown": 8
+   },
+   "logged_all_time": [
+    {
+     "count": 25,
+     "latest_period": "122026",
+     "return_type": "GSTR1"
+    },
+    {
+     "count": 1,
+     "latest_period": "082026",
+     "return_type": "GSTR2b"
+    },
+    {
+     "count": 19,
+     "latest_period": "122026",
+     "return_type": "GSTR3B"
+    },
+    {
+     "count": 1,
+     "latest_period": "ALL",
+     "return_type": "IMS"
+    }
+   ]
+  },
+  "fiscal_year": {
+   "end_date": "2027-03-31",
+   "name": "2627",
+   "start_date": "2026-04-01"
+  },
+  "generated_at": "2026-10-22T14:43:20.508629",
+  "gst_summary": [
+   {
+    "cgst": 669892.41,
+    "igst": 1323143.3,
+    "invoice_count": 176,
+    "month": "2026-04",
+    "sgst": 669892.41,
+    "total_revenue": 17465416.0
+   },
+   {
+    "cgst": 857575.82,
+    "igst": 849639.02,
+    "invoice_count": 186,
+    "month": "2026-05",
+    "sgst": 857575.82,
+    "total_revenue": 14951362.65
+   },
+   {
+    "cgst": 662604.41,
+    "igst": 1262946.15,
+    "invoice_count": 175,
+    "month": "2026-06",
+    "sgst": 662604.41,
+    "total_revenue": 15318321.75
+   },
+   {
+    "cgst": 634222.88,
+    "igst": 743119.13,
+    "invoice_count": 170,
+    "month": "2026-07",
+    "sgst": 634222.88,
+    "total_revenue": 12184239.25
+   },
+   {
+    "cgst": 493196.03,
+    "igst": 989078.42,
+    "invoice_count": 155,
+    "month": "2026-08",
+    "sgst": 493196.03,
+    "total_revenue": 13176835.0
+   },
+   {
+    "cgst": 266692.05,
+    "igst": 505878.25,
+    "invoice_count": 82,
+    "month": "2026-09",
+    "sgst": 266692.05,
+    "total_revenue": 6961391.25
+   }
+  ],
+  "hsn_summary": [
+   {
+    "actual_gst": 1266192.287197232,
+    "effective_gst_rate": 18.03,
+    "hsn_code": "28273990",
+    "invoice_count": 26,
+    "revenue": 7022250.0
+   },
+   {
+    "actual_gst": 1166902.653682069,
+    "effective_gst_rate": 18.04,
+    "hsn_code": "34023900",
+    "invoice_count": 124,
+    "revenue": 6469240.0
+   },
+   {
+    "actual_gst": 292293.396226415,
+    "effective_gst_rate": 5.01,
+    "hsn_code": "11081200",
+    "invoice_count": 15,
+    "revenue": 5838975.0
+   },
+   {
+    "actual_gst": 953974.636126599,
+    "effective_gst_rate": 18.08,
+    "hsn_code": "29181400",
+    "invoice_count": 80,
+    "revenue": 5275471.25
+   },
+   {
+    "actual_gst": 718334.0,
+    "effective_gst_rate": 18.02,
+    "hsn_code": "28332500",
+    "invoice_count": 7,
+    "revenue": 3985500.0
+   },
+   {
+    "actual_gst": 622367.562569214,
+    "effective_gst_rate": 18.0,
+    "hsn_code": "28332910",
+    "invoice_count": 10,
+    "revenue": 3457950.0
+   },
+   {
+    "actual_gst": 136875.0,
+    "effective_gst_rate": 5.0,
+    "hsn_code": "34029020",
+    "invoice_count": 15,
+    "revenue": 2737500.0
+   },
+   {
+    "actual_gst": 477251.786115288,
+    "effective_gst_rate": 17.96,
+    "hsn_code": "29054500",
+    "invoice_count": 37,
+    "revenue": 2657620.0
+   },
+   {
+    "actual_gst": 450224.603483679,
+    "effective_gst_rate": 18.0,
+    "hsn_code": "28323010",
+    "invoice_count": 11,
+    "revenue": 2501250.0
+   },
+   {
+    "actual_gst": 386920.96936018,
+    "effective_gst_rate": 18.0,
+    "hsn_code": "29321100",
+    "invoice_count": 5,
+    "revenue": 2149560.0
+   }
+  ],
+  "input_tax": [
+   {
+    "cgst": 690061.57,
+    "igst": 943696.21,
+    "invoice_count": 266,
+    "month": "2026-04",
+    "sgst": 690061.57,
+    "total_purchase": 14777282.25
+   },
+   {
+    "cgst": 491213.06,
+    "igst": 1515355.65,
+    "invoice_count": 292,
+    "month": "2026-05",
+    "sgst": 491213.06,
+    "total_purchase": 14697481.39
+   },
+   {
+    "cgst": 686780.42,
+    "igst": 1065841.53,
+    "invoice_count": 296,
+    "month": "2026-06",
+    "sgst": 686780.42,
+    "total_purchase": 14622216.67
+   },
+   {
+    "cgst": 499167.37,
+    "igst": 932632.97,
+    "invoice_count": 285,
+    "month": "2026-07",
+    "sgst": 499167.37,
+    "total_purchase": 11752543.11
+   },
+   {
+    "cgst": 524932.46,
+    "igst": 798423.17,
+    "invoice_count": 259,
+    "month": "2026-08",
+    "sgst": 524932.46,
+    "total_purchase": 12335330.36
+   },
+   {
+    "cgst": 295809.6,
+    "igst": 324408.81,
+    "invoice_count": 98,
+    "month": "2026-09",
+    "sgst": 295809.6,
+    "total_purchase": 6258115.97
+   }
+  ],
+  "itc_health": {
+   "accrued": 12119554.05,
+   "at_risk_invoice_count": 211,
+   "at_risk_supplier_unfiled": 2429335.31,
+   "available": 11956287.3,
+   "balance": 2735119.6400000006,
+   "ineligible": 0.0,
+   "recon_unactioned": 1807,
+   "utilised": 9384434.41,
+   "utilizable": 11956287.3,
+   "utilization_pct": 77.43
+  },
+  "legal_register": {
+   "available": true,
+   "rows": [],
+   "summary": {
+    "appeals": 0,
+    "by_case_type": [],
+    "by_matter": [],
+    "disputed": 0,
+    "due_soon": 0,
+    "exposure": 0,
+    "hearings": 0,
+    "open": 0,
+    "overdue": 0,
+    "paid_under_protest": 0,
+    "provision": 0,
+    "without_evidence": 0
+   }
+  },
+  "net_gst": 885884.17,
+  "pan_exceptions": {
+   "available": true,
+   "rows": [],
+   "summary": {
+    "exposure": 0,
+    "statutory_basis": "Sec 206AA: higher of specified rate or 20% where PAN is absent",
+    "suppliers_missing_pan": 0,
+    "transacted_in_window": 0
+   }
+  },
+  "rcm_summary": {
+   "available": true,
+   "books": {
+    "credit": 93277.01,
+    "invoices": 702,
+    "liability": 93277.01,
+    "net_cash": 0.0,
+    "tax": 93277.01,
+    "taxable_value": 1236131.0
+   },
+   "gap": 81809.17,
+   "portal": {
+    "available": true,
+    "rows": 51,
+    "tax": 11467.84
+   }
+  },
+  "reconciliation_score": {
+   "amended_amount": 43263.52,
+   "amended_count": 1,
+   "data_from": "2024-03-27",
+   "data_through": "2026-08-31",
+   "manual_match_amount": 212330.31,
+   "manual_match_count": 7,
+   "matched_amount": 147625228.03,
+   "matched_count": 1499,
+   "mismatch_amount": 177199.3,
+   "mismatch_count": 15,
+   "match_rate_pct": 49.0,
+   "suggested_amount": 53927982.24,
+   "suggested_count": 396,
+   "total_count": 3059,
+   "unactioned_count": 1807,
+   "unmatched_amount": 73627283.21,
+   "unmatched_count": 1141
+  },
+  "status": "success",
+  "tax_cash_outlook": {
+   "available": true,
+   "basis": "Accrued ledger tax placed on statutory due dates. GSTR-3B: 20th of the following month, filed periods excluded. TDS: 7th of the following month. Legal: binding date per matter, stays excluded. No amount is projected.",
+   "gst_periods": [
+    {
+     "due_date": "2026-05-20",
+     "filing_state": "filed",
+     "input_tax": 2323819.35,
+     "net_payable": 339108.77,
+     "output_tax": 2662928.12,
+     "overdue": false,
+     "period": "2026-04"
+    },
+    {
+     "due_date": "2026-06-20",
+     "filing_state": "filed",
+     "input_tax": 2497781.77,
+     "net_payable": 67008.89,
+     "output_tax": 2564790.66,
+     "overdue": false,
+     "period": "2026-05"
+    },
+    {
+     "due_date": "2026-07-20",
+     "filing_state": "filed",
+     "input_tax": 2439402.37,
+     "net_payable": 148752.6,
+     "output_tax": 2588154.97,
+     "overdue": false,
+     "period": "2026-06"
+    },
+    {
+     "due_date": "2026-08-20",
+     "filing_state": "filed",
+     "input_tax": 1930967.71,
+     "net_payable": 80597.18,
+     "output_tax": 2011564.89,
+     "overdue": false,
+     "period": "2026-07"
+    },
+    {
+     "due_date": "2026-09-20",
+     "filing_state": "not_filed",
+     "input_tax": 1848288.09,
+     "net_payable": 127182.39,
+     "output_tax": 1975470.48,
+     "overdue": true,
+     "period": "2026-08"
+    },
+    {
+     "due_date": "2026-10-20",
+     "filing_state": "not_filed",
+     "input_tax": 916028.01,
+     "net_payable": 123234.34,
+     "output_tax": 1039262.35,
+     "overdue": true,
+     "period": "2026-09"
+    }
+   ],
+   "markers": [
+    {
+     "amount": null,
+     "cumulative_pct": 75,
+     "due_date": "2026-12-15",
+     "label": "Advance tax \u2014 3rd Instalment",
+     "reason": "No reviewed annual tax estimate recorded on this site"
+    }
+   ],
+   "overdue": {
+    "events": [
+     {
+      "amount": 127182.39,
+      "due_date": "2026-09-20",
+      "label": "GSTR-3B 2026-08",
+      "stream": "gst"
+     },
+     {
+      "amount": 4400.0,
+      "due_date": "2026-05-07",
+      "label": "TDS challan 2026-04",
+      "stream": "tds"
+     },
+     {
+      "amount": 12530.0,
+      "due_date": "2026-06-07",
+      "label": "TDS challan 2026-05",
+      "stream": "tds"
+     },
+     {
+      "amount": 30635.6,
+      "due_date": "2026-07-07",
+      "label": "TDS challan 2026-06",
+      "stream": "tds"
+     },
+     {
+      "amount": 24996.2,
+      "due_date": "2026-08-07",
+      "label": "TDS challan 2026-07",
+      "stream": "tds"
+     },
+     {
+      "amount": 2288.0,
+      "due_date": "2026-09-07",
+      "label": "TDS challan 2026-08",
+      "stream": "tds"
+     },
+     {
+      "amount": 7584.0,
+      "due_date": "2026-10-07",
+      "label": "TDS challan 2026-09",
+      "stream": "tds"
+     }
+    ],
+    "gst": 127182.39,
+    "legal": 0.0,
+    "tds": 82433.8,
+    "total": 209616.19
+   },
+   "peak_amount": 123234.34,
+   "peak_week": "W1",
+   "tds_periods": [
+    {
+     "amount": 4400.0,
+     "due_date": "2026-05-07",
+     "overdue": true,
+     "period": "2026-04"
+    },
+    {
+     "amount": 12530.0,
+     "due_date": "2026-06-07",
+     "overdue": true,
+     "period": "2026-05"
+    },
+    {
+     "amount": 30635.6,
+     "due_date": "2026-07-07",
+     "overdue": true,
+     "period": "2026-06"
+    },
+    {
+     "amount": 24996.2,
+     "due_date": "2026-08-07",
+     "overdue": true,
+     "period": "2026-07"
+    },
+    {
+     "amount": 2288.0,
+     "due_date": "2026-09-07",
+     "overdue": true,
+     "period": "2026-08"
+    },
+    {
+     "amount": 7584.0,
+     "due_date": "2026-10-07",
+     "overdue": true,
+     "period": "2026-09"
+    }
+   ],
+   "total_horizon": 123234.34,
+   "weeks": [
+    {
+     "events": [
+      {
+       "amount": 123234.34,
+       "due_date": "2026-10-20",
+       "label": "GSTR-3B 2026-09",
+       "stream": "gst"
+      }
+     ],
+     "gst": 123234.34,
+     "label": "W1",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 123234.34,
+     "week_end": "2026-10-25",
+     "week_start": "2026-10-19"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W2",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-11-01",
+     "week_start": "2026-10-26"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W3",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-11-08",
+     "week_start": "2026-11-02"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W4",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-11-15",
+     "week_start": "2026-11-09"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W5",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-11-22",
+     "week_start": "2026-11-16"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W6",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-11-29",
+     "week_start": "2026-11-23"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W7",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-12-06",
+     "week_start": "2026-11-30"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W8",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-12-13",
+     "week_start": "2026-12-07"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W9",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-12-20",
+     "week_start": "2026-12-14"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W10",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2026-12-27",
+     "week_start": "2026-12-21"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W11",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2027-01-03",
+     "week_start": "2026-12-28"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W12",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2027-01-10",
+     "week_start": "2027-01-04"
+    },
+    {
+     "events": [],
+     "gst": 0.0,
+     "label": "W13",
+     "legal": 0.0,
+     "tds": 0.0,
+     "total": 0.0,
+     "week_end": "2027-01-17",
+     "week_start": "2027-01-11"
+    }
+   ]
+  },
+  "tax_forecast": {
+   "forecast": [
+    {
+     "month_offset": 1,
+     "projected_net_gst": 50946.65
+    },
+    {
+     "month_offset": 2,
+     "projected_net_gst": 23317.88
+    },
+    {
+     "month_offset": 3,
+     "projected_net_gst": -4310.89
+    }
+   ],
+   "last_closed_month": "2026-09",
+   "months_used": 6,
+   "note": "Ordinary least squares on net GST for the 6 closed months to 2026-09",
+   "r_squared": 0.2745,
+   "trend_slope": -27628.77
+  },
+  "tds_summary": {
+   "net_position": -82110.5,
+   "payable_by_section": [
+    {
+     "amount": 82433.8,
+     "description": "TDS Payable - JKM",
+     "rate_pct": null,
+     "section": "TDS Payable - JKM",
+     "section_code": "",
+     "threshold": "",
+     "transaction_count": 13
+    }
+   ],
+   "receivable": 323.3,
+   "total_payable": 82433.8
+  }
+ },
+ "status": "success"
+}

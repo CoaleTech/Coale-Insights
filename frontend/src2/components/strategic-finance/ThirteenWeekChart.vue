@@ -2,7 +2,7 @@
   <div class="w-full h-full">
     <div v-if="hasData" class="space-y-4">
       <!-- frappe-ui AxisChart: inflow/outflow bars on primary axis, balance + threshold on y2 -->
-      <IntelligenceChart class="h-52 sm:h-64 lg:h-72" :config="axisConfig" />
+      <IntelligenceChart class="h-52 sm:h-64 lg:h-72" :config="axisConfig" hide-legend />
 
       <!-- Accessible text equivalent for screen readers (canvas is invisible to AT) -->
       <table class="sr-only">

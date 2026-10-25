@@ -14,7 +14,7 @@ from frappe.query_builder.functions import Abs, Coalesce, Sum
 
 from frappe.utils import add_months
 
-from .data import get_cash_balance, get_monthly_financial_trends, _gl_daily_cache, _gl_sum_period, _gl_cumulative
+from .data import get_cash_balance, get_cash_fd_balance, get_cash_total, get_monthly_financial_trends, _gl_daily_cache, _gl_sum_period, _gl_cumulative
 
 
 def _gl_account_root_type_total(
@@ -113,12 +113,24 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         revenue_growth = None
 
     # ── Cash & runway ─────────────────────────────────────────────────────
-    cash_balance = get_cash_balance(intelligence)  # already cached on intelligence
+    # Use the same FD name-match logic as financial_intelligence._cash_accounts
+    # so both engines report identical numbers. liquid_cash = Bank+Cash-FDs.
+    cash_liquid = get_cash_balance(intelligence)   # already cached on intelligence
+    cash_fd     = get_cash_fd_balance(intelligence)
+    cash_total  = get_cash_total(intelligence)
 
     three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
     monthly_expenses_total = abs(_gl_sum_period(gl, three_months_ago, today, "expense"))
-    monthly_expenses   = monthly_expenses_total / 3 if monthly_expenses_total else 0
-    cash_runway_months = (cash_balance / monthly_expenses) if monthly_expenses > 0 else None
+    monthly_expenses = monthly_expenses_total / 3 if monthly_expenses_total else 0
+    # Runway is meaningful only when liquid cash > 0 (spendable without breaking deposits).
+    # A negative liquid balance means the bank is already overdrawn — we represent that
+    # as 0 months (not None, which would otherwise score as "no burn = healthy").
+    if cash_liquid <= 0:
+        cash_runway_months: Optional[float] = 0.0
+    elif monthly_expenses > 0:
+        cash_runway_months = round(cash_liquid / monthly_expenses, 1)
+    else:
+        cash_runway_months = None
 
     # ── Balance sheet (cumulative to today, leaf accounts only) ───────────
     # asset_leaf / liability_leaf exclude group-account double-counts;
@@ -173,7 +185,11 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "revenue_growth": round(revenue_growth, 2) if revenue_growth is not None else None,
         "prior_period_revenue": prior_revenue,
         "prior_period_start": prior_fy_start,
-        "cash_balance": cash_balance,
+        # cash_balance kept for backward compat; now equals liquid_cash (Bank+Cash-FDs)
+        "cash_balance": cash_liquid,
+        "cash_liquid": cash_liquid,
+        "cash_fd": cash_fd,
+        "cash_total": cash_total,
         "cash_runway_months": round(cash_runway_months, 1) if cash_runway_months is not None else None,
         "monthly_burn_rate": monthly_expenses,
         "total_assets": total_assets,
@@ -194,8 +210,10 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
              "subtitle": f"{ebitda_margin:.1f}% margin" if ebitda_margin is not None else "Year to Date"},
             {"label": "Gross Margin",     "value": gross_margin,   "format": "percent",  "subtitle": "Revenue - COGS"},
             {"label": "Revenue Growth",   "value": revenue_growth, "format": "percent",  "subtitle": "YoY"},
-            {"label": "Cash Position",    "value": cash_balance,   "format": "currency",
-             "subtitle": f"{cash_runway_months:.0f} months runway" if cash_runway_months is not None else "No recent expenses"},
+            # KPI shows total_cash (incl. FDs) as the cash position number; subtitle discloses the liquid split.
+            {"label": "Cash Position",    "value": cash_total,     "format": "currency",
+             "subtitle": (f"Liquid {round(cash_liquid):,}; FDs {round(cash_fd):,}" if cash_fd > 0
+                          else (f"{cash_runway_months:.0f} months runway" if cash_runway_months else "No recent expenses"))},
             {"label": "ROE",              "value": roe,            "format": "percent",
              "subtitle": "Return on Equity" if roe is not None else "No equity recorded"},
         ]
@@ -210,8 +228,11 @@ def calculate_health_scores(intelligence, net_margin: Optional[float], roe: Opti
 
     # Liquidity Score (based on cash runway and debt ratio)
     liquidity_score = 0
-    # No burn (None) means no liquidity pressure, same as the old 999 score.
-    if cash_runway_months is None or cash_runway_months >= 12:
+    # None = no net burn (cash positive) → no pressure.
+    # 0 = bank overdrawn (liquid_cash <= 0) → worst score.
+    if cash_runway_months is None:
+        liquidity_score = 90
+    elif cash_runway_months >= 12:
         liquidity_score = 90
     elif cash_runway_months >= 6:
         liquidity_score = 70
@@ -333,13 +354,22 @@ def generate_key_insights(intelligence, ytd_revenue: float, ytd_net_income: floa
 
     # Cash runway insights
     if cash_runway_months is None:
-        pass  # no burn -> runway is not a meaningful metric
+        pass  # no net burn → runway not meaningful
+    elif cash_runway_months == 0:
+        insights.append({
+            "type": "negative",
+            "category": "liquidity",
+            "title": "Critical Cash Position",
+            "description": "Bank accounts overdrawn; liquid cash is negative",
+            "recommendation": "Secure additional funding or accelerate collections immediately",
+            "priority": "high"
+        })
     elif cash_runway_months < 3:
         insights.append({
             "type": "negative",
             "category": "liquidity",
             "title": "Critical Cash Position",
-            "description": f"Only {cash_runway_months:.1f} months of cash runway",
+            "description": f"Only {cash_runway_months:.1f} months of liquid cash runway",
             "recommendation": "Secure additional funding or accelerate collections immediately",
             "priority": "high"
         })

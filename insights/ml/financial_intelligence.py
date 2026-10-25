@@ -414,7 +414,16 @@ class FinancialIntelligence:
         avg_outflow = _avg6(cash_outflows)
         avg_inflow = _avg6(cash_inflows)
         net_burn = avg_outflow - avg_inflow
-        runway_months = round(total_cash / net_burn, 1) if net_burn > 0 else None
+        # Runway uses liquid_cash (spendable without breaking FDs). No net burn
+        # -> None (cash positive, matches the Cash Flow tab). Burning with a
+        # negative liquid balance means overdrawn: 0 months.
+        liquid_cash = total_cash - fd_balance
+        if net_burn <= 0:
+            runway_months: float | None = None
+        elif liquid_cash <= 0:
+            runway_months = 0.0
+        else:
+            runway_months = round(liquid_cash / net_burn, 1)
 
         # Inflow/outflow by source (party_type) for last 3 months — one query.
         three_months_ago = _months_ago(3)

@@ -81,26 +81,70 @@ def get_current_fiscal_year(intelligence) -> Dict[str, Any]:
     }
 
 
-def get_cash_balance(intelligence) -> float:
-    """Get current cash and bank balance (cached on intelligence to avoid repeat scans)."""
-    if hasattr(intelligence, '_cash_balance'):
-        return intelligence._cash_balance
+# Fixed-deposit name prefix — same convention as financial_intelligence.py._cash_accounts.
+_FD_PREFIX = "fixed deposit"
+
+
+def _load_cash_breakdown(intelligence) -> None:
+    """Compute liquid_cash / fd_balance / total_cash once and cache on the intelligence object.
+
+    Mirrors financial_intelligence._cash_accounts(): Bank + Cash by account_type
+    plus any account whose name starts with "fixed deposit" (case-insensitive in
+    MySQL's default utf8mb4_unicode_ci collation).  Using the name-match for FDs
+    is the same heuristic used by the cash-flow tab — one definition everywhere.
+    """
+    if hasattr(intelligence, '_cash_liquid'):
+        return
     gle = DocType("GL Entry")
     acc = DocType("Account")
+    today = datetime.now().strftime('%Y-%m-%d')
     rows = (
         frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("balance"))
-        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .join(acc).on(gle.account == acc.name)
+        .select(
+            acc.account_type,
+            acc.account_name,
+            Coalesce(Sum(gle.debit - gle.credit), 0).as_("balance"),
+        )
+        .where(
+            acc.account_type.isin(["Cash", "Bank"])
+            | acc.account_name.like("Fixed Deposit%")
+        )
         .where(gle.company == intelligence.company)
-        .where(gle.posting_date <= datetime.now().strftime('%Y-%m-%d'))
+        .where(gle.posting_date <= today)
         .where(gle.is_cancelled == 0)
+        .groupby(acc.account_type, acc.account_name)
         .run(as_dict=True)
     )
-    cash = float(rows[0].balance or 0) if rows else 0.0
-    intelligence._cash_balance = cash
-    return cash
+    total, fd = 0.0, 0.0
+    for r in rows:
+        bal = float(r.balance or 0)
+        total += bal
+        if (r.account_name or "").lower().startswith(_FD_PREFIX):
+            fd += bal
+    intelligence._cash_total = round(total, 2)
+    intelligence._cash_fd = round(fd, 2)
+    intelligence._cash_liquid = round(total - fd, 2)
+    intelligence._cash_balance = intelligence._cash_liquid  # backward-compat alias
+
+
+def get_cash_balance(intelligence) -> float:
+    """Liquid cash (Bank + Cash accounts, excluding Fixed Deposits).
+    Cached on the intelligence object to avoid repeat DB scans."""
+    _load_cash_breakdown(intelligence)
+    return intelligence._cash_liquid
+
+
+def get_cash_fd_balance(intelligence) -> float:
+    """Fixed deposit balance. Cached."""
+    _load_cash_breakdown(intelligence)
+    return intelligence._cash_fd
+
+
+def get_cash_total(intelligence) -> float:
+    """Total cash including fixed deposits. Cached."""
+    _load_cash_breakdown(intelligence)
+    return intelligence._cash_total
 
 
 def _gl_daily_cache(intelligence) -> list:

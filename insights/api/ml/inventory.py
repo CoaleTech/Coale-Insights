@@ -225,11 +225,14 @@ def item_breakeven(period: str = "Quarterly", fiscal_year: Optional[str] = None,
     frappe.has_permission("Sales Invoice", "read", throw=True)
     frappe.has_permission("GL Entry", "read", throw=True)
     from insights.ml.breakeven_engine import BreakevenEngine
+    from insights.ml.tab_briefs import attach_lazy
+    from insights.ml.tab_briefs.inventory import lazy_itemwise_be
 
     engine = BreakevenEngine(period=period, fiscal_year=fiscal_year)
-    return run(
-        lambda: engine.calculate_item_breakeven(item_group=item_group),
-        "item_breakeven",
+    return attach_lazy(
+        run(lambda: engine.calculate_item_breakeven(item_group=item_group), "item_breakeven"),
+        lazy_itemwise_be,
+        "itemwise-be",
     )
 
 

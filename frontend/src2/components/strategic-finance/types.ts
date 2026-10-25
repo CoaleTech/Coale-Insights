@@ -13,6 +13,7 @@
  * Row-level shapes local to a single tab stay in that tab. Only shapes that
  * cross the shell boundary belong here.
  */
+import type { Brief } from '../../intelligence/components/TabBrief.vue'
 
 // ---------------------------------------------------------------------------
 // Executive summary
@@ -22,10 +23,25 @@ export interface ExecutiveSummaryData {
 	ytd_revenue?: number
 	ytd_expenses?: number
 	ytd_net_income?: number
+	/** Liquid balance from old cache; prefer cash_liquid when present. */
 	cash_balance?: number
+	/** Liquid cash: Bank + Cash accounts excluding Fixed Deposits. May be negative (overdrawn). */
+	cash_liquid?: number
+	/** Fixed deposit balance — illiquid buffer. */
+	cash_fd?: number
+	/** Total cash including fixed deposits (= cash_liquid + cash_fd). */
+	cash_total?: number
 	revenue_growth?: number
+	/** Revenue growth YoY (same value as revenue_growth; both sent by backend). */
+	revenue_growth_yoy?: number
+	prior_period_revenue?: number
 	net_margin?: number
+	gross_profit?: number
+	gross_margin?: number
+	ytd_ebitda?: number
+	ebitda_margin?: number
 	cash_runway_months?: number
+	monthly_burn_rate?: number
 	kpis?: Array<{ label: string; value: number; format: string; subtitle?: string }>
 	monthly_trends?: Array<{
 		period: string
@@ -534,4 +550,6 @@ export interface StrategicFinanceData {
 	period_comparison?: PeriodComparisonData
 	cost_structure?: CostStructureData
 	expense_forecast?: ExpenseForecastData
+	generated_at?: string
+	tab_briefs?: Record<string, Brief>
 }

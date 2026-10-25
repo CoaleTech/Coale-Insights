@@ -397,7 +397,7 @@ class IndiaTaxIntelligence:
             weights.append(35)
 
         if isinstance(recon, dict) and "error" not in recon:
-            recon_score = float(recon.get("reconciliation_score") or 0)
+            recon_score = float(recon.get("match_rate_pct") or 0)
             scores.append(recon_score)
             weights.append(25)
 

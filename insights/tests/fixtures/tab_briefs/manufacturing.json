@@ -1,0 +1,88 @@
+{
+ "data": {
+  "bottleneck_analysis": {
+   "message": "No data available for bottleneck analysis"
+  },
+  "capacity_utilization": {
+   "message": "No workstation capacity data available"
+  },
+  "cost_analysis": {
+   "cost_data_note": "Production costing requires real per-unit cost data (Job Card operating cost or BOM valuation), which is not sourced yet.",
+   "cost_efficiency": null,
+   "cost_per_unit": null,
+   "labor_cost_pct": null,
+   "material_cost_pct": null,
+   "overhead_cost_pct": null,
+   "total_production_cost": null
+  },
+  "efficiency_metrics": {
+   "average_efficiency_pct": null,
+   "best_workstation": null,
+   "consistency_rating": null,
+   "efficiency_data_note": "Per-workstation efficiency variance and best/worst ranking require workstation capacity data not sourced yet; see workstation_performance for actual hours worked.",
+   "efficiency_std_dev": null,
+   "efficiency_trend": null,
+   "efficiency_variance": null,
+   "worst_workstation": null
+  },
+  "generated_at": "2026-10-22T14:43:37.829586",
+  "maintenance_insights": {
+   "message": "No workstation data for maintenance analysis"
+  },
+  "oee_analysis": {
+   "message": "No workstation data available for OEE calculation"
+  },
+  "period": "YTD",
+  "production_forecast": {
+   "message": "Insufficient data for production forecasting"
+  },
+  "production_metrics": {
+   "completed_orders": 0,
+   "completion_rate_pct": null,
+   "monthly_growth_rate": 0,
+   "open_work_orders": 0,
+   "pending_material_requests": 2,
+   "planned_production_qty": 0.0,
+   "production_health": null,
+   "quantity_achievement_pct": null,
+   "total_production_qty": 0.0,
+   "total_work_orders": 0
+  },
+  "quality_metrics": {
+   "defect_rate_ppm": null,
+   "first_pass_yield_pct": null,
+   "on_time_completion_pct": null,
+   "quality_data_note": "First pass yield, defect rate, and quality trends require a QC doctype not present on this site",
+   "quality_status": null,
+   "quality_trends": null
+  },
+  "raw_data": {
+   "completed_order_count": 0,
+   "efficiency": {
+    "efficiency_percent": null,
+    "planned_qty": 0.0,
+    "produced_qty": 0.0
+   },
+   "monthly_trend": [],
+   "summary": {
+    "planned_qty": null,
+    "produced_qty": null,
+    "total_orders": 0
+   },
+   "top_items": [],
+   "work_order_summary": {
+    "completed_orders": 0,
+    "total_orders": 0,
+    "total_qty_planned": 0.0,
+    "total_qty_produced": 0.0
+   },
+   "work_orders": [],
+   "workstation_utilization": []
+  },
+  "recommendations": [],
+  "workstation_performance": {
+   "message": "No workstation performance data available"
+  }
+ },
+ "status": "success"
+}

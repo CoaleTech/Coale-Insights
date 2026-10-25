@@ -988,7 +988,7 @@ def get_compliance_matrix(
             "area": "GST",
             "status": (filing or {}).get("gstr3b_status") or gstr3b.get("status") or "Unknown",
             "reconciliation": _cell(
-                round(float(recon.get("reconciliation_score") or 0), 2) if recon_ok else None,
+                round(float(recon.get("match_rate_pct") or 0), 2) if recon_ok else None,
                 "Purchase vs GSTR-2A/2B match rate",
                 "percent",
             ),

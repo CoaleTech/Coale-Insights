@@ -11,12 +11,21 @@ import KpiCard from '../intelligence/components/KpiCard.vue'
 import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import LedgerAnomalies from '../intelligence/components/LedgerAnomalies.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
+import TabBrief, { type Brief } from '../intelligence/components/TabBrief.vue'
+import TabActions from '../intelligence/components/TabActions.vue'
+import StatStrip, { type StatItem } from '../intelligence/components/StatStrip.vue'
 import IntelligenceChart from '../intelligence/components/IntelligenceChart.vue'
 import { themeColor } from '../utils/chartTheme'
 import {
   severityBadge, severityFill, severityAria, scoreSeverity, normaliseSeverity, type Severity,
 } from '../utils/status'
-import { formatCount, formatDate, formatDateTime, formatMoney, NO_VALUE } from '../utils/format'
+import { formatCount, formatDate, formatDateTime, formatMoney, formatPercent, NO_VALUE } from '../utils/format'
+
+// GST return periods are stored as MMYYYY (e.g. 102026); render as "Oct 2026".
+function formatReturnPeriod(p: string): string {
+  if (!/^(0[1-9]|1[0-2])\d{4}$/.test(p)) return p
+  return new Date(Number(p.slice(2)), Number(p.slice(0, 2)) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+}
 
 const router = useRouter()
 const drillDown = useDrillDown()
@@ -83,6 +92,8 @@ interface OverviewSection {
   risk_components?: RiskComponents
   aggregate_risk_score?: number
   aggregate_risk_category?: string
+  /** Server-computed verdict: names the primary driver, overall category, and critical alert count. */
+  risk_verdict?: string
   total_customers?: number
   total_suppliers?: number
   total_items?: number
@@ -118,12 +129,27 @@ interface CashflowSection {
   customer_concentration?: ConcentrationCustomer[]
   overdue_days_trend?: DSOPeriod[]
   exposure_trend?: ExposurePeriod[]
+  /** Added 2026-10: component score, now echoed in the sub-dict so the Cash Flow tab can display it. */
+  cashflow_score?: number | null
+  /** Total open AR (= credit_risk.total_outstanding), added so cashflow detail has it without looking up a sibling section. */
+  total_receivables?: number | null
+  /** Total open AP (= payables_risk.total_outstanding). */
+  total_payables?: number | null
+  /** total_receivables − total_payables; null when either is absent. */
+  net_exposure?: number | null
+  /** Alias for current_cash_position (canonical name used by the new fields). */
+  cash_position?: number | null
+  /** Alias for current_working_capital. */
+  net_working_capital?: number | null
+  /** Prophet-style daily series from the cash model; the tab shows one row a week. */
+  cash_forecast?: { forecast?: Array<{ ds: string; yhat: number; yhat_lower: number; yhat_upper: number }> } | null
 }
 /** Typed operational risk sub-section. */
 interface OperationalSection {
   process_risks?: Record<string, number | undefined>
   inventory_risks?: InventoryRiskRow[]
   supplier_performance?: SupplierReliabilityRow[]
+  top_inventory_risk?: InventoryRiskRow & { stockout_risk_score?: number }
 }
 /** Typed compliance risk sub-section. */
 interface ComplianceSection {
@@ -133,11 +159,11 @@ interface ComplianceSection {
 }
 /** Typed predictive analytics sub-section. */
 interface PredictiveSection {
-  cash_flow_forecast?: { status?: string }
+  cash_flow_forecast?: { status?: string; forecast?: { ds: string; yhat: number }[]; model_performance?: { trend?: string } }
   revenue_forecast?: { status?: string }
   anomalies?: AnomalyRow[]
   early_warnings?: EarlyWarningRow[]
-  payment_risk_forecast?: { high_risk_customers?: PaymentRiskCustomer[] }
+  payment_risk_forecast?: { average_market_delay?: number; high_risk_customers?: PaymentRiskCustomer[] }
 }
 
 interface RiskIntelligenceData {
@@ -149,6 +175,7 @@ interface RiskIntelligenceData {
   compliance_risk: ComplianceSection
   predictive_analytics: PredictiveSection
   generated_at?: string
+  tab_briefs?: Record<string, Brief>
   base_currency?: string
 }
 
@@ -176,6 +203,13 @@ const cashflowData = computed(() => riskData.value?.cashflow_risk ?? ({} as Cash
 const operationalData = computed(() => riskData.value?.operational_risk ?? ({} as OperationalSection))
 const complianceData = computed(() => riskData.value?.compliance_risk ?? ({} as ComplianceSection))
 const predictiveData = computed(() => riskData.value?.predictive_analytics ?? ({} as PredictiveSection))
+// Payment-risk rows carry only the customer code; names come from the credit scores.
+const customerNames = computed(() => new Map((creditData.value.customer_risk_scores ?? []).map(r => [r.customer, r.customer_name])))
+// Weekly sample of the daily cash forecast, plus the last day.
+const forecastSample = computed(() => {
+  const fc = predictiveData.value.cash_flow_forecast?.forecast ?? []
+  return fc.filter((_, i) => i % 7 === 0 || i === fc.length - 1)
+})
 // No ISO fallback: this site reports in neither KES nor INR, and a constant
 // relabels every figure on the page. `formatMoney` renders the number bare
 // when the code is empty, which is honest; a wrong code is not.
@@ -185,17 +219,56 @@ const lastUpdated = computed(() => riskData.value?.generated_at ?? null)
 // Tabs - numeric index for frappe-ui Tabs component
 const tabDefs = [
   { label: 'Overview', value: 'overview' },
-  { label: 'Credit Risk', value: 'credit' },
-  { label: 'Payables Risk', value: 'payables' },
+  { label: 'Counterparty', value: 'counterparty' },
   { label: 'Cash Flow Risk', value: 'cashflow' },
   { label: 'Operational Risk', value: 'operational' },
   { label: 'Compliance Risk', value: 'compliance' },
-  { label: 'Predictive Analytics', value: 'predictive' },
-  { label: 'Ledger Anomalies', value: 'anomalies' },
+  { label: 'Signals', value: 'signals' },
 ]
 const activeTabIndex = ref(0)
 const activeTab = computed(() => tabDefs[activeTabIndex.value]?.value ?? 'overview')
 const tabsForComponent = tabDefs.map(t => ({ label: t.label }))
+
+const tabBriefs = computed(() => riskData.value?.tab_briefs ?? {})
+// The ledger scan is issued on mount, so it runs only on request.
+const showLedger = ref(false)
+const cashForecastWeekly = computed(() =>
+  (cashflowData.value.cash_forecast?.forecast ?? []).filter((_, i) => i % 7 === 0),
+)
+const cashflowStrip = computed<StatItem[]>(() => {
+  const c = cashflowData.value
+  const dso = c.overdue_days_trend?.at(-1)
+  return [
+    { label: 'Cash Position', amount: c.current_cash_position ?? null, tone: (c.current_cash_position ?? 0) < 0 ? 'neg' : undefined },
+    { label: 'Working Capital Ratio', value: c.working_capital_ratio ?? null, unit: '×', sublabel: `${formatMoney(c.current_working_capital, baseCurrency.value)} working capital` },
+    { label: 'Avg Days Overdue', value: dso?.avg_days_overdue ?? null, unit: ' days', sublabel: dso?.period },
+    { label: 'Top Customer Share', percent: c.top_customer_share ?? null },
+  ]
+})
+const operationalStrip = computed<StatItem[]>(() => {
+  const o = operationalData.value
+  const top = o.top_inventory_risk
+  const suppliers = o.supplier_performance ?? []
+  return [
+    { label: 'Stockout Rate', percent: top?.stockout_risk_score ?? null, sublabel: top ? `${formatCount(top.stockout_items)} of ${formatCount(top.total_items ?? null)} items` : undefined },
+    { label: 'Remaining Stock Value', amount: top?.stock_value ?? null },
+    { label: 'Suppliers Above Low Risk', value: suppliers.filter(s => s.risk_category !== 'Low').length, sublabel: `of ${formatCount(suppliers.length)} tracked` },
+    { label: 'Invoice Error Rate', value: formatPercent(o.process_risks?.invoice_error_rate, 2) },
+  ]
+})
+const signalsStrip = computed<StatItem[]>(() => {
+  const p = predictiveData.value
+  const fc = p.cash_flow_forecast?.forecast ?? []
+  const last = fc.at(-1)
+  const risky = p.payment_risk_forecast?.high_risk_customers ?? []
+  const delay = p.payment_risk_forecast?.average_market_delay
+  return [
+    { label: `${fc.length}-Day Cash Forecast`, amount: last?.yhat ?? null, sublabel: last ? formatDate(last.ds) : undefined },
+    { label: 'Forecast Trend', value: p.cash_flow_forecast?.model_performance?.trend ?? null },
+    { label: 'High-Risk Customers', value: risky.length, sublabel: delay == null ? undefined : `Avg market delay ${delay} days` },
+    { label: 'Anomalies Detected', value: (p.anomalies ?? []).length },
+  ]
+})
 
 /**
  * Summary derived from the overview sub-object.
@@ -259,6 +332,14 @@ const exposureTrend = computed(() => cashflowData.value.exposure_trend ?? [])
  * Both series are money in the same currency, so they share one axis --
  * splitting them across y and y2 would let two different scales imply a
  * crossover that never happened (IBCS unified scaling).
+ *
+ * The third series ("Net Exposure" = receivables − payables) fills as an area
+ * so the crossover becomes spatially obvious: the shaded area is above zero
+ * when receivables lead, and below zero when payables crossed over. No
+ * hand-placed geometry is needed -- the shading is computed from the data,
+ * and ECharts' area fill to y=0 is the crossover indicator.
+ * yMin: 0 is deliberately absent (see Rule 3 exception: signed balances where
+ * the sign is the message, same as ThirteenWeekChart).
  */
 const exposureTrendConfig = computed(() => ({
   title: '',
@@ -266,12 +347,19 @@ const exposureTrendConfig = computed(() => ({
     period: r.period,
     Receivables: r.receivables,
     Payables: r.payables,
+    'Net Exposure': r.receivables - r.payables,
   })),
   xAxis: { key: 'period', type: 'category' as const },
   yAxis: { title: baseCurrency.value },
+  colors: [
+    themeColor('--app-accent-strong'),
+    themeColor('--app-muted-fill'),
+    themeColor('--app-highlight'),
+  ],
   series: [
-    { name: 'Receivables', type: 'line' as const, color: themeColor('--app-accent-strong'), axis: 'y' as const, showDataPoints: true },
-    { name: 'Payables', type: 'line' as const, color: themeColor('--app-muted-fill'), axis: 'y' as const, showDataPoints: true },
+    { name: 'Receivables', type: 'line' as const, showDataPoints: true },
+    { name: 'Payables', type: 'line' as const, showDataPoints: true },
+    { name: 'Net Exposure', type: 'area' as const, fillOpacity: 0.15, showDataPoints: false },
   ],
 }))
 
@@ -297,18 +385,6 @@ const exposureTrendHint = computed(() => {
   return `${basis} · receivables ${word} ${formatMoney(Math.abs(move), baseCurrency.value)} since ${first.period}`
 })
 
-/**
- * The two matrix axes, iterated so the identical bar cell is written once.
- *
- * `graded` marks the axis that is a live measurement: probability is this
- * period's computed score, impact is a constant severity weight assigned per
- * category in `_risk_matrix`. Colouring the latter by magnitude claimed a
- * fixed judgment was a bad reading.
- */
-const matrixAxes = [
-  { key: 'probability', label: 'Probability', graded: true },
-  { key: 'impact', label: 'Impact', graded: false },
-] as const
 
 /**
  * Overdue money and its invoice count, from the aging buckets.
@@ -416,6 +492,9 @@ const actionQueue = computed(() => {
 type QueueItem = (typeof actionQueue.value)[number]
 
 const queueCritical = computed(() => actionQueue.value.filter(i => i.severity === 'critical').length)
+/** Top items for the right rail: at most 6, critical-first (queue is already sorted). */
+const topQueueItems = computed(() => actionQueue.value.slice(0, 6))
+
 
 /**
  * Queue columns. Money gets its own right-aligned column because the amounts
@@ -541,18 +620,6 @@ function openQueueDrill(item: { title: string; customer?: string; overdueDays?: 
   })
 }
 
-// Risk score: higher = worse, so higherIsBetter: false. Scoped to the risk
-// matrix's Probability/Impact bars only, which have no server-computed
-// category of their own. The four risk *components* and the overall score
-// each carry an authoritative category from the backend's `_risk_category()`
-// (Low <=25, Medium <=50, High <=75, Critical >75) -- use
-// `normaliseSeverity(summary.xRisk)` for those instead of recomputing a
-// second, differently-thresholded classification here. That divergence used
-// to show a KPI card as "High" while the identical score's category badge
-// lower on the same page said "Medium" (e.g. Credit Risk at 43.5/100).
-function riskScoreSeverity(score: number): Severity {
-  return scoreSeverity(score, { good: 20, warn: 40, higherIsBetter: false })
-}
 
 // GST filing status vocabulary from `get_filing_compliance` (server):
 // No Data | Not Due | Compliant | Overdue. `Pending` / `Not Tracked` are the
@@ -636,6 +703,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
       :not-implemented="notImplemented"
       :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
+      :kpi-count="4"
       subject="risk data"
       permission-hint="Ask an administrator for risk read access."
       @retry="retry"
@@ -701,203 +769,186 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
 
       <!-- Tab Content -->
       <div class="flex-1 p-6 overflow-auto">
-        <!-- Tab 1: Overview -->
-        <div v-if="activeTab === 'overview'" class="space-y-6">
-          <!--
-            The overall score in the strip above is a *weighted* blend of these
-            four (credit .30, cashflow .30, operational .25, compliance .15 --
-            `WEIGHTS` in `risk_intelligence.py`). Nothing on the page said so,
-            which left "Overall 40/100" impossible to reconcile with a 70.8
-            cash-flow score sitting next to a 0.0 compliance score. The weight
-            is shown per row because that is what makes each bar readable.
-          -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader
-              variant="caption"
-              title="Risk Component Breakdown"
-              hint="Weighted into the overall score"
-              :level="3"
-            />
-            <div class="mt-4 space-y-4">
-              <div v-for="row in riskComponentRows" :key="row.label" class="flex items-center gap-4">
-                <div class="w-44 shrink-0 text-sm font-medium text-ink-gray-7">
-                  {{ row.label }}
-                  <span class="font-normal text-ink-gray-6">&times;{{ row.weight }}</span>
-                </div>
+        <!-- Tab 1: Overview — Variant C: Hero chart (2/3) + attention rail (1/3) -->
+        <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+
+          <!-- ── Left: hero panel + component strip ── -->
+          <div class="lg:col-span-2 flex flex-col gap-5">
+
+            <!--
+              Hero panel: blue-tinted background to signal "this is the
+              primary diagnostic section". Holds the server-computed verdict
+              headline, the annotated exposure trend chart, and the 4-column
+              component strip.
+
+              `risk_verdict` is the canonical hero title: server-computed from
+              component scores + critical alert count (Rule 7). A fallback to
+              the overall category label is shown only while an old cached
+              payload (no `risk_verdict` field) is in flight — never a
+              client-side inference sentence.
+            -->
+            <div class="bg-surface-blue-2 border border-outline-gray-1 rounded-lg p-5">
+              <p class="text-xs font-semibold uppercase tracking-widest text-ink-blue-3 mb-1.5">
+                Exposure Trend · Primary diagnostic
+              </p>
+              <h2 class="text-base font-bold text-ink-gray-9 leading-snug">
+                {{ overviewData.risk_verdict ?? (summary.overallRisk ? `${summary.overallRisk} overall risk — see component breakdown below` : 'Overall risk assessment') }}
+              </h2>
+              <p class="text-xs text-ink-gray-6 mt-0.5 mb-4">{{ exposureTrendHint }}</p>
+
+              <!--
+                Annotated exposure chart: three series.
+                • Receivables (line, blue) — GL AR balance each month end.
+                • Payables (line, muted) — GL AP balance each month end.
+                • Net Exposure (area, orange, fillOpacity 0.15) — R − P.
+                  When R − P > 0 the shaded area is above zero (healthy buffer).
+                  When R − P < 0 the area flips below zero (payables crossed).
+                  The zero-crossing is the crossover event, computed from the
+                  data — no hand-placed geometry. See exposureTrendConfig.
+              -->
+              <IntelligenceChart
+                v-if="exposureTrend.length"
+                :config="exposureTrendConfig"
+                class="h-80"
+              />
+              <p v-else class="text-sm text-ink-gray-6 text-center py-8">
+                No exposure trend data yet.
+              </p>
+
+              <!--
+                Component strip: same four rows as the old "Risk Component
+                Breakdown" section, now compact and directly below the chart
+                they explain. Weight shown per column so 70.8 × 0.30 > 44.0
+                × 0.30 is readable without scrolling to a separate panel.
+              -->
+              <div class="mt-4 pt-4 border-t border-outline-gray-1 grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div
-                  class="flex-1 bg-surface-gray-3 rounded-full h-4"
-                  :aria-label="severityAria(row.label, row.severity, row.display)"
-                  role="img"
+                  v-for="row in riskComponentRows"
+                  :key="row.label"
                 >
+                  <p class="text-xs uppercase tracking-wide text-ink-gray-6 mb-1.5 truncate">
+                    {{ row.label.replace(' Risk', '') }}
+                    <span class="font-normal">&times;{{ row.weight }}</span>
+                  </p>
                   <div
-                    v-if="row.width"
-                    :class="[severityFill(row.severity), 'h-4 rounded-full motion-reduce:transition-none transition-all']"
-                    :style="{ width: row.width }"
-                  />
-                </div>
-                <div class="w-24 text-right flex items-center gap-2 justify-end">
-                  <span class="font-bold text-ink-gray-8">{{ row.display }}</span>
-                  <Badge v-if="row.category" v-bind="severityBadge(row.category)" size="sm" />
+                    class="h-1.5 bg-surface-gray-3 rounded-full mb-1.5"
+                    :aria-label="severityAria(row.label, row.severity, row.display)"
+                    role="img"
+                  >
+                    <div
+                      v-if="row.width"
+                      :class="[severityFill(row.severity), 'h-1.5 rounded-full transition-all motion-reduce:transition-none']"
+                      :style="{ width: row.width }"
+                    />
+                  </div>
+                  <p class="text-sm font-bold text-ink-gray-8 tnum">{{ row.display }}</p>
+                  <Badge v-if="row.category" v-bind="severityBadge(row.category)" size="sm" class="mt-0.5" />
                 </div>
               </div>
             </div>
+
           </div>
 
-          <!--
-            Direction of travel, which the page never showed: the strip says
-            exposure is 10.6M today but not whether that is the best or the
-            worst it has been. Month-end GL balances, not the invoice-derived
-            `overdue_days_trend` sitting on the Cash Flow tab -- that series
-            averages `today - due_date` over settled and open invoices alike,
-            so it decays ~30 a month by calendar arithmetic, and its
-            companion `month_end_outstanding` only measures how recently an
-            invoice was raised. Both would draw a confident improving line
-            out of an artefact. See `_exposure_trend` for the full reasoning.
-          -->
-          <div v-if="exposureTrend.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <!-- ── Right rail: needs attention + compact matrix ── -->
+          <div class="flex flex-col gap-3">
+
             <SectionHeader
               variant="caption"
-              title="Exposure trend"
-              :hint="exposureTrendHint"
+              title="Needs attention"
+              :hint="`${queueCritical} critical · ${actionQueue.length} total`"
               :level="3"
             />
-            <IntelligenceChart
-              :config="exposureTrendConfig"
-              class="mt-3 h-48 sm:h-56 lg:h-64"
-            />
-          </div>
-          <!-- Risk Assessment Matrix Table -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader
-              variant="caption"
-              title="Risk Assessment Matrix"
-              hint="Score = probability &times; impact &divide; 100"
-              :level="3"
-            />
-            <div class="mt-4 overflow-x-auto">
-              <table class="w-full">
-                <caption class="sr-only">
-                  Risk register. Probability is this period's computed score for the
-                  category; impact is a fixed severity weight for the event, not a
-                  measurement. Both are on a 0-100 scale.
-                </caption>
-                <thead>
-                  <tr class="border-b border-outline-gray-1">
-                    <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Risk</th>
-                    <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Category</th>
-                    <th
-                      v-for="axis in matrixAxes"
-                      :key="axis.key"
-                      scope="col"
-                      class="text-center py-2 text-sm font-medium text-ink-gray-7"
-                    >
-                      {{ axis.label }}
-                    </th>
-                    <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Risk Score</th>
-                    <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Level</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr
-                    v-for="risk in overviewData.risk_matrix"
-                    :key="risk.name"
-                    class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
-                  >
-                    <td class="py-3 font-medium text-ink-gray-8">{{ risk.name }}</td>
-                    <td class="py-3 text-ink-gray-6">{{ risk.category }}</td>
-                    <!--
-                      Both axes are 0-100 scores, so neither carries a `%`: the
-                      cells used to render impact as "90%", which reads as a
-                      measured likelihood when it is a fixed severity weight.
-                      Only probability is graded by severity for the same reason
-                      -- a high impact weight is a property of the event, not bad
-                      news about this period, so its bar stays neutral.
-                    -->
-                    <td v-for="axis in matrixAxes" :key="axis.key" class="py-3 text-center">
-                      <div class="flex items-center justify-center gap-2">
-                        <div
-                          class="w-16 bg-surface-gray-3 rounded-full h-2"
-                          :aria-label="severityAria(axis.label, axis.graded ? riskScoreSeverity(risk[axis.key]) : 'none', String(risk[axis.key]))"
-                          role="img"
-                        >
-                          <div
-                            :class="severityFill(axis.graded ? riskScoreSeverity(risk[axis.key]) : 'none')"
-                            class="h-2 rounded-full motion-reduce:transition-none transition-all"
-                            :style="{ width: risk[axis.key] + '%' }"
-                          />
-                        </div>
-                        <span class="text-sm text-ink-gray-7 tnum">{{ risk[axis.key] }}</span>
-                      </div>
-                    </td>
-                    <td class="py-3 text-center font-bold text-ink-gray-8 tnum">
-                      {{ risk.risk_score?.toFixed(1) ?? NO_VALUE }}
-                    </td>
-                    <td class="py-3 text-center">
-                      <Badge v-bind="severityBadge(risk.risk_category)" size="sm" />
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-          <!--
-            One queue, three sources: observed alerts, forecast warnings and
-            flagged postings. They were three lists in two tabs, all answering
-            "what do I do now", with no ordering across them -- so the reader
-            merged them by hand and the critical cash warning sat two tabs away
-            from the critical cash alert. `kind` is shown because a forecast is
-            not an observation: one you act on, the other you verify.
-          -->
-          <div v-if="actionQueue.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader
-              variant="caption"
-              title="Act on this"
-              :hint="`${queueCritical} critical of ${actionQueue.length}`"
-              :level="3"
-            />
+
             <!--
-              Height is computed rather than a `h-*` class: `ListView` scrolls
-              its own body, so a fixed class either clips the queue or leaves
-              dead space, and a scrollbar inside a scrolling tab is two
-              scrollbars for nine rows.
+              Top queue items, critical-first (actionQueue is already sorted).
+              Capped at 6 so the rail stays scannable without scrolling.
+              The full unified queue (observed + forecasts + anomalies) scrolls
+              in the Predictive Analytics tab.
             -->
-            <ListView
-              class="mt-4 list-ink-fix"
-              :style="{ height: queueListHeight }"
-              :columns="queueColumns"
-              :rows="actionQueue"
-              row-key="key"
-              :options="{ selectable: false, showTooltip: true, rowHeight: 40 }"
+            <div
+              v-for="item in topQueueItems"
+              :key="item.key"
+              class="bg-surface-white border border-outline-gray-1 rounded-md p-3 flex gap-2.5"
             >
-              <template #cell="{ column, row, item }">
-                <Badge
-                  v-if="column.key === 'severity' && row.severity"
-                  v-bind="severityBadge(row.severity)"
-                  size="sm"
-                />
-                <!--
-                  The drill is a button per row, not `options.onRowClick`:
-                  `ListRow` marks every row `cursor-pointer` as soon as a click
-                  handler exists, and only the credit alerts have invoices
-                  behind them. Four of nine rows would promise a dialog that
-                  cannot open.
-                -->
-                <Button
-                  v-else-if="column.key === 'drill' && row.customer"
-                  variant="subtle"
-                  size="sm"
-                  label="Invoices"
-                  @click.stop="openQueueDrill(row)"
-                />
-                <span v-else class="truncate">{{ column.getLabel ? column.getLabel({ row }) : item }}</span>
-              </template>
-            </ListView>
+              <!--
+                Left accent bar: non-text shape, severityFill() is correct
+                here (bg-neg-fill / bg-warn-fill / bg-muted-fill). The
+                Badge on the next line carries the accessible text label.
+              -->
+              <div
+                :class="[severityFill(normaliseSeverity(item.severity)), 'w-1 self-stretch rounded-full shrink-0']"
+                aria-hidden="true"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center justify-between gap-1 mb-0.5">
+                  <Badge v-bind="severityBadge(item.severity)" size="sm" />
+                  <span class="text-xs text-ink-gray-6 shrink-0">{{ item.kind }}</span>
+                </div>
+                <p class="text-xs font-semibold text-ink-gray-8 leading-snug mt-1">{{ item.title }}</p>
+                <p class="text-xs text-ink-gray-6 mt-0.5 line-clamp-2">{{ item.detail }}</p>
+                <div class="flex items-center justify-between mt-1.5 gap-2">
+                  <span
+                    v-if="item.amount !== null && item.amount !== undefined"
+                    class="text-xs font-bold text-ink-gray-8 tnum"
+                  >
+                    {{ formatMoney(item.amount, baseCurrency) }}
+                  </span>
+                  <span v-else class="flex-1" />
+                  <Button
+                    v-if="item.customer"
+                    variant="ghost"
+                    size="sm"
+                    @click.stop="openQueueDrill(item)"
+                  >
+                    Invoices →
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <p
+              v-if="!topQueueItems.length"
+              class="text-sm text-ink-gray-6 text-center py-4 bg-surface-white border border-outline-gray-1 rounded-md"
+            >
+              No alerts
+            </p>
+
+            <!--
+              Compact risk matrix: name, score, level badge.
+              Already sorted by risk_score desc from the backend (_risk_matrix).
+              The full table with probability/impact bars is gone from this tab
+              — it had a 6-col layout too wide for the 1/3 rail and the columns
+              added no signal beyond the final score.
+            -->
+            <div class="bg-surface-white border border-outline-gray-1 rounded-md p-3">
+              <SectionHeader
+                variant="caption"
+                title="Risk matrix"
+                hint="prob × impact ÷ 100"
+                :level="4"
+              />
+              <div class="mt-2 space-y-2">
+                <div
+                  v-for="risk in overviewData.risk_matrix"
+                  :key="risk.name"
+                  class="flex items-center gap-2"
+                >
+                  <span class="flex-1 text-xs text-ink-gray-7 truncate">{{ risk.name }}</span>
+                  <span class="text-xs font-bold text-ink-gray-8 tnum shrink-0">
+                    {{ risk.risk_score != null ? risk.risk_score.toFixed(1) : NO_VALUE }}
+                  </span>
+                  <Badge v-bind="severityBadge(risk.risk_category)" size="sm" class="shrink-0" />
+                </div>
+              </div>
+            </div>
+
           </div>
 
         </div>
 
         <!-- Tab 2: Credit Risk -->
-        <div v-if="activeTab === 'credit'" class="space-y-6">
+        <div v-if="activeTab === 'counterparty'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.counterparty" :as-of="riskData?.generated_at" />
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <KpiCard
               label="Total Outstanding"
@@ -971,11 +1022,12 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 </table>
               </div>
           </div>
-        </div>
+          <TabActions class="mt-6" :actions="tabBriefs.counterparty?.actions" />
         </div>
 
-        <!-- Tab: Payables Risk -->
-        <div v-if="activeTab === 'payables'" class="space-y-6">
+        <!-- Supplier payables -->
+        <div class="space-y-6 pt-2">
+          <SectionHeader variant="caption" title="Supplier Payables" :level="3" />
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <KpiCard
               label="Total Outstanding"
@@ -1051,19 +1103,12 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           </div>
         </div>
         </div>
+        </div>
 
         <!-- Tab 3: Cash Flow Risk -->
         <div v-if="activeTab === 'cashflow'" class="space-y-6">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <KpiCard label="Current Cash Position" :value="formatCurrency(cashflowData.current_cash_position as number)" />
-            <KpiCard label="Working Capital" :value="formatCurrency(cashflowData.current_working_capital as number)" />
-            <KpiCard label="Working Capital Ratio" :value="`${cashflowData.working_capital_ratio}x`" />
-            <KpiCard
-              label="Top Customer Share"
-              :percent="cashflowData.top_customer_share == null ? null : Math.round(cashflowData.top_customer_share as number)"
-              :severity="scoreSeverity(cashflowData.top_customer_share as number, { good: 20, warn: 30, higherIsBetter: false })"
-            />
-          </div>
+          <TabBrief :brief="tabBriefs.cashflow" :as-of="riskData?.generated_at" />
+          <StatStrip :items="cashflowStrip" :currency="baseCurrency" />
 
           <!-- Revenue Concentration -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -1094,7 +1139,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
 
           <!-- Overdue Days Trend -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Overdue Days Trend" :level="3" />
+            <SectionHeader variant="caption" title="Overdue Days Trend" hint="Average days overdue, by month" :level="3" />
             <div class="mt-4">
               <div class="grid grid-cols-5 gap-4">
                 <KpiCard
@@ -1102,26 +1147,45 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                   :key="period.period"
                   :label="period.period"
                   :value="period.avg_days_overdue"
-                  unit=" days overdue"
+                  unit=" days"
                   variant="tile"
                   :loading="loading && !hasData"
                 />
               </div>
             </div>
           </div>
+
+          <div v-if="cashForecastWeekly.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="30-day cash forecast" hint="One row a week" :level="3" />
+            <table class="mt-4 w-full text-sm">
+              <caption class="sr-only">Forecast cash position by week with its range</caption>
+              <thead>
+                <tr class="border-b border-outline-gray-1">
+                  <th scope="col" class="pb-2 text-left font-medium text-ink-gray-6">Date</th>
+                  <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Forecast</th>
+                  <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Range</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-outline-gray-1">
+                <tr v-for="row in cashForecastWeekly" :key="row.ds">
+                  <th scope="row" class="py-2 text-left font-normal text-ink-gray-8">{{ row.ds }}</th>
+                  <td class="tnum py-2 text-right font-medium" :class="row.yhat < 0 ? 'text-ink-red-3' : 'text-ink-gray-9'">
+                    {{ formatMoney(row.yhat, baseCurrency) }}
+                  </td>
+                  <td class="tnum py-2 text-right text-ink-gray-6">
+                    {{ formatMoney(Math.min(row.yhat_lower, row.yhat_upper), baseCurrency) }} to {{ formatMoney(Math.max(row.yhat_lower, row.yhat_upper), baseCurrency) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.cashflow?.actions" />
         </div>
 
         <!-- Tab 4: Operational Risk -->
         <div v-if="activeTab === 'operational'" class="space-y-6">
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <KpiCard label="Invoice Error Rate" :value="`${(operationalData.process_risks as Record<string, number | undefined>)?.invoice_error_rate?.toFixed(2) || '0.00'}%`" />
-            <KpiCard
-              label="Avg Approval Time"
-              :value="(operationalData.process_risks as Record<string, number | undefined>)?.average_approval_time"
-              unit=" hrs"
-            />
-            <KpiCard label="System Incidents" :value="(operationalData.process_risks as Record<string, number | undefined>)?.system_downtime_incidents" />
-          </div>
+          <TabBrief :brief="tabBriefs.operational" :as-of="riskData?.generated_at" />
+          <StatStrip :items="operationalStrip" :currency="baseCurrency" />
 
           <!-- Inventory Risk by Item Group -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -1160,6 +1224,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 </table>
               </div>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.operational?.actions" />
         </div>
 
           <!-- Supplier Performance -->
@@ -1200,6 +1265,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
 
         <!-- Tab 5: Compliance Risk -->
         <div v-if="activeTab === 'compliance'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.compliance" :as-of="riskData?.generated_at" />
           <!-- GST Status -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="GST Compliance Status" hint="GSTR-1 / GSTR-3B filing and e-Invoice coverage" :level="3" />
@@ -1208,7 +1274,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 <KpiCard
                   label="GSTR-1 Status"
                   :value="complianceData.gst_status?.gstr1_status"
-                  :sublabel="complianceData.gst_status?.gstr1_latest_period ? `Latest: ${complianceData.gst_status.gstr1_latest_period}` : undefined"
+                  :sublabel="complianceData.gst_status?.gstr1_latest_period ? `Latest: ${formatReturnPeriod(complianceData.gst_status.gstr1_latest_period)}` : undefined"
                   :severity="gstStatusSeverity(complianceData.gst_status?.gstr1_status)"
                   variant="tile"
                   :loading="loading && !hasData"
@@ -1216,7 +1282,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 <KpiCard
                   label="GSTR-3B Status"
                   :value="complianceData.gst_status?.gstr3b_status"
-                  :sublabel="complianceData.gst_status?.gstr3b_latest_period ? `Latest: ${complianceData.gst_status.gstr3b_latest_period}` : undefined"
+                  :sublabel="complianceData.gst_status?.gstr3b_latest_period ? `Latest: ${formatReturnPeriod(complianceData.gst_status.gstr3b_latest_period)}` : undefined"
                   :severity="gstStatusSeverity(complianceData.gst_status?.gstr3b_status)"
                   variant="tile"
                   :loading="loading && !hasData"
@@ -1261,10 +1327,10 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                       class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
                       <td class="py-2 text-ink-gray-8">{{ doc.document_type }}</td>
-                      <td class="py-2 text-right text-ink-gray-8">{{ doc.total_docs }}</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ formatCount(doc.total_docs) }}</td>
                       <td class="py-2 text-right">
                         <span :class="doc.incomplete_docs > 0 ? 'text-neg font-medium' : 'text-ink-gray-8'">
-                          {{ doc.incomplete_docs }}
+                          {{ formatCount(doc.incomplete_docs) }}
                         </span>
                       </td>
                       <td class="py-2 text-right">
@@ -1279,6 +1345,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 </table>
               </div>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.compliance?.actions" />
         </div>
 
           <!-- GST / PAN Registration -->
@@ -1306,19 +1373,9 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         </div>
 
         <!-- Tab 6: Predictive Analytics -->
-        <div v-if="activeTab === 'predictive'" class="space-y-6">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <KpiCard
-              label="Cash Flow Forecast"
-              :value="(predictiveData.cash_flow_forecast as Record<string, string>)?.status || 'N/A'"
-              :severity="(predictiveData.cash_flow_forecast as Record<string, string>)?.status === 'success' ? 'low' : 'medium'"
-            />
-            <KpiCard
-              label="Revenue Forecast"
-              :value="(predictiveData.revenue_forecast as Record<string, string>)?.status || 'N/A'"
-              :severity="(predictiveData.revenue_forecast as Record<string, string>)?.status === 'success' ? 'low' : 'medium'"
-            />
-          </div>
+        <div v-if="activeTab === 'signals'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.signals" :as-of="riskData?.generated_at" />
+          <StatStrip :items="signalsStrip" :currency="baseCurrency" />
 
           <!-- Anomaly Detection -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -1346,6 +1403,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 No anomalies detected in recent data
               </div>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.signals?.actions" />
         </div>
 
           <!-- Early Warning Alerts -->
@@ -1376,6 +1434,25 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           </div>
         </div>
 
+          <!-- Cash Forecast -->
+          <div v-if="forecastSample.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Cash forecast" :hint="`${predictiveData.cash_flow_forecast?.forecast?.length ?? 0} daily points, weekly sample`" :level="3" />
+            <table class="w-full mt-4">
+              <thead>
+                <tr class="border-b border-outline-gray-1">
+                  <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Date</th>
+                  <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Forecast cash</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="pt in forecastSample" :key="pt.ds" class="border-b border-outline-gray-1">
+                  <td class="py-2 text-ink-gray-8">{{ formatDate(pt.ds) }}</td>
+                  <td class="py-2 text-right font-medium" :class="pt.yhat < 0 ? 'text-ink-red-3' : 'text-ink-gray-8'">{{ formatCurrency(pt.yhat) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
           <!-- Payment Risk Forecast -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
           <SectionHeader variant="caption" title="Payment Delay Risk Forecast" :level="3" />
@@ -1399,7 +1476,10 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                       :key="customer.customer"
                       class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
-                      <td class="py-2 text-ink-gray-8">{{ customer.customer }}</td>
+                      <td class="py-2 text-ink-gray-8">
+                        {{ customerNames.get(customer.customer) || customer.customer }}
+                        <div v-if="customerNames.get(customer.customer)" class="text-xs text-ink-gray-5">{{ customer.customer }}</div>
+                      </td>
                       <td class="py-2 text-right text-ink-gray-8">{{ Math.round(customer.avg_delay_days) }}</td>
                       <td class="py-2 text-center">
                         <Badge v-bind="severityBadge(customer.risk_category)" size="sm" />
@@ -1414,15 +1494,13 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </div>
           </div>
         </div>
-        </div>
 
-        <!-- `v-if` like its siblings, which suits this tab: mounting is what
-             issues the scan, so it stays unrequested until someone opens it. -->
-        <div v-if="activeTab === 'anomalies'" class="space-y-6">
-          <!-- No SectionHeader: the tab is already labelled "Ledger Anomalies",
-               and the component opens with the flagged/scanned count and the
-               caveat that unusual is not the same as wrong. -->
-          <LedgerAnomalies />
+          <!-- Ledger Anomalies: the scan is issued on mount, so it runs on request -->
+          <div class="space-y-3">
+            <SectionHeader variant="caption" title="Ledger Anomalies" hint="Scans submitted invoices when run" :level="3" />
+            <Button v-if="!showLedger" variant="outline" @click="showLedger = true">Run ledger scan</Button>
+            <LedgerAnomalies v-else />
+          </div>
         </div>
       </div>
     </IntelligenceDashboardShell>

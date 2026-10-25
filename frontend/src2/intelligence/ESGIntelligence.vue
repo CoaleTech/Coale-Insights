@@ -4,6 +4,7 @@ import { ref, computed, onMounted } from 'vue'
 import { Badge, Button, ListView, Tabs } from 'frappe-ui'
 import { useRouter } from 'vue-router'
 import { apiCall } from '../helpers/api'
+import { Leaf, Users, Scale } from 'lucide-vue-next'
 import { createInfoToast } from '../helpers/toasts'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import {
@@ -316,13 +317,96 @@ function handleDashboardRedirect(target: string) {
       </div>
     </header>
 
+    <!-- Not-implemented: honest rich "coming soon" layout showing pillar intent and intended ERPNext sources -->
+    <div v-if="notImplemented" class="flex-1 flex flex-col overflow-auto">
+      <div class="px-6 pt-5">
+        <div class="rounded-lg bg-surface-gray-2 border border-outline-gray-1 px-4 py-3">
+          <p class="text-sm font-medium text-ink-gray-8">Not yet available</p>
+          <p class="text-sm text-ink-gray-6 mt-0.5">
+            {{ notImplementedMessage || 'ESG data is not yet backed by real source data.' }}
+          </p>
+        </div>
+      </div>
+
+      <div class="flex-1 p-6">
+        <!-- Overview: pillar descriptions + intended ERPNext sources (no numbers) -->
+        <div>
+          <p class="text-sm text-ink-gray-6 mb-5">
+            When operational, this dashboard will track the following pillars using data already in ERPNext:
+          </p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+            <!-- Environmental pillar -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-5 flex flex-col gap-3">
+              <div class="flex items-center gap-2">
+                <Leaf class="h-5 w-5 text-ink-gray-5" aria-hidden="true" />
+                <span class="font-semibold text-ink-gray-9">Environmental</span>
+              </div>
+              <p class="text-sm text-ink-gray-6">
+                Carbon footprint, energy mix (diesel / grid / renewable),
+                waste recycled percentage, and water usage.
+              </p>
+              <div class="mt-auto pt-3 border-t border-outline-gray-1">
+                <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-1.5">ERPNext sources</p>
+                <ul class="text-xs text-ink-gray-6 space-y-1 list-disc list-inside">
+                  <li>Purchase Invoice items — Fuel, Grid, Renewable item groups</li>
+                  <li>Stock Entry records — waste and material transfers</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Social pillar -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-5 flex flex-col gap-3">
+              <div class="flex items-center gap-2">
+                <Users class="h-5 w-5 text-ink-gray-5" aria-hidden="true" />
+                <span class="font-semibold text-ink-gray-9">Social</span>
+              </div>
+              <p class="text-sm text-ink-gray-6">
+                Workforce diversity (gender and management ratio), health &amp; safety
+                incident rate, and employee wellbeing.
+              </p>
+              <div class="mt-auto pt-3 border-t border-outline-gray-1">
+                <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-1.5">ERPNext sources</p>
+                <ul class="text-xs text-ink-gray-6 space-y-1 list-disc list-inside">
+                  <li>Employee records — gender and designation fields</li>
+                  <li>HR Incident / Accident logs</li>
+                  <li>Payroll and Leave Allocation data</li>
+                </ul>
+              </div>
+            </div>
+
+            <!-- Governance pillar -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-5 flex flex-col gap-3">
+              <div class="flex items-center gap-2">
+                <Scale class="h-5 w-5 text-ink-gray-5" aria-hidden="true" />
+                <span class="font-semibold text-ink-gray-9">Governance</span>
+              </div>
+              <p class="text-sm text-ink-gray-6">
+                Ethics, transparency, and risk scores; supply chain oversight
+                and compliance audit coverage.
+              </p>
+              <div class="mt-auto pt-3 border-t border-outline-gray-1">
+                <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-1.5">ERPNext sources</p>
+                <ul class="text-xs text-ink-gray-6 space-y-1 list-disc list-inside">
+                  <li>Supplier records — country, type, and group</li>
+                  <li>Compliance and audit log entries</li>
+                </ul>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </div>
+
     <IntelligenceDashboardShell
+      v-else
       :loading="loading"
       :refreshing="refreshing"
       :error="error"
       :is-permission-error="isPermissionError"
       :warming="warming"
-      :not-implemented="notImplemented"
+      :not-implemented="false"
       :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
       subject="ESG data"

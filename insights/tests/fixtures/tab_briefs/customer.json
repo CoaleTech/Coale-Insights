@@ -1,0 +1,4721 @@
+{
+ "data": {
+  "analysis_date": "2026-10-22T14:43:11.245669",
+  "at_risk_customers": [
+   {
+    "churn_risk": "High",
+    "churn_score": 57.644587649997945,
+    "customer_id": "CS00255",
+    "customer_name": "customer_name-c4abe8",
+    "historical_clv": 16927000.0,
+    "order_count": 28,
+    "outstanding_amount": 575272.0,
+    "recency_days": 27
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 66.0,
+    "customer_id": "CS00144",
+    "customer_name": "customer_name-746cee",
+    "historical_clv": 5380910.0,
+    "order_count": 68,
+    "outstanding_amount": 0.0,
+    "recency_days": 136
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 50.7979667328699,
+    "customer_id": "CS00433",
+    "customer_name": "customer_name-1bd324",
+    "historical_clv": 3339000.0,
+    "order_count": 9,
+    "outstanding_amount": 0.0,
+    "recency_days": 56
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 79.25759517261066,
+    "customer_id": "CS00178",
+    "customer_name": "customer_name-5678a0",
+    "historical_clv": 3259450.0,
+    "order_count": 13,
+    "outstanding_amount": 580922.0,
+    "recency_days": 76
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 81.31786666666666,
+    "customer_id": "CS00881",
+    "customer_name": "customer_name-0004d5",
+    "historical_clv": 2582250.0,
+    "order_count": 4,
+    "outstanding_amount": 0.0,
+    "recency_days": 209
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 71.93373737373737,
+    "customer_id": "CS01041",
+    "customer_name": "customer_name-9bf3ab",
+    "historical_clv": 2517500.0,
+    "order_count": 7,
+    "outstanding_amount": 0.0,
+    "recency_days": 153
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 79.04925373134328,
+    "customer_id": "CS00827",
+    "customer_name": "customer_name-b90fd3",
+    "historical_clv": 2413814.58,
+    "order_count": 5,
+    "outstanding_amount": 0.0,
+    "recency_days": 158
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 64.13336705860053,
+    "customer_id": "CS00981",
+    "customer_name": "customer_name-c8dde3",
+    "historical_clv": 1903367.5,
+    "order_count": 30,
+    "outstanding_amount": 275967.0,
+    "recency_days": 25
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 69.69863247863248,
+    "customer_id": "CS00013",
+    "customer_name": "customer_name-20f157",
+    "historical_clv": 1348270.0,
+    "order_count": 19,
+    "outstanding_amount": 0.0,
+    "recency_days": 114
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 62.83432516320331,
+    "customer_id": "CS00594",
+    "customer_name": "customer_name-58a684",
+    "historical_clv": 1254570.0,
+    "order_count": 18,
+    "outstanding_amount": 79944.0,
+    "recency_days": 37
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 72.95284756197191,
+    "customer_id": "CS01023",
+    "customer_name": "customer_name-fd6982",
+    "historical_clv": 1236475.0,
+    "order_count": 18,
+    "outstanding_amount": 0.0,
+    "recency_days": 46
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 67.45684210526316,
+    "customer_id": "CS00064",
+    "customer_name": "customer_name-35d247",
+    "historical_clv": 960000.0,
+    "order_count": 3,
+    "outstanding_amount": 0.0,
+    "recency_days": 147
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 77.9327659574468,
+    "customer_id": "CS00483",
+    "customer_name": "customer_name-2c4ca9",
+    "historical_clv": 899600.0,
+    "order_count": 6,
+    "outstanding_amount": 0.0,
+    "recency_days": 171
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 66.0,
+    "customer_id": "CS00463",
+    "customer_name": "customer_name-cccd22",
+    "historical_clv": 825000.0,
+    "order_count": 6,
+    "outstanding_amount": 0.0,
+    "recency_days": 323
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 78.36162162162162,
+    "customer_id": "CS00712",
+    "customer_name": "customer_name-645916",
+    "historical_clv": 758750.0,
+    "order_count": 3,
+    "outstanding_amount": 0.0,
+    "recency_days": 147
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 72.26535211267606,
+    "customer_id": "CS01052",
+    "customer_name": "customer_name-1bd324",
+    "historical_clv": 725000.0,
+    "order_count": 2,
+    "outstanding_amount": 0.0,
+    "recency_days": 174
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 72.9441948069909,
+    "customer_id": "CS00790",
+    "customer_name": "customer_name-be3ced",
+    "historical_clv": 669325.0,
+    "order_count": 16,
+    "outstanding_amount": 0.0,
+    "recency_days": 65
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 72.79466666666667,
+    "customer_id": "CS01104",
+    "customer_name": "customer_name-f47704",
+    "historical_clv": 621500.0,
+    "order_count": 3,
+    "outstanding_amount": 0.0,
+    "recency_days": 157
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 73.55320388349514,
+    "customer_id": "CS00072",
+    "customer_name": "customer_name-db598a",
+    "historical_clv": 595725.0,
+    "order_count": 13,
+    "outstanding_amount": 0.0,
+    "recency_days": 100
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 75.65254437869822,
+    "customer_id": "CS00540",
+    "customer_name": "customer_name-73fc55",
+    "historical_clv": 574750.0,
+    "order_count": 9,
+    "outstanding_amount": 0.0,
+    "recency_days": 191
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 76.07282051282051,
+    "customer_id": "CS01173",
+    "customer_name": "customer_name-230050",
+    "historical_clv": 542800.0,
+    "order_count": 2,
+    "outstanding_amount": 0.0,
+    "recency_days": 115
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 77.49138888888889,
+    "customer_id": "CS00107",
+    "customer_name": "customer_name-9ee67f",
+    "historical_clv": 512000.0,
+    "order_count": 3,
+    "outstanding_amount": 0.0,
+    "recency_days": 187
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 53.605100705216074,
+    "customer_id": "CS01077",
+    "customer_name": "customer_name-c9a689",
+    "historical_clv": 494125.0,
+    "order_count": 10,
+    "outstanding_amount": 207717.0,
+    "recency_days": 34
+   },
+   {
+    "churn_risk": "Critical",
+    "churn_score": 78.89728593636731,
+    "customer_id": "CS00641",
+    "customer_name": "customer_name-8731c6",
+    "historical_clv": 391095.0,
+    "order_count": 14,
+    "outstanding_amount": 0.0,
+    "recency_days": 88
+   },
+   {
+    "churn_risk": "High",
+    "churn_score": 68.09774193548387,
+    "customer_id": "CS00928",
+    "customer_name": "customer_name-0b471a",
+    "historical_clv": 340535.0,
+    "order_count": 11,
+    "outstanding_amount": 0.0,
+    "recency_days": 235
+   }
+  ],
+  "base_currency": "INR",
+  "cohort_analysis": {
+   "average_retention": {
+    "0": 100.0,
+    "1": 17.5,
+    "10": 3.2,
+    "2": 10.8,
+    "3": 6.6,
+    "4": 9.5,
+    "5": 5.7,
+    "6": 2.7,
+    "7": 3.5,
+    "8": 1.4,
+    "9": 1.3
+   },
+   "cohort_count": 12,
+   "cohort_retention": [
+    {
+     "cohort": "2025-10",
+     "retention": {
+      "0": 100.0,
+      "1": 33.3,
+      "10": 33.3,
+      "2": 0.0,
+      "3": 0.0,
+      "4": 33.3,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 3
+    },
+    {
+     "cohort": "2025-11",
+     "retention": {
+      "0": 100.0,
+      "1": 21.1,
+      "10": 5.3,
+      "2": 15.8,
+      "3": 10.5,
+      "4": 10.5,
+      "5": 13.2,
+      "6": 7.9,
+      "7": 10.5,
+      "8": 5.3,
+      "9": 7.9
+     },
+     "size": 38
+    },
+    {
+     "cohort": "2025-12",
+     "retention": {
+      "0": 100.0,
+      "1": 25.9,
+      "10": 0.0,
+      "2": 14.8,
+      "3": 11.1,
+      "4": 11.1,
+      "5": 11.1,
+      "6": 3.7,
+      "7": 11.1,
+      "8": 11.1,
+      "9": 7.4
+     },
+     "size": 27
+    },
+    {
+     "cohort": "2026-01",
+     "retention": {
+      "0": 100.0,
+      "1": 7.0,
+      "10": 0.0,
+      "2": 20.9,
+      "3": 9.3,
+      "4": 9.3,
+      "5": 7.0,
+      "6": 4.7,
+      "7": 11.6,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 43
+    },
+    {
+     "cohort": "2026-02",
+     "retention": {
+      "0": 100.0,
+      "1": 20.9,
+      "10": 0.0,
+      "2": 14.0,
+      "3": 9.3,
+      "4": 11.6,
+      "5": 14.0,
+      "6": 11.6,
+      "7": 9.3,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 43
+    },
+    {
+     "cohort": "2026-03",
+     "retention": {
+      "0": 100.0,
+      "1": 7.3,
+      "10": 0.0,
+      "2": 7.3,
+      "3": 7.3,
+      "4": 17.1,
+      "5": 17.1,
+      "6": 4.9,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 41
+    },
+    {
+     "cohort": "2026-04",
+     "retention": {
+      "0": 100.0,
+      "1": 31.4,
+      "10": 0.0,
+      "2": 20.0,
+      "3": 8.6,
+      "4": 14.3,
+      "5": 5.7,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 35
+    },
+    {
+     "cohort": "2026-05",
+     "retention": {
+      "0": 100.0,
+      "1": 14.3,
+      "10": 0.0,
+      "2": 25.0,
+      "3": 17.9,
+      "4": 7.1,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 28
+    },
+    {
+     "cohort": "2026-06",
+     "retention": {
+      "0": 100.0,
+      "1": 9.5,
+      "10": 0.0,
+      "2": 4.8,
+      "3": 4.8,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 21
+    },
+    {
+     "cohort": "2026-07",
+     "retention": {
+      "0": 100.0,
+      "1": 20.7,
+      "10": 0.0,
+      "2": 6.9,
+      "3": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 29
+    },
+    {
+     "cohort": "2026-08",
+     "retention": {
+      "0": 100.0,
+      "1": 19.0,
+      "10": 0.0,
+      "2": 0.0,
+      "3": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 21
+    },
+    {
+     "cohort": "2026-09",
+     "retention": {
+      "0": 100.0,
+      "1": 0.0,
+      "10": 0.0,
+      "2": 0.0,
+      "3": 0.0,
+      "4": 0.0,
+      "5": 0.0,
+      "6": 0.0,
+      "7": 0.0,
+      "8": 0.0,
+      "9": 0.0
+     },
+     "size": 10
+    }
+   ]
+  },
+  "company": "company-3582cc",
+  "customers": [
+   {
+    "avg_order_value": 265925.760869565,
+    "churn_risk": "Medium",
+    "churn_score": 38.72788867659394,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00362",
+    "customer_name": "customer_name-fdf6c5",
+    "engagement_score": 50.0,
+    "gross_profit": 721877.0,
+    "growth_score": 33.91612903225803,
+    "health_score": 53.54362878498862,
+    "health_status": "At Risk",
+    "historical_clv": 18348877.5,
+    "longevity_score": 43.802014892685065,
+    "order_count": 69,
+    "outstanding_amount": 2467335.0,
+    "predicted_12m_clv": 21620896.68774192,
+    "purchase_frequency": 6.775354838709678,
+    "recency_days": 10,
+    "revenue_score": 100.0,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Akola",
+    "total_clv": 27819265.88709677
+   },
+   {
+    "avg_order_value": 628600.0,
+    "churn_risk": "High",
+    "churn_score": 57.644587649997945,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Industrial Chemical",
+    "customer_id": "CS00255",
+    "customer_name": "customer_name-c4abe8",
+    "engagement_score": 32.13682432432432,
+    "gross_profit": 1154798.0,
+    "growth_score": 36.70270270270271,
+    "health_score": 46.57601375394883,
+    "health_status": "At Risk",
+    "historical_clv": 15715000.0,
+    "longevity_score": 44.21265878230398,
+    "order_count": 25,
+    "outstanding_amount": 575272.0,
+    "predicted_12m_clv": 19393159.45945946,
+    "purchase_frequency": 2.570945945945946,
+    "recency_days": 27,
+    "revenue_score": 99.82788296041308,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Vadodara",
+    "total_clv": 24289231.41891892
+   },
+   {
+    "avg_order_value": 333094.594594595,
+    "churn_risk": "Low",
+    "churn_score": 13.368016110521653,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Industrial Chemical",
+    "customer_id": "CS00243",
+    "customer_name": "customer_name-95520c",
+    "engagement_score": 44.13322884012539,
+    "gross_profit": 930232.5,
+    "growth_score": 32.253918495297874,
+    "health_score": 44.05111440771069,
+    "health_status": "At Risk",
+    "historical_clv": 12324500.0,
+    "longevity_score": 44.21265878230398,
+    "order_count": 37,
+    "outstanding_amount": 2666799.0,
+    "predicted_12m_clv": 14112518.369905973,
+    "purchase_frequency": 3.5306583072100315,
+    "recency_days": 4,
+    "revenue_score": 99.65576592082617,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 18564019.592476495
+   },
+   {
+    "avg_order_value": 625374.583333333,
+    "churn_risk": "Low",
+    "churn_score": 16.051656294468863,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00322",
+    "customer_name": "customer_name-bed4b1",
+    "engagement_score": 15.965034965034967,
+    "gross_profit": 366515.0,
+    "growth_score": 38.86013986013984,
+    "health_score": 42.80087994058198,
+    "health_status": "At Risk",
+    "historical_clv": 7504495.0,
+    "longevity_score": 39.69557599649584,
+    "order_count": 12,
+    "outstanding_amount": 2792767.0,
+    "predicted_12m_clv": 9584762.005594403,
+    "purchase_frequency": 1.2772027972027973,
+    "recency_days": 4,
+    "revenue_score": 99.48364888123923,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Navsari",
+    "total_clv": 11309221.486013986
+   },
+   {
+    "avg_order_value": 297437.5,
+    "churn_risk": "Low",
+    "churn_score": 25.586600598145694,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Industrial Chemical",
+    "customer_id": "CS00217",
+    "customer_name": "customer_name-1417e0",
+    "engagement_score": 20.84931506849315,
+    "gross_profit": 397450.0,
+    "growth_score": 37.54794520547946,
+    "health_score": 53.89151751204308,
+    "health_status": "At Risk",
+    "historical_clv": 4759000.0,
+    "longevity_score": 41.74879544459045,
+    "order_count": 16,
+    "outstanding_amount": 415426.0,
+    "predicted_12m_clv": 5953313.424657535,
+    "purchase_frequency": 1.6679452054794521,
+    "recency_days": 13,
+    "revenue_score": 99.31153184165233,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Mumbai",
+    "total_clv": 7244436.643835616
+   },
+   {
+    "avg_order_value": 69499.893617021,
+    "churn_risk": "High",
+    "churn_score": 66.0,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Detergent & Cosmetics",
+    "customer_id": "CS00144",
+    "customer_name": "customer_name-746cee",
+    "engagement_score": 50.0,
+    "gross_profit": 362196.88,
+    "growth_score": 73.72432432432394,
+    "health_score": 61.29168024728805,
+    "health_status": "Healthy",
+    "historical_clv": 3266495.0,
+    "longevity_score": 43.9388961892247,
+    "order_count": 47,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6449650.235675651,
+    "purchase_frequency": 7.7334054054054056,
+    "recency_days": 136,
+    "revenue_score": 98.79518072289156,
+    "rfm_score": "355",
+    "rfm_segment": "Need Attention",
+    "territory": "Surat",
+    "total_clv": 6100400.121621611
+   },
+   {
+    "avg_order_value": 119777.424242424,
+    "churn_risk": "Low",
+    "churn_score": 9.876278362931103,
+    "clv_score": 99.51957367157286,
+    "clv_tier": "Diamond",
+    "customer_group": "Detergent & Cosmetics",
+    "customer_id": "CS00121",
+    "customer_name": "customer_name-0799c6",
+    "engagement_score": 75.0,
+    "gross_profit": 510969.52999999997,
+    "growth_score": 100.0,
+    "health_score": 66.79744056006265,
+    "health_status": "Healthy",
+    "historical_clv": 3952655.0,
+    "longevity_score": 19.84778799824792,
+    "order_count": 33,
+    "outstanding_amount": 1264135.0,
+    "predicted_12m_clv": 10096684.044755224,
+    "purchase_frequency": 7.024615384615385,
+    "recency_days": 2,
+    "revenue_score": 99.1394148020654,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 5956623.44405594
+   },
+   {
+    "avg_order_value": 359642.857142857,
+    "churn_risk": "Critical",
+    "churn_score": 71.93373737373737,
+    "clv_score": 95.59279570779037,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS01041",
+    "customer_name": "customer_name-9bf3ab",
+    "engagement_score": 26.9040404040404,
+    "gross_profit": 227250.0,
+    "growth_score": 100.0,
+    "health_score": 65.86654453139738,
+    "health_status": "Healthy",
+    "historical_clv": 2517500.0,
+    "longevity_score": 34.49408672798949,
+    "order_count": 7,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 9288812.121212117,
+    "purchase_frequency": 2.152323232323232,
+    "recency_days": 153,
+    "revenue_score": 97.93459552495698,
+    "rfm_score": "355",
+    "rfm_segment": "Need Attention",
+    "territory": "Nashik",
+    "total_clv": 5721590.909090908
+   },
+   {
+    "avg_order_value": 93856.5375,
+    "churn_risk": "Low",
+    "churn_score": 10.02823763442956,
+    "clv_score": 94.38167973501396,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00660",
+    "customer_name": "customer_name-9fb8ca",
+    "engagement_score": 60.361635220125784,
+    "gross_profit": 63820.0,
+    "growth_score": 32.43396226415095,
+    "health_score": 55.140358287195994,
+    "health_status": "At Risk",
+    "historical_clv": 3754261.5,
+    "longevity_score": 43.9388961892247,
+    "order_count": 40,
+    "outstanding_amount": 1396988.0,
+    "predicted_12m_clv": 4312442.266415095,
+    "purchase_frequency": 3.828930817610063,
+    "recency_days": 3,
+    "revenue_score": 98.9672977624785,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Pune",
+    "total_clv": 5649101.030660378
+   },
+   {
+    "avg_order_value": 482762.916,
+    "churn_risk": "Critical",
+    "churn_score": 79.04925373134328,
+    "clv_score": 84.26854582567658,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00827",
+    "customer_name": "customer_name-b90fd3",
+    "engagement_score": 14.197761194029852,
+    "gross_profit": 1493242.6,
+    "growth_score": 100.0,
+    "health_score": 54.38591565379501,
+    "health_status": "At Risk",
+    "historical_clv": 2413814.58,
+    "longevity_score": 39.96933858957512,
+    "order_count": 5,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6579986.490913433,
+    "purchase_frequency": 1.135820895522388,
+    "recency_days": 158,
+    "revenue_score": 97.76247848537005,
+    "rfm_score": "355",
+    "rfm_segment": "Need Attention",
+    "territory": "Malaysia",
+    "total_clv": 5043791.659701493
+   },
+   {
+    "avg_order_value": 1002000.0,
+    "churn_risk": "Critical",
+    "churn_score": 81.31786666666666,
+    "clv_score": 83.54453956909228,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00881",
+    "customer_name": "customer_name-0004d5",
+    "engagement_score": 7.2476190476190485,
+    "gross_profit": 20000.0,
+    "growth_score": 100.0,
+    "health_score": 69.5293181134525,
+    "health_status": "Healthy",
+    "historical_clv": 2004000.0,
+    "longevity_score": 42.98072711344722,
+    "order_count": 2,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6971629.7142857155,
+    "purchase_frequency": 0.5798095238095239,
+    "recency_days": 209,
+    "revenue_score": 97.41824440619621,
+    "rfm_score": "235",
+    "rfm_segment": "Can't Lose",
+    "territory": "Nagpur",
+    "total_clv": 5000457.142857144
+   },
+   {
+    "avg_order_value": 308106.0,
+    "churn_risk": "Low",
+    "churn_score": 24.761185696658877,
+    "clv_score": 78.6901015023441,
+    "clv_tier": "Platinum",
+    "customer_group": "Aquaculture",
+    "customer_id": "CS00097",
+    "customer_name": "customer_name-48bef1",
+    "engagement_score": 24.23566878980892,
+    "gross_profit": 299797.0,
+    "growth_score": 91.33121019108282,
+    "health_score": 55.38244757795536,
+    "health_status": "At Risk",
+    "historical_clv": 3081060.0,
+    "longevity_score": 22.72229522558038,
+    "order_count": 10,
+    "outstanding_amount": 1638855.0,
+    "predicted_12m_clv": 7168468.769426752,
+    "purchase_frequency": 1.9388535031847134,
+    "recency_days": 9,
+    "revenue_score": 98.62306368330465,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Thane",
+    "total_clv": 4709900.636942675
+   },
+   {
+    "avg_order_value": 409857.142857143,
+    "churn_risk": "High",
+    "churn_score": 50.7979667328699,
+    "clv_score": 78.35279455445217,
+    "clv_tier": "Platinum",
+    "customer_group": "",
+    "customer_id": "CS00433",
+    "customer_name": "customer_name-1bd324",
+    "engagement_score": 12.805288461538462,
+    "gross_profit": 317000.0,
+    "growth_score": 62.80769230769233,
+    "health_score": 56.04011793988275,
+    "health_status": "At Risk",
+    "historical_clv": 2869000.0,
+    "longevity_score": 36.136662286465175,
+    "order_count": 7,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5038405.384615386,
+    "purchase_frequency": 1.0244230769230769,
+    "recency_days": 56,
+    "revenue_score": 98.45094664371773,
+    "rfm_score": "455",
+    "rfm_segment": "Champions",
+    "territory": "Kolhapur",
+    "total_clv": 4689711.538461539
+   },
+   {
+    "avg_order_value": 300166.666666667,
+    "churn_risk": "Low",
+    "churn_score": 15.56171791097561,
+    "clv_score": 69.16273176760038,
+    "clv_tier": "Platinum",
+    "customer_group": "",
+    "customer_id": "CS00559",
+    "customer_name": "customer_name-2ebb3a",
+    "engagement_score": 20.144117647058824,
+    "gross_profit": 252000.0,
+    "growth_score": 82.43529411764719,
+    "health_score": 65.12675120850237,
+    "health_status": "Healthy",
+    "historical_clv": 2701500.0,
+    "longevity_score": 24.77551467367499,
+    "order_count": 9,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5804728.941176477,
+    "purchase_frequency": 1.6115294117647059,
+    "recency_days": 11,
+    "revenue_score": 98.2788296041308,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Solapur",
+    "total_clv": 4139651.470588237
+   },
+   {
+    "avg_order_value": 76779.264705882,
+    "churn_risk": "Low",
+    "churn_score": 10.726450310114883,
+    "clv_score": 65.63014910476109,
+    "clv_tier": "Platinum",
+    "customer_group": "",
+    "customer_id": "CS00916",
+    "customer_name": "customer_name-1f009b",
+    "engagement_score": 53.70063694267516,
+    "gross_profit": 259066.08999999997,
+    "growth_score": 33.16560509554113,
+    "health_score": 53.67286512116527,
+    "health_status": "At Risk",
+    "historical_clv": 2610495.0,
+    "longevity_score": 43.39137100306614,
+    "order_count": 34,
+    "outstanding_amount": 3245.0,
+    "predicted_12m_clv": 3036820.425477693,
+    "purchase_frequency": 3.296050955414013,
+    "recency_days": 3,
+    "revenue_score": 98.10671256454388,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 3928213.0175159173
+   },
+   {
+    "avg_order_value": 511250.0,
+    "churn_risk": "Critical",
+    "churn_score": 79.25759517261066,
+    "clv_score": 57.124688097386866,
+    "clv_tier": "Gold",
+    "customer_group": "Detergent & Cosmetics",
+    "customer_id": "CS00178",
+    "customer_name": "customer_name-5678a0",
+    "engagement_score": 6.8868778280543,
+    "gross_profit": 86281.80000000005,
+    "growth_score": 57.642533936651596,
+    "health_score": 48.554703656552476,
+    "health_status": "At Risk",
+    "historical_clv": 2045000.0,
+    "longevity_score": 40.653745072273324,
+    "order_count": 4,
+    "outstanding_amount": 580922.0,
+    "predicted_12m_clv": 3380079.6380090504,
+    "purchase_frequency": 0.550950226244344,
+    "recency_days": 76,
+    "revenue_score": 97.59036144578313,
+    "rfm_score": "445",
+    "rfm_segment": "Loyal Customers",
+    "territory": "Surat",
+    "total_clv": 3419128.959276018
+   },
+   {
+    "avg_order_value": 63445.583333333,
+    "churn_risk": "High",
+    "churn_score": 64.13336705860053,
+    "clv_score": 49.11503066122477,
+    "clv_tier": "Gold",
+    "customer_group": "",
+    "customer_id": "CS00981",
+    "customer_name": "customer_name-c8dde3",
+    "engagement_score": 40.62277580071175,
+    "gross_profit": 277387.76,
+    "growth_score": 39.99644128113846,
+    "health_score": 51.95020423791792,
+    "health_status": "At Risk",
+    "historical_clv": 1903367.5,
+    "longevity_score": 41.88567674113009,
+    "order_count": 30,
+    "outstanding_amount": 275967.0,
+    "predicted_12m_clv": 2474242.279003546,
+    "purchase_frequency": 3.2498220640569397,
+    "recency_days": 25,
+    "revenue_score": 97.24612736660929,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 2939720.6227757954
+   },
+   {
+    "avg_order_value": 89335.684210526,
+    "churn_risk": "Low",
+    "churn_score": 26.465140018055365,
+    "clv_score": 43.23370158014125,
+    "clv_tier": "Gold",
+    "customer_group": "Nail Polish",
+    "customer_id": "CS00170",
+    "customer_name": "customer_name-8e61ed",
+    "engagement_score": 27.2811320754717,
+    "gross_profit": 361163.67,
+    "growth_score": 43.920754716980895,
+    "health_score": 41.26577951149903,
+    "health_status": "At Risk",
+    "historical_clv": 1697378.0,
+    "longevity_score": 38.05300043802015,
+    "order_count": 19,
+    "outstanding_amount": 677688.0,
+    "predicted_12m_clv": 2339691.455999992,
+    "purchase_frequency": 2.182490566037736,
+    "recency_days": 13,
+    "revenue_score": 97.07401032702238,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 2587700.799999997
+   },
+   {
+    "avg_order_value": 549000.0,
+    "churn_risk": "Medium",
+    "churn_score": 37.916666666666664,
+    "clv_score": 39.45557649723818,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS01073",
+    "customer_name": "customer_name-daaad4",
+    "engagement_score": 12.5,
+    "gross_profit": 162000.0,
+    "growth_score": 100.0,
+    "health_score": 66.62569180419821,
+    "health_status": "Healthy",
+    "historical_clv": 549000.0,
+    "longevity_score": 27.513140604467807,
+    "order_count": 1,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6588000.0,
+    "purchase_frequency": 1.0,
+    "recency_days": 201,
+    "revenue_score": 93.11531841652324,
+    "rfm_score": "225",
+    "rfm_segment": "Hibernating",
+    "territory": "Hyderabad",
+    "total_clv": 2361565.7030223394
+   },
+   {
+    "avg_order_value": 68865.714285714,
+    "churn_risk": "Low",
+    "churn_score": 13.392659839094406,
+    "clv_score": 36.35751150635918,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS00584",
+    "customer_name": "customer_name-b97828",
+    "engagement_score": 37.78639240506329,
+    "gross_profit": 158493.43000000002,
+    "growth_score": 32.79746835443014,
+    "health_score": 56.23017752861486,
+    "health_status": "At Risk",
+    "historical_clv": 1446180.0,
+    "longevity_score": 43.66513359614542,
+    "order_count": 21,
+    "outstanding_amount": 79296.0,
+    "predicted_12m_clv": 1671710.8556961955,
+    "purchase_frequency": 2.0229113924050632,
+    "recency_days": 3,
+    "revenue_score": 96.90189328743546,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 2176134.7784810094
+   },
+   {
+    "avg_order_value": 448612.5,
+    "churn_risk": "Medium",
+    "churn_score": 40.416666666666664,
+    "clv_score": 34.45695949538386,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS01079",
+    "customer_name": "customer_name-676c9e",
+    "engagement_score": 12.5,
+    "gross_profit": 4887.5,
+    "growth_score": 100.0,
+    "health_score": 54.87750061631923,
+    "health_status": "At Risk",
+    "historical_clv": 448612.5,
+    "longevity_score": 29.97700394218134,
+    "order_count": 1,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5383350.0,
+    "purchase_frequency": 1.0,
+    "recency_days": 219,
+    "revenue_score": 91.91049913941481,
+    "rfm_score": "225",
+    "rfm_segment": "Hibernating",
+    "territory": "Valsad",
+    "total_clv": 2062379.5417214192
+   },
+   {
+    "avg_order_value": 71786.875,
+    "churn_risk": "High",
+    "churn_score": 69.69863247863248,
+    "clv_score": 34.452387338758825,
+    "clv_tier": "Silver",
+    "customer_group": "Detergent & Cosmetics",
+    "customer_id": "CS00013",
+    "customer_name": "customer_name-20f157",
+    "engagement_score": 31.544041450777204,
+    "gross_profit": 148207.16,
+    "growth_score": 69.63212435233163,
+    "health_score": 61.84800638605589,
+    "health_status": "Healthy",
+    "historical_clv": 1148590.0,
+    "longevity_score": 42.022558037669725,
+    "order_count": 16,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 2173870.2341968915,
+    "purchase_frequency": 2.5235233160621764,
+    "recency_days": 114,
+    "revenue_score": 96.04130808950086,
+    "rfm_score": "355",
+    "rfm_segment": "Need Attention",
+    "territory": "Surat",
+    "total_clv": 2062105.8808290155
+   },
+   {
+    "avg_order_value": 207166.666666667,
+    "churn_risk": "Critical",
+    "churn_score": 72.79466666666667,
+    "clv_score": 33.689133077178404,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS01104",
+    "customer_name": "customer_name-f47704",
+    "engagement_score": 25.366666666666664,
+    "gross_profit": 29500.0,
+    "growth_score": 100.0,
+    "health_score": 57.364095028509006,
+    "health_status": "At Risk",
+    "historical_clv": 621500.0,
+    "longevity_score": 27.65002190100744,
+    "order_count": 3,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5044922.666666674,
+    "purchase_frequency": 2.029333333333333,
+    "recency_days": 157,
+    "revenue_score": 93.80378657487091,
+    "rfm_score": "345",
+    "rfm_segment": "Need Attention",
+    "territory": "Kalol",
+    "total_clv": 2016422.222222224
+   },
+   {
+    "avg_order_value": 68693.055555556,
+    "churn_risk": "Critical",
+    "churn_score": 72.95284756197191,
+    "clv_score": 33.12765722587274,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS01023",
+    "customer_name": "customer_name-fd6982",
+    "engagement_score": 30.851351351351354,
+    "gross_profit": 161545.13,
+    "growth_score": 57.27027027027081,
+    "health_score": 52.27269366050151,
+    "health_status": "At Risk",
+    "historical_clv": 1236475.0,
+    "longevity_score": 36.68418747262374,
+    "order_count": 18,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 2034502.6486486618,
+    "purchase_frequency": 2.468108108108108,
+    "recency_days": 46,
+    "revenue_score": 96.55765920826161,
+    "rfm_score": "455",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 1982815.7657657706
+   },
+   {
+    "avg_order_value": 362500.0,
+    "churn_risk": "Critical",
+    "churn_score": 72.26535211267606,
+    "clv_score": 33.01178345528861,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS01052",
+    "customer_name": "customer_name-1bd324",
+    "engagement_score": 10.71830985915493,
+    "gross_profit": 47500.0,
+    "growth_score": 100.0,
+    "health_score": 61.71487304099972,
+    "health_status": "Healthy",
+    "historical_clv": 725000.0,
+    "longevity_score": 33.535917652212,
+    "order_count": 2,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 3729971.830985916,
+    "purchase_frequency": 0.8574647887323944,
+    "recency_days": 174,
+    "revenue_score": 94.32013769363166,
+    "rfm_score": "245",
+    "rfm_segment": "At Risk",
+    "territory": "Ahmedabad",
+    "total_clv": 1975880.281690141
+   }
+  ],
+  "geographic_analysis": {
+   "coverage": {
+    "customer_groups_covered": 17,
+    "territories_covered": 128,
+    "total_customers": 581,
+    "total_revenue": 149257108.17000002
+   },
+   "customer_group_analysis": [
+    {
+     "avg_health_score": 53.48668126444771,
+     "avg_order_value": 40588.63374606953,
+     "customer_count": 502,
+     "customer_group": "",
+     "total_revenue": 89810901.17
+    },
+    {
+     "avg_health_score": 52.53184838718492,
+     "avg_order_value": 128858.73210710712,
+     "customer_count": 18,
+     "customer_group": "Industrial Chemical",
+     "total_revenue": 35442001.75
+    },
+    {
+     "avg_health_score": 52.163312791365996,
+     "avg_order_value": 52869.85633306805,
+     "customer_count": 23,
+     "customer_group": "Detergent & Cosmetics",
+     "total_revenue": 13300002.5
+    },
+    {
+     "avg_health_score": 51.7357310925284,
+     "avg_order_value": 66239.39442355896,
+     "customer_count": 19,
+     "customer_group": "Agriculture",
+     "total_revenue": 4300508.75
+    },
+    {
+     "avg_health_score": 55.38244757795536,
+     "avg_order_value": 308106.0,
+     "customer_count": 1,
+     "customer_group": "Aquaculture",
+     "total_revenue": 3081060.0
+    },
+    {
+     "avg_health_score": 41.26577951149903,
+     "avg_order_value": 89335.684210526,
+     "customer_count": 1,
+     "customer_group": "Nail Polish",
+     "total_revenue": 1697378.0
+    },
+    {
+     "avg_health_score": 61.560963141094504,
+     "avg_order_value": 127000.0,
+     "customer_count": 1,
+     "customer_group": "Corragated Packaging",
+     "total_revenue": 381000.0
+    },
+    {
+     "avg_health_score": 53.30183749443918,
+     "avg_order_value": 18382.8484848484,
+     "customer_count": 5,
+     "customer_group": "Food Products",
+     "total_revenue": 321317.0
+    },
+    {
+     "avg_health_score": 59.315763656723064,
+     "avg_order_value": 13533.714285714,
+     "customer_count": 1,
+     "customer_group": "Treatment Chemical",
+     "total_revenue": 189472.0
+    },
+    {
+     "avg_health_score": 55.63096577835167,
+     "avg_order_value": 32192.0,
+     "customer_count": 1,
+     "customer_group": "Construction Chemicals",
+     "total_revenue": 160960.0
+    },
+    {
+     "avg_health_score": 49.38917072457278,
+     "avg_order_value": 128070.0,
+     "customer_count": 1,
+     "customer_group": "Oil Industries",
+     "total_revenue": 128070.0
+    },
+    {
+     "avg_health_score": 57.39783952781277,
+     "avg_order_value": 59275.0,
+     "customer_count": 1,
+     "customer_group": "Lipstik Manufacturer",
+     "total_revenue": 118550.0
+    },
+    {
+     "avg_health_score": 49.880868685460825,
+     "avg_order_value": 30875.0,
+     "customer_count": 2,
+     "customer_group": "Textile Chemicals",
+     "total_revenue": 101500.0
+    },
+    {
+     "avg_health_score": 57.28347106480352,
+     "avg_order_value": 11481.25,
+     "customer_count": 2,
+     "customer_group": "Food Industries",
+     "total_revenue": 90125.0
+    },
+    {
+     "avg_health_score": 51.921597558262874,
+     "avg_order_value": 15956.25,
+     "customer_count": 1,
+     "customer_group": "Enzyme Industries",
+     "total_revenue": 63825.0
+    },
+    {
+     "avg_health_score": 54.61855371209226,
+     "avg_order_value": 20168.5,
+     "customer_count": 1,
+     "customer_group": "Paper Cup Industries",
+     "total_revenue": 40337.0
+    },
+    {
+     "avg_health_score": 57.473939308953476,
+     "avg_order_value": 30100.0,
+     "customer_count": 1,
+     "customer_group": "Wipe Manufacturer",
+     "total_revenue": 30100.0
+    }
+   ],
+   "map_data": [
+    {
+     "avg_health_score": 53.89851490536361,
+     "customer_count": 284,
+     "revenue_share": 37.98,
+     "territory": "Surat",
+     "total_revenue": 56689150.74
+    },
+    {
+     "avg_health_score": 53.51360820891248,
+     "customer_count": 3,
+     "revenue_share": 12.39,
+     "territory": "Akola",
+     "total_revenue": 18493314.5
+    },
+    {
+     "avg_health_score": 57.14398923918158,
+     "customer_count": 9,
+     "revenue_share": 11.31,
+     "territory": "Vadodara",
+     "total_revenue": 16874215.0
+    },
+    {
+     "avg_health_score": 52.10793466463906,
+     "customer_count": 16,
+     "revenue_share": 5.53,
+     "territory": "Mumbai",
+     "total_revenue": 8252780.5
+    },
+    {
+     "avg_health_score": 53.964142152086765,
+     "customer_count": 12,
+     "revenue_share": 5.38,
+     "territory": "Navsari",
+     "total_revenue": 8030388.45
+    },
+    {
+     "avg_health_score": 51.958996916669086,
+     "customer_count": 11,
+     "revenue_share": 3.77,
+     "territory": "Pune",
+     "total_revenue": 5623554.5
+    },
+    {
+     "avg_health_score": 52.89163323769156,
+     "customer_count": 6,
+     "revenue_share": 2.36,
+     "territory": "Thane",
+     "total_revenue": 3528344.0
+    },
+    {
+     "avg_health_score": 56.34145405062495,
+     "customer_count": 11,
+     "revenue_share": 2.35,
+     "territory": "Nashik",
+     "total_revenue": 3503676.75
+    },
+    {
+     "avg_health_score": 55.277404209518366,
+     "customer_count": 5,
+     "revenue_share": 2.09,
+     "territory": "Nagpur",
+     "total_revenue": 3125875.0
+    },
+    {
+     "avg_health_score": 52.08012125776359,
+     "customer_count": 2,
+     "revenue_share": 1.92,
+     "territory": "Kolhapur",
+     "total_revenue": 2871500.0
+    },
+    {
+     "avg_health_score": 54.23603602602136,
+     "customer_count": 3,
+     "revenue_share": 1.82,
+     "territory": "Solapur",
+     "total_revenue": 2715550.0
+    },
+    {
+     "avg_health_score": 54.38591565379501,
+     "customer_count": 1,
+     "revenue_share": 1.62,
+     "territory": "Malaysia",
+     "total_revenue": 2413814.58
+    },
+    {
+     "avg_health_score": 56.2116622174965,
+     "customer_count": 11,
+     "revenue_share": 1.15,
+     "territory": "Ahmedabad",
+     "total_revenue": 1720225.0
+    },
+    {
+     "avg_health_score": 54.50744381706831,
+     "customer_count": 25,
+     "revenue_share": 1.09,
+     "territory": "",
+     "total_revenue": 1630140.0
+    },
+    {
+     "avg_health_score": 56.61729544540543,
+     "customer_count": 7,
+     "revenue_share": 0.66,
+     "territory": "Hyderabad",
+     "total_revenue": 987825.0
+    },
+    {
+     "avg_health_score": 43.63169731836471,
+     "customer_count": 1,
+     "revenue_share": 0.64,
+     "territory": "Uttar Pradesh",
+     "total_revenue": 958250.0
+    },
+    {
+     "avg_health_score": 50.92968052957941,
+     "customer_count": 8,
+     "revenue_share": 0.56,
+     "territory": "Valsad",
+     "total_revenue": 828687.5
+    },
+    {
+     "avg_health_score": 47.6252988060029,
+     "customer_count": 4,
+     "revenue_share": 0.51,
+     "territory": "Ernakulam",
+     "total_revenue": 756100.0
+    },
+    {
+     "avg_health_score": 48.13215809365471,
+     "customer_count": 8,
+     "revenue_share": 0.42,
+     "territory": "Bharuch",
+     "total_revenue": 622765.0
+    },
+    {
+     "avg_health_score": 57.364095028509006,
+     "customer_count": 1,
+     "revenue_share": 0.42,
+     "territory": "Kalol",
+     "total_revenue": 621500.0
+    },
+    {
+     "avg_health_score": 52.0299033289634,
+     "customer_count": 2,
+     "revenue_share": 0.4,
+     "territory": "Goa",
+     "total_revenue": 589700.0
+    },
+    {
+     "avg_health_score": 58.42928206160478,
+     "customer_count": 1,
+     "revenue_share": 0.38,
+     "territory": "Panoli",
+     "total_revenue": 563500.0
+    },
+    {
+     "avg_health_score": 61.45322920970143,
+     "customer_count": 2,
+     "revenue_share": 0.32,
+     "territory": "Bengaluru",
+     "total_revenue": 476250.0
+    },
+    {
+     "avg_health_score": 58.69205404945163,
+     "customer_count": 3,
+     "revenue_share": 0.29,
+     "territory": "Visakhapatnam",
+     "total_revenue": 433307.0
+    },
+    {
+     "avg_health_score": 54.9601339230899,
+     "customer_count": 2,
+     "revenue_share": 0.26,
+     "territory": "Shrirampur",
+     "total_revenue": 393250.0
+    },
+    {
+     "avg_health_score": 50.95227356257241,
+     "customer_count": 7,
+     "revenue_share": 0.26,
+     "territory": "Dhule",
+     "total_revenue": 381888.5
+    },
+    {
+     "avg_health_score": 51.26537838985,
+     "customer_count": 1,
+     "revenue_share": 0.23,
+     "territory": "Virudhunagar",
+     "total_revenue": 340000.0
+    },
+    {
+     "avg_health_score": 50.03418866400014,
+     "customer_count": 2,
+     "revenue_share": 0.22,
+     "territory": "Ludhiana",
+     "total_revenue": 323200.0
+    },
+    {
+     "avg_health_score": 54.664690787769096,
+     "customer_count": 5,
+     "revenue_share": 0.21,
+     "territory": "Junagadh",
+     "total_revenue": 313542.75
+    },
+    {
+     "avg_health_score": 61.981261475411685,
+     "customer_count": 2,
+     "revenue_share": 0.19,
+     "territory": "Satara",
+     "total_revenue": 283600.0
+    },
+    {
+     "avg_health_score": 64.188940858233,
+     "customer_count": 1,
+     "revenue_share": 0.16,
+     "territory": "Puri",
+     "total_revenue": 233750.0
+    },
+    {
+     "avg_health_score": 55.278208384504794,
+     "customer_count": 2,
+     "revenue_share": 0.15,
+     "territory": "Kolkata",
+     "total_revenue": 217750.0
+    },
+    {
+     "avg_health_score": 59.821813271482775,
+     "customer_count": 1,
+     "revenue_share": 0.15,
+     "territory": "Aurangabad",
+     "total_revenue": 217400.0
+    },
+    {
+     "avg_health_score": 48.118384242071905,
+     "customer_count": 1,
+     "revenue_share": 0.14,
+     "territory": "Udumalpet",
+     "total_revenue": 210125.0
+    },
+    {
+     "avg_health_score": 42.64731605092843,
+     "customer_count": 1,
+     "revenue_share": 0.14,
+     "territory": "Jabalpur",
+     "total_revenue": 206884.0
+    },
+    {
+     "avg_health_score": 66.33594637608064,
+     "customer_count": 1,
+     "revenue_share": 0.14,
+     "territory": "Tenkasi",
+     "total_revenue": 204050.0
+    },
+    {
+     "avg_health_score": 55.4395215917749,
+     "customer_count": 1,
+     "revenue_share": 0.12,
+     "territory": "Hubballi",
+     "total_revenue": 182725.0
+    },
+    {
+     "avg_health_score": 63.031911596570545,
+     "customer_count": 1,
+     "revenue_share": 0.1,
+     "territory": "Malappuram",
+     "total_revenue": 154665.0
+    },
+    {
+     "avg_health_score": 48.5442379617965,
+     "customer_count": 2,
+     "revenue_share": 0.1,
+     "territory": "Gandhinagar",
+     "total_revenue": 147750.0
+    },
+    {
+     "avg_health_score": 56.26889997383942,
+     "customer_count": 2,
+     "revenue_share": 0.1,
+     "territory": "Bhilwara",
+     "total_revenue": 146299.0
+    },
+    {
+     "avg_health_score": 69.39190304032287,
+     "customer_count": 1,
+     "revenue_share": 0.1,
+     "territory": "Aligarh",
+     "total_revenue": 142160.5
+    },
+    {
+     "avg_health_score": 57.25859260301668,
+     "customer_count": 4,
+     "revenue_share": 0.09,
+     "territory": "Rajkot",
+     "total_revenue": 141057.0
+    },
+    {
+     "avg_health_score": 62.31285611420311,
+     "customer_count": 1,
+     "revenue_share": 0.09,
+     "territory": "Varanasi",
+     "total_revenue": 137900.0
+    },
+    {
+     "avg_health_score": 47.626864507023775,
+     "customer_count": 2,
+     "revenue_share": 0.09,
+     "territory": "Faridabad",
+     "total_revenue": 131683.0
+    },
+    {
+     "avg_health_score": 47.17567322038294,
+     "customer_count": 2,
+     "revenue_share": 0.08,
+     "territory": "Ankleshwar",
+     "total_revenue": 125500.0
+    },
+    {
+     "avg_health_score": 58.33855580186784,
+     "customer_count": 3,
+     "revenue_share": 0.07,
+     "territory": "Jalgaon",
+     "total_revenue": 109327.0
+    },
+    {
+     "avg_health_score": 56.966487319697876,
+     "customer_count": 1,
+     "revenue_share": 0.07,
+     "territory": "Wardha",
+     "total_revenue": 105613.0
+    },
+    {
+     "avg_health_score": 50.20283522369107,
+     "customer_count": 3,
+     "revenue_share": 0.06,
+     "territory": "Palghar",
+     "total_revenue": 90400.0
+    },
+    {
+     "avg_health_score": 50.112545419774335,
+     "customer_count": 3,
+     "revenue_share": 0.05,
+     "territory": "Surendranagar",
+     "total_revenue": 81652.5
+    },
+    {
+     "avg_health_score": 53.915722399641744,
+     "customer_count": 2,
+     "revenue_share": 0.05,
+     "territory": "Rajahmundry",
+     "total_revenue": 81457.5
+    },
+    {
+     "avg_health_score": 53.77516781725488,
+     "customer_count": 1,
+     "revenue_share": 0.05,
+     "territory": "Ahmadhnagar",
+     "total_revenue": 80900.65
+    },
+    {
+     "avg_health_score": 57.793893803108055,
+     "customer_count": 1,
+     "revenue_share": 0.05,
+     "territory": "Tamil Nadu",
+     "total_revenue": 77500.0
+    },
+    {
+     "avg_health_score": 46.76946045129636,
+     "customer_count": 2,
+     "revenue_share": 0.05,
+     "territory": "Andhra Pradesh",
+     "total_revenue": 76500.0
+    },
+    {
+     "avg_health_score": 59.27532921247596,
+     "customer_count": 1,
+     "revenue_share": 0.05,
+     "territory": "Vijayawada",
+     "total_revenue": 76440.0
+    },
+    {
+     "avg_health_score": 60.407963259834915,
+     "customer_count": 2,
+     "revenue_share": 0.05,
+     "territory": "Vapi",
+     "total_revenue": 67490.0
+    },
+    {
+     "avg_health_score": 43.05962045535712,
+     "customer_count": 1,
+     "revenue_share": 0.05,
+     "territory": "Ajmer",
+     "total_revenue": 67250.0
+    },
+    {
+     "avg_health_score": 61.064598917723764,
+     "customer_count": 1,
+     "revenue_share": 0.04,
+     "territory": "Pondicherry",
+     "total_revenue": 64500.0
+    },
+    {
+     "avg_health_score": 51.691074947282566,
+     "customer_count": 1,
+     "revenue_share": 0.04,
+     "territory": "Kannur",
+     "total_revenue": 61625.0
+    },
+    {
+     "avg_health_score": 51.24988886195417,
+     "customer_count": 3,
+     "revenue_share": 0.04,
+     "territory": "Tapi",
+     "total_revenue": 59920.75
+    },
+    {
+     "avg_health_score": 57.97509919535472,
+     "customer_count": 1,
+     "revenue_share": 0.04,
+     "territory": "Bathinda",
+     "total_revenue": 59800.0
+    },
+    {
+     "avg_health_score": 54.136214277044346,
+     "customer_count": 2,
+     "revenue_share": 0.03,
+     "territory": "Navi Mumbai",
+     "total_revenue": 48255.0
+    },
+    {
+     "avg_health_score": 52.32288218406205,
+     "customer_count": 1,
+     "revenue_share": 0.03,
+     "territory": "Kollam",
+     "total_revenue": 42500.0
+    },
+    {
+     "avg_health_score": 59.130873032207674,
+     "customer_count": 1,
+     "revenue_share": 0.03,
+     "territory": "Coimbatore",
+     "total_revenue": 41650.0
+    },
+    {
+     "avg_health_score": 54.61855371209226,
+     "customer_count": 1,
+     "revenue_share": 0.03,
+     "territory": "Krishnagiri",
+     "total_revenue": 40337.0
+    },
+    {
+     "avg_health_score": 49.47737184895014,
+     "customer_count": 1,
+     "revenue_share": 0.03,
+     "territory": "Udupi",
+     "total_revenue": 39750.0
+    },
+    {
+     "avg_health_score": 52.36503833995641,
+     "customer_count": 2,
+     "revenue_share": 0.03,
+     "territory": "Sangli",
+     "total_revenue": 38650.0
+    },
+    {
+     "avg_health_score": 48.3110019011376,
+     "customer_count": 2,
+     "revenue_share": 0.02,
+     "territory": "Nandurbar",
+     "total_revenue": 35799.0
+    },
+    {
+     "avg_health_score": 47.97136969744698,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Jhajjar",
+     "total_revenue": 35485.0
+    },
+    {
+     "avg_health_score": 41.413630419297704,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Mundra",
+     "total_revenue": 32900.0
+    },
+    {
+     "avg_health_score": 47.7772788422719,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Panji",
+     "total_revenue": 32800.0
+    },
+    {
+     "avg_health_score": 59.17912686978438,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Jamnagar",
+     "total_revenue": 30500.0
+    },
+    {
+     "avg_health_score": 46.2301502424189,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Vijayapura",
+     "total_revenue": 30344.0
+    },
+    {
+     "avg_health_score": 55.30209405295294,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Buldhana",
+     "total_revenue": 30215.0
+    },
+    {
+     "avg_health_score": 57.6730090861747,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Phalodi",
+     "total_revenue": 29262.5
+    },
+    {
+     "avg_health_score": 56.66059959756428,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Morbi",
+     "total_revenue": 28950.0
+    },
+    {
+     "avg_health_score": 51.274446010058625,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Ujjain",
+     "total_revenue": 28750.0
+    },
+    {
+     "avg_health_score": 48.34370445928637,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Sambhajinagar",
+     "total_revenue": 28000.0
+    },
+    {
+     "avg_health_score": 53.604402592536466,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Kutch",
+     "total_revenue": 25850.0
+    },
+    {
+     "avg_health_score": 59.5266423305386,
+     "customer_count": 2,
+     "revenue_share": 0.02,
+     "territory": "Amravati",
+     "total_revenue": 22537.5
+    },
+    {
+     "avg_health_score": 52.35593962107111,
+     "customer_count": 1,
+     "revenue_share": 0.02,
+     "territory": "Hingoli",
+     "total_revenue": 22400.0
+    },
+    {
+     "avg_health_score": 52.134492541217995,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Medak",
+     "total_revenue": 21000.0
+    },
+    {
+     "avg_health_score": 39.54951382217363,
+     "customer_count": 3,
+     "revenue_share": 0.01,
+     "territory": "Bhavnagar",
+     "total_revenue": 20731.25
+    },
+    {
+     "avg_health_score": 57.2834739276234,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Kurandvad",
+     "total_revenue": 20100.0
+    },
+    {
+     "avg_health_score": 51.82090479432278,
+     "customer_count": 2,
+     "revenue_share": 0.01,
+     "territory": "Chandrapur",
+     "total_revenue": 20025.0
+    },
+    {
+     "avg_health_score": 53.07775498464668,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Dharmapuri",
+     "total_revenue": 19500.0
+    },
+    {
+     "avg_health_score": 48.187022968178816,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Mahuva",
+     "total_revenue": 19300.0
+    },
+    {
+     "avg_health_score": 44.22035372577225,
+     "customer_count": 2,
+     "revenue_share": 0.01,
+     "territory": "Ahmednagar",
+     "total_revenue": 19006.5
+    },
+    {
+     "avg_health_score": 54.429564907672294,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Khangri",
+     "total_revenue": 18500.0
+    },
+    {
+     "avg_health_score": 59.07776591630272,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Kurnool",
+     "total_revenue": 18095.0
+    },
+    {
+     "avg_health_score": 47.09356729550318,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Karnataka",
+     "total_revenue": 17700.25
+    },
+    {
+     "avg_health_score": 52.8038604577876,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Hubli",
+     "total_revenue": 17000.0
+    },
+    {
+     "avg_health_score": 38.497310058706766,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Jhunjhunu",
+     "total_revenue": 16406.5
+    },
+    {
+     "avg_health_score": 52.93518734219778,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Tumakuru",
+     "total_revenue": 15426.0
+    },
+    {
+     "avg_health_score": 53.91287319354384,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Guna",
+     "total_revenue": 15050.0
+    },
+    {
+     "avg_health_score": 56.20543182680035,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Pali",
+     "total_revenue": 14975.0
+    },
+    {
+     "avg_health_score": 51.38789058995509,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Umarkhed",
+     "total_revenue": 13500.0
+    },
+    {
+     "avg_health_score": 57.99658200203773,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Amritsar",
+     "total_revenue": 12375.0
+    },
+    {
+     "avg_health_score": 36.9795627036021,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Medinipur",
+     "total_revenue": 12000.0
+    },
+    {
+     "avg_health_score": 49.733536737526414,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Cuddalore",
+     "total_revenue": 11750.0
+    },
+    {
+     "avg_health_score": 49.28602150294438,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Basmat",
+     "total_revenue": 11600.0
+    },
+    {
+     "avg_health_score": 46.591105363824354,
+     "customer_count": 2,
+     "revenue_share": 0.01,
+     "territory": "Anand",
+     "total_revenue": 11125.0
+    },
+    {
+     "avg_health_score": 53.08563520083714,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Baramati",
+     "total_revenue": 8750.0
+    },
+    {
+     "avg_health_score": 41.321151562810655,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Ratlam",
+     "total_revenue": 8300.0
+    },
+    {
+     "avg_health_score": 54.530903233413824,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Agra",
+     "total_revenue": 8220.5
+    },
+    {
+     "avg_health_score": 47.03468049031116,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Jetpur",
+     "total_revenue": 8000.0
+    },
+    {
+     "avg_health_score": 53.581393341339826,
+     "customer_count": 1,
+     "revenue_share": 0.01,
+     "territory": "Bardoli",
+     "total_revenue": 7750.0
+    },
+    {
+     "avg_health_score": 44.16814507890771,
+     "customer_count": 2,
+     "revenue_share": 0.0,
+     "territory": "Indore",
+     "total_revenue": 7462.0
+    },
+    {
+     "avg_health_score": 41.407651631493124,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Chennai",
+     "total_revenue": 6750.0
+    },
+    {
+     "avg_health_score": 48.45337196354406,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Cuttack",
+     "total_revenue": 6262.5
+    },
+    {
+     "avg_health_score": 47.803246023327404,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Barwani",
+     "total_revenue": 6000.0
+    },
+    {
+     "avg_health_score": 47.69374098609569,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Pollachi",
+     "total_revenue": 6000.0
+    },
+    {
+     "avg_health_score": 52.7888426241101,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Antalia",
+     "total_revenue": 5950.0
+    },
+    {
+     "avg_health_score": 40.84278689332361,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Jodhpur",
+     "total_revenue": 5500.0
+    },
+    {
+     "avg_health_score": 46.25445653460473,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Jalore",
+     "total_revenue": 5500.0
+    },
+    {
+     "avg_health_score": 46.61265297721768,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Chhatrapati Sambhajinagar",
+     "total_revenue": 5357.0
+    },
+    {
+     "avg_health_score": 49.33144253379201,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Bhagalpur",
+     "total_revenue": 5000.0
+    },
+    {
+     "avg_health_score": 50.29191668117939,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Amreli",
+     "total_revenue": 4625.0
+    },
+    {
+     "avg_health_score": 46.65087419322494,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Jarwal",
+     "total_revenue": 4625.0
+    },
+    {
+     "avg_health_score": 52.85105882512592,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Deoghar",
+     "total_revenue": 3949.0
+    },
+    {
+     "avg_health_score": 50.116550301072884,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Rajasthan",
+     "total_revenue": 3900.0
+    },
+    {
+     "avg_health_score": 52.447330150336654,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Hojai",
+     "total_revenue": 3225.0
+    },
+    {
+     "avg_health_score": 49.466435292512266,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Khamgaon",
+     "total_revenue": 3212.0
+    },
+    {
+     "avg_health_score": 52.18996692608617,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Pathanamthitta",
+     "total_revenue": 3150.0
+    },
+    {
+     "avg_health_score": 46.320470543710414,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Hajipur",
+     "total_revenue": 3112.0
+    },
+    {
+     "avg_health_score": 48.605982028357474,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Vasai Virar",
+     "total_revenue": 3075.0
+    },
+    {
+     "avg_health_score": 48.0920679149864,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Rishikesh",
+     "total_revenue": 3000.0
+    },
+    {
+     "avg_health_score": 48.3938871687237,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Ichalkaranji",
+     "total_revenue": 2500.0
+    },
+    {
+     "avg_health_score": 51.22679190574952,
+     "customer_count": 1,
+     "revenue_share": 0.0,
+     "territory": "Kota",
+     "total_revenue": 1863.0
+    }
+   ],
+   "territory_analysis": [
+    {
+     "avg_churn_risk": 41.45627923975686,
+     "avg_health_score": 53.89851490536361,
+     "avg_order_value": 48827.86454780362,
+     "customer_count": 284,
+     "customer_share": 48.88,
+     "gross_profit": 5496333.55,
+     "revenue_share": 37.98,
+     "territory": "Surat",
+     "total_orders": 1161,
+     "total_revenue": 56689150.74
+    },
+    {
+     "avg_churn_risk": 49.23221441310128,
+     "avg_health_score": 53.51360820891248,
+     "avg_order_value": 256851.59027777778,
+     "customer_count": 3,
+     "customer_share": 0.52,
+     "gross_profit": 731053.29,
+     "revenue_share": 12.39,
+     "territory": "Akola",
+     "total_orders": 72,
+     "total_revenue": 18493314.5
+    },
+    {
+     "avg_churn_risk": 47.73298441882254,
+     "avg_health_score": 57.14398923918158,
+     "avg_order_value": 411566.2195121951,
+     "customer_count": 9,
+     "customer_share": 1.55,
+     "gross_profit": 1247115.5,
+     "revenue_share": 11.31,
+     "territory": "Vadodara",
+     "total_orders": 41,
+     "total_revenue": 16874215.0
+    },
+    {
+     "avg_churn_risk": 35.87852840918948,
+     "avg_health_score": 52.10793466463906,
+     "avg_order_value": 126965.85384615384,
+     "customer_count": 16,
+     "customer_share": 2.75,
+     "gross_profit": 608532.23,
+     "revenue_share": 5.53,
+     "territory": "Mumbai",
+     "total_orders": 65,
+     "total_revenue": 8252780.5
+    },
+    {
+     "avg_churn_risk": 40.337274685608314,
+     "avg_health_score": 53.964142152086765,
+     "avg_order_value": 243345.10454545455,
+     "customer_count": 12,
+     "customer_share": 2.07,
+     "gross_profit": 422419.28,
+     "revenue_share": 5.38,
+     "territory": "Navsari",
+     "total_orders": 33,
+     "total_revenue": 8030388.45
+    },
+    {
+     "avg_churn_risk": 49.82601172357451,
+     "avg_health_score": 51.958996916669086,
+     "avg_order_value": 85205.37121212122,
+     "customer_count": 11,
+     "customer_share": 1.89,
+     "gross_profit": 156632.85,
+     "revenue_share": 3.77,
+     "territory": "Pune",
+     "total_orders": 66,
+     "total_revenue": 5623554.5
+    },
+    {
+     "avg_churn_risk": 43.464905481860335,
+     "avg_health_score": 52.89163323769156,
+     "avg_order_value": 207549.64705882352,
+     "customer_count": 6,
+     "customer_share": 1.03,
+     "gross_profit": 342571.0,
+     "revenue_share": 2.36,
+     "territory": "Thane",
+     "total_orders": 17,
+     "total_revenue": 3528344.0
+    },
+    {
+     "avg_churn_risk": 39.57432139107613,
+     "avg_health_score": 56.34145405062495,
+     "avg_order_value": 68699.54411764706,
+     "customer_count": 11,
+     "customer_share": 1.89,
+     "gross_profit": 340146.15,
+     "revenue_share": 2.35,
+     "territory": "Nashik",
+     "total_orders": 51,
+     "total_revenue": 3503676.75
+    },
+    {
+     "avg_churn_risk": 45.20354202691126,
+     "avg_health_score": 55.277404209518366,
+     "avg_order_value": 347319.44444444444,
+     "customer_count": 5,
+     "customer_share": 0.86,
+     "gross_profit": 65893.33,
+     "revenue_share": 2.09,
+     "territory": "Nagpur",
+     "total_orders": 9,
+     "total_revenue": 3125875.0
+    },
+    {
+     "avg_churn_risk": 42.69065003310162,
+     "avg_health_score": 52.08012125776359,
+     "avg_order_value": 358937.5,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 317750.0,
+     "revenue_share": 1.92,
+     "territory": "Kolhapur",
+     "total_orders": 8,
+     "total_revenue": 2871500.0
+    },
+    {
+     "avg_churn_risk": 24.59419484665425,
+     "avg_health_score": 54.23603602602136,
+     "avg_order_value": 226295.83333333334,
+     "customer_count": 3,
+     "customer_share": 0.52,
+     "gross_profit": 252993.28,
+     "revenue_share": 1.82,
+     "territory": "Solapur",
+     "total_orders": 12,
+     "total_revenue": 2715550.0
+    },
+    {
+     "avg_churn_risk": 79.04925373134328,
+     "avg_health_score": 54.38591565379501,
+     "avg_order_value": 482762.916,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 1493242.6,
+     "revenue_share": 1.62,
+     "territory": "Malaysia",
+     "total_orders": 5,
+     "total_revenue": 2413814.58
+    },
+    {
+     "avg_churn_risk": 47.05070329483001,
+     "avg_health_score": 56.2116622174965,
+     "avg_order_value": 86011.25,
+     "customer_count": 11,
+     "customer_share": 1.89,
+     "gross_profit": 109558.5,
+     "revenue_share": 1.15,
+     "territory": "Ahmedabad",
+     "total_orders": 20,
+     "total_revenue": 1720225.0
+    },
+    {
+     "avg_churn_risk": 34.91047865201593,
+     "avg_health_score": 54.50744381706831,
+     "avg_order_value": 33961.25,
+     "customer_count": 25,
+     "customer_share": 4.3,
+     "gross_profit": 204556.12,
+     "revenue_share": 1.09,
+     "territory": "",
+     "total_orders": 48,
+     "total_revenue": 1630140.0
+    },
+    {
+     "avg_churn_risk": 45.31042256925649,
+     "avg_health_score": 56.61729544540543,
+     "avg_order_value": 89802.27272727272,
+     "customer_count": 7,
+     "customer_share": 1.2,
+     "gross_profit": 211410.0,
+     "revenue_share": 0.66,
+     "territory": "Hyderabad",
+     "total_orders": 11,
+     "total_revenue": 987825.0
+    },
+    {
+     "avg_churn_risk": 21.632231372077385,
+     "avg_health_score": 43.63169731836471,
+     "avg_order_value": 239562.5,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 99330.13,
+     "revenue_share": 0.64,
+     "territory": "Uttar Pradesh",
+     "total_orders": 4,
+     "total_revenue": 958250.0
+    },
+    {
+     "avg_churn_risk": 41.107717896981065,
+     "avg_health_score": 50.92968052957941,
+     "avg_order_value": 37667.61363636364,
+     "customer_count": 8,
+     "customer_share": 1.38,
+     "gross_profit": 34428.17,
+     "revenue_share": 0.56,
+     "territory": "Valsad",
+     "total_orders": 22,
+     "total_revenue": 828687.5
+    },
+    {
+     "avg_churn_risk": 56.29164425249904,
+     "avg_health_score": 47.6252988060029,
+     "avg_order_value": 63008.333333333336,
+     "customer_count": 4,
+     "customer_share": 0.69,
+     "gross_profit": 43084.380000000005,
+     "revenue_share": 0.51,
+     "territory": "Ernakulam",
+     "total_orders": 12,
+     "total_revenue": 756100.0
+    },
+    {
+     "avg_churn_risk": 38.26801603621357,
+     "avg_health_score": 48.13215809365471,
+     "avg_order_value": 51897.083333333336,
+     "customer_count": 8,
+     "customer_share": 1.38,
+     "gross_profit": 53272.25,
+     "revenue_share": 0.42,
+     "territory": "Bharuch",
+     "total_orders": 12,
+     "total_revenue": 622765.0
+    },
+    {
+     "avg_churn_risk": 72.79466666666667,
+     "avg_health_score": 57.364095028509006,
+     "avg_order_value": 207166.66666666666,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 29500.0,
+     "revenue_share": 0.42,
+     "territory": "Kalol",
+     "total_orders": 3,
+     "total_revenue": 621500.0
+    },
+    {
+     "avg_churn_risk": 46.73084989254909,
+     "avg_health_score": 52.0299033289634,
+     "avg_order_value": 147425.0,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 19712.5,
+     "revenue_share": 0.4,
+     "territory": "Goa",
+     "total_orders": 4,
+     "total_revenue": 589700.0
+    },
+    {
+     "avg_churn_risk": 45.42282720945895,
+     "avg_health_score": 58.42928206160478,
+     "avg_order_value": 140875.0,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 36000.0,
+     "revenue_share": 0.38,
+     "territory": "Panoli",
+     "total_orders": 4,
+     "total_revenue": 563500.0
+    },
+    {
+     "avg_churn_risk": 55.126989664082686,
+     "avg_health_score": 61.45322920970143,
+     "avg_order_value": 119062.5,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 6962.8899999999985,
+     "revenue_share": 0.32,
+     "territory": "Bengaluru",
+     "total_orders": 4,
+     "total_revenue": 476250.0
+    },
+    {
+     "avg_churn_risk": 49.54734360948785,
+     "avg_health_score": 58.69205404945163,
+     "avg_order_value": 54163.375,
+     "customer_count": 3,
+     "customer_share": 0.52,
+     "gross_profit": 27202.52,
+     "revenue_share": 0.29,
+     "territory": "Visakhapatnam",
+     "total_orders": 8,
+     "total_revenue": 433307.0
+    },
+    {
+     "avg_churn_risk": 27.244258790436007,
+     "avg_health_score": 54.9601339230899,
+     "avg_order_value": 65541.66666666667,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 8751.0,
+     "revenue_share": 0.26,
+     "territory": "Shrirampur",
+     "total_orders": 6,
+     "total_revenue": 393250.0
+    },
+    {
+     "avg_churn_risk": 35.28167635120024,
+     "avg_health_score": 50.95227356257241,
+     "avg_order_value": 38188.85,
+     "customer_count": 7,
+     "customer_share": 1.2,
+     "gross_profit": 88627.02,
+     "revenue_share": 0.26,
+     "territory": "Dhule",
+     "total_orders": 10,
+     "total_revenue": 381888.5
+    },
+    {
+     "avg_churn_risk": 44.30555555555556,
+     "avg_health_score": 51.26537838985,
+     "avg_order_value": 340000.0,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 32500.0,
+     "revenue_share": 0.23,
+     "territory": "Virudhunagar",
+     "total_orders": 1,
+     "total_revenue": 340000.0
+    },
+    {
+     "avg_churn_risk": 15.827897708197199,
+     "avg_health_score": 50.03418866400014,
+     "avg_order_value": 64640.0,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 25836.67,
+     "revenue_share": 0.22,
+     "territory": "Ludhiana",
+     "total_orders": 5,
+     "total_revenue": 323200.0
+    },
+    {
+     "avg_churn_risk": 25.74696051132371,
+     "avg_health_score": 54.664690787769096,
+     "avg_order_value": 44791.82142857143,
+     "customer_count": 5,
+     "customer_share": 0.86,
+     "gross_profit": 51287.75,
+     "revenue_share": 0.21,
+     "territory": "Junagadh",
+     "total_orders": 7,
+     "total_revenue": 313542.75
+    },
+    {
+     "avg_churn_risk": 75.25885714285715,
+     "avg_health_score": 61.981261475411685,
+     "avg_order_value": 70900.0,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 52100.0,
+     "revenue_share": 0.19,
+     "territory": "Satara",
+     "total_orders": 4,
+     "total_revenue": 283600.0
+    },
+    {
+     "avg_churn_risk": 31.666666666666668,
+     "avg_health_score": 64.188940858233,
+     "avg_order_value": 233750.0,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 3250.0,
+     "revenue_share": 0.16,
+     "territory": "Puri",
+     "total_orders": 1,
+     "total_revenue": 233750.0
+    },
+    {
+     "avg_churn_risk": 40.69444444444444,
+     "avg_health_score": 55.278208384504794,
+     "avg_order_value": 108875.0,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 17000.0,
+     "revenue_share": 0.15,
+     "territory": "Kolkata",
+     "total_orders": 2,
+     "total_revenue": 217750.0
+    },
+    {
+     "avg_churn_risk": 75.02921348314607,
+     "avg_health_score": 59.821813271482775,
+     "avg_order_value": 72466.66666666667,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 9955.180000000002,
+     "revenue_share": 0.15,
+     "territory": "Aurangabad",
+     "total_orders": 3,
+     "total_revenue": 217400.0
+    },
+    {
+     "avg_churn_risk": 26.756928588055764,
+     "avg_health_score": 48.118384242071905,
+     "avg_order_value": 105062.5,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 23085.0,
+     "revenue_share": 0.14,
+     "territory": "Udumalpet",
+     "total_orders": 2,
+     "total_revenue": 210125.0
+    },
+    {
+     "avg_churn_risk": 24.38812426917923,
+     "avg_health_score": 42.64731605092843,
+     "avg_order_value": 41376.8,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 11422.0,
+     "revenue_share": 0.14,
+     "territory": "Jabalpur",
+     "total_orders": 5,
+     "total_revenue": 206884.0
+    },
+    {
+     "avg_churn_risk": 44.30555555555556,
+     "avg_health_score": 66.33594637608064,
+     "avg_order_value": 204050.0,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 4200.0,
+     "revenue_share": 0.14,
+     "territory": "Tenkasi",
+     "total_orders": 1,
+     "total_revenue": 204050.0
+    },
+    {
+     "avg_churn_risk": 30.022585051884935,
+     "avg_health_score": 55.4395215917749,
+     "avg_order_value": 26103.571428571428,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 16020.0,
+     "revenue_share": 0.12,
+     "territory": "Hubballi",
+     "total_orders": 7,
+     "total_revenue": 182725.0
+    },
+    {
+     "avg_churn_risk": 35.12197538142709,
+     "avg_health_score": 63.031911596570545,
+     "avg_order_value": 30933.0,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 8180.0,
+     "revenue_share": 0.1,
+     "territory": "Malappuram",
+     "total_orders": 5,
+     "total_revenue": 154665.0
+    },
+    {
+     "avg_churn_risk": 30.900555555555556,
+     "avg_health_score": 48.5442379617965,
+     "avg_order_value": 73875.0,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 6425.0,
+     "revenue_share": 0.1,
+     "territory": "Gandhinagar",
+     "total_orders": 2,
+     "total_revenue": 147750.0
+    },
+    {
+     "avg_churn_risk": 55.994263420724096,
+     "avg_health_score": 56.26889997383942,
+     "avg_order_value": 48766.333333333336,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 8182.75,
+     "revenue_share": 0.1,
+     "territory": "Bhilwara",
+     "total_orders": 3,
+     "total_revenue": 146299.0
+    },
+    {
+     "avg_churn_risk": 66.0,
+     "avg_health_score": 69.39190304032287,
+     "avg_order_value": 4181.191176470588,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 15898.65,
+     "revenue_share": 0.1,
+     "territory": "Aligarh",
+     "total_orders": 34,
+     "total_revenue": 142160.5
+    },
+    {
+     "avg_churn_risk": 46.63620998116761,
+     "avg_health_score": 57.25859260301668,
+     "avg_order_value": 28211.4,
+     "customer_count": 4,
+     "customer_share": 0.69,
+     "gross_profit": 23397.0,
+     "revenue_share": 0.09,
+     "territory": "Rajkot",
+     "total_orders": 5,
+     "total_revenue": 141057.0
+    },
+    {
+     "avg_churn_risk": 38.769998072351086,
+     "avg_health_score": 62.31285611420311,
+     "avg_order_value": 68950.0,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 5620.0,
+     "revenue_share": 0.09,
+     "territory": "Varanasi",
+     "total_orders": 2,
+     "total_revenue": 137900.0
+    },
+    {
+     "avg_churn_risk": 32.5,
+     "avg_health_score": 47.626864507023775,
+     "avg_order_value": 65841.5,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 11598.4,
+     "revenue_share": 0.09,
+     "territory": "Faridabad",
+     "total_orders": 2,
+     "total_revenue": 131683.0
+    },
+    {
+     "avg_churn_risk": 57.05555555555556,
+     "avg_health_score": 47.17567322038294,
+     "avg_order_value": 41833.333333333336,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 3449.9199999999983,
+     "revenue_share": 0.08,
+     "territory": "Ankleshwar",
+     "total_orders": 3,
+     "total_revenue": 125500.0
+    },
+    {
+     "avg_churn_risk": 43.939333470762044,
+     "avg_health_score": 58.33855580186784,
+     "avg_order_value": 18221.166666666668,
+     "customer_count": 3,
+     "customer_share": 0.52,
+     "gross_profit": 9710.75,
+     "revenue_share": 0.07,
+     "territory": "Jalgaon",
+     "total_orders": 6,
+     "total_revenue": 109327.0
+    },
+    {
+     "avg_churn_risk": 21.48059373615917,
+     "avg_health_score": 56.966487319697876,
+     "avg_order_value": 35204.333333333336,
+     "customer_count": 1,
+     "customer_share": 0.17,
+     "gross_profit": 5313.0,
+     "revenue_share": 0.07,
+     "territory": "Wardha",
+     "total_orders": 3,
+     "total_revenue": 105613.0
+    },
+    {
+     "avg_churn_risk": 38.816994823798304,
+     "avg_health_score": 50.20283522369107,
+     "avg_order_value": 12914.285714285714,
+     "customer_count": 3,
+     "customer_share": 0.52,
+     "gross_profit": 9441.42,
+     "revenue_share": 0.06,
+     "territory": "Palghar",
+     "total_orders": 7,
+     "total_revenue": 90400.0
+    },
+    {
+     "avg_churn_risk": 52.43120370370371,
+     "avg_health_score": 50.112545419774335,
+     "avg_order_value": 20413.125,
+     "customer_count": 3,
+     "customer_share": 0.52,
+     "gross_profit": 17523.0,
+     "revenue_share": 0.05,
+     "territory": "Surendranagar",
+     "total_orders": 4,
+     "total_revenue": 81652.5
+    },
+    {
+     "avg_churn_risk": 63.128665008291875,
+     "avg_health_score": 53.915722399641744,
+     "avg_order_value": 27152.5,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 11246.429999999998,
+     "revenue_share": 0.05,
+     "territory": "Rajahmundry",
+     "total_orders": 3,
+     "total_revenue": 81457.5
+    }
+   ],
+   "territory_geo": {
+    "india": [
+     {
+      "name": "Gujarat",
+      "value": 368
+     },
+     {
+      "name": "Maharashtra",
+      "value": 99
+     },
+     {
+      "name": "Telangana",
+      "value": 8
+     },
+     {
+      "name": "Uttar Pradesh",
+      "value": 4
+     },
+     {
+      "name": "Kerala",
+      "value": 7
+     },
+     {
+      "name": "Goa",
+      "value": 3
+     },
+     {
+      "name": "Karnataka",
+      "value": 8
+     },
+     {
+      "name": "Andhra Pradesh",
+      "value": 9
+     },
+     {
+      "name": "Tamil Nadu",
+      "value": 10
+     },
+     {
+      "name": "Punjab",
+      "value": 4
+     },
+     {
+      "name": "Odisha",
+      "value": 2
+     },
+     {
+      "name": "West Bengal",
+      "value": 2
+     },
+     {
+      "name": "Madhya Pradesh",
+      "value": 7
+     },
+     {
+      "name": "Rajasthan",
+      "value": 10
+     },
+     {
+      "name": "Haryana",
+      "value": 3
+     },
+     {
+      "name": "Jharkhand",
+      "value": 1
+     },
+     {
+      "name": "Assam",
+      "value": 1
+     },
+     {
+      "name": "Bihar",
+      "value": 1
+     },
+     {
+      "name": "Uttarakhand",
+      "value": 1
+     }
+    ],
+    "unmapped": [
+     {
+      "territory": "Ahmadhnagar",
+      "value": 1
+     },
+     {
+      "territory": "Pondicherry",
+      "value": 1
+     },
+     {
+      "territory": "Jhunjhunu",
+      "value": 1
+     },
+     {
+      "territory": "Medinipur",
+      "value": 1
+     },
+     {
+      "territory": "Jetpur",
+      "value": 1
+     },
+     {
+      "territory": "Bhagalpur",
+      "value": 1
+     },
+     {
+      "territory": "Jarwal",
+      "value": 1
+     },
+     {
+      "territory": "Pathanamthitta",
+      "value": 1
+     }
+    ],
+    "world": [
+     {
+      "name": "India",
+      "value": 548
+     },
+     {
+      "name": "Malaysia",
+      "value": 1
+     }
+    ]
+   },
+   "top_territories": [
+    {
+     "avg_churn_risk": 41.45627923975686,
+     "avg_health_score": 53.89851490536361,
+     "avg_order_value": 48827.86454780362,
+     "customer_count": 284,
+     "customer_share": 48.88,
+     "gross_profit": 5496333.55,
+     "revenue_share": 37.98,
+     "territory": "Surat",
+     "total_orders": 1161,
+     "total_revenue": 56689150.74
+    },
+    {
+     "avg_churn_risk": 49.23221441310128,
+     "avg_health_score": 53.51360820891248,
+     "avg_order_value": 256851.59027777778,
+     "customer_count": 3,
+     "customer_share": 0.52,
+     "gross_profit": 731053.29,
+     "revenue_share": 12.39,
+     "territory": "Akola",
+     "total_orders": 72,
+     "total_revenue": 18493314.5
+    },
+    {
+     "avg_churn_risk": 47.73298441882254,
+     "avg_health_score": 57.14398923918158,
+     "avg_order_value": 411566.2195121951,
+     "customer_count": 9,
+     "customer_share": 1.55,
+     "gross_profit": 1247115.5,
+     "revenue_share": 11.31,
+     "territory": "Vadodara",
+     "total_orders": 41,
+     "total_revenue": 16874215.0
+    },
+    {
+     "avg_churn_risk": 35.87852840918948,
+     "avg_health_score": 52.10793466463906,
+     "avg_order_value": 126965.85384615384,
+     "customer_count": 16,
+     "customer_share": 2.75,
+     "gross_profit": 608532.23,
+     "revenue_share": 5.53,
+     "territory": "Mumbai",
+     "total_orders": 65,
+     "total_revenue": 8252780.5
+    },
+    {
+     "avg_churn_risk": 40.337274685608314,
+     "avg_health_score": 53.964142152086765,
+     "avg_order_value": 243345.10454545455,
+     "customer_count": 12,
+     "customer_share": 2.07,
+     "gross_profit": 422419.28,
+     "revenue_share": 5.38,
+     "territory": "Navsari",
+     "total_orders": 33,
+     "total_revenue": 8030388.45
+    },
+    {
+     "avg_churn_risk": 49.82601172357451,
+     "avg_health_score": 51.958996916669086,
+     "avg_order_value": 85205.37121212122,
+     "customer_count": 11,
+     "customer_share": 1.89,
+     "gross_profit": 156632.85,
+     "revenue_share": 3.77,
+     "territory": "Pune",
+     "total_orders": 66,
+     "total_revenue": 5623554.5
+    },
+    {
+     "avg_churn_risk": 43.464905481860335,
+     "avg_health_score": 52.89163323769156,
+     "avg_order_value": 207549.64705882352,
+     "customer_count": 6,
+     "customer_share": 1.03,
+     "gross_profit": 342571.0,
+     "revenue_share": 2.36,
+     "territory": "Thane",
+     "total_orders": 17,
+     "total_revenue": 3528344.0
+    },
+    {
+     "avg_churn_risk": 39.57432139107613,
+     "avg_health_score": 56.34145405062495,
+     "avg_order_value": 68699.54411764706,
+     "customer_count": 11,
+     "customer_share": 1.89,
+     "gross_profit": 340146.15,
+     "revenue_share": 2.35,
+     "territory": "Nashik",
+     "total_orders": 51,
+     "total_revenue": 3503676.75
+    },
+    {
+     "avg_churn_risk": 45.20354202691126,
+     "avg_health_score": 55.277404209518366,
+     "avg_order_value": 347319.44444444444,
+     "customer_count": 5,
+     "customer_share": 0.86,
+     "gross_profit": 65893.33,
+     "revenue_share": 2.09,
+     "territory": "Nagpur",
+     "total_orders": 9,
+     "total_revenue": 3125875.0
+    },
+    {
+     "avg_churn_risk": 42.69065003310162,
+     "avg_health_score": 52.08012125776359,
+     "avg_order_value": 358937.5,
+     "customer_count": 2,
+     "customer_share": 0.34,
+     "gross_profit": 317750.0,
+     "revenue_share": 1.92,
+     "territory": "Kolhapur",
+     "total_orders": 8,
+     "total_revenue": 2871500.0
+    }
+   ]
+  },
+  "next_best_actions": [
+   {
+    "churn_risk": "High",
+    "clv_tier": "Diamond",
+    "customer_id": "CS00144",
+    "customer_name": "customer_name-746cee",
+    "health_status": "Healthy",
+    "historical_clv": 3266495.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6449650.235675651,
+    "recency_days": 136,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 136 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "UPSELL_OPPORTUNITY",
+      "description": "High-value customer with strong engagement. AOV: 69,500",
+      "priority": "Medium",
+      "suggestion": "Introduce premium product lines, volume discounts, or exclusive partnerships."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 136 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Gold",
+    "customer_id": "CS00178",
+    "customer_name": "customer_name-5678a0",
+    "health_status": "At Risk",
+    "historical_clv": 2045000.0,
+    "outstanding_amount": 580922.0,
+    "predicted_12m_clv": 3380079.6380090504,
+    "recency_days": 76,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 76 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 580,922",
+      "priority": "Medium",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 76 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Diamond",
+    "customer_id": "CS00881",
+    "customer_name": "customer_name-0004d5",
+    "health_status": "Healthy",
+    "historical_clv": 2004000.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6971629.7142857155,
+    "recency_days": 209,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 209 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "UPSELL_OPPORTUNITY",
+      "description": "High-value customer with strong engagement. AOV: 1,002,000",
+      "priority": "Medium",
+      "suggestion": "Introduce premium product lines, volume discounts, or exclusive partnerships."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 209 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Diamond",
+    "customer_id": "CS01041",
+    "customer_name": "customer_name-9bf3ab",
+    "health_status": "Healthy",
+    "historical_clv": 2517500.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 9288812.121212117,
+    "recency_days": 153,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 153 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "UPSELL_OPPORTUNITY",
+      "description": "High-value customer with strong engagement. AOV: 359,643",
+      "priority": "Medium",
+      "suggestion": "Introduce premium product lines, volume discounts, or exclusive partnerships."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 153 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Silver",
+    "customer_id": "CS00013",
+    "customer_name": "customer_name-20f157",
+    "health_status": "Healthy",
+    "historical_clv": 1148590.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 2173870.2341968915,
+    "recency_days": 114,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 114 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 114 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Silver",
+    "customer_id": "CS00064",
+    "customer_name": "customer_name-35d247",
+    "health_status": "At Risk",
+    "historical_clv": 960000.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 2636607.5187969925,
+    "recency_days": 147,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 147 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 147 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Bronze",
+    "customer_id": "CS00095",
+    "customer_name": "customer_name-56e889",
+    "health_status": "At Risk",
+    "historical_clv": 248060.0,
+    "outstanding_amount": 17110.0,
+    "predicted_12m_clv": 330698.3824817438,
+    "recency_days": 31,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 31 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 17,110",
+      "priority": "Medium",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Low",
+    "clv_tier": "Diamond",
+    "customer_id": "CS00121",
+    "customer_name": "customer_name-0799c6",
+    "health_status": "Healthy",
+    "historical_clv": 3952655.0,
+    "outstanding_amount": 1264135.0,
+    "predicted_12m_clv": 10096684.044755224,
+    "recency_days": 2,
+    "recommendations": [
+     {
+      "action": "UPSELL_OPPORTUNITY",
+      "description": "High-value customer with strong engagement. AOV: 119,777",
+      "priority": "Medium",
+      "suggestion": "Introduce premium product lines, volume discounts, or exclusive partnerships."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 1,264,135",
+      "priority": "High",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Diamond",
+    "customer_id": "CS00255",
+    "customer_name": "customer_name-c4abe8",
+    "health_status": "At Risk",
+    "historical_clv": 15715000.0,
+    "outstanding_amount": 575272.0,
+    "predicted_12m_clv": 19393159.45945946,
+    "recency_days": 27,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 27 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 575,272",
+      "priority": "Medium",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Silver",
+    "customer_id": "CS00375",
+    "customer_name": "customer_name-196d27",
+    "health_status": "At Risk",
+    "historical_clv": 296000.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 3552000.0,
+    "recency_days": 315,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 315 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 315 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Silver",
+    "customer_id": "CS00483",
+    "customer_name": "customer_name-2c4ca9",
+    "health_status": "Healthy",
+    "historical_clv": 899600.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 2330538.212765952,
+    "recency_days": 171,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 171 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 171 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Bronze",
+    "customer_id": "CS00548",
+    "customer_name": "customer_name-1e6829",
+    "health_status": "At Risk",
+    "historical_clv": 68850.0,
+    "outstanding_amount": 81243.0,
+    "predicted_12m_clv": 826200.0,
+    "recency_days": 264,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 264 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 81,243",
+      "priority": "Medium",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Silver",
+    "customer_id": "CS00594",
+    "customer_name": "customer_name-58a684",
+    "health_status": "At Risk",
+    "historical_clv": 1171550.0,
+    "outstanding_amount": 79944.0,
+    "predicted_12m_clv": 1512168.8480565373,
+    "recency_days": 37,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 37 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 79,944",
+      "priority": "Medium",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Silver",
+    "customer_id": "CS00701",
+    "customer_name": "customer_name-12bcf7",
+    "health_status": "Healthy",
+    "historical_clv": 304500.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 3654000.0,
+    "recency_days": 300,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 300 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 300 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Silver",
+    "customer_id": "CS00712",
+    "customer_name": "customer_name-645916",
+    "health_status": "Healthy",
+    "historical_clv": 758750.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 3745354.054054059,
+    "recency_days": 147,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 147 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 147 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Diamond",
+    "customer_id": "CS00827",
+    "customer_name": "customer_name-b90fd3",
+    "health_status": "At Risk",
+    "historical_clv": 2413814.58,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6579986.490913433,
+    "recency_days": 158,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 158 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 158 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Bronze",
+    "customer_id": "CS00977",
+    "customer_name": "customer_name-5341b9",
+    "health_status": "Healthy",
+    "historical_clv": 296500.0,
+    "outstanding_amount": 38470.0,
+    "predicted_12m_clv": 839577.6744186047,
+    "recency_days": 186,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 186 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 38,470",
+      "priority": "Medium",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Gold",
+    "customer_id": "CS00981",
+    "customer_name": "customer_name-c8dde3",
+    "health_status": "At Risk",
+    "historical_clv": 1903367.5,
+    "outstanding_amount": 275967.0,
+    "predicted_12m_clv": 2474242.279003546,
+    "recency_days": 25,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 25 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 275,967",
+      "priority": "High",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Silver",
+    "customer_id": "CS01052",
+    "customer_name": "customer_name-1bd324",
+    "health_status": "Healthy",
+    "historical_clv": 725000.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 3729971.830985916,
+    "recency_days": 174,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 174 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 174 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "High",
+    "clv_tier": "Bronze",
+    "customer_id": "CS01077",
+    "customer_name": "customer_name-c9a689",
+    "health_status": "At Risk",
+    "historical_clv": 494125.0,
+    "outstanding_amount": 207717.0,
+    "predicted_12m_clv": 949968.3157894737,
+    "recency_days": 34,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at High churn risk. Last purchase 34 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 207,717",
+      "priority": "High",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Silver",
+    "customer_id": "CS01104",
+    "customer_name": "customer_name-f47704",
+    "health_status": "At Risk",
+    "historical_clv": 621500.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5044922.666666674,
+    "recency_days": 157,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 157 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 157 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Silver",
+    "customer_id": "CS01173",
+    "customer_name": "customer_name-230050",
+    "health_status": "At Risk",
+    "historical_clv": 542800.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5083948.307692308,
+    "recency_days": 115,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 115 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     },
+     {
+      "action": "RE_ENGAGEMENT",
+      "description": "Valuable customer inactive for 115 days.",
+      "priority": "High",
+      "suggestion": "Send 'We miss you' campaign with personalized offer based on past purchases."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Low",
+    "clv_tier": "Silver",
+    "customer_id": "CS01290",
+    "customer_name": "customer_name-074e21",
+    "health_status": "At Risk",
+    "historical_clv": 1095000.0,
+    "outstanding_amount": 1292100.0,
+    "predicted_12m_clv": 13140000.0,
+    "recency_days": 2,
+    "recommendations": [
+     {
+      "action": "PAYMENT_FOLLOW_UP",
+      "description": "Outstanding balance: 1,292,100",
+      "priority": "High",
+      "suggestion": "Send payment reminder, offer payment plan if needed."
+     },
+     {
+      "action": "NEW_CUSTOMER_NURTURE",
+      "description": "New customer - critical period for relationship building.",
+      "priority": "Medium",
+      "suggestion": "Send welcome series, offer first-time buyer discount on next purchase, request feedback."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Bronze",
+    "customer_id": "CS00004",
+    "customer_name": "customer_name-012c6b",
+    "health_status": "Healthy",
+    "historical_clv": 54900.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 658800.0,
+    "recency_days": 280,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 280 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     }
+    ]
+   },
+   {
+    "churn_risk": "Critical",
+    "clv_tier": "Bronze",
+    "customer_id": "CS00072",
+    "customer_name": "customer_name-db598a",
+    "health_status": "At Risk",
+    "historical_clv": 595725.0,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 1056341.8834951457,
+    "recency_days": 100,
+    "recommendations": [
+     {
+      "action": "CHURN_PREVENTION",
+      "description": "Customer at Critical churn risk. Last purchase 100 days ago.",
+      "priority": "High",
+      "suggestion": "Schedule personal outreach call, offer loyalty discount, or exclusive preview of new products."
+     }
+    ]
+   }
+  ],
+  "next_best_actions_total": 307,
+  "pareto_analysis": {
+   "pareto_curve": [
+    {
+     "cumulative_percent": 12.293469788454633,
+     "customer_name": "customer_name-fdf6c5",
+     "historical_clv": 18348877.5
+    },
+    {
+     "cumulative_percent": 22.82228157683594,
+     "customer_name": "customer_name-c4abe8",
+     "historical_clv": 15715000.0
+    },
+    {
+     "cumulative_percent": 31.079509759203454,
+     "customer_name": "customer_name-95520c",
+     "historical_clv": 12324500.0
+    },
+    {
+     "cumulative_percent": 36.107407654325854,
+     "customer_name": "customer_name-bed4b1",
+     "historical_clv": 7504495.0
+    },
+    {
+     "cumulative_percent": 39.29586551629892,
+     "customer_name": "customer_name-1417e0",
+     "historical_clv": 4759000.0
+    },
+    {
+     "cumulative_percent": 41.94408445103671,
+     "customer_name": "customer_name-0799c6",
+     "historical_clv": 3952655.0
+    },
+    {
+     "cumulative_percent": 44.459382748069224,
+     "customer_name": "customer_name-9fb8ca",
+     "historical_clv": 3754261.5
+    },
+    {
+     "cumulative_percent": 46.647884883779604,
+     "customer_name": "customer_name-746cee",
+     "historical_clv": 3266495.0
+    },
+    {
+     "cumulative_percent": 48.712148380356766,
+     "customer_name": "customer_name-48bef1",
+     "historical_clv": 3081060.0
+    },
+    {
+     "cumulative_percent": 50.63433489138865,
+     "customer_name": "customer_name-1bd324",
+     "historical_clv": 2869000.0
+    },
+    {
+     "cumulative_percent": 52.444298941424414,
+     "customer_name": "customer_name-2ebb3a",
+     "historical_clv": 2701500.0
+    },
+    {
+     "cumulative_percent": 54.193291020935106,
+     "customer_name": "customer_name-1f009b",
+     "historical_clv": 2610495.0
+    },
+    {
+     "cumulative_percent": 55.879977860085596,
+     "customer_name": "customer_name-9bf3ab",
+     "historical_clv": 2517500.0
+    },
+    {
+     "cumulative_percent": 57.49719703952375,
+     "customer_name": "customer_name-b90fd3",
+     "historical_clv": 2413814.58
+    },
+    {
+     "cumulative_percent": 58.867316040938945,
+     "customer_name": "customer_name-5678a0",
+     "historical_clv": 2045000.0
+    },
+    {
+     "cumulative_percent": 60.20996566384166,
+     "customer_name": "customer_name-0004d5",
+     "historical_clv": 2004000.0
+    },
+    {
+     "cumulative_percent": 61.48519303715517,
+     "customer_name": "customer_name-c8dde3",
+     "historical_clv": 1903367.5
+    },
+    {
+     "cumulative_percent": 62.62241056790535,
+     "customer_name": "customer_name-8e61ed",
+     "historical_clv": 1697378.0
+    },
+    {
+     "cumulative_percent": 63.59132924637314,
+     "customer_name": "customer_name-b97828",
+     "historical_clv": 1446180.0
+    },
+    {
+     "cumulative_percent": 64.43634226817407,
+     "customer_name": "customer_name-86c05c",
+     "historical_clv": 1261242.0
+    },
+    {
+     "cumulative_percent": 65.26476177539894,
+     "customer_name": "customer_name-fd6982",
+     "historical_clv": 1236475.0
+    },
+    {
+     "cumulative_percent": 66.07514696564552,
+     "customer_name": "customer_name-e566c6",
+     "historical_clv": 1209557.5
+    },
+    {
+     "cumulative_percent": 66.86006770701862,
+     "customer_name": "customer_name-58a684",
+     "historical_clv": 1171550.0
+    },
+    {
+     "cumulative_percent": 67.62960559642471,
+     "customer_name": "customer_name-20f157",
+     "historical_clv": 1148590.0
+    },
+    {
+     "cumulative_percent": 68.39301982437705,
+     "customer_name": "customer_name-03e079",
+     "historical_clv": 1139450.0
+    },
+    {
+     "cumulative_percent": 69.13251559347829,
+     "customer_name": "customer_name-67c3de",
+     "historical_clv": 1103750.0
+    },
+    {
+     "cumulative_percent": 69.86614899521405,
+     "customer_name": "customer_name-074e21",
+     "historical_clv": 1095000.0
+    },
+    {
+     "cumulative_percent": 70.50933444331116,
+     "customer_name": "customer_name-35d247",
+     "historical_clv": 960000.0
+    },
+    {
+     "cumulative_percent": 71.15134741793517,
+     "customer_name": "customer_name-b2bd1a",
+     "historical_clv": 958250.0
+    },
+    {
+     "cumulative_percent": 71.7799506459512,
+     "customer_name": "customer_name-ac6971",
+     "historical_clv": 938235.0
+    },
+    {
+     "cumulative_percent": 72.38266900960554,
+     "customer_name": "customer_name-2c4ca9",
+     "historical_clv": 899600.0
+    },
+    {
+     "cumulative_percent": 72.91011960117358,
+     "customer_name": "customer_name-48500a",
+     "historical_clv": 787257.5
+    },
+    {
+     "cumulative_percent": 73.4184705998649,
+     "customer_name": "customer_name-645916",
+     "historical_clv": 758750.0
+    },
+    {
+     "cumulative_percent": 73.90420961014658,
+     "customer_name": "customer_name-1bd324",
+     "historical_clv": 725000.0
+    },
+    {
+     "cumulative_percent": 74.35674417167023,
+     "customer_name": "customer_name-a41fad",
+     "historical_clv": 675440.0
+    },
+    {
+     "cumulative_percent": 74.77565219398556,
+     "customer_name": "customer_name-97c6ae",
+     "historical_clv": 625250.0
+    },
+    {
+     "cumulative_percent": 75.19204777314427,
+     "customer_name": "customer_name-f47704",
+     "historical_clv": 621500.0
+    },
+    {
+     "cumulative_percent": 75.59117449300639,
+     "customer_name": "customer_name-db598a",
+     "historical_clv": 595725.0
+    },
+    {
+     "cumulative_percent": 75.96871095134257,
+     "customer_name": "customer_name-3551c3",
+     "historical_clv": 563500.0
+    },
+    {
+     "cumulative_percent": 76.34587054320524,
+     "customer_name": "customer_name-c26fef",
+     "historical_clv": 562937.5
+    },
+    {
+     "cumulative_percent": 76.71369222133578,
+     "customer_name": "customer_name-daaad4",
+     "historical_clv": 549000.0
+    },
+    {
+     "cumulative_percent": 77.07735999344735,
+     "customer_name": "customer_name-230050",
+     "historical_clv": 542800.0
+    },
+    {
+     "cumulative_percent": 77.43563438758268,
+     "customer_name": "customer_name-625943",
+     "historical_clv": 534750.0
+    },
+    {
+     "cumulative_percent": 77.77819763717856,
+     "customer_name": "customer_name-be3ced",
+     "historical_clv": 511300.0
+    },
+    {
+     "cumulative_percent": 78.11009489558973,
+     "customer_name": "customer_name-c57127",
+     "historical_clv": 495380.25
+    },
+    {
+     "cumulative_percent": 78.44115115552826,
+     "customer_name": "customer_name-c9a689",
+     "historical_clv": 494125.0
+    },
+    {
+     "cumulative_percent": 78.76426809509182,
+     "customer_name": "customer_name-aa1cd9",
+     "historical_clv": 482275.0
+    },
+    {
+     "cumulative_percent": 79.0648316699194,
+     "customer_name": "customer_name-676c9e",
+     "historical_clv": 448612.5
+    },
+    {
+     "cumulative_percent": 79.35288830271327,
+     "customer_name": "customer_name-9d3454",
+     "historical_clv": 429945.0
+    },
+    {
+     "cumulative_percent": 79.62841956889028,
+     "customer_name": "customer_name-12783b",
+     "historical_clv": 411250.0
+    }
+   ],
+   "top_10_percent_contribute": 81.6,
+   "top_20_percent_contribute": 90.0,
+   "top_80_percent_customers": 8.8,
+   "top_customers": [
+    {
+     "avg_order_value": 265925.760869565,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 12.293469788454633,
+     "customer": "customer-1f0ac3",
+     "customer_name": "customer_name-fdf6c5",
+     "health_status": "At Risk",
+     "historical_clv": 18348877.5,
+     "order_count": 69
+    },
+    {
+     "avg_order_value": 628600.0,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 22.82228157683594,
+     "customer": "customer-13e982",
+     "customer_name": "customer_name-c4abe8",
+     "health_status": "At Risk",
+     "historical_clv": 15715000.0,
+     "order_count": 25
+    },
+    {
+     "avg_order_value": 333094.594594595,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 31.079509759203454,
+     "customer": "customer-92e6af",
+     "customer_name": "customer_name-95520c",
+     "health_status": "At Risk",
+     "historical_clv": 12324500.0,
+     "order_count": 37
+    },
+    {
+     "avg_order_value": 625374.583333333,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 36.107407654325854,
+     "customer": "customer-ce99fc",
+     "customer_name": "customer_name-bed4b1",
+     "health_status": "At Risk",
+     "historical_clv": 7504495.0,
+     "order_count": 12
+    },
+    {
+     "avg_order_value": 297437.5,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 39.29586551629892,
+     "customer": "customer-339948",
+     "customer_name": "customer_name-1417e0",
+     "health_status": "At Risk",
+     "historical_clv": 4759000.0,
+     "order_count": 16
+    },
+    {
+     "avg_order_value": 119777.424242424,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 41.94408445103671,
+     "customer": "customer-d44b3f",
+     "customer_name": "customer_name-0799c6",
+     "health_status": "Healthy",
+     "historical_clv": 3952655.0,
+     "order_count": 33
+    },
+    {
+     "avg_order_value": 93856.5375,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 44.459382748069224,
+     "customer": "customer-d978a2",
+     "customer_name": "customer_name-9fb8ca",
+     "health_status": "At Risk",
+     "historical_clv": 3754261.5,
+     "order_count": 40
+    },
+    {
+     "avg_order_value": 69499.893617021,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 46.647884883779604,
+     "customer": "customer-e2c4f7",
+     "customer_name": "customer_name-746cee",
+     "health_status": "Healthy",
+     "historical_clv": 3266495.0,
+     "order_count": 47
+    },
+    {
+     "avg_order_value": 308106.0,
+     "clv_tier": "Platinum",
+     "cumulative_percent": 48.712148380356766,
+     "customer": "customer-bd134b",
+     "customer_name": "customer_name-48bef1",
+     "health_status": "At Risk",
+     "historical_clv": 3081060.0,
+     "order_count": 10
+    },
+    {
+     "avg_order_value": 409857.142857143,
+     "clv_tier": "Platinum",
+     "cumulative_percent": 50.63433489138865,
+     "customer": "customer-322f07",
+     "customer_name": "customer_name-1bd324",
+     "health_status": "At Risk",
+     "historical_clv": 2869000.0,
+     "order_count": 7
+    },
+    {
+     "avg_order_value": 300166.666666667,
+     "clv_tier": "Platinum",
+     "cumulative_percent": 52.444298941424414,
+     "customer": "customer-c2a982",
+     "customer_name": "customer_name-2ebb3a",
+     "health_status": "Healthy",
+     "historical_clv": 2701500.0,
+     "order_count": 9
+    },
+    {
+     "avg_order_value": 76779.264705882,
+     "clv_tier": "Platinum",
+     "cumulative_percent": 54.193291020935106,
+     "customer": "customer-830dfc",
+     "customer_name": "customer_name-1f009b",
+     "health_status": "At Risk",
+     "historical_clv": 2610495.0,
+     "order_count": 34
+    },
+    {
+     "avg_order_value": 359642.857142857,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 55.879977860085596,
+     "customer": "customer-a04e17",
+     "customer_name": "customer_name-9bf3ab",
+     "health_status": "Healthy",
+     "historical_clv": 2517500.0,
+     "order_count": 7
+    },
+    {
+     "avg_order_value": 482762.916,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 57.49719703952375,
+     "customer": "customer-a49c28",
+     "customer_name": "customer_name-b90fd3",
+     "health_status": "At Risk",
+     "historical_clv": 2413814.58,
+     "order_count": 5
+    },
+    {
+     "avg_order_value": 511250.0,
+     "clv_tier": "Gold",
+     "cumulative_percent": 58.867316040938945,
+     "customer": "customer-794fe1",
+     "customer_name": "customer_name-5678a0",
+     "health_status": "At Risk",
+     "historical_clv": 2045000.0,
+     "order_count": 4
+    },
+    {
+     "avg_order_value": 1002000.0,
+     "clv_tier": "Diamond",
+     "cumulative_percent": 60.20996566384166,
+     "customer": "customer-749608",
+     "customer_name": "customer_name-0004d5",
+     "health_status": "Healthy",
+     "historical_clv": 2004000.0,
+     "order_count": 2
+    },
+    {
+     "avg_order_value": 63445.583333333,
+     "clv_tier": "Gold",
+     "cumulative_percent": 61.48519303715517,
+     "customer": "customer-2003fc",
+     "customer_name": "customer_name-c8dde3",
+     "health_status": "At Risk",
+     "historical_clv": 1903367.5,
+     "order_count": 30
+    },
+    {
+     "avg_order_value": 89335.684210526,
+     "clv_tier": "Gold",
+     "cumulative_percent": 62.62241056790535,
+     "customer": "customer-7959b9",
+     "customer_name": "customer_name-8e61ed",
+     "health_status": "At Risk",
+     "historical_clv": 1697378.0,
+     "order_count": 19
+    },
+    {
+     "avg_order_value": 68865.714285714,
+     "clv_tier": "Silver",
+     "cumulative_percent": 63.59132924637314,
+     "customer": "customer-b101ca",
+     "customer_name": "customer_name-b97828",
+     "health_status": "At Risk",
+     "historical_clv": 1446180.0,
+     "order_count": 21
+    },
+    {
+     "avg_order_value": 180177.428571429,
+     "clv_tier": "Silver",
+     "cumulative_percent": 64.43634226817407,
+     "customer": "customer-b8b0ea",
+     "customer_name": "customer_name-86c05c",
+     "health_status": "Healthy",
+     "historical_clv": 1261242.0,
+     "order_count": 7
+    }
+   ],
+   "total_customers": 581,
+   "total_revenue": 149257108.17
+  },
+  "revenue_basis": "net_of_tax",
+  "status": "success",
+  "summary": {
+   "avg_churn_risk": 42.16436881797741,
+   "avg_clv": 477804.4343960087,
+   "avg_health_score": 53.36216392108706,
+   "avg_order_value": 45042.80619463597,
+   "churn_risk_distribution": {
+    "Critical": 101,
+    "High": 113,
+    "Low": 217,
+    "Medium": 184
+   },
+   "clv_tier_distribution": {
+    "Bronze": 540,
+    "Diamond": 11,
+    "Gold": 3,
+    "Platinum": 4,
+    "Silver": 23
+   },
+   "converted_quotes": 174,
+   "health_distribution": {
+    "At Risk": 456,
+    "Critical": 21,
+    "Healthy": 104
+   },
+   "quote_conversion_rate": 67.2,
+   "rfm_segment_distribution": {
+    "About to Sleep": 24,
+    "At Risk": 36,
+    "Can't Lose": 17,
+    "Champions": 87,
+    "Hibernating": 115,
+    "Lost": 47,
+    "Loyal Customers": 113,
+    "Need Attention": 110,
+    "New Customers": 10,
+    "Potential Loyalists": 13,
+    "Promising": 9
+   },
+   "total_clv": 277604376.38408107,
+   "total_customers": 581,
+   "total_quotes": 259
+  },
+  "top_customers": [
+   {
+    "avg_order_value": 265925.760869565,
+    "churn_risk": "Medium",
+    "churn_score": 38.72788867659394,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00362",
+    "customer_name": "customer_name-fdf6c5",
+    "engagement_score": 50.0,
+    "gross_profit": 721877.0,
+    "growth_score": 33.91612903225803,
+    "health_score": 53.54362878498862,
+    "health_status": "At Risk",
+    "historical_clv": 18348877.5,
+    "longevity_score": 43.802014892685065,
+    "order_count": 69,
+    "outstanding_amount": 2467335.0,
+    "predicted_12m_clv": 21620896.68774192,
+    "purchase_frequency": 6.775354838709678,
+    "recency_days": 10,
+    "revenue_score": 100.0,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Akola",
+    "total_clv": 27819265.88709677
+   },
+   {
+    "avg_order_value": 628600.0,
+    "churn_risk": "High",
+    "churn_score": 57.644587649997945,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Industrial Chemical",
+    "customer_id": "CS00255",
+    "customer_name": "customer_name-c4abe8",
+    "engagement_score": 32.13682432432432,
+    "gross_profit": 1154798.0,
+    "growth_score": 36.70270270270271,
+    "health_score": 46.57601375394883,
+    "health_status": "At Risk",
+    "historical_clv": 15715000.0,
+    "longevity_score": 44.21265878230398,
+    "order_count": 25,
+    "outstanding_amount": 575272.0,
+    "predicted_12m_clv": 19393159.45945946,
+    "purchase_frequency": 2.570945945945946,
+    "recency_days": 27,
+    "revenue_score": 99.82788296041308,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Vadodara",
+    "total_clv": 24289231.41891892
+   },
+   {
+    "avg_order_value": 333094.594594595,
+    "churn_risk": "Low",
+    "churn_score": 13.368016110521653,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Industrial Chemical",
+    "customer_id": "CS00243",
+    "customer_name": "customer_name-95520c",
+    "engagement_score": 44.13322884012539,
+    "gross_profit": 930232.5,
+    "growth_score": 32.253918495297874,
+    "health_score": 44.05111440771069,
+    "health_status": "At Risk",
+    "historical_clv": 12324500.0,
+    "longevity_score": 44.21265878230398,
+    "order_count": 37,
+    "outstanding_amount": 2666799.0,
+    "predicted_12m_clv": 14112518.369905973,
+    "purchase_frequency": 3.5306583072100315,
+    "recency_days": 4,
+    "revenue_score": 99.65576592082617,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 18564019.592476495
+   },
+   {
+    "avg_order_value": 625374.583333333,
+    "churn_risk": "Low",
+    "churn_score": 16.051656294468863,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00322",
+    "customer_name": "customer_name-bed4b1",
+    "engagement_score": 15.965034965034967,
+    "gross_profit": 366515.0,
+    "growth_score": 38.86013986013984,
+    "health_score": 42.80087994058198,
+    "health_status": "At Risk",
+    "historical_clv": 7504495.0,
+    "longevity_score": 39.69557599649584,
+    "order_count": 12,
+    "outstanding_amount": 2792767.0,
+    "predicted_12m_clv": 9584762.005594403,
+    "purchase_frequency": 1.2772027972027973,
+    "recency_days": 4,
+    "revenue_score": 99.48364888123923,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Navsari",
+    "total_clv": 11309221.486013986
+   },
+   {
+    "avg_order_value": 297437.5,
+    "churn_risk": "Low",
+    "churn_score": 25.586600598145694,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Industrial Chemical",
+    "customer_id": "CS00217",
+    "customer_name": "customer_name-1417e0",
+    "engagement_score": 20.84931506849315,
+    "gross_profit": 397450.0,
+    "growth_score": 37.54794520547946,
+    "health_score": 53.89151751204308,
+    "health_status": "At Risk",
+    "historical_clv": 4759000.0,
+    "longevity_score": 41.74879544459045,
+    "order_count": 16,
+    "outstanding_amount": 415426.0,
+    "predicted_12m_clv": 5953313.424657535,
+    "purchase_frequency": 1.6679452054794521,
+    "recency_days": 13,
+    "revenue_score": 99.31153184165233,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Mumbai",
+    "total_clv": 7244436.643835616
+   },
+   {
+    "avg_order_value": 69499.893617021,
+    "churn_risk": "High",
+    "churn_score": 66.0,
+    "clv_score": 100.0,
+    "clv_tier": "Diamond",
+    "customer_group": "Detergent & Cosmetics",
+    "customer_id": "CS00144",
+    "customer_name": "customer_name-746cee",
+    "engagement_score": 50.0,
+    "gross_profit": 362196.88,
+    "growth_score": 73.72432432432394,
+    "health_score": 61.29168024728805,
+    "health_status": "Healthy",
+    "historical_clv": 3266495.0,
+    "longevity_score": 43.9388961892247,
+    "order_count": 47,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6449650.235675651,
+    "purchase_frequency": 7.7334054054054056,
+    "recency_days": 136,
+    "revenue_score": 98.79518072289156,
+    "rfm_score": "355",
+    "rfm_segment": "Need Attention",
+    "territory": "Surat",
+    "total_clv": 6100400.121621611
+   },
+   {
+    "avg_order_value": 119777.424242424,
+    "churn_risk": "Low",
+    "churn_score": 9.876278362931103,
+    "clv_score": 99.51957367157286,
+    "clv_tier": "Diamond",
+    "customer_group": "Detergent & Cosmetics",
+    "customer_id": "CS00121",
+    "customer_name": "customer_name-0799c6",
+    "engagement_score": 75.0,
+    "gross_profit": 510969.52999999997,
+    "growth_score": 100.0,
+    "health_score": 66.79744056006265,
+    "health_status": "Healthy",
+    "historical_clv": 3952655.0,
+    "longevity_score": 19.84778799824792,
+    "order_count": 33,
+    "outstanding_amount": 1264135.0,
+    "predicted_12m_clv": 10096684.044755224,
+    "purchase_frequency": 7.024615384615385,
+    "recency_days": 2,
+    "revenue_score": 99.1394148020654,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 5956623.44405594
+   },
+   {
+    "avg_order_value": 359642.857142857,
+    "churn_risk": "Critical",
+    "churn_score": 71.93373737373737,
+    "clv_score": 95.59279570779037,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS01041",
+    "customer_name": "customer_name-9bf3ab",
+    "engagement_score": 26.9040404040404,
+    "gross_profit": 227250.0,
+    "growth_score": 100.0,
+    "health_score": 65.86654453139738,
+    "health_status": "Healthy",
+    "historical_clv": 2517500.0,
+    "longevity_score": 34.49408672798949,
+    "order_count": 7,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 9288812.121212117,
+    "purchase_frequency": 2.152323232323232,
+    "recency_days": 153,
+    "revenue_score": 97.93459552495698,
+    "rfm_score": "355",
+    "rfm_segment": "Need Attention",
+    "territory": "Nashik",
+    "total_clv": 5721590.909090908
+   },
+   {
+    "avg_order_value": 93856.5375,
+    "churn_risk": "Low",
+    "churn_score": 10.02823763442956,
+    "clv_score": 94.38167973501396,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00660",
+    "customer_name": "customer_name-9fb8ca",
+    "engagement_score": 60.361635220125784,
+    "gross_profit": 63820.0,
+    "growth_score": 32.43396226415095,
+    "health_score": 55.140358287195994,
+    "health_status": "At Risk",
+    "historical_clv": 3754261.5,
+    "longevity_score": 43.9388961892247,
+    "order_count": 40,
+    "outstanding_amount": 1396988.0,
+    "predicted_12m_clv": 4312442.266415095,
+    "purchase_frequency": 3.828930817610063,
+    "recency_days": 3,
+    "revenue_score": 98.9672977624785,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Pune",
+    "total_clv": 5649101.030660378
+   },
+   {
+    "avg_order_value": 482762.916,
+    "churn_risk": "Critical",
+    "churn_score": 79.04925373134328,
+    "clv_score": 84.26854582567658,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00827",
+    "customer_name": "customer_name-b90fd3",
+    "engagement_score": 14.197761194029852,
+    "gross_profit": 1493242.6,
+    "growth_score": 100.0,
+    "health_score": 54.38591565379501,
+    "health_status": "At Risk",
+    "historical_clv": 2413814.58,
+    "longevity_score": 39.96933858957512,
+    "order_count": 5,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6579986.490913433,
+    "purchase_frequency": 1.135820895522388,
+    "recency_days": 158,
+    "revenue_score": 97.76247848537005,
+    "rfm_score": "355",
+    "rfm_segment": "Need Attention",
+    "territory": "Malaysia",
+    "total_clv": 5043791.659701493
+   },
+   {
+    "avg_order_value": 1002000.0,
+    "churn_risk": "Critical",
+    "churn_score": 81.31786666666666,
+    "clv_score": 83.54453956909228,
+    "clv_tier": "Diamond",
+    "customer_group": "",
+    "customer_id": "CS00881",
+    "customer_name": "customer_name-0004d5",
+    "engagement_score": 7.2476190476190485,
+    "gross_profit": 20000.0,
+    "growth_score": 100.0,
+    "health_score": 69.5293181134525,
+    "health_status": "Healthy",
+    "historical_clv": 2004000.0,
+    "longevity_score": 42.98072711344722,
+    "order_count": 2,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6971629.7142857155,
+    "purchase_frequency": 0.5798095238095239,
+    "recency_days": 209,
+    "revenue_score": 97.41824440619621,
+    "rfm_score": "235",
+    "rfm_segment": "Can't Lose",
+    "territory": "Nagpur",
+    "total_clv": 5000457.142857144
+   },
+   {
+    "avg_order_value": 308106.0,
+    "churn_risk": "Low",
+    "churn_score": 24.761185696658877,
+    "clv_score": 78.6901015023441,
+    "clv_tier": "Platinum",
+    "customer_group": "Aquaculture",
+    "customer_id": "CS00097",
+    "customer_name": "customer_name-48bef1",
+    "engagement_score": 24.23566878980892,
+    "gross_profit": 299797.0,
+    "growth_score": 91.33121019108282,
+    "health_score": 55.38244757795536,
+    "health_status": "At Risk",
+    "historical_clv": 3081060.0,
+    "longevity_score": 22.72229522558038,
+    "order_count": 10,
+    "outstanding_amount": 1638855.0,
+    "predicted_12m_clv": 7168468.769426752,
+    "purchase_frequency": 1.9388535031847134,
+    "recency_days": 9,
+    "revenue_score": 98.62306368330465,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Thane",
+    "total_clv": 4709900.636942675
+   },
+   {
+    "avg_order_value": 409857.142857143,
+    "churn_risk": "High",
+    "churn_score": 50.7979667328699,
+    "clv_score": 78.35279455445217,
+    "clv_tier": "Platinum",
+    "customer_group": "",
+    "customer_id": "CS00433",
+    "customer_name": "customer_name-1bd324",
+    "engagement_score": 12.805288461538462,
+    "gross_profit": 317000.0,
+    "growth_score": 62.80769230769233,
+    "health_score": 56.04011793988275,
+    "health_status": "At Risk",
+    "historical_clv": 2869000.0,
+    "longevity_score": 36.136662286465175,
+    "order_count": 7,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5038405.384615386,
+    "purchase_frequency": 1.0244230769230769,
+    "recency_days": 56,
+    "revenue_score": 98.45094664371773,
+    "rfm_score": "455",
+    "rfm_segment": "Champions",
+    "territory": "Kolhapur",
+    "total_clv": 4689711.538461539
+   },
+   {
+    "avg_order_value": 300166.666666667,
+    "churn_risk": "Low",
+    "churn_score": 15.56171791097561,
+    "clv_score": 69.16273176760038,
+    "clv_tier": "Platinum",
+    "customer_group": "",
+    "customer_id": "CS00559",
+    "customer_name": "customer_name-2ebb3a",
+    "engagement_score": 20.144117647058824,
+    "gross_profit": 252000.0,
+    "growth_score": 82.43529411764719,
+    "health_score": 65.12675120850237,
+    "health_status": "Healthy",
+    "historical_clv": 2701500.0,
+    "longevity_score": 24.77551467367499,
+    "order_count": 9,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 5804728.941176477,
+    "purchase_frequency": 1.6115294117647059,
+    "recency_days": 11,
+    "revenue_score": 98.2788296041308,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Solapur",
+    "total_clv": 4139651.470588237
+   },
+   {
+    "avg_order_value": 76779.264705882,
+    "churn_risk": "Low",
+    "churn_score": 10.726450310114883,
+    "clv_score": 65.63014910476109,
+    "clv_tier": "Platinum",
+    "customer_group": "",
+    "customer_id": "CS00916",
+    "customer_name": "customer_name-1f009b",
+    "engagement_score": 53.70063694267516,
+    "gross_profit": 259066.08999999997,
+    "growth_score": 33.16560509554113,
+    "health_score": 53.67286512116527,
+    "health_status": "At Risk",
+    "historical_clv": 2610495.0,
+    "longevity_score": 43.39137100306614,
+    "order_count": 34,
+    "outstanding_amount": 3245.0,
+    "predicted_12m_clv": 3036820.425477693,
+    "purchase_frequency": 3.296050955414013,
+    "recency_days": 3,
+    "revenue_score": 98.10671256454388,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 3928213.0175159173
+   },
+   {
+    "avg_order_value": 511250.0,
+    "churn_risk": "Critical",
+    "churn_score": 79.25759517261066,
+    "clv_score": 57.124688097386866,
+    "clv_tier": "Gold",
+    "customer_group": "Detergent & Cosmetics",
+    "customer_id": "CS00178",
+    "customer_name": "customer_name-5678a0",
+    "engagement_score": 6.8868778280543,
+    "gross_profit": 86281.80000000005,
+    "growth_score": 57.642533936651596,
+    "health_score": 48.554703656552476,
+    "health_status": "At Risk",
+    "historical_clv": 2045000.0,
+    "longevity_score": 40.653745072273324,
+    "order_count": 4,
+    "outstanding_amount": 580922.0,
+    "predicted_12m_clv": 3380079.6380090504,
+    "purchase_frequency": 0.550950226244344,
+    "recency_days": 76,
+    "revenue_score": 97.59036144578313,
+    "rfm_score": "445",
+    "rfm_segment": "Loyal Customers",
+    "territory": "Surat",
+    "total_clv": 3419128.959276018
+   },
+   {
+    "avg_order_value": 63445.583333333,
+    "churn_risk": "High",
+    "churn_score": 64.13336705860053,
+    "clv_score": 49.11503066122477,
+    "clv_tier": "Gold",
+    "customer_group": "",
+    "customer_id": "CS00981",
+    "customer_name": "customer_name-c8dde3",
+    "engagement_score": 40.62277580071175,
+    "gross_profit": 277387.76,
+    "growth_score": 39.99644128113846,
+    "health_score": 51.95020423791792,
+    "health_status": "At Risk",
+    "historical_clv": 1903367.5,
+    "longevity_score": 41.88567674113009,
+    "order_count": 30,
+    "outstanding_amount": 275967.0,
+    "predicted_12m_clv": 2474242.279003546,
+    "purchase_frequency": 3.2498220640569397,
+    "recency_days": 25,
+    "revenue_score": 97.24612736660929,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 2939720.6227757954
+   },
+   {
+    "avg_order_value": 89335.684210526,
+    "churn_risk": "Low",
+    "churn_score": 26.465140018055365,
+    "clv_score": 43.23370158014125,
+    "clv_tier": "Gold",
+    "customer_group": "Nail Polish",
+    "customer_id": "CS00170",
+    "customer_name": "customer_name-8e61ed",
+    "engagement_score": 27.2811320754717,
+    "gross_profit": 361163.67,
+    "growth_score": 43.920754716980895,
+    "health_score": 41.26577951149903,
+    "health_status": "At Risk",
+    "historical_clv": 1697378.0,
+    "longevity_score": 38.05300043802015,
+    "order_count": 19,
+    "outstanding_amount": 677688.0,
+    "predicted_12m_clv": 2339691.455999992,
+    "purchase_frequency": 2.182490566037736,
+    "recency_days": 13,
+    "revenue_score": 97.07401032702238,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 2587700.799999997
+   },
+   {
+    "avg_order_value": 549000.0,
+    "churn_risk": "Medium",
+    "churn_score": 37.916666666666664,
+    "clv_score": 39.45557649723818,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS01073",
+    "customer_name": "customer_name-daaad4",
+    "engagement_score": 12.5,
+    "gross_profit": 162000.0,
+    "growth_score": 100.0,
+    "health_score": 66.62569180419821,
+    "health_status": "Healthy",
+    "historical_clv": 549000.0,
+    "longevity_score": 27.513140604467807,
+    "order_count": 1,
+    "outstanding_amount": 0.0,
+    "predicted_12m_clv": 6588000.0,
+    "purchase_frequency": 1.0,
+    "recency_days": 201,
+    "revenue_score": 93.11531841652324,
+    "rfm_score": "225",
+    "rfm_segment": "Hibernating",
+    "territory": "Hyderabad",
+    "total_clv": 2361565.7030223394
+   },
+   {
+    "avg_order_value": 68865.714285714,
+    "churn_risk": "Low",
+    "churn_score": 13.392659839094406,
+    "clv_score": 36.35751150635918,
+    "clv_tier": "Silver",
+    "customer_group": "",
+    "customer_id": "CS00584",
+    "customer_name": "customer_name-b97828",
+    "engagement_score": 37.78639240506329,
+    "gross_profit": 158493.43000000002,
+    "growth_score": 32.79746835443014,
+    "health_score": 56.23017752861486,
+    "health_status": "At Risk",
+    "historical_clv": 1446180.0,
+    "longevity_score": 43.66513359614542,
+    "order_count": 21,
+    "outstanding_amount": 79296.0,
+    "predicted_12m_clv": 1671710.8556961955,
+    "purchase_frequency": 2.0229113924050632,
+    "recency_days": 3,
+    "revenue_score": 96.90189328743546,
+    "rfm_score": "555",
+    "rfm_segment": "Champions",
+    "territory": "Surat",
+    "total_clv": 2176134.7784810094
+   }
+  ]
+ },
+ "status": "success"
+}

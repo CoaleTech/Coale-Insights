@@ -83,11 +83,11 @@
             <div class="space-y-2">
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Payroll Cost</span>
-                <span class="font-medium text-ink-gray-9">{{ formatCurrency(dept.payroll_cost) }}</span>
+                <span class="font-medium text-ink-gray-9">{{ noPayroll ? NO_VALUE : formatCurrency(dept.payroll_cost) }}</span>
               </div>
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Orders Needed</span>
-                <span class="font-medium text-ink-gray-9">{{ formatCount(dept.orders_needed) }}</span>
+                <span class="font-medium text-ink-gray-9">{{ noPayroll ? NO_VALUE : formatCount(dept.orders_needed) }}</span>
               </div>
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Actual Orders</span>
@@ -212,6 +212,8 @@ const currency = useCurrency('')
 
 const cashData = computed<CashFlowBreakeven | null>(() => props.data?.cash_flow_breakeven ?? null)
 const departments = computed<Department[]>(() => props.data?.employee_breakeven?.departments ?? [])
+// No department carries payroll (no Salary Slips): its cost and the orders it implies are unmeasured, not zero.
+const noPayroll = computed(() => departments.value.every(d => !d.payroll_cost))
 
 const kpiCards = computed<KpiCardData[]>(() => {
   const d = props.data
@@ -219,8 +221,8 @@ const kpiCards = computed<KpiCardData[]>(() => {
   // Unconfigured: the server withholds BE figures; show "-" rather than 0% coverage / 100% margin.
   const unconfigured = d.configured === false
   return [
-    { label: 'Fixed Costs', value: formatCurrency(d.fixed_costs) },
-    { label: 'Variable Costs', value: formatCurrency(d.variable_costs) },
+    { label: 'Fixed Costs', value: unconfigured ? NO_VALUE : formatCurrency(d.fixed_costs) },
+    { label: 'Variable Costs', value: unconfigured ? NO_VALUE : formatCurrency(d.variable_costs) },
     { label: 'BE Revenue', value: formatCurrency(d.be_revenue) },
     { label: 'Actual Revenue', value: formatCurrency(d.actual_revenue) },
     { label: 'BE Quantity', value: unconfigured ? NO_VALUE : formatCount(d.be_qty) },

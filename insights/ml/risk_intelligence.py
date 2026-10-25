@@ -82,6 +82,41 @@ def _risk_color(category: str) -> str:
     )
 
 
+def _risk_verdict(
+    credit_score: float,
+    cashflow_score: float,
+    operational_score: float,
+    compliance_score: float,
+    aggregate_score: float,
+    alerts: list[dict],
+) -> str:
+    """Server-computed verdict string for the dashboard hero title.
+
+    Deterministic: names the component with the largest weighted contribution,
+    the overall risk category, and any critical alerts needing immediate action.
+    Was a client-side computed string (``riskDriver``); moved here so the logic
+    lives in one place, can be tested, and can't drift from the payload data.
+    """
+    components = [
+        ("Credit", credit_score, WEIGHTS["credit"]),
+        ("Cash Flow", cashflow_score, WEIGHTS["cashflow"]),
+        ("Operational", operational_score, WEIGHTS["operational"]),
+        ("Compliance", compliance_score, WEIGHTS["compliance"]),
+    ]
+    top_name, top_score, _ = max(components, key=lambda c: c[1] * c[2])
+    category = _risk_category(aggregate_score)
+    critical = sum(1 for a in alerts if a.get("severity") == "critical")
+    verdict = (
+        f"{top_name} is the primary driver"
+        f" ({top_score:.0f}/100, {_risk_category(top_score)})"
+        f" · {category} overall"
+    )
+    if critical:
+        suffix = "alerts" if critical > 1 else "alert"
+        verdict += f" · {critical} critical {suffix}"
+    return verdict
+
+
 def _months_ago(months: int):
     return (datetime.now() - timedelta(days=months * 30)).date()
 
@@ -101,10 +136,22 @@ def run_risk_intelligence(refresh: bool = False) -> dict:
         company = default_company()
         base_currency = _base_currency(company)
 
-        overview = _overview(company)
+        # Hoist the four component scores so _overview and _analyze_cashflow_risk
+        # can share them without re-running the same queries.
+        credit_score = _aggregate_credit_risk(company)
+        cashflow_score = _aggregate_cashflow_risk(company)
+        operational_score = _aggregate_operational_risk()
+        compliance_score = _aggregate_compliance_risk(company)
+
+        overview = _overview(company, credit_score, cashflow_score, operational_score, compliance_score)
         credit_risk = _analyze_credit_risk(company)
         payables_risk = _analyze_payables_risk(company)
-        cashflow_risk = _analyze_cashflow_risk(company)
+        cashflow_risk = _analyze_cashflow_risk(
+            company,
+            cashflow_score=cashflow_score,
+            total_receivables=credit_risk["total_outstanding"],
+            total_payables=payables_risk["total_outstanding"],
+        )
         operational_risk = _analyze_operational_risk(company)
         compliance_risk = _analyze_compliance_risk(company)
         predictive_analytics = _generate_predictive_analytics(company)
@@ -171,15 +218,16 @@ def _days_diff_sql(date_col):
 # ── Overview ────────────────────────────────────────────────────────────────
 
 
-def _overview(company: str | None) -> dict:
+def _overview(
+    company: str | None,
+    credit_score: float,
+    cashflow_score: float,
+    operational_score: float,
+    compliance_score: float,
+) -> dict:
     total_customers = _scalar_count("Customer")
     total_suppliers = _scalar_count("Supplier")
     total_items = _scalar_count("Item", filters={"is_stock_item": 1})
-
-    credit_score = _aggregate_credit_risk(company)
-    cashflow_score = _aggregate_cashflow_risk(company)
-    operational_score = _aggregate_operational_risk()
-    compliance_score = _aggregate_compliance_risk(company)
 
     aggregate_score = (
         credit_score * WEIGHTS["credit"]
@@ -194,6 +242,10 @@ def _overview(company: str | None) -> dict:
     return {
         "aggregate_risk_score": round(float(aggregate_score), 1),
         "aggregate_risk_category": _risk_category(aggregate_score),
+        "risk_verdict": _risk_verdict(
+            credit_score, cashflow_score, operational_score,
+            compliance_score, aggregate_score, alerts,
+        ),
         "risk_components": {
             "credit_risk": {"score": credit_score, "category": _risk_category(credit_score)},
             "cashflow_risk": {"score": cashflow_score, "category": _risk_category(cashflow_score)},
@@ -835,11 +887,23 @@ def _aging_buckets_payables(company: str | None) -> list[dict]:
 # ── Cash flow ───────────────────────────────────────────────────────────────
 
 
-def _analyze_cashflow_risk(company: str | None) -> dict:
+def _analyze_cashflow_risk(
+    company: str | None,
+    *,
+    cashflow_score: float | None = None,
+    total_receivables: float | None = None,
+    total_payables: float | None = None,
+) -> dict:
+    """Cashflow risk detail sub-dict.
+
+    ``cashflow_score``, ``total_receivables``, and ``total_payables`` are
+    passed in from ``run_risk_intelligence`` (which already computed them for
+    ``_overview``) to avoid re-running the same queries. The three fields were
+    absent from the previous return dict, leaving the Cash Flow Risk tab
+    without its component score and the exposure detail without the
+    receivables/payables totals that credit_risk and payables_risk already held.
+    """
     overdue_days_trend = _overdue_days_trend(company)
-    # Compute cash once; avoids a duplicate _gl_balance_for_account_types call
-    # when the caller (run_risk_intelligence) also requests current_cash_position
-    # through _aggregate_cashflow_risk → _current_cash_position.
     cash = _current_cash_position(company)
 
     # Working capital: current_assets - current_liabilities.
@@ -855,6 +919,12 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
     concentration = _customer_concentration(company)
     top_customer_share = concentration[0]["revenue_share"] if concentration else 0.0
 
+    net_exposure = (
+        total_receivables - total_payables
+        if total_receivables is not None and total_payables is not None
+        else None
+    )
+
     return {
         "overdue_days_trend": overdue_days_trend,
         "exposure_trend": _exposure_trend(company),
@@ -864,6 +934,17 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
         "customer_concentration": concentration,
         "top_customer_share": top_customer_share,
         "cash_forecast": _forecast_cash_flow(company),
+        # Fields added 2026-10: were absent from the sub-dict, so the Cash
+        # Flow Risk tab had no component score and no receivables/payables
+        # totals to display. The score lived only in overview.risk_components;
+        # the totals lived only in credit_risk/payables_risk.
+        "cashflow_score": cashflow_score,
+        "total_receivables": total_receivables,
+        "total_payables": total_payables,
+        "net_exposure": net_exposure,
+        # Stable aliases so old field names continue to work in cached payloads.
+        "cash_position": cash,
+        "net_working_capital": working_capital,
     }
 
 

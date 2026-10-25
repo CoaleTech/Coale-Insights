@@ -45,7 +45,7 @@
 			@retry="retry"
 		>
 			<!-- Summary Cards -->
-			<div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+			<div class="p-6 grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4">
 				<KpiCard
 					label="Net Profit (YTD)"
 					:amount="summary.netProfit"
@@ -70,7 +70,7 @@
 					label="Cash Position"
 					:amount="summary.cashPosition"
 					:currency="baseCurrency"
-					:sublabel="cashRunwayLabel"
+					:sublabel="cashKpiSublabel"
 					:clickable="true"
 					:loading="refreshing"
 					:error="error ?? undefined"
@@ -182,39 +182,56 @@
 				-->
 				<template v-else>
 
-				<!-- Actuals: Overview -->
-				<div v-if="activeTab === 'overview'" class="space-y-6">
-					<ExecutiveSummaryTab :data="strategicTyped?.executive_summary ?? null" :expense-breakdown="executiveExpenseBreakdown" />
-					<OverviewTab :data="overviewData" :currency="baseCurrency" />
+				<!-- Actuals: Overview — variant C (waterfall hero + attention rail) -->
+				<div v-if="activeTab === 'overview'">
+					<OverviewTab
+						:data="overviewData"
+						:currency="baseCurrency"
+						:cash-flow="cashFlowData"
+						:receivables="receivablesData"
+						:payables="payablesData"
+						:executive-summary="strategicTyped?.executive_summary ?? null"
+						:overdue-a-r90-bucket="overdueAR90Bucket ?? null"
+						:fin-endpoint="FIN_ENDPOINT"
+						:drill-down="drillDown"
+						:refreshing="refreshing"
+						:error="error ?? undefined"
+					/>
 				</div>
 
 				<!-- Actuals: Cash -->
 				<div v-if="activeTab === 'cashflow'">
+					<TabBrief class="mb-6" :brief="tabBriefs.cashflow" :as-of="financialData?.generated_at" />
 					<CashFlowTab :data="cashFlowData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+					<TabActions class="mt-6" :actions="tabBriefs.cashflow?.actions" />
 				</div>
 
 				<!-- Actuals: Receivables -->
 				<div v-if="activeTab === 'receivables'">
+					<TabBrief class="mb-6" :brief="tabBriefs.receivables" :as-of="financialData?.generated_at" />
 					<ReceivablesTab :data="receivablesData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+					<TabActions class="mt-6" :actions="tabBriefs.receivables?.actions" />
 				</div>
 
 				<!-- Actuals: Payables -->
 				<div v-if="activeTab === 'payables'">
+					<TabBrief class="mb-6" :brief="tabBriefs.payables" :as-of="financialData?.generated_at" />
 					<PayablesTab :data="payablesData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+					<TabActions class="mt-6" :actions="tabBriefs.payables?.actions" />
 				</div>
 
 				<!-- Actuals: Working Capital -->
 				<div v-if="activeTab === 'working'">
+					<TabBrief class="mb-6" :brief="tabBriefs.working" :as-of="strategicTyped?.generated_at" />
 					<WorkingCapitalTab :data="strategicTyped?.working_capital" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+					<TabActions class="mt-6" :actions="tabBriefs.working?.actions" />
 				</div>
 
-				<!-- Actuals: Ratios & Trends -->
-				<div v-if="activeTab === 'ratios'">
+				<!-- Actuals: Efficiency (Ratios & Trends + Cost Structure) -->
+				<div v-if="activeTab === 'efficiency'">
+					<TabBrief class="mb-6" :brief="tabBriefs.efficiency" :as-of="strategicTyped?.generated_at" />
 					<FinancialRatiosTab :data="strategicTyped?.ratio_trends" :working-capital="strategicTyped?.working_capital ?? null" />
-				</div>
-
-				<!-- Actuals: Cost Structure -->
-				<div v-if="activeTab === 'costratios'">
+					<h2 class="mt-8 mb-3 text-lg font-semibold text-ink-gray-9">Cost structure</h2>
 					<CostStructureTab
 						:data="strategicTyped?.cost_structure ?? null"
 						:forecast="strategicTyped?.expense_forecast ?? null"
@@ -222,40 +239,46 @@
 						:fin-endpoint="FIN_ENDPOINT"
 						:drill-down="drillDown"
 					/>
+					<TabActions class="mt-6" :actions="tabBriefs.efficiency?.actions" />
 				</div>
 
-				<!-- Actuals: Forex Exposure -->
-				<div v-if="activeTab === 'forex'">
-					<ForexExposureTab :data="forexData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
-				</div>
-
-				<!-- Planning: Cash Forecast -->
-				<div v-if="activeTab === 'cashforecast'">
+				<!-- Planning: Cash Outlook (90-day Cash Forecast + 13-Week Cash Flow) -->
+				<div v-if="activeTab === 'cashoutlook'">
+					<TabBrief class="mb-6" :brief="tabBriefs.cashoutlook" :as-of="strategicTyped?.generated_at" />
 					<CashForecastingTab :data="strategicTyped?.cash_forecast ?? null" />
-				</div>
-
-				<!-- Planning: 13-Week Cash Flow -->
-				<div v-if="activeTab === 'cashflow13'">
+					<h2 class="mt-8 mb-3 text-lg font-semibold text-ink-gray-9">13-week cash flow</h2>
 					<ThirteenWeekCashFlowTab :data="strategicTyped?.thirteen_week_forecast ?? null" />
+					<TabActions class="mt-6" :actions="tabBriefs.cashoutlook?.actions" />
 				</div>
 
 				<!-- Planning: Capital Planning -->
 				<div v-if="activeTab === 'capital'">
+					<TabBrief class="mb-6" :brief="tabBriefs.capital" :as-of="strategicTyped?.generated_at" />
 					<CapitalPlanningTab :data="strategicTyped?.capital_planning" />
+					<TabActions class="mt-6" :actions="tabBriefs.capital?.actions" />
 				</div>
 
 				<!-- Planning: Scenario Analysis -->
 				<div v-if="activeTab === 'scenarios'">
+					<TabBrief class="mb-6" :brief="tabBriefs.scenarios" :as-of="strategicTyped?.generated_at" />
 					<ScenarioAnalysisTab :data="strategicTyped?.scenario_analysis" />
+					<TabActions class="mt-6" :actions="tabBriefs.scenarios?.actions" />
 				</div>
 
 				<!-- Planning: Period Comparison -->
 				<div v-if="activeTab === 'comparison'">
+					<TabBrief class="mb-6" :brief="tabBriefs.comparison" :as-of="strategicTyped?.generated_at" />
 					<PeriodComparisonTab :data="strategicTyped?.period_comparison" />
+					<TabActions class="mt-6" :actions="tabBriefs.comparison?.actions" />
 				</div>
 
 				<!-- Planning: Budget Variance -->
 				<div v-if="activeTab === 'budget'">
+					<TabBrief class="mb-6" :brief="budgetBrief">
+						<template v-if="budgetData?.has_budget === false" #default>
+							<a href="/app/budget/new" class="text-ink-blue-3 underline">Create a Budget in ERPNext</a>
+						</template>
+					</TabBrief>
 					<BudgetVarianceTab
 						:data="budgetData ?? undefined"
 						:loading="budgetLoading"
@@ -264,6 +287,7 @@
 						:has-data="budgetHasData"
 						@refresh="reloadBudget"
 					/>
+					<TabActions class="mt-6" :actions="budgetBrief?.actions" />
 				</div>
 
 				<!-- Planning: Break-Even Overview -->
@@ -277,7 +301,11 @@
 						<p class="text-sm text-ink-gray-6">{{ beError }}</p>
 					</div>
 					<div v-else-if="beError" class="text-center py-12 text-ink-gray-6">{{ beError }}</div>
-					<BreakEvenOverviewTab v-else-if="beData" :data="beData" />
+					<template v-else-if="beData">
+						<TabBrief class="mb-6" :brief="beData.brief" />
+						<BreakEvenOverviewTab :data="beData" />
+						<TabActions class="mt-6" :actions="beData.brief?.actions" />
+					</template>
 					<div v-else class="text-center py-12 text-ink-gray-6">No break-even data available</div>
 				</div>
 				</template>
@@ -317,7 +345,7 @@ import { useRouter } from 'vue-router'
 import { AlertTriangle, Lock } from 'lucide-vue-next'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
 import { scoreSeverity } from '../utils/status'
-import { formatCount, cashRunwayLabel as sharedCashRunwayLabel } from '../utils/format'
+import { formatCount, formatMoney, cashRunwayLabel as sharedCashRunwayLabel } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { useDrillDown } from '../intelligence/composables/useDrillDown'
@@ -337,12 +365,12 @@ import OverviewTab from '../components/financial/OverviewTab.vue'
 import CashFlowTab from '../components/financial/CashFlowTab.vue'
 import ReceivablesTab from '../components/financial/ReceivablesTab.vue'
 import PayablesTab from '../components/financial/PayablesTab.vue'
-import ForexExposureTab from '../components/financial/ForexExposureTab.vue'
+import TabBrief, { type Brief } from '../intelligence/components/TabBrief.vue'
+import TabActions from '../intelligence/components/TabActions.vue'
 
 // Planning tab components (reused from the former Strategic Finance
 // dashboard, unmodified — they already self-contain their own formatting
 // and severity logic via `inject('currency')`)
-import ExecutiveSummaryTab from '../components/strategic-finance/ExecutiveSummaryTab.vue'
 import WorkingCapitalTab from '../components/strategic-finance/WorkingCapitalTab.vue'
 import FinancialRatiosTab from '../components/strategic-finance/FinancialRatiosTab.vue'
 import CostStructureTab from '../components/strategic-finance/CostStructureTab.vue'
@@ -373,6 +401,7 @@ interface FinancialPayload {
 	payables?: PayablesData
 	forex?: ForexData
 	generated_at?: string
+	tab_briefs?: Record<string, Brief>
 	company?: string
 	base_currency?: string
 	date_filter?: string
@@ -410,6 +439,8 @@ interface BreakevenSummary {
 	employee_breakeven?: { departments: BeDeparmtent[] }
 	roce?: RoceData
 	irr?: IrrData
+	configured?: boolean
+	brief?: Brief
 }
 
 const router = useRouter()
@@ -422,11 +453,8 @@ const tabs: { id: string; label: string; group: TabGroup }[] = [
 	{ id: 'receivables', label: 'Receivables', group: 'actuals' },
 	{ id: 'payables', label: 'Payables', group: 'actuals' },
 	{ id: 'working', label: 'Working Capital', group: 'actuals' },
-	{ id: 'ratios', label: 'Ratios & Trends', group: 'actuals' },
-	{ id: 'costratios', label: 'Cost Structure', group: 'actuals' },
-	{ id: 'forex', label: 'Forex Exposure', group: 'actuals' },
-	{ id: 'cashforecast', label: 'Cash Forecast', group: 'planning' },
-	{ id: 'cashflow13', label: '13-Week Cash Flow', group: 'planning' },
+	{ id: 'efficiency', label: 'Efficiency', group: 'actuals' },
+	{ id: 'cashoutlook', label: 'Cash Outlook', group: 'planning' },
 	{ id: 'capital', label: 'Capital Planning', group: 'planning' },
 	{ id: 'scenarios', label: 'Scenario Analysis', group: 'planning' },
 	{ id: 'comparison', label: 'Period Comparison', group: 'planning' },
@@ -466,7 +494,7 @@ const activeTab = computed(() => activeTabDef.value?.id ?? 'overview')
  */
 const usesStrategic = computed(
 	() =>
-		['working', 'ratios', 'costratios'].includes(activeTab.value) ||
+		['working', 'efficiency'].includes(activeTab.value) ||
 		(activeGroup.value === 'planning' && !['budget', 'beOverview'].includes(activeTab.value)),
 )
 
@@ -533,6 +561,11 @@ const cashFlowData = computed<CashFlowData>(() => financialData.value?.cash_flow
 const receivablesData = computed<ReceivablesData>(() => financialData.value?.receivables ?? {})
 const payablesData = computed<PayablesData>(() => financialData.value?.payables ?? {})
 const forexData = computed<ForexData>(() => financialData.value?.forex ?? {})
+const tabBriefs = computed<Record<string, Brief>>(() => ({
+	...(financialData.value?.tab_briefs ?? {}),
+	...(strategicTyped.value?.tab_briefs ?? {}),
+}))
+const budgetBrief = computed(() => (budgetData.value?.brief ?? null) as Brief | null)
 
 /**
  * "90+ Days" is Financial's own aging bucket (`financial_intelligence.py`'s
@@ -570,6 +603,19 @@ const cashRunwayLabel = computed(() =>
 		? 'Cash positive'
 		: sharedCashRunwayLabel(summary.value.cashRunwayMonths),
 )
+
+/**
+ * KPI strip sublabel for Cash Position: discloses the liquid/FD split when
+ * fixed deposits are present, otherwise falls back to runway months.
+ */
+const cashKpiSublabel = computed(() => {
+	const fd = cashFlowData.value.fd_balance
+	const liq = cashFlowData.value.liquid_cash
+	if (fd != null && fd > 0 && liq != null) {
+		return `incl. ${formatMoney(fd, baseCurrency.value, { compact: true })} FDs; liquid ${formatMoney(liq, baseCurrency.value, { compact: true })}`
+	}
+	return cashRunwayLabel.value
+})
 
 // Planning data (from insights.api.ml.strategic_finance_intelligence) —
 // kept as a raw `createResource` because the planning engine is a secondary,

@@ -177,10 +177,14 @@ def purchase_patterns(top_percentile: int = 20,
     """
     frappe.has_permission("Customer", "read", throw=True)
     from insights.ml.customer import compute_purchase_patterns
-    return run(lambda: compute_purchase_patterns(top_percentile=int(top_percentile),
-                                                date_filter=date_filter,
-                                                company=company),
-               "Purchase patterns")
+    from insights.ml.tab_briefs import attach_lazy
+    from insights.ml.tab_briefs.customer import lazy_cust_patterns
+    return attach_lazy(
+        run(lambda: compute_purchase_patterns(top_percentile=int(top_percentile),
+                                              date_filter=date_filter,
+                                              company=company),
+            "Purchase patterns"),
+        lazy_cust_patterns, "cust-patterns")
 
 
 @frappe.whitelist()

@@ -1,0 +1,2297 @@
+{
+ "data": {
+  "analysis_date": "2026-10-22T14:43:10.145857",
+  "base_currency": "INR",
+  "comparisons": {
+   "current_month": {
+    "aov": 84895.02,
+    "period": "2026-09",
+    "revenue": 6961391.25,
+    "transactions": 82
+   },
+   "last_month": {
+    "aov": 77698.83,
+    "period": "2026-08",
+    "revenue": 6449003.25,
+    "transactions": 83
+   },
+   "last_year_same_month": {
+    "aov": 59610.58,
+    "period": "2025-09",
+    "revenue": 4232351.16,
+    "transactions": 71
+   },
+   "mom_growth": 7.9,
+   "mom_txn_growth": -1.2,
+   "monthly_trend": [
+    {
+     "is_partial": true,
+     "mom_pct": null,
+     "period": "2025-10",
+     "revenue": 2037938.0
+    },
+    {
+     "is_partial": false,
+     "mom_pct": null,
+     "period": "2025-11",
+     "revenue": 10196224.88
+    },
+    {
+     "is_partial": false,
+     "mom_pct": 26.1,
+     "period": "2025-12",
+     "revenue": 12856787.75
+    },
+    {
+     "is_partial": false,
+     "mom_pct": -19.1,
+     "period": "2026-01",
+     "revenue": 10401037.39
+    },
+    {
+     "is_partial": false,
+     "mom_pct": 35.5,
+     "period": "2026-02",
+     "revenue": 14092310.75
+    },
+    {
+     "is_partial": false,
+     "mom_pct": 38.2,
+     "period": "2026-03",
+     "revenue": 19482218.5
+    },
+    {
+     "is_partial": false,
+     "mom_pct": -10.1,
+     "period": "2026-04",
+     "revenue": 17517941.0
+    },
+    {
+     "is_partial": false,
+     "mom_pct": -14.7,
+     "period": "2026-05",
+     "revenue": 14951362.65
+    },
+    {
+     "is_partial": false,
+     "mom_pct": 2.5,
+     "period": "2026-06",
+     "revenue": 15318321.75
+    },
+    {
+     "is_partial": false,
+     "mom_pct": -20.5,
+     "period": "2026-07",
+     "revenue": 12184239.25
+    },
+    {
+     "is_partial": false,
+     "mom_pct": 8.8,
+     "period": "2026-08",
+     "revenue": 13257335.0
+    },
+    {
+     "is_partial": false,
+     "mom_pct": -47.5,
+     "period": "2026-09",
+     "revenue": 6961391.25
+    }
+   ],
+   "yoy_growth": 64.5,
+   "yoy_txn_growth": 15.5
+  },
+  "date_filter": "12m",
+  "dimensions": {
+   "by_customer_segment": [
+    {
+     "customer_group": "Uncategorized",
+     "customers": 502,
+     "pct": 60.2,
+     "revenue": 89810901.17,
+     "transactions": 1461
+    },
+    {
+     "customer_group": "Industrial Chemical",
+     "customers": 18,
+     "pct": 23.7,
+     "revenue": 35442001.75,
+     "transactions": 130
+    },
+    {
+     "customer_group": "Detergent & Cosmetics",
+     "customers": 23,
+     "pct": 8.9,
+     "revenue": 13300002.5,
+     "transactions": 218
+    },
+    {
+     "customer_group": "Agriculture",
+     "customers": 19,
+     "pct": 2.9,
+     "revenue": 4300508.75,
+     "transactions": 85
+    },
+    {
+     "customer_group": "Aquaculture",
+     "customers": 1,
+     "pct": 2.1,
+     "revenue": 3081060.0,
+     "transactions": 10
+    },
+    {
+     "customer_group": "Nail Polish",
+     "customers": 1,
+     "pct": 1.1,
+     "revenue": 1697378.0,
+     "transactions": 19
+    },
+    {
+     "customer_group": "Corragated Packaging",
+     "customers": 1,
+     "pct": 0.3,
+     "revenue": 381000.0,
+     "transactions": 3
+    },
+    {
+     "customer_group": "Food Products",
+     "customers": 5,
+     "pct": 0.2,
+     "revenue": 321317.0,
+     "transactions": 19
+    },
+    {
+     "customer_group": "Treatment Chemical",
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 189472.0,
+     "transactions": 14
+    },
+    {
+     "customer_group": "Construction Chemicals",
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 160960.0,
+     "transactions": 5
+    },
+    {
+     "customer_group": "Oil Industries",
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 128070.0,
+     "transactions": 1
+    },
+    {
+     "customer_group": "Lipstik Manufacturer",
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 118550.0,
+     "transactions": 2
+    },
+    {
+     "customer_group": "Textile Chemicals",
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 101500.0,
+     "transactions": 3
+    },
+    {
+     "customer_group": "Food Industries",
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 90125.0,
+     "transactions": 11
+    },
+    {
+     "customer_group": "Enzyme Industries",
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 63825.0,
+     "transactions": 4
+    },
+    {
+     "customer_group": "Paper Cup Industries",
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 40337.0,
+     "transactions": 2
+    },
+    {
+     "customer_group": "Wipe Manufacturer",
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 30100.0,
+     "transactions": 1
+    }
+   ],
+   "by_product_group": [
+    {
+     "item_group": "All Item Groups",
+     "pct": 80.9,
+     "qty_sold": 2145539.0,
+     "revenue": 120743671.85,
+     "transactions": 1479
+    },
+    {
+     "item_group": "Detergent & Cosmetic",
+     "pct": 7.7,
+     "qty_sold": 82780.0,
+     "revenue": 11534233.0,
+     "transactions": 320
+    },
+    {
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "pct": 4.5,
+     "qty_sold": 70855.0,
+     "revenue": 6662826.75,
+     "transactions": 258
+    },
+    {
+     "item_group": "Agriculture",
+     "pct": 4.1,
+     "qty_sold": 137301.0,
+     "revenue": 6050306.99,
+     "transactions": 87
+    },
+    {
+     "item_group": "Raw Material",
+     "pct": 1.9,
+     "qty_sold": 2214.0,
+     "revenue": 2781954.58,
+     "transactions": 10
+    },
+    {
+     "item_group": "Products",
+     "pct": 0.5,
+     "qty_sold": 3115.0,
+     "revenue": 692334.0,
+     "transactions": 6
+    },
+    {
+     "item_group": "Agriculture soil base",
+     "pct": 0.2,
+     "qty_sold": 1340.0,
+     "revenue": 371700.0,
+     "transactions": 27
+    },
+    {
+     "item_group": "Cosmetic",
+     "pct": 0.2,
+     "qty_sold": 1590.0,
+     "revenue": 294450.0,
+     "transactions": 6
+    },
+    {
+     "item_group": "Detergent",
+     "pct": 0.1,
+     "qty_sold": 634.0,
+     "revenue": 93546.0,
+     "transactions": 4
+    },
+    {
+     "item_group": "Furniture",
+     "pct": 0.0,
+     "qty_sold": 400.0,
+     "revenue": 28950.0,
+     "transactions": 2
+    },
+    {
+     "item_group": "Consumable",
+     "pct": 0.0,
+     "qty_sold": 1.0,
+     "revenue": 3135.0,
+     "transactions": 1
+    }
+   ],
+   "by_territory": [
+    {
+     "customers": 284,
+     "pct": 38.0,
+     "revenue": 56689150.74,
+     "territory": "Surat",
+     "transactions": 1161
+    },
+    {
+     "customers": 3,
+     "pct": 12.4,
+     "revenue": 18493314.5,
+     "territory": "Akola",
+     "transactions": 72
+    },
+    {
+     "customers": 9,
+     "pct": 11.3,
+     "revenue": 16874215.0,
+     "territory": "Vadodara",
+     "transactions": 41
+    },
+    {
+     "customers": 16,
+     "pct": 5.5,
+     "revenue": 8252780.5,
+     "territory": "Mumbai",
+     "transactions": 65
+    },
+    {
+     "customers": 12,
+     "pct": 5.4,
+     "revenue": 8030388.45,
+     "territory": "Navsari",
+     "transactions": 33
+    },
+    {
+     "customers": 11,
+     "pct": 3.8,
+     "revenue": 5623554.5,
+     "territory": "Pune",
+     "transactions": 66
+    },
+    {
+     "customers": 6,
+     "pct": 2.4,
+     "revenue": 3528344.0,
+     "territory": "Thane",
+     "transactions": 17
+    },
+    {
+     "customers": 11,
+     "pct": 2.3,
+     "revenue": 3503676.75,
+     "territory": "Nashik",
+     "transactions": 51
+    },
+    {
+     "customers": 5,
+     "pct": 2.1,
+     "revenue": 3125875.0,
+     "territory": "Nagpur",
+     "transactions": 9
+    },
+    {
+     "customers": 2,
+     "pct": 1.9,
+     "revenue": 2871500.0,
+     "territory": "Kolhapur",
+     "transactions": 8
+    },
+    {
+     "customers": 3,
+     "pct": 1.8,
+     "revenue": 2715550.0,
+     "territory": "Solapur",
+     "transactions": 12
+    },
+    {
+     "customers": 1,
+     "pct": 1.6,
+     "revenue": 2413814.58,
+     "territory": "Malaysia",
+     "transactions": 5
+    },
+    {
+     "customers": 11,
+     "pct": 1.2,
+     "revenue": 1720225.0,
+     "territory": "Ahmedabad",
+     "transactions": 20
+    },
+    {
+     "customers": 25,
+     "pct": 1.1,
+     "revenue": 1630140.0,
+     "territory": "Unassigned",
+     "transactions": 48
+    },
+    {
+     "customers": 7,
+     "pct": 0.7,
+     "revenue": 987825.0,
+     "territory": "Hyderabad",
+     "transactions": 11
+    },
+    {
+     "customers": 1,
+     "pct": 0.6,
+     "revenue": 958250.0,
+     "territory": "Uttar Pradesh",
+     "transactions": 4
+    },
+    {
+     "customers": 8,
+     "pct": 0.6,
+     "revenue": 828687.5,
+     "territory": "Valsad",
+     "transactions": 22
+    },
+    {
+     "customers": 4,
+     "pct": 0.5,
+     "revenue": 756100.0,
+     "territory": "Ernakulam",
+     "transactions": 12
+    },
+    {
+     "customers": 8,
+     "pct": 0.4,
+     "revenue": 622765.0,
+     "territory": "Bharuch",
+     "transactions": 12
+    },
+    {
+     "customers": 1,
+     "pct": 0.4,
+     "revenue": 621500.0,
+     "territory": "Kalol",
+     "transactions": 3
+    },
+    {
+     "customers": 2,
+     "pct": 0.4,
+     "revenue": 589700.0,
+     "territory": "Goa",
+     "transactions": 4
+    },
+    {
+     "customers": 1,
+     "pct": 0.4,
+     "revenue": 563500.0,
+     "territory": "Panoli",
+     "transactions": 4
+    },
+    {
+     "customers": 2,
+     "pct": 0.3,
+     "revenue": 476250.0,
+     "territory": "Bengaluru",
+     "transactions": 4
+    },
+    {
+     "customers": 3,
+     "pct": 0.3,
+     "revenue": 433307.0,
+     "territory": "Visakhapatnam",
+     "transactions": 8
+    },
+    {
+     "customers": 2,
+     "pct": 0.3,
+     "revenue": 393250.0,
+     "territory": "Shrirampur",
+     "transactions": 6
+    },
+    {
+     "customers": 7,
+     "pct": 0.3,
+     "revenue": 381888.5,
+     "territory": "Dhule",
+     "transactions": 10
+    },
+    {
+     "customers": 1,
+     "pct": 0.2,
+     "revenue": 340000.0,
+     "territory": "Virudhunagar",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.2,
+     "revenue": 323200.0,
+     "territory": "Ludhiana",
+     "transactions": 5
+    },
+    {
+     "customers": 5,
+     "pct": 0.2,
+     "revenue": 313542.75,
+     "territory": "Junagadh",
+     "transactions": 7
+    },
+    {
+     "customers": 2,
+     "pct": 0.2,
+     "revenue": 283600.0,
+     "territory": "Satara",
+     "transactions": 4
+    },
+    {
+     "customers": 1,
+     "pct": 0.2,
+     "revenue": 233750.0,
+     "territory": "Puri",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 217750.0,
+     "territory": "Kolkata",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 217400.0,
+     "territory": "Aurangabad",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 210125.0,
+     "territory": "Udumalpet",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 206884.0,
+     "territory": "Jabalpur",
+     "transactions": 5
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 204050.0,
+     "territory": "Tenkasi",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 182725.0,
+     "territory": "Hubballi",
+     "transactions": 7
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 154665.0,
+     "territory": "Malappuram",
+     "transactions": 5
+    },
+    {
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 147750.0,
+     "territory": "Gandhinagar",
+     "transactions": 2
+    },
+    {
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 146299.0,
+     "territory": "Bhilwara",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 142160.5,
+     "territory": "Aligarh",
+     "transactions": 34
+    },
+    {
+     "customers": 4,
+     "pct": 0.1,
+     "revenue": 141057.0,
+     "territory": "Rajkot",
+     "transactions": 5
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 137900.0,
+     "territory": "Varanasi",
+     "transactions": 2
+    },
+    {
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 131683.0,
+     "territory": "Faridabad",
+     "transactions": 2
+    },
+    {
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 125500.0,
+     "territory": "Ankleshwar",
+     "transactions": 3
+    },
+    {
+     "customers": 3,
+     "pct": 0.1,
+     "revenue": 109327.0,
+     "territory": "Jalgaon",
+     "transactions": 6
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 105613.0,
+     "territory": "Wardha",
+     "transactions": 3
+    },
+    {
+     "customers": 3,
+     "pct": 0.1,
+     "revenue": 90400.0,
+     "territory": "Palghar",
+     "transactions": 7
+    },
+    {
+     "customers": 3,
+     "pct": 0.1,
+     "revenue": 81652.5,
+     "territory": "Surendranagar",
+     "transactions": 4
+    },
+    {
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 81457.5,
+     "territory": "Rajahmundry",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 80900.65,
+     "territory": "Ahmadhnagar",
+     "transactions": 5
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 77500.0,
+     "territory": "Tamil Nadu",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.1,
+     "revenue": 76500.0,
+     "territory": "Andhra Pradesh",
+     "transactions": 11
+    },
+    {
+     "customers": 1,
+     "pct": 0.1,
+     "revenue": 76440.0,
+     "territory": "Vijayawada",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 67490.0,
+     "territory": "Vapi",
+     "transactions": 4
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 67250.0,
+     "territory": "Ajmer",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 64500.0,
+     "territory": "Pondicherry",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 61625.0,
+     "territory": "Kannur",
+     "transactions": 6
+    },
+    {
+     "customers": 3,
+     "pct": 0.0,
+     "revenue": 59920.75,
+     "territory": "Tapi",
+     "transactions": 13
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 59800.0,
+     "territory": "Bathinda",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 48255.0,
+     "territory": "Navi Mumbai",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 42500.0,
+     "territory": "Kollam",
+     "transactions": 5
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 41650.0,
+     "territory": "Coimbatore",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 40337.0,
+     "territory": "Krishnagiri",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 39750.0,
+     "territory": "Udupi",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 38650.0,
+     "territory": "Sangli",
+     "transactions": 2
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 35799.0,
+     "territory": "Nandurbar",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 35485.0,
+     "territory": "Jhajjar",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 32900.0,
+     "territory": "Mundra",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 32800.0,
+     "territory": "Panji",
+     "transactions": 4
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 30500.0,
+     "territory": "Jamnagar",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 30344.0,
+     "territory": "Vijayapura",
+     "transactions": 4
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 30215.0,
+     "territory": "Buldhana",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 29262.5,
+     "territory": "Phalodi",
+     "transactions": 4
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 28950.0,
+     "territory": "Morbi",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 28750.0,
+     "territory": "Ujjain",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 28000.0,
+     "territory": "Sambhajinagar",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 25850.0,
+     "territory": "Kutch",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 22537.5,
+     "territory": "Amravati",
+     "transactions": 5
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 22400.0,
+     "territory": "Hingoli",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 21000.0,
+     "territory": "Medak",
+     "transactions": 1
+    },
+    {
+     "customers": 3,
+     "pct": 0.0,
+     "revenue": 20731.25,
+     "territory": "Bhavnagar",
+     "transactions": 6
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 20100.0,
+     "territory": "Kurandvad",
+     "transactions": 3
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 20025.0,
+     "territory": "Chandrapur",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 19500.0,
+     "territory": "Dharmapuri",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 19300.0,
+     "territory": "Mahuva",
+     "transactions": 3
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 19006.5,
+     "territory": "Ahmednagar",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 18500.0,
+     "territory": "Khangri",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 18095.0,
+     "territory": "Kurnool",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 17700.25,
+     "territory": "Karnataka",
+     "transactions": 3
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 17000.0,
+     "territory": "Hubli",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 16406.5,
+     "territory": "Jhunjhunu",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 15426.0,
+     "territory": "Tumakuru",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 15050.0,
+     "territory": "Guna",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 14975.0,
+     "territory": "Pali",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 13500.0,
+     "territory": "Umarkhed",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 12375.0,
+     "territory": "Amritsar",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 12000.0,
+     "territory": "Medinipur",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 11750.0,
+     "territory": "Cuddalore",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 11600.0,
+     "territory": "Basmat",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 11125.0,
+     "territory": "Anand",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 8750.0,
+     "territory": "Baramati",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 8300.0,
+     "territory": "Ratlam",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 8220.5,
+     "territory": "Agra",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 8000.0,
+     "territory": "Jetpur",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 7750.0,
+     "territory": "Bardoli",
+     "transactions": 1
+    },
+    {
+     "customers": 2,
+     "pct": 0.0,
+     "revenue": 7462.0,
+     "territory": "Indore",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 6750.0,
+     "territory": "Chennai",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 6262.5,
+     "territory": "Cuttack",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 6000.0,
+     "territory": "Pollachi",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 6000.0,
+     "territory": "Barwani",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 5950.0,
+     "territory": "Antalia",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 5500.0,
+     "territory": "Jalore",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 5500.0,
+     "territory": "Jodhpur",
+     "transactions": 2
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 5357.0,
+     "territory": "Chhatrapati Sambhajinagar",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 5000.0,
+     "territory": "Bhagalpur",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 4625.0,
+     "territory": "Amreli",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 4625.0,
+     "territory": "Jarwal",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3949.0,
+     "territory": "Deoghar",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3900.0,
+     "territory": "Rajasthan",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3225.0,
+     "territory": "Hojai",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3212.0,
+     "territory": "Khamgaon",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3150.0,
+     "territory": "Pathanamthitta",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3112.0,
+     "territory": "Hajipur",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3075.0,
+     "territory": "Vasai Virar",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 3000.0,
+     "territory": "Rishikesh",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 2500.0,
+     "territory": "Ichalkaranji",
+     "transactions": 1
+    },
+    {
+     "customers": 1,
+     "pct": 0.0,
+     "revenue": 1863.0,
+     "territory": "Kota",
+     "transactions": 1
+    }
+   ],
+   "total_revenue": 149257108.17
+  },
+  "forecasts": {
+   "demand_forecast": {
+    "reorder_alerts": [
+     {
+      "current_stock": 0.0,
+      "item_code": "2-EH",
+      "monthly_forecast": 555.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AAFJ",
+      "monthly_forecast": 990.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AAT30",
+      "monthly_forecast": 510.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AATG",
+      "monthly_forecast": 1524.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "ACS50",
+      "monthly_forecast": 95.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "ACS55",
+      "monthly_forecast": 220.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "ACSI55",
+      "monthly_forecast": 110.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "ALTIGC",
+      "monthly_forecast": 50.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "ALTIGD",
+      "monthly_forecast": 420.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AM5FCH",
+      "monthly_forecast": 120.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AMMOLYTMC",
+      "monthly_forecast": 50.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AMSBTIN",
+      "monthly_forecast": 1625.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AMSPI",
+      "monthly_forecast": 500.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AMSPTIN",
+      "monthly_forecast": 3500.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AORC",
+      "monthly_forecast": 2.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AOSPG",
+      "monthly_forecast": 43.8,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AOSPGP",
+      "monthly_forecast": 34.4,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AOSTGLIQ",
+      "monthly_forecast": 658.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AOSTGPST",
+      "monthly_forecast": 220.0,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     },
+     {
+      "current_stock": 0.0,
+      "item_code": "AOSXL",
+      "monthly_forecast": 411.2,
+      "months_cover": 0.0,
+      "status": "reorder_now"
+     }
+    ],
+    "summary": {
+     "adequate_count": 3,
+     "monitor_count": 2,
+     "reorder_now_count": 304,
+     "total_items_analyzed": 309
+    },
+    "total_items": 20
+   },
+   "sales_forecast": {
+    "data_range": {
+     "days": 537,
+     "end": "2026-09-14",
+     "start": "2025-01-01"
+    },
+    "forecast": [
+     {
+      "ds": "2026-10-22",
+      "yhat": 559967.54,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1515590.53
+     },
+     {
+      "ds": "2026-10-23",
+      "yhat": 560070.11,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1515693.1
+     },
+     {
+      "ds": "2026-10-24",
+      "yhat": 560172.67,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1515795.67
+     },
+     {
+      "ds": "2026-10-25",
+      "yhat": 560275.24,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1515898.24
+     },
+     {
+      "ds": "2026-10-26",
+      "yhat": 560377.81,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516000.81
+     },
+     {
+      "ds": "2026-10-27",
+      "yhat": 560480.38,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516103.38
+     },
+     {
+      "ds": "2026-10-28",
+      "yhat": 560582.95,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516205.94
+     },
+     {
+      "ds": "2026-10-29",
+      "yhat": 560685.52,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516308.51
+     },
+     {
+      "ds": "2026-10-30",
+      "yhat": 560788.08,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516411.08
+     },
+     {
+      "ds": "2026-10-31",
+      "yhat": 560890.65,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516513.65
+     },
+     {
+      "ds": "2026-11-01",
+      "yhat": 560993.22,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516616.22
+     },
+     {
+      "ds": "2026-11-02",
+      "yhat": 561095.79,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516718.79
+     },
+     {
+      "ds": "2026-11-03",
+      "yhat": 561198.36,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516821.35
+     },
+     {
+      "ds": "2026-11-04",
+      "yhat": 561300.93,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1516923.92
+     },
+     {
+      "ds": "2026-11-05",
+      "yhat": 561403.49,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517026.49
+     },
+     {
+      "ds": "2026-11-06",
+      "yhat": 561506.06,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517129.06
+     },
+     {
+      "ds": "2026-11-07",
+      "yhat": 561608.63,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517231.63
+     },
+     {
+      "ds": "2026-11-08",
+      "yhat": 561711.2,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517334.2
+     },
+     {
+      "ds": "2026-11-09",
+      "yhat": 561813.77,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517436.76
+     },
+     {
+      "ds": "2026-11-10",
+      "yhat": 561916.34,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517539.33
+     },
+     {
+      "ds": "2026-11-11",
+      "yhat": 562018.9,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517641.9
+     },
+     {
+      "ds": "2026-11-12",
+      "yhat": 562121.47,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517744.47
+     },
+     {
+      "ds": "2026-11-13",
+      "yhat": 562224.04,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517847.04
+     },
+     {
+      "ds": "2026-11-14",
+      "yhat": 562326.61,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1517949.6
+     },
+     {
+      "ds": "2026-11-15",
+      "yhat": 562429.18,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1518052.17
+     },
+     {
+      "ds": "2026-11-16",
+      "yhat": 562531.75,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1518154.74
+     },
+     {
+      "ds": "2026-11-17",
+      "yhat": 562634.31,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1518257.31
+     },
+     {
+      "ds": "2026-11-18",
+      "yhat": 562736.88,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1518359.88
+     },
+     {
+      "ds": "2026-11-19",
+      "yhat": 562839.45,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1518462.45
+     },
+     {
+      "ds": "2026-11-20",
+      "yhat": 562942.02,
+      "yhat_lower": 0.0,
+      "yhat_upper": 1518565.01
+     }
+    ],
+    "forecast_summary": {
+     "avg_daily_forecast": 561454.78,
+     "days": 30,
+     "first_day": "2026-10-22",
+     "stale_days": 38,
+     "total_forecast": 16843643.35,
+     "trend": "up"
+    },
+    "method": "linear_trend",
+    "metrics": {
+     "horizon_days": 14,
+     "mae": 347459.0,
+     "method_tested": "linear_trend",
+     "n_points": 537,
+     "rmse": 477366.4,
+     "smape": 68.53
+    }
+   }
+  },
+  "fulfillment": {
+   "avg_daily_sales": 293407.9,
+   "backlog_value": 1193800.1490905,
+   "by_status": [
+    {
+     "count": 1933,
+     "status": "Fulfilled",
+     "value": 147131218.17
+    },
+    {
+     "count": 17,
+     "status": "Partial",
+     "value": 2905515.0
+    },
+    {
+     "count": 1,
+     "status": "Pending",
+     "value": 35000.0
+    }
+   ],
+   "dso": 67.2,
+   "fulfilled": 1933,
+   "fulfillment_rate": 99.1,
+   "partial": 17,
+   "pending": 1,
+   "total_orders": 1951,
+   "total_receivables": 19713840.0
+  },
+  "margins": {
+   "by_product_group": [
+    {
+     "gross_profit": 9416835.89,
+     "item_group": "All Item Groups",
+     "margin_pct": 7.8,
+     "qty_sold": 2145539.0,
+     "revenue": 120743671.85,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 252
+    },
+    {
+     "gross_profit": 1180230.39,
+     "item_group": "Detergent & Cosmetic",
+     "margin_pct": 10.2,
+     "qty_sold": 82780.0,
+     "revenue": 11534233.0,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 15
+    },
+    {
+     "gross_profit": 453060.72,
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "margin_pct": 6.8,
+     "qty_sold": 70855.0,
+     "revenue": 6662826.75,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 6
+    },
+    {
+     "gross_profit": 356812.22,
+     "item_group": "Agriculture",
+     "margin_pct": 5.9,
+     "qty_sold": 137301.0,
+     "revenue": 6050306.99,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 16
+    },
+    {
+     "gross_profit": 1514330.6,
+     "item_group": "Raw Material",
+     "margin_pct": 54.4,
+     "qty_sold": 2214.0,
+     "revenue": 2781954.58,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 4
+    },
+    {
+     "gross_profit": 45345.0,
+     "item_group": "Products",
+     "margin_pct": 6.5,
+     "qty_sold": 3115.0,
+     "revenue": 692334.0,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 6
+    },
+    {
+     "gross_profit": 53486.84,
+     "item_group": "Agriculture soil base",
+     "margin_pct": 14.4,
+     "qty_sold": 1340.0,
+     "revenue": 371700.0,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 1
+    },
+    {
+     "gross_profit": 21625.0,
+     "item_group": "Cosmetic",
+     "margin_pct": 7.3,
+     "qty_sold": 1590.0,
+     "revenue": 294450.0,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 5
+    },
+    {
+     "gross_profit": 13761.54,
+     "item_group": "Detergent",
+     "margin_pct": 14.7,
+     "qty_sold": 634.0,
+     "revenue": 93546.0,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 2
+    },
+    {
+     "gross_profit": 8350.0,
+     "item_group": "Furniture",
+     "margin_pct": 28.8,
+     "qty_sold": 400.0,
+     "revenue": 28950.0,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 1
+    },
+    {
+     "gross_profit": 342.0,
+     "item_group": "Consumable",
+     "margin_pct": 10.9,
+     "qty_sold": 1.0,
+     "revenue": 3135.0,
+     "uncosted_revenue": 0.0,
+     "uncosted_revenue_pct": 0.0,
+     "unique_items": 1
+    }
+   ],
+   "low_margin_items": [
+    {
+     "gross_profit": -20182.5,
+     "item_code": "NP95R",
+     "item_group": "All Item Groups",
+     "item_name": "Neonol A.F. 9-9.5",
+     "margin_pct": -2.5,
+     "qty_sold": 5060.0,
+     "revenue": 807587.5
+    },
+    {
+     "gross_profit": -210.0,
+     "item_code": "BUTYGLY",
+     "item_group": "All Item Groups",
+     "item_name": "Butyl Glycol (Butyl Cellesolve)",
+     "margin_pct": -0.1,
+     "qty_sold": 1710.0,
+     "revenue": 231420.0
+    },
+    {
+     "gross_profit": 20000.0,
+     "item_code": "CAMU",
+     "item_group": "All Item Groups",
+     "item_name": "Citric Acid Monohydrate",
+     "margin_pct": 1.0,
+     "qty_sold": 31000.0,
+     "revenue": 2004000.0
+    },
+    {
+     "gross_profit": 3624.0,
+     "item_code": "IPADR",
+     "item_group": "All Item Groups",
+     "item_name": "Iso Propyl Alcohol",
+     "margin_pct": 1.2,
+     "qty_sold": 1760.0,
+     "revenue": 299200.0
+    },
+    {
+     "gross_profit": 9177.5,
+     "item_code": "MEK",
+     "item_group": "All Item Groups",
+     "item_name": "Methyl Ethyl Ketone (MEK)",
+     "margin_pct": 1.4,
+     "qty_sold": 4950.0,
+     "revenue": 634507.5
+    },
+    {
+     "gross_profit": 9091.0,
+     "item_code": "ZSM33TIN",
+     "item_group": "All Item Groups",
+     "item_name": "Zinc Sulphate Monohydrate 33%",
+     "margin_pct": 1.5,
+     "qty_sold": 5900.0,
+     "revenue": 613350.0
+    },
+    {
+     "gross_profit": 1897.5,
+     "item_code": "MEGTCH",
+     "item_group": "All Item Groups",
+     "item_name": "Mono Ethylene Glycol (MEG)",
+     "margin_pct": 1.5,
+     "qty_sold": 2530.0,
+     "revenue": 124602.5
+    },
+    {
+     "gross_profit": 21930.0,
+     "item_code": "PHOSAP",
+     "item_group": "All Item Groups",
+     "item_name": "Phosphorous Acid 99%",
+     "margin_pct": 1.9,
+     "qty_sold": 6000.0,
+     "revenue": 1140000.0
+    },
+    {
+     "gross_profit": 2075.0,
+     "item_code": "AAFJ",
+     "item_group": "All Item Groups",
+     "item_name": "Acetic Acid Food Grade",
+     "margin_pct": 1.9,
+     "qty_sold": 990.0,
+     "revenue": 110385.0
+    },
+    {
+     "gross_profit": 5500.0,
+     "item_code": "GLUCONIC",
+     "item_group": "All Item Groups",
+     "item_name": "Gluconic Acid 50%",
+     "margin_pct": 2.0,
+     "qty_sold": 3500.0,
+     "revenue": 269000.0
+    }
+   ],
+   "margin_trend": [
+    {
+     "gross_profit": 215167.05,
+     "is_partial": true,
+     "margin_pct": 10.6,
+     "period": "2025-10",
+     "revenue": 2037938.0
+    },
+    {
+     "gross_profit": 1077558.78,
+     "is_partial": false,
+     "margin_pct": 10.6,
+     "period": "2025-11",
+     "revenue": 10196224.88
+    },
+    {
+     "gross_profit": 1119240.8,
+     "is_partial": false,
+     "margin_pct": 8.7,
+     "period": "2025-12",
+     "revenue": 12856787.75
+    },
+    {
+     "gross_profit": 1073941.75,
+     "is_partial": false,
+     "margin_pct": 10.3,
+     "period": "2026-01",
+     "revenue": 10401037.39
+    },
+    {
+     "gross_profit": 1038543.91,
+     "is_partial": false,
+     "margin_pct": 7.4,
+     "period": "2026-02",
+     "revenue": 14092310.75
+    },
+    {
+     "gross_profit": 1571801.28,
+     "is_partial": false,
+     "margin_pct": 8.1,
+     "period": "2026-03",
+     "revenue": 19482218.5
+    },
+    {
+     "gross_profit": 2251283.2,
+     "is_partial": false,
+     "margin_pct": 12.9,
+     "period": "2026-04",
+     "revenue": 17517941.0
+    },
+    {
+     "gross_profit": 1156028.52,
+     "is_partial": false,
+     "margin_pct": 7.7,
+     "period": "2026-05",
+     "revenue": 14951362.65
+    },
+    {
+     "gross_profit": 1039879.41,
+     "is_partial": false,
+     "margin_pct": 6.8,
+     "period": "2026-06",
+     "revenue": 15318321.75
+    },
+    {
+     "gross_profit": 986206.01,
+     "is_partial": false,
+     "margin_pct": 8.1,
+     "period": "2026-07",
+     "revenue": 12184239.25
+    },
+    {
+     "gross_profit": 995426.28,
+     "is_partial": false,
+     "margin_pct": 7.5,
+     "period": "2026-08",
+     "revenue": 13257335.0
+    },
+    {
+     "gross_profit": 539103.21,
+     "is_partial": false,
+     "margin_pct": 7.7,
+     "period": "2026-09",
+     "revenue": 6961391.25
+    }
+   ],
+   "overall_margin": 8.8,
+   "top_margin_items": [
+    {
+     "gross_profit": 1493242.6,
+     "item_code": "MGCL225",
+     "item_group": "Raw Material",
+     "item_name": "Magnesium Chloride Hexahydrate Flakes",
+     "margin_pct": 61.9,
+     "qty_sold": 264.0,
+     "revenue": 2413814.58
+    },
+    {
+     "gross_profit": 123630.0,
+     "item_code": "HPTNPL",
+     "item_group": "All Item Groups",
+     "item_name": "Hydrogen Peroxide 50%",
+     "margin_pct": 36.1,
+     "qty_sold": 5750.0,
+     "revenue": 342750.0
+    },
+    {
+     "gross_profit": 60288.84,
+     "item_code": "HSFTCH25",
+     "item_group": "All Item Groups",
+     "item_name": "Super F Humate Shiny Flakes",
+     "margin_pct": 34.1,
+     "qty_sold": 2425.0,
+     "revenue": 176689.0
+    },
+    {
+     "gross_profit": 73884.05,
+     "item_code": "CACG",
+     "item_group": "All Item Groups",
+     "item_name": "GINOL 16 (Cetyl Alcohol)",
+     "margin_pct": 30.8,
+     "qty_sold": 775.0,
+     "revenue": 240000.0
+    },
+    {
+     "gross_profit": 19043.52,
+     "item_code": "MXEP",
+     "item_group": "All Item Groups",
+     "item_name": "Mixed Xylene ",
+     "margin_pct": 22.3,
+     "qty_sold": 712.0,
+     "revenue": 85440.0
+    },
+    {
+     "gross_profit": 40200.0,
+     "item_code": "NITROB",
+     "item_group": "All Item Groups",
+     "item_name": "Nitrobenzene ",
+     "margin_pct": 21.2,
+     "qty_sold": 2000.0,
+     "revenue": 190000.0
+    },
+    {
+     "gross_profit": 51237.0,
+     "item_code": "EDTA2Na",
+     "item_group": "All Item Groups",
+     "item_name": "EDTA Disodium",
+     "margin_pct": 21.0,
+     "qty_sold": 1125.0,
+     "revenue": 243750.0
+    },
+    {
+     "gross_profit": 136653.63,
+     "item_code": "BLAPO",
+     "item_group": "All Item Groups",
+     "item_name": "Butyl Acetate",
+     "margin_pct": 20.1,
+     "qty_sold": 4500.0,
+     "revenue": 679320.0
+    },
+    {
+     "gross_profit": 28722.56,
+     "item_code": "SEAFCHP",
+     "item_group": "Agriculture",
+     "item_name": "Organic Plant Nutrition (Seaweed Extract Powder)",
+     "margin_pct": 18.6,
+     "qty_sold": 750.0,
+     "revenue": 154269.75
+    },
+    {
+     "gross_profit": 38190.26,
+     "item_code": "DMHFEV50",
+     "item_group": "All Item Groups",
+     "item_name": "Dextrose Monohydrate",
+     "margin_pct": 17.9,
+     "qty_sold": 3550.0,
+     "revenue": 213760.0
+    }
+   ],
+   "total_profit": 13064180.2,
+   "total_revenue": 149257108.17,
+   "uncosted_items_excluded": 0,
+   "uncosted_revenue": 0.0
+  },
+  "payment_mix": {
+   "cash_ratio": 85.8,
+   "cash_total": 128053523.92,
+   "credit_ratio": 14.2,
+   "credit_total": 21203584.25,
+   "daily_mix": [],
+   "today_cash_pct": 0,
+   "today_total": 0
+  },
+  "revenue_basis": "net_of_tax",
+  "revenue_metrics": {
+   "avg_days_between_orders": 30.7,
+   "avg_order_value": 75079.03,
+   "daily_sales": [],
+   "monthly_sales": [
+    {
+     "cost_of_sales": 1822770.95,
+     "gross_profit": 215167.05,
+     "is_partial": true,
+     "period": "2025-10",
+     "revenue": 2037938.0,
+     "transactions": 37,
+     "unique_customers": 31
+    },
+    {
+     "cost_of_sales": 9118666.1,
+     "gross_profit": 1077558.78,
+     "is_partial": false,
+     "period": "2025-11",
+     "revenue": 10196224.88,
+     "transactions": 194,
+     "unique_customers": 130
+    },
+    {
+     "cost_of_sales": 11737546.95,
+     "gross_profit": 1119240.8,
+     "is_partial": false,
+     "period": "2025-12",
+     "revenue": 12856787.75,
+     "transactions": 213,
+     "unique_customers": 129
+    },
+    {
+     "cost_of_sales": 9327095.64,
+     "gross_profit": 1073941.75,
+     "is_partial": false,
+     "period": "2026-01",
+     "revenue": 10401037.39,
+     "transactions": 193,
+     "unique_customers": 135
+    },
+    {
+     "cost_of_sales": 13053766.84,
+     "gross_profit": 1038543.91,
+     "is_partial": false,
+     "period": "2026-02",
+     "revenue": 14092310.75,
+     "transactions": 184,
+     "unique_customers": 128
+    },
+    {
+     "cost_of_sales": 17910417.22,
+     "gross_profit": 1571801.28,
+     "is_partial": false,
+     "period": "2026-03",
+     "revenue": 19482218.5,
+     "transactions": 225,
+     "unique_customers": 148
+    },
+    {
+     "cost_of_sales": 15266657.8,
+     "gross_profit": 2251283.2,
+     "is_partial": false,
+     "period": "2026-04",
+     "revenue": 17517941.0,
+     "transactions": 175,
+     "unique_customers": 125
+    },
+    {
+     "cost_of_sales": 13795334.13,
+     "gross_profit": 1156028.52,
+     "is_partial": false,
+     "period": "2026-05",
+     "revenue": 14951362.65,
+     "transactions": 186,
+     "unique_customers": 124
+    },
+    {
+     "cost_of_sales": 14278442.34,
+     "gross_profit": 1039879.41,
+     "is_partial": false,
+     "period": "2026-06",
+     "revenue": 15318321.75,
+     "transactions": 175,
+     "unique_customers": 109
+    },
+    {
+     "cost_of_sales": 11198033.24,
+     "gross_profit": 986206.01,
+     "is_partial": false,
+     "period": "2026-07",
+     "revenue": 12184239.25,
+     "transactions": 170,
+     "unique_customers": 123
+    },
+    {
+     "cost_of_sales": 12261908.72,
+     "gross_profit": 995426.28,
+     "is_partial": false,
+     "period": "2026-08",
+     "revenue": 13257335.0,
+     "transactions": 154,
+     "unique_customers": 111
+    },
+    {
+     "cost_of_sales": 6422288.04,
+     "gross_profit": 539103.21,
+     "is_partial": false,
+     "period": "2026-09",
+     "revenue": 6961391.25,
+     "transactions": 82,
+     "unique_customers": 71
+    }
+   ],
+   "total_revenue": 149257108.17,
+   "total_transactions": 1988,
+   "unique_customers": 581,
+   "weekly_sales": [
+    {
+     "cost_of_sales": 509825.57,
+     "gross_profit": 40186.93,
+     "revenue": 550012.5,
+     "transactions": 17,
+     "year_week": "2026-W31"
+    },
+    {
+     "cost_of_sales": 2488179.14,
+     "gross_profit": 253415.36,
+     "revenue": 2741594.5,
+     "transactions": 48,
+     "year_week": "2026-W32"
+    },
+    {
+     "cost_of_sales": 3262806.82,
+     "gross_profit": 256951.93,
+     "revenue": 3519758.75,
+     "transactions": 32,
+     "year_week": "2026-W33"
+    },
+    {
+     "cost_of_sales": 3710727.33,
+     "gross_profit": 324622.17,
+     "revenue": 4035349.5,
+     "transactions": 42,
+     "year_week": "2026-W34"
+    },
+    {
+     "cost_of_sales": 2241215.26,
+     "gross_profit": 122056.99,
+     "revenue": 2363272.25,
+     "transactions": 22,
+     "year_week": "2026-W35"
+    },
+    {
+     "cost_of_sales": 2865782.09,
+     "gross_profit": 298394.16,
+     "revenue": 3164176.25,
+     "transactions": 37,
+     "year_week": "2026-W36"
+    },
+    {
+     "cost_of_sales": 3737067.87,
+     "gross_profit": 252612.13,
+     "revenue": 3989680.0,
+     "transactions": 42,
+     "year_week": "2026-W37"
+    },
+    {
+     "cost_of_sales": 175047.75,
+     "gross_profit": 15797.25,
+     "revenue": 190845.0,
+     "transactions": 7,
+     "year_week": "2026-W38"
+    }
+   ]
+  },
+  "sales_reps": {
+   "reps": [
+    {
+     "avg_order_value": 83881.27,
+     "gross_profit": 12478726.66,
+     "margin_pct": 8.8,
+     "rank": 1,
+     "sales_person": "sales_person-7919c0",
+     "sales_person_name": "Milan Mavani",
+     "total_incentives": 0.0,
+     "total_orders": 1685,
+     "total_revenue": 141339946.92,
+     "trend": [],
+     "unique_customers": 441
+    },
+    {
+     "avg_order_value": 29246.69,
+     "gross_profit": 374218.06,
+     "margin_pct": 6.0,
+     "rank": 2,
+     "sales_person": "sales_person-841d83",
+     "sales_person_name": "Khushboo",
+     "total_incentives": 0.0,
+     "total_orders": 215,
+     "total_revenue": 6288038.0,
+     "trend": [],
+     "unique_customers": 105
+    },
+    {
+     "avg_order_value": 21269.06,
+     "gross_profit": 168198.24,
+     "margin_pct": 13.4,
+     "rank": 3,
+     "sales_person": "sales_person-73d6da",
+     "sales_person_name": "Roja",
+     "total_incentives": 0.0,
+     "total_orders": 59,
+     "total_revenue": 1254874.75,
+     "trend": [],
+     "unique_customers": 35
+    },
+    {
+     "avg_order_value": 15808.26,
+     "gross_profit": 37397.91,
+     "margin_pct": 11.3,
+     "rank": 4,
+     "sales_person": "sales_person-8a61d3",
+     "sales_person_name": "Priyanka",
+     "total_incentives": 0.0,
+     "total_orders": 21,
+     "total_revenue": 331973.5,
+     "trend": [],
+     "unique_customers": 15
+    },
+    {
+     "avg_order_value": 5481.25,
+     "gross_profit": 1937.83,
+     "margin_pct": 8.8,
+     "rank": 5,
+     "sales_person": "sales_person-be7a6a",
+     "sales_person_name": "Deep",
+     "total_incentives": 0.0,
+     "total_orders": 4,
+     "total_revenue": 21925.0,
+     "trend": [],
+     "unique_customers": 4
+    },
+    {
+     "avg_order_value": 5983.33,
+     "gross_profit": 3522.5,
+     "margin_pct": 19.6,
+     "rank": 6,
+     "sales_person": "sales_person-cb4b75",
+     "sales_person_name": "Hinali",
+     "total_incentives": 0.0,
+     "total_orders": 3,
+     "total_revenue": 17950.0,
+     "trend": [],
+     "unique_customers": 3
+    },
+    {
+     "avg_order_value": 2400.0,
+     "gross_profit": 179.0,
+     "margin_pct": 7.5,
+     "rank": 7,
+     "sales_person": "sales_person-459512",
+     "sales_person_name": "Uttam",
+     "total_incentives": 0.0,
+     "total_orders": 1,
+     "total_revenue": 2400.0,
+     "trend": [],
+     "unique_customers": 1
+    }
+   ],
+   "top_performer": {
+    "avg_order_value": 83881.27,
+    "gross_profit": 12478726.66,
+    "margin_pct": 8.8,
+    "rank": 1,
+    "sales_person": "sales_person-7919c0",
+    "sales_person_name": "Milan Mavani",
+    "total_incentives": 0.0,
+    "total_orders": 1685,
+    "total_revenue": 141339946.92,
+    "trend": [],
+    "unique_customers": 441
+   },
+   "total_reps": 7,
+   "total_team_revenue": 149257108.17,
+   "unattributed_gross_profit": 0.0,
+   "unattributed_revenue": 0.0,
+   "unattributed_revenue_pct": 0.0
+  },
+  "status": "success",
+  "summary": {
+   "avg_order_value": 75079.03,
+   "cash_ratio": 85.8,
+   "credit_ratio": 14.2,
+   "dso": 67.2,
+   "fulfillment_rate": 99.1,
+   "mom_growth": 7.9,
+   "overall_margin": 8.8,
+   "total_revenue": 149257108.17,
+   "total_sales_reps": 7,
+   "total_transactions": 1988,
+   "unique_customers": 581,
+   "yoy_growth": 64.5
+  }
+ },
+ "status": "success"
+}

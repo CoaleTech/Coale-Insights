@@ -1,0 +1,1239 @@
+{
+ "data": {
+  "base_currency": "INR",
+  "cash_flow": {
+   "as_of": "2026-10-22",
+   "avg_monthly_inflow": 15083794.0,
+   "avg_monthly_outflow": 14675310.4,
+   "bank_balance": -842390.0,
+   "cash_accounts": [
+    {
+     "account": "Fixed Deposit - JKM",
+     "account_class": "Fixed Deposit",
+     "account_name": "Fixed Deposit",
+     "account_type": "",
+     "balance": 9821496.11,
+     "is_fd": true,
+     "share_pct": 102.6
+    },
+    {
+     "account": "Cash - JKM",
+     "account_class": "Cash",
+     "account_name": "Cash",
+     "account_type": "Cash",
+     "balance": 596039.02,
+     "is_fd": false,
+     "share_pct": 6.2
+    },
+    {
+     "account": "50200006603241 - HDFC Bank Ltd - JKM",
+     "account_class": "Bank",
+     "account_name": "HDFC Bank Ltd",
+     "account_type": "Bank",
+     "balance": -842390.0,
+     "is_fd": false,
+     "share_pct": -8.8
+    }
+   ],
+   "cash_on_hand": 596039.02,
+   "fd_balance": 9821496.11,
+   "fixed_deposits": {
+    "accounts": [
+     {
+      "account": "Fixed Deposit - JKM",
+      "account_name": "Fixed Deposit",
+      "balance": 9821496.11
+     }
+    ],
+    "avg_ticket": 270483.53,
+    "balance": 9821496.11,
+    "fiscal_year": "2627",
+    "interest_accrued": 0.0,
+    "interest_booked_fy": 16645.92,
+    "last_placement": "2026-09-12",
+    "last_release": "2026-09-12",
+    "monthly": [
+     {
+      "closing": 6132620.89,
+      "net": 434934.95,
+      "period": "2025-11",
+      "placed": 4342388.29,
+      "released": 3907453.34
+     },
+     {
+      "closing": 4781780.61,
+      "net": -1350840.28,
+      "period": "2025-12",
+      "placed": 4363499.88,
+      "released": 5714340.16
+     },
+     {
+      "closing": 7024767.22,
+      "net": 2242986.61,
+      "period": "2026-01",
+      "placed": 6303758.82,
+      "released": 4060772.21
+     },
+     {
+      "closing": 7675824.05,
+      "net": 651056.83,
+      "period": "2026-02",
+      "placed": 6600651.21,
+      "released": 5949594.38
+     },
+     {
+      "closing": 8386660.5,
+      "net": 710836.45,
+      "period": "2026-03",
+      "placed": 5563022.87,
+      "released": 4852186.42
+     },
+     {
+      "closing": 9526440.86,
+      "net": 1139780.36,
+      "period": "2026-04",
+      "placed": 6788370.0,
+      "released": 5648589.64
+     },
+     {
+      "closing": 11432529.8,
+      "net": 1906088.94,
+      "period": "2026-05",
+      "placed": 9689005.54,
+      "released": 7782916.6
+     },
+     {
+      "closing": 12836392.78,
+      "net": 1403862.98,
+      "period": "2026-06",
+      "placed": 6004600.16,
+      "released": 4600737.18
+     },
+     {
+      "closing": 10149448.04,
+      "net": -2686944.74,
+      "period": "2026-07",
+      "placed": 5114722.64,
+      "released": 7801667.38
+     },
+     {
+      "closing": 8673037.16,
+      "net": -1476410.88,
+      "period": "2026-08",
+      "placed": 6272476.33,
+      "released": 7748887.21
+     },
+     {
+      "closing": 9821496.11,
+      "net": 1148458.95,
+      "period": "2026-09",
+      "placed": 2521133.95,
+      "released": 1372675.0
+     }
+    ],
+    "pct_of_cash": 102.6,
+    "placed": 63563629.69,
+    "placement_count": 235,
+    "recent_activity": [
+     {
+      "amount": 1066627.0,
+      "direction": "placement",
+      "posting_date": "2026-09-12",
+      "reference": "50301417445901",
+      "voucher_no": "FD2627598"
+     },
+     {
+      "amount": 750.0,
+      "direction": "release",
+      "posting_date": "2026-09-12",
+      "reference": "50301417445901",
+      "voucher_no": "FD2627599"
+     },
+     {
+      "amount": 693633.0,
+      "direction": "release",
+      "posting_date": "2026-09-12",
+      "reference": "50301417445901",
+      "voucher_no": "FD2627600"
+     },
+     {
+      "amount": 44904.0,
+      "direction": "release",
+      "posting_date": "2026-09-12",
+      "reference": "50301417445901",
+      "voucher_no": "FD2627601"
+     },
+     {
+      "amount": 268255.0,
+      "direction": "placement",
+      "posting_date": "2026-09-10",
+      "reference": "50301416339320",
+      "voucher_no": "FD2627593"
+     },
+     {
+      "amount": 95946.0,
+      "direction": "release",
+      "posting_date": "2026-09-10",
+      "reference": "50301416339320",
+      "voucher_no": "FD2627594"
+     },
+     {
+      "amount": 112590.0,
+      "direction": "release",
+      "posting_date": "2026-09-10",
+      "reference": "50301416339320",
+      "voucher_no": "FD2627595"
+     },
+     {
+      "amount": 17405.0,
+      "direction": "release",
+      "posting_date": "2026-09-10",
+      "reference": "50301416339320",
+      "voucher_no": "FD2627596"
+     },
+     {
+      "amount": 6844.0,
+      "direction": "release",
+      "posting_date": "2026-09-10",
+      "reference": "50301416339320",
+      "voucher_no": "FD2627597"
+     },
+     {
+      "amount": 15458.0,
+      "direction": "release",
+      "posting_date": "2026-09-08",
+      "reference": "50301414331064",
+      "voucher_no": "FD2627585"
+     },
+     {
+      "amount": 113217.0,
+      "direction": "release",
+      "posting_date": "2026-09-08",
+      "reference": "50301413957534",
+      "voucher_no": "FD2627586"
+     },
+     {
+      "amount": 67732.0,
+      "direction": "release",
+      "posting_date": "2026-09-08",
+      "reference": "50301413957534",
+      "voucher_no": "FD2627587"
+     }
+    ],
+    "release_count": 597,
+    "released": 59439819.52,
+    "swept_with": [
+     "50200006603241 - HDFC Bank Ltd - JKM",
+     "Interest Accured on Fixed Deposit - JKM",
+     "TDS - JKM"
+    ],
+    "window_months": 12,
+    "yield_pct": 0.34
+   },
+   "inflow_by_source": [
+    {
+     "amount": 37271091.0,
+     "source": "Customer"
+    },
+    {
+     "amount": 503860.0,
+     "source": "Supplier"
+    }
+   ],
+   "large_transactions": [
+    {
+     "name": "PAY26271704",
+     "paid_amount": 1480824.0,
+     "party": "party-13e982",
+     "party_type": "Customer",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-01",
+     "reference_no": "RTGS Cr-UTIB0000013-SUJATA NUTRI-PHARMA PRIVATE LIMITED-JKM CHEMTRADE-UTIBR72026090100008323"
+    },
+    {
+     "name": "PAY26271732",
+     "paid_amount": 1000000.0,
+     "party": "party-1f0ac3",
+     "party_type": "Customer",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-02",
+     "reference_no": "NEFT Cr-ICIC0SF0002-ROYAL CROP SCIENCE AND TECHNOLOGY PRIVATE LIMITED-JKM CHEMTRADE-IN42624557340249"
+    },
+    {
+     "name": "PAY26271826",
+     "paid_amount": 857005.0,
+     "party": "party-4d5316",
+     "party_type": "Supplier",
+     "payment_type": "Pay",
+     "posting_date": "2026-09-12",
+     "reference_no": "RTGS Dr-IDFB0042461-NIRAMAY LIFE SCIENCE-CBX Internet-HDFCR52026091258181572-C40224120926164613"
+    },
+    {
+     "name": "PAY26271733",
+     "paid_amount": 719800.0,
+     "party": "party-449e6e",
+     "party_type": "Supplier",
+     "payment_type": "Pay",
+     "posting_date": "2026-09-02",
+     "reference_no": "RTGS Dr-UTIB0002193-ALGOL CHEMICALS INDIA PRIVATE LIMIT-CBX Internet-HDFCR52026090254037826-C19820020926175505"
+    },
+    {
+     "name": "PAY26271814",
+     "paid_amount": 602154.0,
+     "party": "party-bd134b",
+     "party_type": "Customer",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-11",
+     "reference_no": "CHQ DEP - CTS CLG2 - GHOD DOD ROAD-WBO: AZYTUS MATERIAL SCIENCESPRIVATE LIMITED :ICICI BANKING CORPORATION LTD"
+    },
+    {
+     "name": "PAY26271758",
+     "paid_amount": 523044.0,
+     "party": "party-dd08a1",
+     "party_type": "Supplier",
+     "payment_type": "Pay",
+     "posting_date": "2026-09-07",
+     "reference_no": "RTGS Dr-KKBK0000871-TIRUPATI TRADERS-CBX Internet-HDFCR52026090755839542-C69802070926173420"
+    },
+    {
+     "name": "PAY26271772",
+     "paid_amount": 503860.0,
+     "party": "party-449e6e",
+     "party_type": "Supplier",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-08",
+     "reference_no": "RTGS Cr-UTIB0002193-ALGOL CHEMICALS INDIA PRIVATE LIMITED-JKM CHEM TRADE-UTIBR62026090806518791"
+    },
+    {
+     "name": "PAY26271719",
+     "paid_amount": 500000.0,
+     "party": "party-2417f8",
+     "party_type": "Supplier",
+     "payment_type": "Pay",
+     "posting_date": "2026-09-01",
+     "reference_no": "RTGS Dr-BKID0002702-NEE CHEM-CBX Internet-HDFCR52026090153545287-C01085010926175857"
+    },
+    {
+     "name": "PAY26271807",
+     "paid_amount": 500000.0,
+     "party": "party-03ee09",
+     "party_type": "Supplier",
+     "payment_type": "Pay",
+     "posting_date": "2026-09-10",
+     "reference_no": "RTGS Dr-HSBC0400002-HETAL CHEM IMPEX-CBX Internet-HDFCR52026091057378824-C32316100926174403"
+    },
+    {
+     "name": "PAY26271703",
+     "paid_amount": 448400.0,
+     "party": "party-92e6af",
+     "party_type": "Customer",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-01",
+     "reference_no": "RTGS Cr-KKBK0000958-SHREE GANESH INDUSTRIES-JKM CHEMTRADE-KKBKR12026090100844895"
+    },
+    {
+     "name": "PAY26271752",
+     "paid_amount": 448400.0,
+     "party": "party-92e6af",
+     "party_type": "Customer",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-07",
+     "reference_no": "RTGS Cr-KKBK0000958-SHREE GANESH INDUSTRIES-JKM CHEMTRADE-KKBKR12026090700785605"
+    },
+    {
+     "name": "PAY26271731",
+     "paid_amount": 413000.0,
+     "party": "party-c2a982",
+     "party_type": "Customer",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-02",
+     "reference_no": "NEFT Cr-YESB0000001-VAASAVAA PHARMACEUTICALS PRIVATE LT-JKM Chemtrade-YESIG62450068324"
+    },
+    {
+     "name": "PAY26271706",
+     "paid_amount": 407100.0,
+     "party": "party-4448b5",
+     "party_type": "Supplier",
+     "payment_type": "Pay",
+     "posting_date": "2026-09-01",
+     "reference_no": "RTGS Dr-UTIB0000458-NIRAMAY Chemicals-CBX Internet-HDFCR52026090153477854-C01072010926175857"
+    },
+    {
+     "name": "PAY26271820",
+     "paid_amount": 400000.0,
+     "party": "party-1f0ac3",
+     "party_type": "Customer",
+     "payment_type": "Receive",
+     "posting_date": "2026-09-11",
+     "reference_no": "NEFT Cr-ICIC0SF0002-ROYAL CROP SCIENCE AND TECHNOLOGY PRIVATE LIMITED-JKM CHEMTRADE-IN42625456943021"
+    },
+    {
+     "name": "PAY26271734",
+     "paid_amount": 389400.0,
+     "party": "party-7b39f4",
+     "party_type": "Supplier",
+     "payment_type": "Pay",
+     "posting_date": "2026-09-02",
+     "reference_no": "A2AINT01 - HDFC000000X - C37546020926175812 -  - 59200085858585 - LAKSHMI CHEMICAL INDUSTRIES"
+    }
+   ],
+   "liquid_cash": -246350.98,
+   "monthly_cash_movement": [
+    {
+     "closing": 6025310.26,
+     "inflow": 24242072.06,
+     "net": 3213382.32,
+     "outflow": 21028689.74,
+     "period": "2025-10"
+    },
+    {
+     "closing": 6557101.41,
+     "inflow": 19611507.25,
+     "net": 531791.15,
+     "outflow": 19079716.1,
+     "period": "2025-11"
+    },
+    {
+     "closing": 5928395.13,
+     "inflow": 22869131.6,
+     "net": -628706.28,
+     "outflow": 23497837.88,
+     "period": "2025-12"
+    },
+    {
+     "closing": 8178044.64,
+     "inflow": 25355337.03,
+     "net": 2249649.51,
+     "outflow": 23105687.52,
+     "period": "2026-01"
+    },
+    {
+     "closing": 8398449.57,
+     "inflow": 28545469.57,
+     "net": 220404.93,
+     "outflow": 28325064.64,
+     "period": "2026-02"
+    },
+    {
+     "closing": 10067374.02,
+     "inflow": 32776307.36,
+     "net": 1668924.45,
+     "outflow": 31107382.91,
+     "period": "2026-03"
+    },
+    {
+     "closing": 10642138.38,
+     "inflow": 28991765.4,
+     "net": 574764.36,
+     "outflow": 28417001.04,
+     "period": "2026-04"
+    },
+    {
+     "closing": 11941684.32,
+     "inflow": 35525599.16,
+     "net": 1299545.94,
+     "outflow": 34226053.22,
+     "period": "2026-05"
+    },
+    {
+     "closing": 13692272.3,
+     "inflow": 28794422.34,
+     "net": 1750587.98,
+     "outflow": 27043834.36,
+     "period": "2026-06"
+    },
+    {
+     "closing": 11754228.56,
+     "inflow": 26658023.12,
+     "net": -1938043.74,
+     "outflow": 28596066.86,
+     "period": "2026-07"
+    },
+    {
+     "closing": 9259822.64,
+     "inflow": 29751094.3,
+     "net": -2494405.92,
+     "outflow": 32245500.22,
+     "period": "2026-08"
+    },
+    {
+     "closing": 10589149.13,
+     "inflow": 12301352.95,
+     "net": 1329326.49,
+     "outflow": 10972026.46,
+     "period": "2026-09"
+    },
+    {
+     "closing": 9698278.13,
+     "inflow": 0.0,
+     "net": -890871.0,
+     "outflow": 890871.0,
+     "period": "2026-10"
+    }
+   ],
+   "monthly_inflows": [
+    {
+     "amount": 16494565.0,
+     "period": "2026-04"
+    },
+    {
+     "amount": 18053421.02,
+     "period": "2026-05"
+    },
+    {
+     "amount": 18179827.0,
+     "period": "2026-06"
+    },
+    {
+     "amount": 13699177.0,
+     "period": "2026-07"
+    },
+    {
+     "amount": 15668230.0,
+     "period": "2026-08"
+    },
+    {
+     "amount": 8407544.0,
+     "period": "2026-09"
+    }
+   ],
+   "monthly_outflows": [
+    {
+     "amount": 15903066.4,
+     "period": "2026-04"
+    },
+    {
+     "amount": 16412649.3,
+     "period": "2026-05"
+    },
+    {
+     "amount": 15993050.0,
+     "period": "2026-06"
+    },
+    {
+     "amount": 15311547.0,
+     "period": "2026-07"
+    },
+    {
+     "amount": 17362301.16,
+     "period": "2026-08"
+    },
+    {
+     "amount": 7069248.51,
+     "period": "2026-09"
+    },
+    {
+     "amount": 343380.0,
+     "period": "2026-10"
+    }
+   ],
+   "net_burn_rate": -408483.61,
+   "outflow_by_use": [
+    {
+     "amount": 39184910.67,
+     "category": "Supplier"
+    },
+    {
+     "amount": 767167.0,
+     "category": "Employee"
+    },
+    {
+     "amount": 134399.0,
+     "category": "Customer"
+    }
+   ],
+   "post_dated": {
+    "entries": 8,
+    "last_date": "2026-11-07",
+    "net": -670624.0
+   },
+   "runway_months": null,
+   "total_cash": 9575145.129999999
+  },
+  "company": "company-3582cc",
+  "date_filter": "12m",
+  "forex": {
+   "at_risk_invoices": [],
+   "base_currency": "INR",
+   "exposure_summary": [],
+   "net_exposure_base": 0.0,
+   "net_unrealized": 0.0,
+   "payables_by_currency": [],
+   "realized_forex_trend": [
+    {
+     "forex_gain": 30466.99,
+     "forex_loss": 0.0,
+     "period": "2025-12"
+    },
+    {
+     "forex_gain": 0.0,
+     "forex_loss": 23404.02,
+     "period": "2026-01"
+    },
+    {
+     "forex_gain": 15809.64,
+     "forex_loss": 0.0,
+     "period": "2026-05"
+    }
+   ],
+   "receivables_by_currency": [],
+   "total_payable_base": 0.0,
+   "total_receivable_base": 0.0,
+   "total_unrealized_ap": 0.0,
+   "total_unrealized_ar": 0.0
+  },
+  "generated_at": "2026-10-22T14:42:47.453198",
+  "overview": {
+   "ebitda_margin": 4.3,
+   "expense_breakdown": [
+    {
+     "amount": 73648657.27,
+     "category": "Stock Expenses - JKM",
+     "pct": 96.0
+    },
+    {
+     "amount": 2576950.8,
+     "category": "Indirect Expenses - JKM",
+     "pct": 3.4
+    },
+    {
+     "amount": 227215.18,
+     "category": "Direct Expenses - JKM",
+     "pct": 0.3
+    },
+    {
+     "amount": 226920.0,
+     "category": "Freight Expenses - JKM",
+     "pct": 0.3
+    },
+    {
+     "amount": 0.0,
+     "category": "Expenses - JKM",
+     "pct": 0.0
+    }
+   ],
+   "gross_margin": null,
+   "monthly_trend": [
+    {
+     "expenses": 9658099.39,
+     "margin": 2.0,
+     "period": "2025-10",
+     "profit": 201424.3599999994,
+     "revenue": 9859523.75
+    },
+    {
+     "expenses": 8959191.2,
+     "margin": 10.3,
+     "period": "2025-11",
+     "profit": 1024621.6800000016,
+     "revenue": 9983812.88
+    },
+    {
+     "expenses": 13271915.06,
+     "margin": -3.1,
+     "period": "2025-12",
+     "profit": -395629.04000000097,
+     "revenue": 12876286.02
+    },
+    {
+     "expenses": 10580144.3,
+     "margin": -1.5,
+     "period": "2026-01",
+     "profit": -159069.06000000052,
+     "revenue": 10421075.24
+    },
+    {
+     "expenses": 13957188.96,
+     "margin": 1.6,
+     "period": "2026-02",
+     "profit": 227416.2899999991,
+     "revenue": 14184605.25
+    },
+    {
+     "expenses": 20310439.52,
+     "margin": -2.7,
+     "period": "2026-03",
+     "profit": -540538.3499999978,
+     "revenue": 19769901.17
+    },
+    {
+     "expenses": 16063593.35,
+     "margin": 8.2,
+     "period": "2026-04",
+     "profit": 1432417.2400000002,
+     "revenue": 17496010.59
+    },
+    {
+     "expenses": 14950837.19,
+     "margin": 0.1,
+     "period": "2026-05",
+     "profit": 11311.460000000894,
+     "revenue": 14962148.65
+    },
+    {
+     "expenses": 14886949.92,
+     "margin": 2.9,
+     "period": "2026-06",
+     "profit": 445418.8300000001,
+     "revenue": 15332368.75
+    },
+    {
+     "expenses": 11689797.37,
+     "margin": 4.2,
+     "period": "2026-07",
+     "profit": 508570.8800000008,
+     "revenue": 12198368.25
+    },
+    {
+     "expenses": 12557664.07,
+     "margin": 4.8,
+     "period": "2026-08",
+     "profit": 638601.0899999999,
+     "revenue": 13196265.16
+    },
+    {
+     "expenses": 6530901.35,
+     "margin": 6.2,
+     "period": "2026-09",
+     "profit": 433339.9000000004,
+     "revenue": 6964241.25
+    }
+   ],
+   "mtd_expenses": 0.0,
+   "mtd_profit": 0.0,
+   "mtd_revenue": 0.0,
+   "net_margin": 4.3,
+   "revenue_breakdown": [
+    {
+     "amount": 80123163.73,
+     "category": "Direct Income - JKM",
+     "pct": 100.0
+    },
+    {
+     "amount": 18145.92,
+     "category": "Indirect Income - JKM",
+     "pct": 0.0
+    },
+    {
+     "amount": 8093.0,
+     "category": "Income - JKM",
+     "pct": 0.0
+    }
+   ],
+   "ytd_ebitda": 3469659.4,
+   "ytd_expenses": 76679743.25,
+   "ytd_profit": 3469659.400000006,
+   "ytd_revenue": 80149402.65
+  },
+  "payables": {
+   "aging_buckets": [
+    {
+     "amount": 2651973.0,
+     "bucket": "Current",
+     "count": 23
+    },
+    {
+     "amount": 6146116.0,
+     "bucket": "1-30 Days",
+     "count": 94
+    },
+    {
+     "amount": 8416798.54,
+     "bucket": "31-60 Days",
+     "count": 86
+    },
+    {
+     "amount": 922689.0,
+     "bucket": "61-90 Days",
+     "count": 30
+    },
+    {
+     "amount": 931699.86,
+     "bucket": "90+ Days",
+     "count": 87
+    }
+   ],
+   "avg_open_payable_age_days": 86.0,
+   "avg_overdue_days": 64.5,
+   "current_dpo": 40.8,
+   "gl_balance": 15863972.75,
+   "invoice_count": 320,
+   "payment_schedule": [
+    {
+     "amount": 16417303.4,
+     "count": 297,
+     "period": "Overdue"
+    },
+    {
+     "amount": 1234428.0,
+     "count": 6,
+     "period": "This Week"
+    },
+    {
+     "amount": 837852.0,
+     "count": 8,
+     "period": "Next Week"
+    },
+    {
+     "amount": 579693.0,
+     "count": 9,
+     "period": "This Month"
+    }
+   ],
+   "top_suppliers": [
+    {
+     "invoice_count": 17,
+     "supplier": "supplier-871157",
+     "supplier_name": "supplier_name-003027",
+     "total_outstanding": 3396940.0
+    },
+    {
+     "invoice_count": 3,
+     "supplier": "supplier-9ca1aa",
+     "supplier_name": "supplier_name-5c4c47",
+     "total_outstanding": 1337943.0
+    },
+    {
+     "invoice_count": 5,
+     "supplier": "supplier-4448b5",
+     "supplier_name": "supplier_name-479371",
+     "total_outstanding": 1241656.0
+    },
+    {
+     "invoice_count": 2,
+     "supplier": "supplier-7fcaba",
+     "supplier_name": "supplier_name-89009c",
+     "total_outstanding": 1051380.0
+    },
+    {
+     "invoice_count": 4,
+     "supplier": "supplier-5fe1ab",
+     "supplier_name": "supplier_name-85c1c0",
+     "total_outstanding": 1051380.0
+    },
+    {
+     "invoice_count": 6,
+     "supplier": "supplier-6ede03",
+     "supplier_name": "supplier_name-977f32",
+     "total_outstanding": 969960.0
+    },
+    {
+     "invoice_count": 2,
+     "supplier": "supplier-03ee09",
+     "supplier_name": "supplier_name-571a09",
+     "total_outstanding": 897120.0
+    },
+    {
+     "invoice_count": 3,
+     "supplier": "supplier-4d5316",
+     "supplier_name": "supplier_name-2fb2c8",
+     "total_outstanding": 814200.0
+    },
+    {
+     "invoice_count": 37,
+     "supplier": "supplier-2417f8",
+     "supplier_name": "supplier_name-f5e58e",
+     "total_outstanding": 787338.0
+    },
+    {
+     "invoice_count": 4,
+     "supplier": "supplier-dcf634",
+     "supplier_name": "supplier_name-d9c86d",
+     "total_outstanding": 743507.0
+    }
+   ],
+   "total_outstanding": 19069276.4,
+   "upcoming_payments": [
+    {
+     "days_until_due": 2,
+     "due_date": "2026-10-24",
+     "name": "PI26271361",
+     "outstanding_amount": 247800.0,
+     "posting_date": "2026-08-25",
+     "supplier": "supplier-2e3533",
+     "supplier_name": "supplier_name-6065a7"
+    },
+    {
+     "days_until_due": 5,
+     "due_date": "2026-10-27",
+     "name": "PI26271296",
+     "outstanding_amount": 206766.0,
+     "posting_date": "2026-08-18",
+     "supplier": "supplier-267590",
+     "supplier_name": "supplier_name-bad746"
+    },
+    {
+     "days_until_due": 5,
+     "due_date": "2026-10-27",
+     "name": "PI26271298",
+     "outstanding_amount": 497016.0,
+     "posting_date": "2026-08-18",
+     "supplier": "supplier-7fcaba",
+     "supplier_name": "supplier_name-89009c"
+    },
+    {
+     "days_until_due": 6,
+     "due_date": "2026-10-28",
+     "name": "PI26271309",
+     "outstanding_amount": 92925.0,
+     "posting_date": "2026-08-19",
+     "supplier": "supplier-6ede03",
+     "supplier_name": "supplier_name-977f32"
+    },
+    {
+     "days_until_due": 7,
+     "due_date": "2026-10-29",
+     "name": "PI26271312",
+     "outstanding_amount": 23541.0,
+     "posting_date": "2026-08-20",
+     "supplier": "supplier-dc0697",
+     "supplier_name": "supplier_name-198408"
+    },
+    {
+     "days_until_due": 7,
+     "due_date": "2026-10-29",
+     "name": "PI26271313",
+     "outstanding_amount": 166380.0,
+     "posting_date": "2026-08-20",
+     "supplier": "supplier-e30b5f",
+     "supplier_name": "supplier_name-c5d5a9"
+    },
+    {
+     "days_until_due": 9,
+     "due_date": "2026-10-31",
+     "name": "PI26271406",
+     "outstanding_amount": 156539.0,
+     "posting_date": "2026-09-01",
+     "supplier": "supplier-5c660f",
+     "supplier_name": "supplier_name-b5bd21"
+    },
+    {
+     "days_until_due": 10,
+     "due_date": "2026-11-01",
+     "name": "PI26271412",
+     "outstanding_amount": 203904.0,
+     "posting_date": "2026-09-02",
+     "supplier": "supplier-6ede03",
+     "supplier_name": "supplier_name-977f32"
+    },
+    {
+     "days_until_due": 10,
+     "due_date": "2026-11-01",
+     "name": "PI26271417",
+     "outstanding_amount": 221526.0,
+     "posting_date": "2026-09-02",
+     "supplier": "supplier-eb5f46",
+     "supplier_name": "supplier_name-5cd843"
+    },
+    {
+     "days_until_due": 11,
+     "due_date": "2026-11-02",
+     "name": "PI26271347",
+     "outstanding_amount": 82305.0,
+     "posting_date": "2026-08-24",
+     "supplier": "supplier-7848ea",
+     "supplier_name": "supplier_name-fcceb6"
+    },
+    {
+     "days_until_due": 12,
+     "due_date": "2026-11-03",
+     "name": "PI26271363",
+     "outstanding_amount": 89562.0,
+     "posting_date": "2026-08-25",
+     "supplier": "supplier-ced692",
+     "supplier_name": "supplier_name-c8ebf5"
+    },
+    {
+     "days_until_due": 13,
+     "due_date": "2026-11-04",
+     "name": "PI26271368",
+     "outstanding_amount": 29264.0,
+     "posting_date": "2026-08-26",
+     "supplier": "supplier-5438d3",
+     "supplier_name": "supplier_name-b027a4"
+    },
+    {
+     "days_until_due": 13,
+     "due_date": "2026-11-04",
+     "name": "PI26271437",
+     "outstanding_amount": 29264.0,
+     "posting_date": "2026-09-05",
+     "supplier": "supplier-3573f2",
+     "supplier_name": "supplier_name-dc4688"
+    },
+    {
+     "days_until_due": 14,
+     "due_date": "2026-11-05",
+     "name": "PI26271378-1",
+     "outstanding_amount": 25488.0,
+     "posting_date": "2026-08-27",
+     "supplier": "supplier-ce8d37",
+     "supplier_name": "supplier_name-e8e652"
+    },
+    {
+     "days_until_due": 16,
+     "due_date": "2026-11-07",
+     "name": "PI26271383",
+     "outstanding_amount": 12980.0,
+     "posting_date": "2026-08-29",
+     "supplier": "supplier-cb362c",
+     "supplier_name": "supplier_name-cc1dbf"
+    },
+    {
+     "days_until_due": 16,
+     "due_date": "2026-11-07",
+     "name": "PI26271464",
+     "outstanding_amount": 26137.0,
+     "posting_date": "2026-09-08",
+     "supplier": "supplier-6ede03",
+     "supplier_name": "supplier_name-977f32"
+    },
+    {
+     "days_until_due": 18,
+     "due_date": "2026-11-09",
+     "name": "PI26271475",
+     "outstanding_amount": 202205.0,
+     "posting_date": "2026-09-10",
+     "supplier": "supplier-5438d3",
+     "supplier_name": "supplier_name-b027a4"
+    },
+    {
+     "days_until_due": 18,
+     "due_date": "2026-11-09",
+     "name": "PI26271476",
+     "outstanding_amount": 28886.0,
+     "posting_date": "2026-09-10",
+     "supplier": "supplier-5438d3",
+     "supplier_name": "supplier_name-b027a4"
+    },
+    {
+     "days_until_due": 19,
+     "due_date": "2026-11-10",
+     "name": "PI26271490",
+     "outstanding_amount": 94518.0,
+     "posting_date": "2026-09-11",
+     "supplier": "supplier-b011d5",
+     "supplier_name": "supplier_name-dc515d"
+    },
+    {
+     "days_until_due": 19,
+     "due_date": "2026-11-10",
+     "name": "PI26271491",
+     "outstanding_amount": 24426.0,
+     "posting_date": "2026-09-11",
+     "supplier": "supplier-707ae1",
+     "supplier_name": "supplier_name-43f3df"
+    }
+   ]
+  },
+  "receivables": {
+   "aging_buckets": [
+    {
+     "amount": 1402808.0,
+     "bucket": "Current",
+     "count": 7
+    },
+    {
+     "amount": 7399336.0,
+     "bucket": "1-30 Days",
+     "count": 24
+    },
+    {
+     "amount": 8227825.0,
+     "bucket": "31-60 Days",
+     "count": 67
+    },
+    {
+     "amount": 1538224.0,
+     "bucket": "61-90 Days",
+     "count": 20
+    },
+    {
+     "amount": 1146021.0,
+     "bucket": "90+ Days",
+     "count": 22
+    }
+   ],
+   "avg_open_receivable_age_days": 81.8,
+   "avg_overdue_days": 65.2,
+   "collection_trend": [
+    {
+     "collected": 14949922.64,
+     "period": "2025-10"
+    },
+    {
+     "collected": 11313557.32,
+     "period": "2025-11"
+    },
+    {
+     "collected": 12373188.57,
+     "period": "2025-12"
+    },
+    {
+     "collected": 14788784.32,
+     "period": "2026-01"
+    },
+    {
+     "collected": 15910066.0,
+     "period": "2026-02"
+    },
+    {
+     "collected": 22329048.74,
+     "period": "2026-03"
+    },
+    {
+     "collected": 15221310.0,
+     "period": "2026-04"
+    },
+    {
+     "collected": 17825702.56,
+     "period": "2026-05"
+    },
+    {
+     "collected": 18058578.0,
+     "period": "2026-06"
+    },
+    {
+     "collected": 13695490.0,
+     "period": "2026-07"
+    },
+    {
+     "collected": 15543802.0,
+     "period": "2026-08"
+    },
+    {
+     "collected": 7717374.0,
+     "period": "2026-09"
+    }
+   ],
+   "current_dso": 39.6,
+   "gl_balance": 18929784.0,
+   "invoice_count": 140,
+   "overdue_customers": [
+    {
+     "customer": "customer-ce99fc",
+     "customer_name": "customer_name-bed4b1",
+     "invoice_count": 4,
+     "max_overdue_days": 82,
+     "oldest_due_date": "2026-08-01",
+     "total_outstanding": 2792767.0
+    },
+    {
+     "customer": "customer-92e6af",
+     "customer_name": "customer_name-95520c",
+     "invoice_count": 7,
+     "max_overdue_days": 64,
+     "oldest_due_date": "2026-08-19",
+     "total_outstanding": 2666799.0
+    },
+    {
+     "customer": "customer-1f0ac3",
+     "customer_name": "customer_name-fdf6c5",
+     "invoice_count": 11,
+     "max_overdue_days": 61,
+     "oldest_due_date": "2026-08-22",
+     "total_outstanding": 2467335.0
+    },
+    {
+     "customer": "customer-3b8cf2",
+     "customer_name": "customer_name-074e21",
+     "invoice_count": 2,
+     "max_overdue_days": 26,
+     "oldest_due_date": "2026-09-26",
+     "total_outstanding": 1292100.0
+    },
+    {
+     "customer": "customer-d44b3f",
+     "customer_name": "customer_name-0799c6",
+     "invoice_count": 6,
+     "max_overdue_days": 56,
+     "oldest_due_date": "2026-08-27",
+     "total_outstanding": 1264135.0
+    },
+    {
+     "customer": "customer-d978a2",
+     "customer_name": "customer_name-9fb8ca",
+     "invoice_count": 6,
+     "max_overdue_days": 38,
+     "oldest_due_date": "2026-09-14",
+     "total_outstanding": 879652.0
+    },
+    {
+     "customer": "customer-bd134b",
+     "customer_name": "customer_name-48bef1",
+     "invoice_count": 2,
+     "max_overdue_days": 32,
+     "oldest_due_date": "2026-09-20",
+     "total_outstanding": 758103.0
+    },
+    {
+     "customer": "customer-7959b9",
+     "customer_name": "customer_name-8e61ed",
+     "invoice_count": 4,
+     "max_overdue_days": 62,
+     "oldest_due_date": "2026-08-21",
+     "total_outstanding": 677688.0
+    },
+    {
+     "customer": "customer-794fe1",
+     "customer_name": "customer_name-5678a0",
+     "invoice_count": 2,
+     "max_overdue_days": 257,
+     "oldest_due_date": "2026-02-07",
+     "total_outstanding": 580922.0
+    },
+    {
+     "customer": "customer-13e982",
+     "customer_name": "customer_name-c4abe8",
+     "invoice_count": 2,
+     "max_overdue_days": 70,
+     "oldest_due_date": "2026-08-13",
+     "total_outstanding": 575272.0
+    },
+    {
+     "customer": "customer-a227f9",
+     "customer_name": "customer_name-e566c6",
+     "invoice_count": 2,
+     "max_overdue_days": 28,
+     "oldest_due_date": "2026-09-24",
+     "total_outstanding": 504356.0
+    },
+    {
+     "customer": "customer-339948",
+     "customer_name": "customer_name-1417e0",
+     "invoice_count": 1,
+     "max_overdue_days": 44,
+     "oldest_due_date": "2026-09-08",
+     "total_outstanding": 415800.0
+    },
+    {
+     "customer": "customer-a72092",
+     "customer_name": "customer_name-97c6ae",
+     "invoice_count": 1,
+     "max_overdue_days": 13,
+     "oldest_due_date": "2026-10-09",
+     "total_outstanding": 316830.0
+    },
+    {
+     "customer": "customer-2003fc",
+     "customer_name": "customer_name-c8dde3",
+     "invoice_count": 3,
+     "max_overdue_days": 74,
+     "oldest_due_date": "2026-08-09",
+     "total_outstanding": 275967.0
+    },
+    {
+     "customer": "customer-46de8c",
+     "customer_name": "customer_name-ac6971",
+     "invoice_count": 3,
+     "max_overdue_days": 57,
+     "oldest_due_date": "2026-08-26",
+     "total_outstanding": 262739.0
+    }
+   ],
+   "total_outstanding": 19714214.0
+  },
+  "status": "success"
+ },
+ "status": "success"
+}

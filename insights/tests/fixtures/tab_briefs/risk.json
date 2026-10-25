@@ -1,0 +1,2724 @@
+{
+ "base_currency": "INR",
+ "cashflow_risk": {
+  "cash_forecast": {
+   "forecast": [
+    {
+     "ds": "2026-11-08",
+     "yhat": -62607.88,
+     "yhat_lower": -53216.7,
+     "yhat_upper": -71999.07
+    },
+    {
+     "ds": "2026-11-09",
+     "yhat": -62531.87,
+     "yhat_lower": -53152.09,
+     "yhat_upper": -71911.65
+    },
+    {
+     "ds": "2026-11-10",
+     "yhat": -62455.85,
+     "yhat_lower": -53087.47,
+     "yhat_upper": -71824.23
+    },
+    {
+     "ds": "2026-11-11",
+     "yhat": -62379.84,
+     "yhat_lower": -53022.86,
+     "yhat_upper": -71736.81
+    },
+    {
+     "ds": "2026-11-12",
+     "yhat": -62303.82,
+     "yhat_lower": -52958.25,
+     "yhat_upper": -71649.39
+    },
+    {
+     "ds": "2026-11-13",
+     "yhat": -62227.81,
+     "yhat_lower": -52893.63,
+     "yhat_upper": -71561.98
+    },
+    {
+     "ds": "2026-11-14",
+     "yhat": -62151.79,
+     "yhat_lower": -52829.02,
+     "yhat_upper": -71474.56
+    },
+    {
+     "ds": "2026-11-15",
+     "yhat": -62075.77,
+     "yhat_lower": -52764.41,
+     "yhat_upper": -71387.14
+    },
+    {
+     "ds": "2026-11-16",
+     "yhat": -61999.76,
+     "yhat_lower": -52699.79,
+     "yhat_upper": -71299.72
+    },
+    {
+     "ds": "2026-11-17",
+     "yhat": -61923.74,
+     "yhat_lower": -52635.18,
+     "yhat_upper": -71212.3
+    },
+    {
+     "ds": "2026-11-18",
+     "yhat": -61847.73,
+     "yhat_lower": -52570.57,
+     "yhat_upper": -71124.89
+    },
+    {
+     "ds": "2026-11-19",
+     "yhat": -61771.71,
+     "yhat_lower": -52505.95,
+     "yhat_upper": -71037.47
+    },
+    {
+     "ds": "2026-11-20",
+     "yhat": -61695.7,
+     "yhat_lower": -52441.34,
+     "yhat_upper": -70950.05
+    },
+    {
+     "ds": "2026-11-21",
+     "yhat": -61619.68,
+     "yhat_lower": -52376.73,
+     "yhat_upper": -70862.63
+    },
+    {
+     "ds": "2026-11-22",
+     "yhat": -61543.66,
+     "yhat_lower": -52312.11,
+     "yhat_upper": -70775.21
+    },
+    {
+     "ds": "2026-11-23",
+     "yhat": -61467.65,
+     "yhat_lower": -52247.5,
+     "yhat_upper": -70687.8
+    },
+    {
+     "ds": "2026-11-24",
+     "yhat": -61391.63,
+     "yhat_lower": -52182.89,
+     "yhat_upper": -70600.38
+    },
+    {
+     "ds": "2026-11-25",
+     "yhat": -61315.62,
+     "yhat_lower": -52118.27,
+     "yhat_upper": -70512.96
+    },
+    {
+     "ds": "2026-11-26",
+     "yhat": -61239.6,
+     "yhat_lower": -52053.66,
+     "yhat_upper": -70425.54
+    },
+    {
+     "ds": "2026-11-27",
+     "yhat": -61163.59,
+     "yhat_lower": -51989.05,
+     "yhat_upper": -70338.12
+    },
+    {
+     "ds": "2026-11-28",
+     "yhat": -61087.57,
+     "yhat_lower": -51924.43,
+     "yhat_upper": -70250.71
+    },
+    {
+     "ds": "2026-11-29",
+     "yhat": -61011.55,
+     "yhat_lower": -51859.82,
+     "yhat_upper": -70163.29
+    },
+    {
+     "ds": "2026-11-30",
+     "yhat": -60935.54,
+     "yhat_lower": -51795.21,
+     "yhat_upper": -70075.87
+    },
+    {
+     "ds": "2026-12-01",
+     "yhat": -60859.52,
+     "yhat_lower": -51730.59,
+     "yhat_upper": -69988.45
+    },
+    {
+     "ds": "2026-12-02",
+     "yhat": -60783.51,
+     "yhat_lower": -51665.98,
+     "yhat_upper": -69901.03
+    },
+    {
+     "ds": "2026-12-03",
+     "yhat": -60707.49,
+     "yhat_lower": -51601.37,
+     "yhat_upper": -69813.62
+    },
+    {
+     "ds": "2026-12-04",
+     "yhat": -60631.48,
+     "yhat_lower": -51536.75,
+     "yhat_upper": -69726.2
+    },
+    {
+     "ds": "2026-12-05",
+     "yhat": -60555.46,
+     "yhat_lower": -51472.14,
+     "yhat_upper": -69638.78
+    },
+    {
+     "ds": "2026-12-06",
+     "yhat": -60479.44,
+     "yhat_lower": -51407.53,
+     "yhat_upper": -69551.36
+    },
+    {
+     "ds": "2026-12-07",
+     "yhat": -60403.43,
+     "yhat_lower": -51342.91,
+     "yhat_upper": -69463.94
+    }
+   ],
+   "model_performance": {
+    "data_points": 2265,
+    "method": "Moving Average",
+    "periods": 30,
+    "trend": "-3.6%"
+   },
+   "status": "success"
+  },
+  "current_cash_position": -246350.98,
+  "current_working_capital": 4283604.01,
+  "customer_concentration": [
+   {
+    "customer": "customer-1f0ac3",
+    "customer_name": "customer_name-fdf6c5",
+    "revenue": 21395712.05,
+    "revenue_share": 12.47
+   },
+   {
+    "customer": "customer-13e982",
+    "customer_name": "customer_name-c4abe8",
+    "revenue": 18360800.0,
+    "revenue_share": 10.7
+   },
+   {
+    "customer": "customer-92e6af",
+    "customer_name": "customer_name-95520c",
+    "revenue": 14147610.0,
+    "revenue_share": 8.25
+   },
+   {
+    "customer": "customer-ce99fc",
+    "customer_name": "customer_name-bed4b1",
+    "revenue": 7879721.0,
+    "revenue_share": 4.59
+   },
+   {
+    "customer": "customer-339948",
+    "customer_name": "customer_name-1417e0",
+    "revenue": 4996950.0,
+    "revenue_share": 2.91
+   },
+   {
+    "customer": "customer-d44b3f",
+    "customer_name": "customer_name-0799c6",
+    "revenue": 4664135.0,
+    "revenue_share": 2.72
+   },
+   {
+    "customer": "customer-d978a2",
+    "customer_name": "customer_name-9fb8ca",
+    "revenue": 4454974.0,
+    "revenue_share": 2.6
+   },
+   {
+    "customer": "customer-e2c4f7",
+    "customer_name": "customer_name-746cee",
+    "revenue": 3854468.0,
+    "revenue_share": 2.25
+   },
+   {
+    "customer": "customer-bd134b",
+    "customer_name": "customer_name-48bef1",
+    "revenue": 3540660.8,
+    "revenue_share": 2.06
+   },
+   {
+    "customer": "customer-322f07",
+    "customer_name": "customer_name-1bd324",
+    "revenue": 3385420.0,
+    "revenue_share": 1.97
+   }
+  ],
+  "exposure_trend": [
+   {
+    "payables": 11591005.45,
+    "period": "2025-11",
+    "receivables": 14675401.39
+   },
+   {
+    "payables": 12404271.19,
+    "period": "2025-12",
+    "receivables": 16276759.92
+   },
+   {
+    "payables": 11565368.97,
+    "period": "2026-01",
+    "receivables": 13291743.0
+   },
+   {
+    "payables": 13122174.73,
+    "period": "2026-02",
+    "receivables": 13989376.0
+   },
+   {
+    "payables": 15552617.32,
+    "period": "2026-03",
+    "receivables": 14430733.08
+   },
+   {
+    "payables": 18107507.72,
+    "period": "2026-04",
+    "receivables": 19353067.08
+   },
+   {
+    "payables": 18996411.06,
+    "period": "2026-05",
+    "receivables": 18861321.0
+   },
+   {
+    "payables": 20218434.66,
+    "period": "2026-06",
+    "receivables": 18698646.0
+   },
+   {
+    "payables": 18552266.17,
+    "period": "2026-07",
+    "receivables": 19208078.0
+   },
+   {
+    "payables": 15480434.14,
+    "period": "2026-08",
+    "receivables": 18705465.0
+   },
+   {
+    "payables": 16207352.75,
+    "period": "2026-09",
+    "receivables": 18929784.0
+   },
+   {
+    "payables": 15316481.75,
+    "period": "2026-10",
+    "receivables": 18929784.0
+   }
+  ],
+  "overdue_days_trend": [
+   {
+    "avg_days_overdue": 351.6,
+    "month_end_outstanding": 0.0,
+    "monthly_sales": 1657963.0,
+    "period": "2025-10"
+   },
+   {
+    "avg_days_overdue": 337.3,
+    "month_end_outstanding": 0.0,
+    "monthly_sales": 11389890.68,
+    "period": "2025-11"
+   },
+   {
+    "avg_days_overdue": 304.9,
+    "month_end_outstanding": 81243.0,
+    "monthly_sales": 14959428.4,
+    "period": "2025-12"
+   },
+   {
+    "avg_days_overdue": 273.8,
+    "month_end_outstanding": 0.0,
+    "monthly_sales": 12063471.9,
+    "period": "2026-01"
+   },
+   {
+    "avg_days_overdue": 243.3,
+    "month_end_outstanding": 93798.0,
+    "monthly_sales": 16548219.0,
+    "period": "2026-02"
+   },
+   {
+    "avg_days_overdue": 214.0,
+    "month_end_outstanding": 42481.0,
+    "monthly_sales": 22835177.24,
+    "period": "2026-03"
+   },
+   {
+    "avg_days_overdue": 183.8,
+    "month_end_outstanding": 3255.0,
+    "monthly_sales": 19302463.04,
+    "period": "2026-04"
+   },
+   {
+    "avg_days_overdue": 152.8,
+    "month_end_outstanding": 20109.0,
+    "monthly_sales": 17526694.0,
+    "period": "2026-05"
+   },
+   {
+    "avg_days_overdue": 120.4,
+    "month_end_outstanding": 604825.0,
+    "monthly_sales": 17911283.45,
+    "period": "2026-06"
+   },
+   {
+    "avg_days_overdue": 88.0,
+    "month_end_outstanding": 2758184.0,
+    "monthly_sales": 14207208.76,
+    "period": "2026-07"
+   },
+   {
+    "avg_days_overdue": 59.5,
+    "month_end_outstanding": 9480527.0,
+    "monthly_sales": 15160188.4,
+    "period": "2026-08"
+   },
+   {
+    "avg_days_overdue": 36.1,
+    "month_end_outstanding": 6349938.0,
+    "monthly_sales": 8002010.0,
+    "period": "2026-09"
+   }
+  ],
+  "top_customer_share": 12.47,
+  "working_capital_ratio": 1.28
+ },
+ "company": "company-3582cc",
+ "compliance_risk": {
+  "compliance_category": "Low",
+  "compliance_issues": [],
+  "document_audit": [
+   {
+    "document_type": "Sales Invoice",
+    "incomplete_docs": 0,
+    "total_docs": 3897
+   },
+   {
+    "document_type": "Purchase Invoice",
+    "incomplete_docs": 0,
+    "total_docs": 5600
+   }
+  ],
+  "gst_status": {
+   "einvoice_coverage_pct": 100.0,
+   "einvoice_pending_value": 0.0,
+   "gstr1_latest_period": "102026",
+   "gstr1_status": "Overdue",
+   "gstr3b_latest_period": "102026",
+   "gstr3b_status": "Overdue"
+  },
+  "licenses": [
+   {
+    "license_type": "GST Registration",
+    "reference": "24AAKFJ7154J1Z3",
+    "risk_level": "Low",
+    "status": "Registered"
+   },
+   {
+    "license_type": "PAN",
+    "reference": "AAKFJ7154J",
+    "risk_level": "Low",
+    "status": "Registered"
+   }
+  ],
+  "overall_compliance_score": 0
+ },
+ "credit_risk": {
+  "aging_analysis": [
+   {
+    "aging_bucket": "Current",
+    "invoice_count": 7,
+    "outstanding_amount": 1402808.0
+   },
+   {
+    "aging_bucket": "1-30 Days",
+    "invoice_count": 24,
+    "outstanding_amount": 7399336.0
+   },
+   {
+    "aging_bucket": "31-60 Days",
+    "invoice_count": 67,
+    "outstanding_amount": 8227825.0
+   },
+   {
+    "aging_bucket": "61-90 Days",
+    "invoice_count": 20,
+    "outstanding_amount": 1538224.0
+   },
+   {
+    "aging_bucket": "90+ Days",
+    "invoice_count": 22,
+    "outstanding_amount": 1146021.0
+   }
+  ],
+  "avg_days_overdue": 43.2,
+  "customer_risk_scores": [
+   {
+    "avg_overdue_days": 159.0,
+    "customer": "customer-ce99fc",
+    "customer_name": "customer_name-bed4b1",
+    "max_overdue_days": 298,
+    "outstanding": 2792767.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 91.9,
+    "total_invoices": 12,
+    "total_sales": 7879721.0
+   },
+   {
+    "avg_overdue_days": 166.9,
+    "customer": "customer-92e6af",
+    "customer_name": "customer_name-95520c",
+    "max_overdue_days": 295,
+    "outstanding": 2666799.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 85.5,
+    "total_invoices": 36,
+    "total_sales": 14147610.0
+   },
+   {
+    "avg_overdue_days": 170.7,
+    "customer": "customer-1f0ac3",
+    "customer_name": "customer_name-fdf6c5",
+    "max_overdue_days": 328,
+    "outstanding": 2467335.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 82.8,
+    "total_invoices": 70,
+    "total_sales": 21395712.05
+   },
+   {
+    "avg_overdue_days": 47.5,
+    "customer": "customer-bd134b",
+    "customer_name": "customer_name-48bef1",
+    "max_overdue_days": 159,
+    "outstanding": 1543865.0,
+    "risk_category": "Medium",
+    "risk_color": "yellow",
+    "risk_score": 47.3,
+    "total_invoices": 11,
+    "total_sales": 3540660.8
+   },
+   {
+    "avg_overdue_days": 138.0,
+    "customer": "customer-d978a2",
+    "customer_name": "customer_name-9fb8ca",
+    "max_overdue_days": 299,
+    "outstanding": 1396988.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 80.1,
+    "total_invoices": 40,
+    "total_sales": 4454974.0
+   },
+   {
+    "avg_overdue_days": 18.0,
+    "customer": "customer-3b8cf2",
+    "customer_name": "customer_name-074e21",
+    "max_overdue_days": 26,
+    "outstanding": 1292100.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 68.0,
+    "total_invoices": 2,
+    "total_sales": 1292100.0
+   },
+   {
+    "avg_overdue_days": 108.0,
+    "customer": "customer-d44b3f",
+    "customer_name": "customer_name-0799c6",
+    "max_overdue_days": 183,
+    "outstanding": 1264135.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 64.3,
+    "total_invoices": 33,
+    "total_sales": 4664135.0
+   },
+   {
+    "avg_overdue_days": 176.2,
+    "customer": "customer-7959b9",
+    "customer_name": "customer_name-8e61ed",
+    "max_overdue_days": 286,
+    "outstanding": 677688.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 98.6,
+    "total_invoices": 19,
+    "total_sales": 2002905.96
+   },
+   {
+    "avg_overdue_days": 254.0,
+    "customer": "customer-794fe1",
+    "customer_name": "customer_name-5678a0",
+    "max_overdue_days": 335,
+    "outstanding": 580922.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "total_invoices": 4,
+    "total_sales": 2413100.0
+   },
+   {
+    "avg_overdue_days": 198.7,
+    "customer": "customer-13e982",
+    "customer_name": "customer_name-c4abe8",
+    "max_overdue_days": 321,
+    "outstanding": 575272.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 90.2,
+    "total_invoices": 24,
+    "total_sales": 18360800.0
+   },
+   {
+    "avg_overdue_days": 74.5,
+    "customer": "customer-a227f9",
+    "customer_name": "customer_name-e566c6",
+    "max_overdue_days": 161,
+    "outstanding": 504356.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 54.3,
+    "total_invoices": 4,
+    "total_sales": 1427278.0
+   },
+   {
+    "avg_overdue_days": 199.1,
+    "customer": "customer-339948",
+    "customer_name": "customer_name-1417e0",
+    "max_overdue_days": 336,
+    "outstanding": 415426.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 93.5,
+    "total_invoices": 16,
+    "total_sales": 4996950.0
+   },
+   {
+    "avg_overdue_days": 142.3,
+    "customer": "customer-a72092",
+    "customer_name": "customer_name-97c6ae",
+    "max_overdue_days": 222,
+    "outstanding": 316830.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 88.9,
+    "total_invoices": 3,
+    "total_sales": 740792.0
+   },
+   {
+    "avg_overdue_days": 197.7,
+    "customer": "customer-2003fc",
+    "customer_name": "customer_name-c8dde3",
+    "max_overdue_days": 329,
+    "outstanding": 275967.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 95.2,
+    "total_invoices": 30,
+    "total_sales": 2245974.0
+   },
+   {
+    "avg_overdue_days": 167.8,
+    "customer": "customer-46de8c",
+    "customer_name": "customer_name-ac6971",
+    "max_overdue_days": 328,
+    "outstanding": 262739.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 88.8,
+    "total_invoices": 17,
+    "total_sales": 1107120.0
+   },
+   {
+    "avg_overdue_days": 18.0,
+    "customer": "customer-5ff533",
+    "customer_name": "customer_name-294d5f",
+    "max_overdue_days": 18,
+    "outstanding": 230336.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 68.0,
+    "total_invoices": 1,
+    "total_sales": 230336.0
+   },
+   {
+    "avg_overdue_days": 124.7,
+    "customer": "customer-426242",
+    "customer_name": "customer_name-c9a689",
+    "max_overdue_days": 262,
+    "outstanding": 207717.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 76.8,
+    "total_invoices": 10,
+    "total_sales": 583067.0
+   },
+   {
+    "avg_overdue_days": 181.1,
+    "customer": "customer-9d8887",
+    "customer_name": "customer_name-a41fad",
+    "max_overdue_days": 319,
+    "outstanding": 179318.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 94.0,
+    "total_invoices": 9,
+    "total_sales": 797021.0
+   },
+   {
+    "avg_overdue_days": 195.8,
+    "customer": "customer-057643",
+    "customer_name": "customer_name-48500a",
+    "max_overdue_days": 341,
+    "outstanding": 169468.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 98.0,
+    "total_invoices": 36,
+    "total_sales": 928964.0
+   },
+   {
+    "avg_overdue_days": 162.6,
+    "customer": "customer-363b40",
+    "customer_name": "customer_name-17c4c0",
+    "max_overdue_days": 302,
+    "outstanding": 135332.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 91.1,
+    "total_invoices": 14,
+    "total_sales": 431007.0
+   },
+   {
+    "avg_overdue_days": 157.8,
+    "customer": "customer-4f0857",
+    "customer_name": "customer_name-de7502",
+    "max_overdue_days": 239,
+    "outstanding": 100418.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 87.2,
+    "total_invoices": 5,
+    "total_sales": 352449.0
+   },
+   {
+    "avg_overdue_days": 134.0,
+    "customer": "customer-9c2e42",
+    "customer_name": "customer_name-21a451",
+    "max_overdue_days": 330,
+    "outstanding": 93245.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 83.2,
+    "total_invoices": 13,
+    "total_sales": 236674.0
+   },
+   {
+    "avg_overdue_days": 140.0,
+    "customer": "customer-cc0ec7",
+    "customer_name": "customer_name-9d4167",
+    "max_overdue_days": 261,
+    "outstanding": 88170.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 87.3,
+    "total_invoices": 3,
+    "total_sales": 211144.0
+   },
+   {
+    "avg_overdue_days": 52.0,
+    "customer": "customer-6ed675",
+    "customer_name": "customer_name-ba0f77",
+    "max_overdue_days": 71,
+    "outstanding": 86435.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 52.9,
+    "total_invoices": 2,
+    "total_sales": 174050.0
+   },
+   {
+    "avg_overdue_days": 302.0,
+    "customer": "customer-032d7e",
+    "customer_name": "customer_name-1e6829",
+    "max_overdue_days": 302,
+    "outstanding": 81243.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "total_invoices": 1,
+    "total_sales": 81243.0
+   },
+   {
+    "avg_overdue_days": 185.0,
+    "customer": "customer-6b7360",
+    "customer_name": "customer_name-58a684",
+    "max_overdue_days": 351,
+    "outstanding": 79944.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 85.7,
+    "total_invoices": 16,
+    "total_sales": 1382431.0
+   },
+   {
+    "avg_overdue_days": 191.8,
+    "customer": "customer-b101ca",
+    "customer_name": "customer_name-b97828",
+    "max_overdue_days": 357,
+    "outstanding": 79296.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 88.0,
+    "total_invoices": 21,
+    "total_sales": 1706492.5
+   },
+   {
+    "avg_overdue_days": 160.3,
+    "customer": "customer-69d8e6",
+    "customer_name": "customer_name-7d86d1",
+    "max_overdue_days": 325,
+    "outstanding": 78706.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 82.0,
+    "total_invoices": 10,
+    "total_sales": 438223.0
+   },
+   {
+    "avg_overdue_days": 15.0,
+    "customer": "customer-fc0ace",
+    "customer_name": "customer_name-115e4f",
+    "max_overdue_days": 15,
+    "outstanding": 65490.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 66.7,
+    "total_invoices": 1,
+    "total_sales": 65490.0
+   },
+   {
+    "avg_overdue_days": 36.0,
+    "customer": "customer-bb1d4e",
+    "customer_name": "customer_name-4abac0",
+    "max_overdue_days": 36,
+    "outstanding": 61171.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 76.0,
+    "total_invoices": 1,
+    "total_sales": 61171.0
+   },
+   {
+    "avg_overdue_days": 144.0,
+    "customer": "customer-ae76b5",
+    "customer_name": "customer_name-a79bee",
+    "max_overdue_days": 236,
+    "outstanding": 55730.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 81.9,
+    "total_invoices": 2,
+    "total_sales": 187089.0
+   },
+   {
+    "avg_overdue_days": 106.5,
+    "customer": "customer-5e0131",
+    "customer_name": "customer_name-9f414d",
+    "max_overdue_days": 163,
+    "outstanding": 51330.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 60.4,
+    "total_invoices": 6,
+    "total_sales": 235540.0
+   },
+   {
+    "avg_overdue_days": 75.5,
+    "customer": "customer-aabd71",
+    "customer_name": "customer_name-15cdac",
+    "max_overdue_days": 96,
+    "outstanding": 49875.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 63.9,
+    "total_invoices": 2,
+    "total_sales": 98700.0
+   },
+   {
+    "avg_overdue_days": 187.7,
+    "customer": "customer-6ccf77",
+    "customer_name": "customer_name-14b96e",
+    "max_overdue_days": 286,
+    "outstanding": 45124.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "total_invoices": 3,
+    "total_sales": 112219.0
+   },
+   {
+    "avg_overdue_days": 257.3,
+    "customer": "customer-096ceb",
+    "customer_name": "customer_name-5341b9",
+    "max_overdue_days": 353,
+    "outstanding": 38470.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "total_invoices": 6,
+    "total_sales": 287890.5
+   },
+   {
+    "avg_overdue_days": 125.2,
+    "customer": "customer-b02047",
+    "customer_name": "customer_name-67c3de",
+    "max_overdue_days": 268,
+    "outstanding": 35990.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 57.3,
+    "total_invoices": 4,
+    "total_sales": 1303015.0
+   },
+   {
+    "avg_overdue_days": 163.5,
+    "customer": "customer-2543a7",
+    "customer_name": "customer_name-00cdd4",
+    "max_overdue_days": 262,
+    "outstanding": 33040.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 87.3,
+    "total_invoices": 4,
+    "total_sales": 135558.0
+   },
+   {
+    "avg_overdue_days": 231.6,
+    "customer": "customer-8b1b2c",
+    "customer_name": "customer_name-284e5e",
+    "max_overdue_days": 351,
+    "outstanding": 32710.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "total_invoices": 8,
+    "total_sales": 305485.0
+   },
+   {
+    "avg_overdue_days": 169.9,
+    "customer": "customer-b9fc0c",
+    "customer_name": "customer_name-87f15c",
+    "max_overdue_days": 322,
+    "outstanding": 32415.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 85.7,
+    "total_invoices": 8,
+    "total_sales": 191420.0
+   },
+   {
+    "avg_overdue_days": 179.1,
+    "customer": "customer-c77d4c",
+    "customer_name": "customer_name-5bf19a",
+    "max_overdue_days": 339,
+    "outstanding": 28666.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 89.0,
+    "total_invoices": 11,
+    "total_sales": 182386.0
+   },
+   {
+    "avg_overdue_days": 198.5,
+    "customer": "customer-556f31",
+    "customer_name": "customer_name-c26e05",
+    "max_overdue_days": 351,
+    "outstanding": 27140.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 95.1,
+    "total_invoices": 11,
+    "total_sales": 238065.0
+   },
+   {
+    "avg_overdue_days": 169.3,
+    "customer": "customer-c39ece",
+    "customer_name": "customer_name-14f4e6",
+    "max_overdue_days": 260,
+    "outstanding": 26869.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 81.7,
+    "total_invoices": 3,
+    "total_sales": 250597.0
+   },
+   {
+    "avg_overdue_days": 50.0,
+    "customer": "customer-421e60",
+    "customer_name": "customer_name-0dac2f",
+    "max_overdue_days": 50,
+    "outstanding": 26550.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 82.2,
+    "total_invoices": 1,
+    "total_sales": 26550.0
+   },
+   {
+    "avg_overdue_days": 66.2,
+    "customer": "customer-db8a05",
+    "customer_name": "customer_name-9f2ef1",
+    "max_overdue_days": 119,
+    "outstanding": 24869.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 50.4,
+    "total_invoices": 6,
+    "total_sales": 71125.0
+   },
+   {
+    "avg_overdue_days": 197.2,
+    "customer": "customer-284d44",
+    "customer_name": "customer_name-8e7603",
+    "max_overdue_days": 336,
+    "outstanding": 24544.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 97.0,
+    "total_invoices": 12,
+    "total_sales": 156881.0
+   },
+   {
+    "avg_overdue_days": 178.4,
+    "customer": "customer-74d00c",
+    "customer_name": "customer_name-d8c12d",
+    "max_overdue_days": 337,
+    "outstanding": 19460.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 84.1,
+    "total_invoices": 5,
+    "total_sales": 244566.0
+   },
+   {
+    "avg_overdue_days": 202.3,
+    "customer": "customer-244e74",
+    "customer_name": "customer_name-56e889",
+    "max_overdue_days": 343,
+    "outstanding": 17110.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 93.4,
+    "total_invoices": 17,
+    "total_sales": 292711.0
+   },
+   {
+    "avg_overdue_days": 100.6,
+    "customer": "customer-66f729",
+    "customer_name": "customer_name-a3d23c",
+    "max_overdue_days": 154,
+    "outstanding": 16044.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 52.2,
+    "total_invoices": 8,
+    "total_sales": 128352.0
+   },
+   {
+    "avg_overdue_days": 188.6,
+    "customer": "customer-04f232",
+    "customer_name": "customer_name-7b4aa2",
+    "max_overdue_days": 310,
+    "outstanding": 14160.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 90.2,
+    "total_invoices": 11,
+    "total_sales": 134048.0
+   },
+   {
+    "avg_overdue_days": 186.2,
+    "customer": "customer-e74050",
+    "customer_name": "customer_name-9db6fa",
+    "max_overdue_days": 328,
+    "outstanding": 13545.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 93.1,
+    "total_invoices": 6,
+    "total_sales": 78751.0
+   }
+  ],
+  "high_risk_customers": 38,
+  "payment_patterns": [
+   {
+    "avg_days_overdue": 351.6,
+    "outstanding_amount": 0.0,
+    "period": "2025-10",
+    "total_amount": 1657963.0,
+    "total_invoices": 34
+   },
+   {
+    "avg_days_overdue": 337.3,
+    "outstanding_amount": 0.0,
+    "period": "2025-11",
+    "total_amount": 11389890.68,
+    "total_invoices": 195
+   },
+   {
+    "avg_days_overdue": 304.9,
+    "outstanding_amount": 81243.0,
+    "period": "2025-12",
+    "total_amount": 14959428.4,
+    "total_invoices": 213
+   },
+   {
+    "avg_days_overdue": 273.8,
+    "outstanding_amount": 0.0,
+    "period": "2026-01",
+    "total_amount": 12063471.9,
+    "total_invoices": 193
+   },
+   {
+    "avg_days_overdue": 243.3,
+    "outstanding_amount": 93798.0,
+    "period": "2026-02",
+    "total_amount": 16548219.0,
+    "total_invoices": 184
+   },
+   {
+    "avg_days_overdue": 214.0,
+    "outstanding_amount": 42481.0,
+    "period": "2026-03",
+    "total_amount": 22835177.24,
+    "total_invoices": 225
+   },
+   {
+    "avg_days_overdue": 183.8,
+    "outstanding_amount": 3255.0,
+    "period": "2026-04",
+    "total_amount": 19302463.04,
+    "total_invoices": 176
+   },
+   {
+    "avg_days_overdue": 152.8,
+    "outstanding_amount": 20109.0,
+    "period": "2026-05",
+    "total_amount": 17526694.0,
+    "total_invoices": 186
+   },
+   {
+    "avg_days_overdue": 120.4,
+    "outstanding_amount": 604825.0,
+    "period": "2026-06",
+    "total_amount": 17911283.45,
+    "total_invoices": 175
+   },
+   {
+    "avg_days_overdue": 88.0,
+    "outstanding_amount": 2758184.0,
+    "period": "2026-07",
+    "total_amount": 14207208.76,
+    "total_invoices": 170
+   },
+   {
+    "avg_days_overdue": 59.5,
+    "outstanding_amount": 9480527.0,
+    "period": "2026-08",
+    "total_amount": 15160188.4,
+    "total_invoices": 155
+   },
+   {
+    "avg_days_overdue": 36.1,
+    "outstanding_amount": 6349938.0,
+    "period": "2026-09",
+    "total_amount": 8002010.0,
+    "total_invoices": 82
+   }
+  ],
+  "total_outstanding": 19714214.0
+ },
+ "generated_at": "2026-10-22T14:43:27.506760",
+ "operational_risk": {
+  "inventory_risks": [
+   {
+    "item_group": "All Item Groups",
+    "risk_category": "Critical",
+    "stock_value": 274401.42,
+    "stockout_items": 467,
+    "stockout_risk_score": 96.7,
+    "total_items": 483
+   },
+   {
+    "item_group": "Detergent & Cosmetic",
+    "risk_category": "Critical",
+    "stock_value": 185150.67,
+    "stockout_items": 25,
+    "stockout_risk_score": 86.2,
+    "total_items": 29
+   },
+   {
+    "item_group": "Agriculture",
+    "risk_category": "Critical",
+    "stock_value": 114872.31,
+    "stockout_items": 20,
+    "stockout_risk_score": 83.3,
+    "total_items": 24
+   },
+   {
+    "item_group": "Products",
+    "risk_category": "Critical",
+    "stock_value": 0.0,
+    "stockout_items": 11,
+    "stockout_risk_score": 100.0,
+    "total_items": 11
+   },
+   {
+    "item_group": "Cosmetic",
+    "risk_category": "Critical",
+    "stock_value": 0.0,
+    "stockout_items": 7,
+    "stockout_risk_score": 100.0,
+    "total_items": 7
+   },
+   {
+    "item_group": "Food & Beverages , Cleaning, Industrial",
+    "risk_category": "High",
+    "stock_value": 443087.53,
+    "stockout_items": 7,
+    "stockout_risk_score": 70.0,
+    "total_items": 10
+   },
+   {
+    "item_group": "Raw Material",
+    "risk_category": "Critical",
+    "stock_value": 0.0,
+    "stockout_items": 5,
+    "stockout_risk_score": 100.0,
+    "total_items": 5
+   },
+   {
+    "item_group": "Detergent",
+    "risk_category": "Critical",
+    "stock_value": 0.0,
+    "stockout_items": 2,
+    "stockout_risk_score": 100.0,
+    "total_items": 2
+   },
+   {
+    "item_group": "Fixed Assets",
+    "risk_category": "Critical",
+    "stock_value": 0.0,
+    "stockout_items": 2,
+    "stockout_risk_score": 100.0,
+    "total_items": 2
+   },
+   {
+    "item_group": "Consumable",
+    "risk_category": "Critical",
+    "stock_value": 0.0,
+    "stockout_items": 1,
+    "stockout_risk_score": 100.0,
+    "total_items": 1
+   },
+   {
+    "item_group": "Furniture",
+    "risk_category": "Critical",
+    "stock_value": 0.0,
+    "stockout_items": 1,
+    "stockout_risk_score": 100.0,
+    "total_items": 1
+   },
+   {
+    "item_group": "Agriculture soil base",
+    "risk_category": "Low",
+    "stock_value": 8434.0,
+    "stockout_items": 0,
+    "stockout_risk_score": 0.0,
+    "total_items": 1
+   }
+  ],
+  "process_risks": {
+   "average_approval_time": null,
+   "invoice_error_rate": 0.6117767015039511,
+   "system_downtime_incidents": null
+  },
+  "supplier_performance": [
+   {
+    "avg_delay_days": -7.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-dcf634",
+    "supplier_name": "supplier_name-d9c86d",
+    "total_orders": 110,
+    "total_value": 12726419.5
+   },
+   {
+    "avg_delay_days": -28.6,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-9ca1aa",
+    "supplier_name": "supplier_name-5c4c47",
+    "total_orders": 11,
+    "total_value": 6910670.0
+   },
+   {
+    "avg_delay_days": -5.8,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-1badda",
+    "supplier_name": "supplier_name-49cec2",
+    "total_orders": 18,
+    "total_value": 6666071.0
+   },
+   {
+    "avg_delay_days": -14.2,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-4448b5",
+    "supplier_name": "supplier_name-479371",
+    "total_orders": 19,
+    "total_value": 6634255.0
+   },
+   {
+    "avg_delay_days": -15.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-4d5316",
+    "supplier_name": "supplier_name-2fb2c8",
+    "total_orders": 21,
+    "total_value": 6205916.0
+   },
+   {
+    "avg_delay_days": -29.9,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-871157",
+    "supplier_name": "supplier_name-003027",
+    "total_orders": 53,
+    "total_value": 5505755.0
+   },
+   {
+    "avg_delay_days": -30.7,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-e30b5f",
+    "supplier_name": "supplier_name-c5d5a9",
+    "total_orders": 25,
+    "total_value": 5292926.5
+   },
+   {
+    "avg_delay_days": -7.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-9c24df",
+    "supplier_name": "supplier_name-7e66b1",
+    "total_orders": 29,
+    "total_value": 5192540.0
+   },
+   {
+    "avg_delay_days": -42.3,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-03ee09",
+    "supplier_name": "supplier_name-571a09",
+    "total_orders": 9,
+    "total_value": 4873400.0
+   },
+   {
+    "avg_delay_days": -30.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-2417f8",
+    "supplier_name": "supplier_name-f5e58e",
+    "total_orders": 133,
+    "total_value": 4694513.0
+   },
+   {
+    "avg_delay_days": -10.3,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-757d43",
+    "supplier_name": "supplier_name-5b3ada",
+    "total_orders": 7,
+    "total_value": 3579088.0
+   },
+   {
+    "avg_delay_days": -7.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-dd08a1",
+    "supplier_name": "supplier_name-e4dc08",
+    "total_orders": 72,
+    "total_value": 3196837.0
+   },
+   {
+    "avg_delay_days": 0.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-c10a37",
+    "supplier_name": "supplier_name-4dad81",
+    "total_orders": 8,
+    "total_value": 3115341.2
+   },
+   {
+    "avg_delay_days": -27.7,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-b938b1",
+    "supplier_name": "supplier_name-f3e130",
+    "total_orders": 12,
+    "total_value": 2928967.0
+   },
+   {
+    "avg_delay_days": -23.3,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-d24fe4",
+    "supplier_name": "supplier_name-b04d80",
+    "total_orders": 7,
+    "total_value": 2852668.0
+   },
+   {
+    "avg_delay_days": -7.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-ecc72f",
+    "supplier_name": "supplier_name-2c4ca9",
+    "total_orders": 87,
+    "total_value": 2743599.0
+   },
+   {
+    "avg_delay_days": -7.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-9e2ef8",
+    "supplier_name": "supplier_name-e346dd",
+    "total_orders": 43,
+    "total_value": 2559360.0
+   },
+   {
+    "avg_delay_days": -29.6,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-9b6a0c",
+    "supplier_name": "supplier_name-e551c2",
+    "total_orders": 58,
+    "total_value": 2399857.0
+   },
+   {
+    "avg_delay_days": -30.0,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-1c1db3",
+    "supplier_name": "supplier_name-80fec6",
+    "total_orders": 19,
+    "total_value": 2259169.0
+   },
+   {
+    "avg_delay_days": -13.6,
+    "cancelled_orders": 0,
+    "reliability_risk_score": 0.0,
+    "risk_category": "Low",
+    "supplier": "supplier-827ef2",
+    "supplier_name": "supplier_name-530dc8",
+    "total_orders": 7,
+    "total_value": 2043288.0
+   }
+  ],
+  "top_inventory_risk": {
+   "item_group": "All Item Groups",
+   "risk_category": "Critical",
+   "stock_value": 274401.42,
+   "stockout_items": 467,
+   "stockout_risk_score": 96.7,
+   "total_items": 483
+  },
+  "worst_supplier": {
+   "avg_delay_days": -7.0,
+   "cancelled_orders": 0,
+   "reliability_risk_score": 0.0,
+   "risk_category": "Low",
+   "supplier": "supplier-dcf634",
+   "supplier_name": "supplier_name-d9c86d",
+   "total_orders": 110,
+   "total_value": 12726419.5
+  }
+ },
+ "overview": {
+  "aggregate_risk_category": "Medium",
+  "aggregate_risk_score": 44.8,
+  "alerts": [
+   {
+    "action": "Review credit limit and payment terms",
+    "amount": 580922.0,
+    "customer": "customer-794fe1",
+    "description": "Outstanding: \u20b9580,922",
+    "overdue_days": 60,
+    "severity": "high",
+    "title": "Overdue Customer: Geetarth",
+    "type": "credit_risk"
+   },
+   {
+    "action": "Review credit limit and payment terms",
+    "amount": 442499.0,
+    "customer": "customer-92e6af",
+    "description": "Outstanding: \u20b9442,499",
+    "overdue_days": 60,
+    "severity": "high",
+    "title": "Overdue Customer: Shree Ganesh Industries",
+    "type": "credit_risk"
+   },
+   {
+    "action": "Review credit limit and payment terms",
+    "amount": 380446.0,
+    "customer": "customer-1f0ac3",
+    "description": "Outstanding: \u20b9380,446",
+    "overdue_days": 60,
+    "severity": "high",
+    "title": "Overdue Customer: Royal Crop Science and Technology Private Limited",
+    "type": "credit_risk"
+   },
+   {
+    "action": "Review credit limit and payment terms",
+    "amount": 184490.0,
+    "customer": "customer-82c1aa",
+    "description": "Outstanding: \u20b9184,490",
+    "overdue_days": 60,
+    "severity": "high",
+    "title": "Overdue Customer: Mapa Fashion",
+    "type": "credit_risk"
+   },
+   {
+    "action": "Review credit limit and payment terms",
+    "amount": 139867.0,
+    "customer": "customer-426242",
+    "description": "Outstanding: \u20b9139,867",
+    "overdue_days": 60,
+    "severity": "high",
+    "title": "Overdue Customer: Pregento Crop Science Private Limited",
+    "type": "credit_risk"
+   },
+   {
+    "action": "Monitor cash flow and accelerate collections",
+    "amount": -246350.98,
+    "description": "Current cash: -\u20b9246,351",
+    "severity": "critical",
+    "title": "Low Cash Position",
+    "type": "cashflow_risk"
+   },
+   {
+    "action": "Review inventory reorder levels",
+    "amount": null,
+    "description": "Multiple items out of stock",
+    "severity": "medium",
+    "title": "Stock Outs: 548 Items",
+    "type": "operational_risk"
+   }
+  ],
+  "risk_components": {
+   "cashflow_risk": {
+    "category": "High",
+    "score": 70.8
+   },
+   "compliance_risk": {
+    "category": "Low",
+    "score": 0.0
+   },
+   "credit_risk": {
+    "category": "Medium",
+    "score": 44.0
+   },
+   "operational_risk": {
+    "category": "Medium",
+    "score": 41.3
+   }
+  },
+  "risk_matrix": [
+   {
+    "category": "Financial",
+    "impact": 70,
+    "name": "Cash Flow Shortage",
+    "probability": 70.8,
+    "risk_category": "Medium",
+    "risk_score": 49.6
+   },
+   {
+    "category": "Credit",
+    "impact": 90,
+    "name": "Major Customer Default",
+    "probability": 44.0,
+    "risk_category": "Medium",
+    "risk_score": 39.6
+   },
+   {
+    "category": "Operational",
+    "impact": 40,
+    "name": "Inventory Stockout",
+    "probability": 95.1,
+    "risk_category": "Medium",
+    "risk_score": 38.0
+   },
+   {
+    "category": "Credit",
+    "impact": 60,
+    "name": "Payment Delays",
+    "probability": 44.0,
+    "risk_category": "Medium",
+    "risk_score": 26.4
+   },
+   {
+    "category": "Operational",
+    "impact": 80,
+    "name": "Key Supplier Failure",
+    "probability": 7.8,
+    "risk_category": "Low",
+    "risk_score": 6.2
+   },
+   {
+    "category": "Compliance",
+    "impact": 60,
+    "name": "GST Compliance Issue",
+    "probability": 0.0,
+    "risk_category": "Low",
+    "risk_score": 0.0
+   }
+  ],
+  "total_customers": 1278,
+  "total_items": 576,
+  "total_suppliers": 986
+ },
+ "payables_risk": {
+  "aging_analysis": [
+   {
+    "aging_bucket": "Current",
+    "invoice_count": 23,
+    "outstanding_amount": 2651973.0
+   },
+   {
+    "aging_bucket": "1-30 Days",
+    "invoice_count": 94,
+    "outstanding_amount": 6146116.0
+   },
+   {
+    "aging_bucket": "31-60 Days",
+    "invoice_count": 86,
+    "outstanding_amount": 8416798.54
+   },
+   {
+    "aging_bucket": "61-90 Days",
+    "invoice_count": 30,
+    "outstanding_amount": 922689.0
+   },
+   {
+    "aging_bucket": "90+ Days",
+    "invoice_count": 87,
+    "outstanding_amount": 931699.86
+   }
+  ],
+  "avg_days_overdue": 37.7,
+  "high_risk_suppliers": 32,
+  "supplier_risk_scores": [
+   {
+    "avg_overdue_days": 151.1,
+    "max_overdue_days": 299,
+    "outstanding": 3396940.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "supplier": "supplier-871157",
+    "supplier_name": "supplier_name-003027",
+    "total_invoices": 53,
+    "total_purchases": 5505755.0
+   },
+   {
+    "avg_overdue_days": 170.3,
+    "max_overdue_days": 287,
+    "outstanding": 1337943.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 87.3,
+    "supplier": "supplier-9ca1aa",
+    "supplier_name": "supplier_name-5c4c47",
+    "total_invoices": 11,
+    "total_purchases": 6910670.0
+   },
+   {
+    "avg_overdue_days": 186.3,
+    "max_overdue_days": 324,
+    "outstanding": 1241656.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 94.0,
+    "supplier": "supplier-4448b5",
+    "supplier_name": "supplier_name-479371",
+    "total_invoices": 19,
+    "total_purchases": 6634255.0
+   },
+   {
+    "avg_overdue_days": 46.0,
+    "max_overdue_days": 78,
+    "outstanding": 1051380.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 58.7,
+    "supplier": "supplier-7fcaba",
+    "supplier_name": "supplier_name-89009c",
+    "total_invoices": 4,
+    "total_purchases": 1650584.0
+   },
+   {
+    "avg_overdue_days": 96.9,
+    "max_overdue_days": 266,
+    "outstanding": 1051380.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 94.2,
+    "supplier": "supplier-5fe1ab",
+    "supplier_name": "supplier_name-85c1c0",
+    "total_invoices": 11,
+    "total_purchases": 1234310.0
+   },
+   {
+    "avg_overdue_days": 113.3,
+    "max_overdue_days": 265,
+    "outstanding": 897120.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 61.4,
+    "supplier": "supplier-03ee09",
+    "supplier_name": "supplier_name-571a09",
+    "total_invoices": 9,
+    "total_purchases": 4873400.0
+   },
+   {
+    "avg_overdue_days": 97.9,
+    "max_overdue_days": 345,
+    "outstanding": 877035.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 73.9,
+    "supplier": "supplier-6ede03",
+    "supplier_name": "supplier_name-977f32",
+    "total_invoices": 14,
+    "total_purchases": 1732240.0
+   },
+   {
+    "avg_overdue_days": 167.9,
+    "max_overdue_days": 305,
+    "outstanding": 814200.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 82.5,
+    "supplier": "supplier-4d5316",
+    "supplier_name": "supplier_name-2fb2c8",
+    "total_invoices": 21,
+    "total_purchases": 6205916.0
+   },
+   {
+    "avg_overdue_days": 180.3,
+    "max_overdue_days": 329,
+    "outstanding": 787338.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 90.2,
+    "supplier": "supplier-2417f8",
+    "supplier_name": "supplier_name-f5e58e",
+    "total_invoices": 133,
+    "total_purchases": 4694513.0
+   },
+   {
+    "avg_overdue_days": 204.7,
+    "max_overdue_days": 352,
+    "outstanding": 650564.66,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 94.1,
+    "supplier": "supplier-dcf634",
+    "supplier_name": "supplier_name-d9c86d",
+    "total_invoices": 110,
+    "total_purchases": 12726419.5
+   },
+   {
+    "avg_overdue_days": 68.8,
+    "max_overdue_days": 272,
+    "outstanding": 552086.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 77.2,
+    "supplier": "supplier-5438d3",
+    "supplier_name": "supplier_name-b027a4",
+    "total_invoices": 10,
+    "total_purchases": 710241.0
+   },
+   {
+    "avg_overdue_days": 124.0,
+    "max_overdue_days": 338,
+    "outstanding": 526988.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 77.8,
+    "supplier": "supplier-2e3533",
+    "supplier_name": "supplier_name-6065a7",
+    "total_invoices": 7,
+    "total_purchases": 1395468.0
+   },
+   {
+    "avg_overdue_days": 209.2,
+    "max_overdue_days": 328,
+    "outstanding": 520616.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "supplier": "supplier-1c1db3",
+    "supplier_name": "supplier_name-80fec6",
+    "total_invoices": 19,
+    "total_purchases": 2259169.0
+   },
+   {
+    "avg_overdue_days": 169.8,
+    "max_overdue_days": 349,
+    "outstanding": 429468.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 80.4,
+    "supplier": "supplier-e30b5f",
+    "supplier_name": "supplier_name-c5d5a9",
+    "total_invoices": 25,
+    "total_purchases": 5292926.5
+   },
+   {
+    "avg_overdue_days": 165.7,
+    "max_overdue_days": 328,
+    "outstanding": 391731.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 81.7,
+    "supplier": "supplier-b938b1",
+    "supplier_name": "supplier_name-f3e130",
+    "total_invoices": 12,
+    "total_purchases": 2928967.0
+   },
+   {
+    "avg_overdue_days": 87.0,
+    "max_overdue_days": 92,
+    "outstanding": 320960.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 70.0,
+    "supplier": "supplier-8d4255",
+    "supplier_name": "supplier_name-f1b973",
+    "total_invoices": 3,
+    "total_purchases": 615565.0
+   },
+   {
+    "avg_overdue_days": 166.7,
+    "max_overdue_days": 296,
+    "outstanding": 286622.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 84.0,
+    "supplier": "supplier-0ef6ad",
+    "supplier_name": "supplier_name-5c43f3",
+    "total_invoices": 22,
+    "total_purchases": 1741444.0
+   },
+   {
+    "avg_overdue_days": 77.9,
+    "max_overdue_days": 299,
+    "outstanding": 254526.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 64.4,
+    "supplier": "supplier-707ae1",
+    "supplier_name": "supplier_name-43f3df",
+    "total_invoices": 8,
+    "total_purchases": 513223.0
+   },
+   {
+    "avg_overdue_days": -10.0,
+    "max_overdue_days": -10,
+    "outstanding": 221526.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 60.0,
+    "supplier": "supplier-eb5f46",
+    "supplier_name": "supplier_name-5cd843",
+    "total_invoices": 1,
+    "total_purchases": 221526.12
+   },
+   {
+    "avg_overdue_days": -5.0,
+    "max_overdue_days": -5,
+    "outstanding": 206766.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 60.0,
+    "supplier": "supplier-267590",
+    "supplier_name": "supplier_name-bad746",
+    "total_invoices": 1,
+    "total_purchases": 206766.0
+   },
+   {
+    "avg_overdue_days": 191.0,
+    "max_overdue_days": 275,
+    "outstanding": 169920.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 90.4,
+    "supplier": "supplier-ae6621",
+    "supplier_name": "supplier_name-d2e95f",
+    "total_invoices": 7,
+    "total_purchases": 1844305.0
+   },
+   {
+    "avg_overdue_days": 167.4,
+    "max_overdue_days": 294,
+    "outstanding": 166520.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 84.0,
+    "supplier": "supplier-a9b41d",
+    "supplier_name": "supplier_name-16d827",
+    "total_invoices": 16,
+    "total_purchases": 1035936.0
+   },
+   {
+    "avg_overdue_days": 38.0,
+    "max_overdue_days": 38,
+    "outstanding": 164020.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 76.9,
+    "supplier": "supplier-4caa15",
+    "supplier_name": "supplier_name-a1100f",
+    "total_invoices": 1,
+    "total_purchases": 164020.0
+   },
+   {
+    "avg_overdue_days": -9.0,
+    "max_overdue_days": -9,
+    "outstanding": 156539.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 60.0,
+    "supplier": "supplier-5c660f",
+    "supplier_name": "supplier_name-b5bd21",
+    "total_invoices": 1,
+    "total_purchases": 156539.0
+   },
+   {
+    "avg_overdue_days": 189.0,
+    "max_overdue_days": 346,
+    "outstanding": 139235.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 86.6,
+    "supplier": "supplier-dd08a1",
+    "supplier_name": "supplier_name-e4dc08",
+    "total_invoices": 72,
+    "total_purchases": 3196837.0
+   },
+   {
+    "avg_overdue_days": 5.0,
+    "max_overdue_days": 5,
+    "outstanding": 137824.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 62.2,
+    "supplier": "supplier-22f552",
+    "supplier_name": "supplier_name-95bbf7",
+    "total_invoices": 1,
+    "total_purchases": 137824.0
+   },
+   {
+    "avg_overdue_days": -18.5,
+    "max_overdue_days": -11,
+    "outstanding": 131688.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 60.0,
+    "supplier": "supplier-7848ea",
+    "supplier_name": "supplier_name-fcceb6",
+    "total_invoices": 2,
+    "total_purchases": 131688.0
+   },
+   {
+    "avg_overdue_days": 39.0,
+    "max_overdue_days": 56,
+    "outstanding": 119298.0,
+    "risk_category": "Medium",
+    "risk_color": "yellow",
+    "risk_score": 33.7,
+    "supplier": "supplier-57ba27",
+    "supplier_name": "supplier_name-315e82",
+    "total_invoices": 4,
+    "total_purchases": 436718.0
+   },
+   {
+    "avg_overdue_days": 23.0,
+    "max_overdue_days": 23,
+    "outstanding": 116820.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 70.2,
+    "supplier": "supplier-7421a2",
+    "supplier_name": "supplier_name-ff8913",
+    "total_invoices": 1,
+    "total_purchases": 116820.0
+   },
+   {
+    "avg_overdue_days": 181.4,
+    "max_overdue_days": 325,
+    "outstanding": 98294.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 83.1,
+    "supplier": "supplier-9b6a0c",
+    "supplier_name": "supplier_name-e551c2",
+    "total_invoices": 58,
+    "total_purchases": 2399857.0
+   },
+   {
+    "avg_overdue_days": 29.7,
+    "max_overdue_days": 56,
+    "outstanding": 94518.0,
+    "risk_category": "Medium",
+    "risk_color": "yellow",
+    "risk_score": 34.8,
+    "supplier": "supplier-b011d5",
+    "supplier_name": "supplier_name-dc515d",
+    "total_invoices": 3,
+    "total_purchases": 262314.0
+   },
+   {
+    "avg_overdue_days": 131.2,
+    "max_overdue_days": 272,
+    "outstanding": 90800.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 98.7,
+    "supplier": "supplier-a794c1",
+    "supplier_name": "supplier_name-0eae46",
+    "total_invoices": 5,
+    "total_purchases": 134883.0
+   },
+   {
+    "avg_overdue_days": 146.2,
+    "max_overdue_days": 234,
+    "outstanding": 89562.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 81.8,
+    "supplier": "supplier-ced692",
+    "supplier_name": "supplier_name-c8ebf5",
+    "total_invoices": 4,
+    "total_purchases": 319438.0
+   },
+   {
+    "avg_overdue_days": 6.0,
+    "max_overdue_days": 6,
+    "outstanding": 85243.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 62.7,
+    "supplier": "supplier-bd4c49",
+    "supplier_name": "supplier_name-0b4965",
+    "total_invoices": 1,
+    "total_purchases": 85243.0
+   },
+   {
+    "avg_overdue_days": 211.7,
+    "max_overdue_days": 352,
+    "outstanding": 85078.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 96.1,
+    "supplier": "supplier-9e2ef8",
+    "supplier_name": "supplier_name-e346dd",
+    "total_invoices": 43,
+    "total_purchases": 2559360.0
+   },
+   {
+    "avg_overdue_days": 22.0,
+    "max_overdue_days": 22,
+    "outstanding": 82600.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 69.8,
+    "supplier": "supplier-be260e",
+    "supplier_name": "supplier_name-e5d572",
+    "total_invoices": 1,
+    "total_purchases": 82600.0
+   },
+   {
+    "avg_overdue_days": 81.5,
+    "max_overdue_days": 172,
+    "outstanding": 82600.0,
+    "risk_category": "Medium",
+    "risk_color": "yellow",
+    "risk_score": 45.9,
+    "supplier": "supplier-4c12ea",
+    "supplier_name": "supplier_name-ab72c9",
+    "total_invoices": 6,
+    "total_purchases": 513064.0
+   },
+   {
+    "avg_overdue_days": 4.0,
+    "max_overdue_days": 4,
+    "outstanding": 81691.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 61.8,
+    "supplier": "supplier-281e84",
+    "supplier_name": "supplier_name-d643f8",
+    "total_invoices": 1,
+    "total_purchases": 81691.0
+   },
+   {
+    "avg_overdue_days": 38.0,
+    "max_overdue_days": 38,
+    "outstanding": 78140.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 76.9,
+    "supplier": "supplier-2555ec",
+    "supplier_name": "supplier_name-5fa8a3",
+    "total_invoices": 1,
+    "total_purchases": 78140.0
+   },
+   {
+    "avg_overdue_days": 181.0,
+    "max_overdue_days": 351,
+    "outstanding": 71366.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 96.3,
+    "supplier": "supplier-2bd4d9",
+    "supplier_name": "supplier_name-81e467",
+    "total_invoices": 4,
+    "total_purchases": 270297.4
+   },
+   {
+    "avg_overdue_days": 194.0,
+    "max_overdue_days": 344,
+    "outstanding": 70753.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 87.7,
+    "supplier": "supplier-ecc72f",
+    "supplier_name": "supplier_name-2c4ca9",
+    "total_invoices": 87,
+    "total_purchases": 2743599.0
+   },
+   {
+    "avg_overdue_days": 213.9,
+    "max_overdue_days": 351,
+    "outstanding": 67632.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "supplier": "supplier-e8a833",
+    "supplier_name": "supplier_name-782e22",
+    "total_invoices": 20,
+    "total_purchases": 373067.0
+   },
+   {
+    "avg_overdue_days": 44.5,
+    "max_overdue_days": 55,
+    "outstanding": 65490.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 51.0,
+    "supplier": "supplier-d7995e",
+    "supplier_name": "supplier_name-115e4f",
+    "total_invoices": 2,
+    "total_purchases": 125670.0
+   },
+   {
+    "avg_overdue_days": 186.2,
+    "max_overdue_days": 358,
+    "outstanding": 58558.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 95.5,
+    "supplier": "supplier-03011f",
+    "supplier_name": "supplier_name-79acfe",
+    "total_invoices": 4,
+    "total_purchases": 276339.0
+   },
+   {
+    "avg_overdue_days": 195.0,
+    "max_overdue_days": 353,
+    "outstanding": 57395.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "supplier": "supplier-a449cf",
+    "supplier_name": "supplier_name-bc7050",
+    "total_invoices": 2,
+    "total_purchases": 133670.0
+   },
+   {
+    "avg_overdue_days": 127.7,
+    "max_overdue_days": 246,
+    "outstanding": 47289.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 59.9,
+    "supplier": "supplier-02fe12",
+    "supplier_name": "supplier_name-8b797e",
+    "total_invoices": 10,
+    "total_purchases": 911494.0
+   },
+   {
+    "avg_overdue_days": 3.0,
+    "max_overdue_days": 3,
+    "outstanding": 42622.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 61.3,
+    "supplier": "supplier-8ed77b",
+    "supplier_name": "supplier_name-89e6ac",
+    "total_invoices": 1,
+    "total_purchases": 42622.0
+   },
+   {
+    "avg_overdue_days": 160.4,
+    "max_overdue_days": 234,
+    "outstanding": 40356.0,
+    "risk_category": "High",
+    "risk_color": "orange",
+    "risk_score": 74.2,
+    "supplier": "supplier-01b552",
+    "supplier_name": "supplier_name-a232ea",
+    "total_invoices": 8,
+    "total_purchases": 831517.0
+   },
+   {
+    "avg_overdue_days": 230.5,
+    "max_overdue_days": 290,
+    "outstanding": 31140.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 100.0,
+    "supplier": "supplier-07a165",
+    "supplier_name": "supplier_name-73ec12",
+    "total_invoices": 2,
+    "total_purchases": 442260.0
+   },
+   {
+    "avg_overdue_days": 201.3,
+    "max_overdue_days": 340,
+    "outstanding": 30975.0,
+    "risk_category": "Critical",
+    "risk_color": "red",
+    "risk_score": 92.1,
+    "supplier": "supplier-569562",
+    "supplier_name": "supplier_name-cd68cf",
+    "total_invoices": 26,
+    "total_purchases": 708627.0
+   }
+  ],
+  "total_outstanding": 19069276.4
+ },
+ "predictive_analytics": {
+  "anomalies": [],
+  "cash_flow_forecast": {
+   "forecast": [
+    {
+     "ds": "2026-11-08",
+     "yhat": -62607.88,
+     "yhat_lower": -53216.7,
+     "yhat_upper": -71999.07
+    },
+    {
+     "ds": "2026-11-09",
+     "yhat": -62531.87,
+     "yhat_lower": -53152.09,
+     "yhat_upper": -71911.65
+    },
+    {
+     "ds": "2026-11-10",
+     "yhat": -62455.85,
+     "yhat_lower": -53087.47,
+     "yhat_upper": -71824.23
+    },
+    {
+     "ds": "2026-11-11",
+     "yhat": -62379.84,
+     "yhat_lower": -53022.86,
+     "yhat_upper": -71736.81
+    },
+    {
+     "ds": "2026-11-12",
+     "yhat": -62303.82,
+     "yhat_lower": -52958.25,
+     "yhat_upper": -71649.39
+    },
+    {
+     "ds": "2026-11-13",
+     "yhat": -62227.81,
+     "yhat_lower": -52893.63,
+     "yhat_upper": -71561.98
+    },
+    {
+     "ds": "2026-11-14",
+     "yhat": -62151.79,
+     "yhat_lower": -52829.02,
+     "yhat_upper": -71474.56
+    },
+    {
+     "ds": "2026-11-15",
+     "yhat": -62075.77,
+     "yhat_lower": -52764.41,
+     "yhat_upper": -71387.14
+    },
+    {
+     "ds": "2026-11-16",
+     "yhat": -61999.76,
+     "yhat_lower": -52699.79,
+     "yhat_upper": -71299.72
+    },
+    {
+     "ds": "2026-11-17",
+     "yhat": -61923.74,
+     "yhat_lower": -52635.18,
+     "yhat_upper": -71212.3
+    },
+    {
+     "ds": "2026-11-18",
+     "yhat": -61847.73,
+     "yhat_lower": -52570.57,
+     "yhat_upper": -71124.89
+    },
+    {
+     "ds": "2026-11-19",
+     "yhat": -61771.71,
+     "yhat_lower": -52505.95,
+     "yhat_upper": -71037.47
+    },
+    {
+     "ds": "2026-11-20",
+     "yhat": -61695.7,
+     "yhat_lower": -52441.34,
+     "yhat_upper": -70950.05
+    },
+    {
+     "ds": "2026-11-21",
+     "yhat": -61619.68,
+     "yhat_lower": -52376.73,
+     "yhat_upper": -70862.63
+    },
+    {
+     "ds": "2026-11-22",
+     "yhat": -61543.66,
+     "yhat_lower": -52312.11,
+     "yhat_upper": -70775.21
+    },
+    {
+     "ds": "2026-11-23",
+     "yhat": -61467.65,
+     "yhat_lower": -52247.5,
+     "yhat_upper": -70687.8
+    },
+    {
+     "ds": "2026-11-24",
+     "yhat": -61391.63,
+     "yhat_lower": -52182.89,
+     "yhat_upper": -70600.38
+    },
+    {
+     "ds": "2026-11-25",
+     "yhat": -61315.62,
+     "yhat_lower": -52118.27,
+     "yhat_upper": -70512.96
+    },
+    {
+     "ds": "2026-11-26",
+     "yhat": -61239.6,
+     "yhat_lower": -52053.66,
+     "yhat_upper": -70425.54
+    },
+    {
+     "ds": "2026-11-27",
+     "yhat": -61163.59,
+     "yhat_lower": -51989.05,
+     "yhat_upper": -70338.12
+    },
+    {
+     "ds": "2026-11-28",
+     "yhat": -61087.57,
+     "yhat_lower": -51924.43,
+     "yhat_upper": -70250.71
+    },
+    {
+     "ds": "2026-11-29",
+     "yhat": -61011.55,
+     "yhat_lower": -51859.82,
+     "yhat_upper": -70163.29
+    },
+    {
+     "ds": "2026-11-30",
+     "yhat": -60935.54,
+     "yhat_lower": -51795.21,
+     "yhat_upper": -70075.87
+    },
+    {
+     "ds": "2026-12-01",
+     "yhat": -60859.52,
+     "yhat_lower": -51730.59,
+     "yhat_upper": -69988.45
+    },
+    {
+     "ds": "2026-12-02",
+     "yhat": -60783.51,
+     "yhat_lower": -51665.98,
+     "yhat_upper": -69901.03
+    },
+    {
+     "ds": "2026-12-03",
+     "yhat": -60707.49,
+     "yhat_lower": -51601.37,
+     "yhat_upper": -69813.62
+    },
+    {
+     "ds": "2026-12-04",
+     "yhat": -60631.48,
+     "yhat_lower": -51536.75,
+     "yhat_upper": -69726.2
+    },
+    {
+     "ds": "2026-12-05",
+     "yhat": -60555.46,
+     "yhat_lower": -51472.14,
+     "yhat_upper": -69638.78
+    },
+    {
+     "ds": "2026-12-06",
+     "yhat": -60479.44,
+     "yhat_lower": -51407.53,
+     "yhat_upper": -69551.36
+    },
+    {
+     "ds": "2026-12-07",
+     "yhat": -60403.43,
+     "yhat_lower": -51342.91,
+     "yhat_upper": -69463.94
+    }
+   ],
+   "model_performance": {
+    "data_points": 2265,
+    "method": "Moving Average",
+    "periods": 30,
+    "trend": "-3.6%"
+   },
+   "status": "success"
+  },
+  "early_warnings": [
+   {
+    "amount": -60403.43,
+    "description": "Forecasted cash position: -\u20b960,403",
+    "severity": "critical",
+    "timeframe": "Next 30 days",
+    "title": "Cash Flow Warning",
+    "type": "cash_flow"
+   }
+  ],
+  "forecast_confidence": null,
+  "last_model_training": "2026-10-22T14:43:27.506751",
+  "payment_risk_forecast": {
+   "average_market_delay": 21.3,
+   "high_risk_customers": [
+    {
+     "avg_delay_days": 127.6,
+     "customer": "customer-92e6af",
+     "risk_category": "Critical",
+     "risk_score": 100.0
+    },
+    {
+     "avg_delay_days": 64.9,
+     "customer": "customer-7959b9",
+     "risk_category": "High",
+     "risk_score": 72.1
+    },
+    {
+     "avg_delay_days": 59.7,
+     "customer": "customer-9d8887",
+     "risk_category": "High",
+     "risk_score": 66.3
+    },
+    {
+     "avg_delay_days": 59.5,
+     "customer": "customer-426242",
+     "risk_category": "High",
+     "risk_score": 66.1
+    },
+    {
+     "avg_delay_days": 57.3,
+     "customer": "customer-c9eb59",
+     "risk_category": "High",
+     "risk_score": 63.7
+    },
+    {
+     "avg_delay_days": 50.4,
+     "customer": "customer-057643",
+     "risk_category": "High",
+     "risk_score": 56.0
+    },
+    {
+     "avg_delay_days": 49.2,
+     "customer": "customer-363b40",
+     "risk_category": "High",
+     "risk_score": 54.7
+    },
+    {
+     "avg_delay_days": 45.4,
+     "customer": "customer-13e982",
+     "risk_category": "High",
+     "risk_score": 50.5
+    },
+    {
+     "avg_delay_days": 43.7,
+     "customer": "customer-556f31",
+     "risk_category": "Medium",
+     "risk_score": 48.6
+    },
+    {
+     "avg_delay_days": 43.4,
+     "customer": "customer-ce99fc",
+     "risk_category": "Medium",
+     "risk_score": 48.2
+    }
+   ]
+  },
+  "revenue_forecast": {
+   "forecast": [
+    {
+     "ds": "2026-09-15",
+     "yhat": 119541.28,
+     "yhat_lower": 101610.08,
+     "yhat_upper": 137472.47
+    },
+    {
+     "ds": "2026-09-16",
+     "yhat": 116520.25,
+     "yhat_lower": 99042.21,
+     "yhat_upper": 133998.29
+    },
+    {
+     "ds": "2026-09-17",
+     "yhat": 113499.23,
+     "yhat_lower": 96474.34,
+     "yhat_upper": 130524.11
+    },
+    {
+     "ds": "2026-09-18",
+     "yhat": 110478.2,
+     "yhat_lower": 93906.47,
+     "yhat_upper": 127049.93
+    },
+    {
+     "ds": "2026-09-19",
+     "yhat": 107457.18,
+     "yhat_lower": 91338.6,
+     "yhat_upper": 123575.76
+    },
+    {
+     "ds": "2026-09-20",
+     "yhat": 104436.15,
+     "yhat_lower": 88770.73,
+     "yhat_upper": 120101.58
+    },
+    {
+     "ds": "2026-09-21",
+     "yhat": 101415.13,
+     "yhat_lower": 86202.86,
+     "yhat_upper": 116627.4
+    },
+    {
+     "ds": "2026-09-22",
+     "yhat": 98394.11,
+     "yhat_lower": 83634.99,
+     "yhat_upper": 113153.22
+    },
+    {
+     "ds": "2026-09-23",
+     "yhat": 95373.08,
+     "yhat_lower": 81067.12,
+     "yhat_upper": 109679.04
+    },
+    {
+     "ds": "2026-09-24",
+     "yhat": 92352.06,
+     "yhat_lower": 78499.25,
+     "yhat_upper": 106204.87
+    },
+    {
+     "ds": "2026-09-25",
+     "yhat": 89331.03,
+     "yhat_lower": 75931.38,
+     "yhat_upper": 102730.69
+    },
+    {
+     "ds": "2026-09-26",
+     "yhat": 86310.01,
+     "yhat_lower": 73363.51,
+     "yhat_upper": 99256.51
+    },
+    {
+     "ds": "2026-09-27",
+     "yhat": 83288.98,
+     "yhat_lower": 70795.64,
+     "yhat_upper": 95782.33
+    },
+    {
+     "ds": "2026-09-28",
+     "yhat": 80267.96,
+     "yhat_lower": 68227.77,
+     "yhat_upper": 92308.15
+    },
+    {
+     "ds": "2026-09-29",
+     "yhat": 77246.94,
+     "yhat_lower": 65659.9,
+     "yhat_upper": 88833.98
+    },
+    {
+     "ds": "2026-09-30",
+     "yhat": 74225.91,
+     "yhat_lower": 63092.02,
+     "yhat_upper": 85359.8
+    },
+    {
+     "ds": "2026-10-01",
+     "yhat": 71204.89,
+     "yhat_lower": 60524.15,
+     "yhat_upper": 81885.62
+    },
+    {
+     "ds": "2026-10-02",
+     "yhat": 68183.86,
+     "yhat_lower": 57956.28,
+     "yhat_upper": 78411.44
+    },
+    {
+     "ds": "2026-10-03",
+     "yhat": 65162.84,
+     "yhat_lower": 55388.41,
+     "yhat_upper": 74937.26
+    },
+    {
+     "ds": "2026-10-04",
+     "yhat": 62141.81,
+     "yhat_lower": 52820.54,
+     "yhat_upper": 71463.09
+    },
+    {
+     "ds": "2026-10-05",
+     "yhat": 59120.79,
+     "yhat_lower": 50252.67,
+     "yhat_upper": 67988.91
+    },
+    {
+     "ds": "2026-10-06",
+     "yhat": 56099.77,
+     "yhat_lower": 47684.8,
+     "yhat_upper": 64514.73
+    },
+    {
+     "ds": "2026-10-07",
+     "yhat": 53078.74,
+     "yhat_lower": 45116.93,
+     "yhat_upper": 61040.55
+    },
+    {
+     "ds": "2026-10-08",
+     "yhat": 50057.72,
+     "yhat_lower": 42549.06,
+     "yhat_upper": 57566.37
+    },
+    {
+     "ds": "2026-10-09",
+     "yhat": 47036.69,
+     "yhat_lower": 39981.19,
+     "yhat_upper": 54092.2
+    },
+    {
+     "ds": "2026-10-10",
+     "yhat": 44015.67,
+     "yhat_lower": 37413.32,
+     "yhat_upper": 50618.02
+    },
+    {
+     "ds": "2026-10-11",
+     "yhat": 40994.64,
+     "yhat_lower": 34845.45,
+     "yhat_upper": 47143.84
+    },
+    {
+     "ds": "2026-10-12",
+     "yhat": 37973.62,
+     "yhat_lower": 32277.58,
+     "yhat_upper": 43669.66
+    },
+    {
+     "ds": "2026-10-13",
+     "yhat": 34952.6,
+     "yhat_lower": 29709.71,
+     "yhat_upper": 40195.49
+    },
+    {
+     "ds": "2026-10-14",
+     "yhat": 31931.57,
+     "yhat_lower": 27141.84,
+     "yhat_upper": 36721.31
+    }
+   ],
+   "model_performance": {
+    "data_points": 797,
+    "method": "Moving Average",
+    "trend": "-73.9%"
+   },
+   "status": "success",
+   "total_forecasted_revenue": 2272092.71
+  }
+ },
+ "status": "success"
+}

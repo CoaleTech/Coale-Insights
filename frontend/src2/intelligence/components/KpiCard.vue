@@ -122,7 +122,7 @@
       <span v-if="formattedTarget" class="tnum shrink-0 text-sm text-ink-gray-5">
         Target {{ formattedTarget }}
       </span>
-      <span v-if="sublabel" class="min-w-0 truncate text-sm text-ink-gray-6">{{ sublabel }}</span>
+      <span v-if="sublabel" class="min-w-0 break-words text-sm text-ink-gray-6">{{ sublabel }}</span>
     </div>
 
     <!--

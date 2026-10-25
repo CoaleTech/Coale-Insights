@@ -2,7 +2,7 @@
   <div class="w-full h-full">
     <div v-if="hasData" class="space-y-2">
       <!-- frappe-ui AxisChart: three area series, one per scenario -->
-      <IntelligenceChart class="h-48 sm:h-56 lg:h-64" :config="axisConfig" />
+      <IntelligenceChart class="h-48 sm:h-56 lg:h-64" :config="axisConfig" hide-legend />
 
       <!-- Accessible text equivalent for screen readers (canvas is invisible to AT) -->
       <table class="sr-only">
@@ -103,15 +103,10 @@ const displayData = computed(() => {
   return result
 })
 
-const lastOptimistic = computed(() =>
-  displayData.value.length ? displayData.value[displayData.value.length - 1].optimistic : 0
-)
-const lastBase = computed(() =>
-  displayData.value.length ? displayData.value[displayData.value.length - 1].base : 0
-)
-const lastPessimistic = computed(() =>
-  displayData.value.length ? displayData.value[displayData.value.length - 1].pessimistic : 0
-)
+// The weekly sample stops at day 84 of 90; the "Day 90" tiles must read the real last day.
+const lastOptimistic = computed(() => props.optimistic?.at(-1)?.balance ?? props.base?.at(-1)?.balance ?? 0)
+const lastBase = computed(() => props.base?.at(-1)?.balance ?? 0)
+const lastPessimistic = computed(() => props.pessimistic?.at(-1)?.balance ?? props.base?.at(-1)?.balance ?? 0)
 
 /**
  * AxisChart config. Three area series so the fill bands are visible; `showDataPoints: false`

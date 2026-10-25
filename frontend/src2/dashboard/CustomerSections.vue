@@ -10,7 +10,7 @@ defineOptions({ name: 'CustomerSections' })
 import { Badge, Button, FormControl, Select, Tooltip } from 'frappe-ui'
 import { apiCall, readFrappeError } from '../helpers/api'
 import {
-  Search, Filter, Star, ChevronRight, MapPin, Target, Activity,
+  Search, Filter, Star, ChevronRight, MapPin, Target, Activity, AlertTriangle,
 } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { createToast } from '../helpers/toasts'
@@ -27,6 +27,9 @@ import type { DrillDownParams } from '../intelligence/composables/useDrillDown'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import SkeletonBlock from '../intelligence/components/SkeletonBlock.vue'
+import TabBrief, { type Brief } from '../intelligence/components/TabBrief.vue'
+import TabActions from '../intelligence/components/TabActions.vue'
+import StatStrip, { type StatItem } from '../intelligence/components/StatStrip.vue'
 
 // ── Props & emits ──────────────────────────────────────────────────────────
 const props = defineProps<{
@@ -196,6 +199,29 @@ const customers = computed(() => {
   if (rfmFilter.value) list = list.filter(c => c.rfm_segment === rfmFilter.value)
   return list
 })
+
+// Cards above the directory. Both read the same customers[] rows the table shows.
+const criticalTop = computed(() =>
+  ((props.data.customers ?? []) as unknown as CustomerRow[])
+    .filter(c => c.churn_risk === 'Critical')
+    .sort((a, b) => (b.total_clv ?? 0) - (a.total_clv ?? 0))
+    .slice(0, 5),
+)
+const TIER_ORDER = ['Diamond', 'Platinum', 'Gold', 'Silver', 'Bronze']
+const tierHealth = computed(() => {
+  const by = new Map<string, { accounts: number; atRisk: number; healthy: number; critical: number }>()
+  for (const c of (props.data.customers ?? []) as unknown as CustomerRow[]) {
+    const tier = c.clv_tier || 'Unrated'
+    const row = by.get(tier) ?? { accounts: 0, atRisk: 0, healthy: 0, critical: 0 }
+    row.accounts++
+    if (c.health_status === 'At Risk') row.atRisk++
+    else if (c.health_status === 'Healthy' || c.health_status === 'Excellent') row.healthy++
+    else if (c.health_status === 'Critical') row.critical++
+    by.set(tier, row)
+  }
+  const rank = (t: string) => (TIER_ORDER.includes(t) ? TIER_ORDER.indexOf(t) : TIER_ORDER.length)
+  return [...by.entries()].sort((a, b) => rank(a[0]) - rank(b[0])).map(([tier, v]) => ({ tier, ...v }))
+})
 const recentCustomerDetails = computed(() => {
   const allCustomers: CustomerRow[] = (props.data.customers ?? []) as unknown as CustomerRow[]
   return recentCustomerIds.value
@@ -268,6 +294,9 @@ const geoAnalysis = computed(() => (props.data.geographic_analysis ?? {}) as any
 const territoryGeo = computed(() => (geoAnalysis.value.territory_geo ?? {}) as Record<string, unknown>)
 const territoryWorld = computed<GeoPoint[]>(() => (territoryGeo.value.world ?? []) as GeoPoint[])
 const territoryIndia = computed<GeoPoint[]>(() => (territoryGeo.value.india ?? []) as GeoPoint[])
+const customerGroups = computed(() => (geoAnalysis.value.customer_group_analysis ?? []) as {
+  customer_group: string; customer_count: number; total_revenue: number; avg_order_value: number; avg_health_score: number
+}[])
 const territoryUnmapped = computed<UnmappedTerritory[]>(() => (territoryGeo.value.unmapped ?? []) as UnmappedTerritory[])
 const mappedCustomers = computed(() => territoryWorld.value.reduce((s, r) => s + (Number(r.value) || 0), 0))
 // Denominator is every customer counted by the backend, not mapped + unmapped
@@ -281,6 +310,81 @@ const cohortAnalysis = computed(() => (props.data.cohort_analysis ?? {}) as Reco
 const nextActions = computed(() => (props.data.next_best_actions ?? []) as ActionItem[])
 // The payload caps next_best_actions; the true flagged count rides alongside.
 const nextActionsTotal = computed(() => asNumber(props.data.next_best_actions_total) ?? nextActions.value.length)
+
+// ── Customer Overview: Pareto SVG, at-risk rail, RFM ranked list ──────────
+interface ParetoCurvePoint { customer_pct: number; cumulative_percent: number }
+interface AtRiskRow {
+  customer_id: string; customer_name: string; churn_risk: string
+  historical_clv: number; recency_days: number; outstanding_amount: number
+}
+interface RfmSegRow { label: string; count: number; pct: number; barWidth: number; fillClass: string }
+
+// SVG chart layout constants (viewBox 0 0 560 220)
+const CHART_L = 50, CHART_T = 20, CHART_R = 540, CHART_B = 175
+const CHART_W = CHART_R - CHART_L   // 490
+const CHART_H = CHART_B - CHART_T   // 155
+function sx(pct: number): number { return CHART_L + (pct / 100) * CHART_W }
+function sy(pct: number): number { return CHART_B - (pct / 100) * CHART_H }
+
+const paretoCurve = computed<ParetoCurvePoint[]>(() =>
+  (paretoAnalysis.value.pareto_curve ?? []) as ParetoCurvePoint[])
+const pareto80ThresholdPct = computed<number>(() =>
+  asNumber(paretoAnalysis.value.pareto_80_threshold_pct) ?? 0)
+const paretoPoints = computed(() =>
+  paretoCurve.value.map(p => `${sx(p.customer_pct).toFixed(1)},${sy(p.cumulative_percent).toFixed(1)}`))
+const paretoLinePath = computed(() => {
+  const pts = paretoPoints.value
+  if (pts.length < 2) return ''
+  return `M ${pts[0]} L ${pts.slice(1).join(' L ')}`
+})
+const paretoAreaPath = computed(() => {
+  const pts = paretoPoints.value
+  if (!pts.length) return ''
+  return `M ${CHART_L},${CHART_B} L ${pts.join(' L ')} L ${CHART_R},${CHART_B} Z`
+})
+
+const atRiskCustomers = computed<AtRiskRow[]>(() =>
+  (props.data.at_risk_customers ?? []) as AtRiskRow[])
+// Already sorted by historical_clv desc from backend
+const atRiskCritical = computed(() => atRiskCustomers.value.filter(c => c.churn_risk === 'Critical'))
+const atRiskHigh = computed(() => atRiskCustomers.value.filter(c => c.churn_risk === 'High'))
+const atRiskSummaryCount = computed<number>(() => {
+  const dist = (summary.value.churn_risk_distribution ?? {}) as Record<string, number>
+  return (dist.High ?? 0) + (dist.Critical ?? 0)
+})
+const healthDistribution = computed<Record<string, number>>(() =>
+  (summary.value.health_distribution ?? {}) as Record<string, number>)
+
+function rfmSegmentFill(label: string): string {
+  const neg = new Set(['At Risk', 'Hibernating', 'Lost', "Can't Lose"])
+  const warn = new Set(['Need Attention', 'About to Sleep'])
+  const pos = new Set(['Champions', 'Loyal Customers', 'Potential Loyalists', 'Promising', 'New Customers'])
+  if (neg.has(label)) return severityFill('high')
+  if (warn.has(label)) return severityFill('medium')
+  if (pos.has(label)) return severityFill('low')
+  return severityFill('none')
+}
+
+function healthDistTint(status: string): string {
+  if (status === 'Excellent' || status === 'Healthy') return 'bg-surface-green-2'
+  if (status === 'At Risk') return 'bg-surface-amber-2'
+  if (status === 'Critical') return 'bg-surface-red-2'
+  return 'bg-surface-gray-2'
+}
+
+const rfmSortedSegments = computed<RfmSegRow[]>(() => {
+  const dist = (summary.value.rfm_segment_distribution ?? {}) as Record<string, number>
+  const total = (summary.value.total_customers as number) || 1
+  const entries = Object.entries(dist).sort((a, b) => b[1] - a[1])
+  const maxC = entries.length ? entries[0][1] : 1
+  return entries.map(([label, count]) => ({
+    label,
+    count,
+    pct: (count / total) * 100,
+    barWidth: (count / maxC) * 100,
+    fillClass: rfmSegmentFill(label),
+  }))
+})
 
 // ── Geography breakdown (dimension-driven, drillable) ───────────────────────
 // One endpoint slices sales by territory / item group / salesperson /
@@ -590,6 +694,60 @@ onMounted(() => {
   loadCustomerCounts()
   loadRankings()
 })
+
+// ── Server briefs + stat strips ───────────────────────────────────────────
+// Headline text is built server-side (insights/ml/tab_briefs/customer.py); the
+// client only renders it, and renders nothing for an older cached payload.
+const tabBriefs = computed(() => (props.data.tab_briefs ?? {}) as Record<string, Brief>)
+const patternsBrief = computed(() => (purchasePatternsData.value?.brief ?? null) as Brief | null)
+
+const listStrip = computed<StatItem[]>(() => {
+  const s = summary.value
+  const health = (s.health_distribution ?? {}) as Record<string, number>
+  const churn = (s.churn_risk_distribution ?? {}) as Record<string, number>
+  const total = asNumber(s.total_customers)
+  const atRisk = health['At Risk']
+  return [
+    { label: 'Portfolio CLV', amount: asNumber(s.total_clv) ?? null, sublabel: 'predicted lifetime' },
+    { label: 'At Risk', value: atRisk != null ? formatNumber(atRisk) : null, sublabel: atRisk != null && total ? `${formatPercent((atRisk / total) * 100)} of accounts` : undefined },
+    { label: 'Critical Churn', value: churn.Critical != null ? formatNumber(churn.Critical) : null, sublabel: 'accounts' },
+    { label: 'Quote Conversion', percent: asNumber(s.quote_conversion_rate) ?? null, sublabel: s.total_quotes != null ? `${formatNumber(s.converted_quotes as number)} of ${formatNumber(s.total_quotes as number)} quotes` : undefined },
+  ]
+})
+
+const geoStrip = computed<StatItem[]>(() => {
+  const cov = geoAnalysis.value.coverage ?? {}
+  const terr = (geoAnalysis.value.territory_analysis ?? []) as { revenue_share?: number }[]
+  const top3 = terr.length >= 3 ? terr.slice(0, 3).reduce((a, t) => a + (t.revenue_share ?? 0), 0) : null
+  return [
+    { label: 'Territories Covered', value: cov.territories_covered != null ? formatNumber(cov.territories_covered) : null },
+    { label: 'Customer Groups', value: cov.customer_groups_covered != null ? formatNumber(cov.customer_groups_covered) : null },
+    { label: 'Total Revenue', amount: asNumber(cov.total_revenue) ?? null },
+    { label: 'Top 3 Territories', percent: top3, sublabel: 'of revenue' },
+  ]
+})
+
+const actionsStrip = computed<StatItem[]>(() => [
+  { label: 'Customers Flagged', value: formatNumber(nextActionsTotal.value), sublabel: `${actionsSummary.value.high} high priority${nextActionsTotal.value > nextActions.value.length ? ` (of top ${nextActions.value.length})` : ''}` },
+  { label: 'Revenue at Risk', amount: actionsSummary.value.revenueAtRisk, sublabel: 'churn + re-engagement', tone: actionsSummary.value.revenueAtRisk > 0 ? 'neg' : undefined },
+  { label: 'Outstanding to Collect', amount: actionsSummary.value.outstanding, sublabel: 'payment follow-ups', tone: actionsSummary.value.outstanding > 0 ? 'warn' : undefined },
+  { label: 'Upsell + Nurture Upside', amount: actionsSummary.value.upside, sublabel: 'predicted 12-mo value' },
+])
+
+const cohortStrip = computed<StatItem[]>(() => {
+  const avg = (cohortAnalysis.value.average_retention ?? {}) as Record<string, number>
+  const cohorts = (cohortAnalysis.value.cohort_retention ?? []) as { cohort: string; size: number; retention: Record<string, number> }[]
+  const best = cohorts.reduce<(typeof cohorts)[number] | null>(
+    (a, c) => (c.retention?.['1'] != null && (a === null || c.retention['1'] > (a.retention['1'] ?? -1)) ? c : a), null)
+  return [
+    { label: 'Month 1 Retention', percent: avg['1'] ?? null, sublabel: 'average across cohorts', tone: avg['1'] != null ? toneOf(retentionSeverity(avg['1'])) : undefined },
+    { label: 'Month 2 Retention', percent: avg['2'] ?? null, sublabel: 'average across cohorts' },
+    { label: 'Cohorts Tracked', value: cohorts.length ? String(cohorts.length) : null },
+    { label: 'Best Month 1 Cohort', percent: best ? best.retention['1'] : null, sublabel: best ? `${best.cohort}, ${best.size} customers` : undefined },
+  ]
+})
+const toneOf = (s: Severity): StatItem['tone'] =>
+  s === 'high' || s === 'critical' ? 'neg' : s === 'medium' ? 'warn' : s === 'low' ? 'pos' : undefined
 </script>
 
 <template>
@@ -672,69 +830,281 @@ onMounted(() => {
     </p>
   </div>
 
-  <!-- ═══ Overview ═══ -->
-  <div v-if="activeTab === 'cust-overview'" class="grid gap-6 lg:grid-cols-2">
-    <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader variant="caption" title="CLV Tier Distribution" :level="3" />
-      <div class="space-y-3 mt-4">
-        <div v-for="(count, tier) in (summary.clv_tier_distribution as Record<string, number>)" :key="tier"
-          class="flex items-center gap-3">
-          <span class="flex-1 text-ink-gray-7">{{ tier }}</span>
-          <span class="tnum font-medium text-ink-gray-9">{{ formatNumber(count) }}</span>
-          <div class="w-24 h-2 bg-surface-gray-2 rounded-full" role="img" :aria-label="'CLV Tier ' + tier + ': ' + count">
-            <div class="bg-surface-gray-4 h-full rounded-full" :style="{ width: `${(count / (summary.total_customers as number)) * 100}%` }" />
+  <!-- ═══ Customer Overview (Variant C: Hero + Attention Rail, + A's RFM ranked-bar list) ═══ -->
+  <div v-if="activeTab === 'cust-overview'" class="grid gap-6 lg:grid-cols-3">
+
+    <!-- Left: Hero Pareto + stat tiles + RFM ranked bar list (2/3 width) -->
+    <div class="lg:col-span-2 flex flex-col gap-5">
+
+      <!-- Hero Pareto panel -->
+      <div class="p-5 rounded-lg border border-outline-gray-1 bg-accent-soft">
+        <div class="inline-flex items-center h-5 px-2.5 rounded text-xs font-semibold bg-accent text-white mb-3">
+          Key finding
+        </div>
+        <h3 class="text-sm font-semibold text-ink-gray-9 leading-snug mb-1">
+          {{ formatPercent(paretoAnalysis.top_80_percent_customers as number) }} of customers
+          account for 80% of revenue.
+          <template v-if="atRiskSummaryCount > 0"> Most of them are At Risk.</template>
+        </h3>
+        <p class="text-xs text-ink-gray-6 mb-3">
+          Concentration risk is structural; {{ atRiskSummaryCount }} at-risk accounts make it urgent.
+        </p>
+
+        <!-- Pareto SVG (rendered from full downsampled curve) -->
+        <svg
+          v-if="paretoCurve.length"
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 560 220"
+          width="100%"
+          class="max-h-56"
+          role="img"
+          :aria-label="`Pareto chart: ${formatPercent(paretoAnalysis.top_80_percent_customers as number)} of customers generate 80% of revenue`"
+        >
+          <!-- Y-grid lines -->
+          <line v-for="yp in [25, 50, 75, 100]" :key="yp" :x1="CHART_L" :y1="sy(yp)" :x2="CHART_R" :y2="sy(yp)" style="stroke: var(--outline-gray-1)" stroke-width="1" />
+          <!-- 80% revenue threshold line (horizontal) -->
+          <line :x1="CHART_L" :y1="sy(80)" :x2="CHART_R" :y2="sy(80)" style="stroke: var(--app-warn)" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.7" />
+          <!-- 80% threshold crossing line (vertical) -->
+          <line v-if="pareto80ThresholdPct > 0" :x1="sx(pareto80ThresholdPct)" :y1="CHART_T" :x2="sx(pareto80ThresholdPct)" :y2="CHART_B" style="stroke: var(--app-warn)" stroke-width="1.2" stroke-dasharray="4 3" opacity="0.7" />
+          <!-- Equal-distribution diagonal -->
+          <line :x1="CHART_L" :y1="CHART_B" :x2="CHART_R" :y2="CHART_T" style="stroke: var(--outline-gray-2)" stroke-width="1" stroke-dasharray="3 3" />
+          <!-- Area fill under the Pareto curve -->
+          <path :d="paretoAreaPath" style="fill: var(--app-accent)" opacity="0.07" />
+          <!-- Pareto curve line -->
+          <path :d="paretoLinePath" style="stroke: var(--app-accent); fill: none" stroke-width="2.5" stroke-linejoin="round" />
+          <!-- 80% threshold dot -->
+          <circle v-if="pareto80ThresholdPct > 0" :cx="sx(pareto80ThresholdPct)" :cy="sy(80)" r="4" style="fill: var(--app-warn); stroke: var(--app-card)" stroke-width="1.5" />
+          <!-- 80% annotation label -->
+          <text v-if="pareto80ThresholdPct > 0" :x="sx(pareto80ThresholdPct) + 6" :y="sy(80) - 6" font-size="11" style="fill: var(--app-warn)" font-family="Inter,sans-serif">
+            {{ formatPercent(pareto80ThresholdPct) }} customers → 80% revenue
+          </text>
+          <!-- Axis borders -->
+          <line :x1="CHART_L" :y1="CHART_B" :x2="CHART_R" :y2="CHART_B" style="stroke: var(--outline-gray-2)" stroke-width="1" />
+          <line :x1="CHART_L" :y1="CHART_T" :x2="CHART_L" :y2="CHART_B" style="stroke: var(--outline-gray-2)" stroke-width="1" />
+          <!-- X-axis labels -->
+          <text v-for="xp in [0, 20, 40, 60, 80, 100]" :key="xp" :x="sx(xp)" y="189" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="middle" font-family="Inter,sans-serif">{{ xp }}%</text>
+          <!-- Y-axis labels -->
+          <text v-for="yp in [0, 25, 50, 75, 100]" :key="yp" x="44" :y="sy(yp) + 4" font-size="10" style="fill: var(--ink-gray-5)" text-anchor="end" font-family="Inter,sans-serif">{{ yp }}%</text>
+          <!-- Axis titles -->
+          <text :x="(CHART_L + CHART_R) / 2" y="214" font-size="11" style="fill: var(--ink-gray-5)" text-anchor="middle" font-family="Inter,sans-serif">% of customers (by CLV rank)</text>
+          <text x="12" :y="(CHART_T + CHART_B) / 2" font-size="11" style="fill: var(--ink-gray-5)" text-anchor="middle" :transform="`rotate(-90,12,${(CHART_T + CHART_B) / 2})`" font-family="Inter,sans-serif">Cumulative revenue %</text>
+        </svg>
+        <div v-else class="h-32 flex items-center justify-center text-sm text-ink-gray-5">
+          No Pareto data available
+        </div>
+
+        <!-- Legend + drill link -->
+        <div class="flex flex-wrap items-center gap-4 mt-2 text-xs text-ink-gray-6">
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-5 h-0.5 bg-accent rounded" aria-hidden="true" />
+            Pareto curve
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="inline-block w-4 border-t border-dashed border-outline-gray-3" aria-hidden="true" />
+            Equal distribution
+          </span>
+          <span class="flex items-center gap-1.5 text-warn">
+            <span class="inline-block w-2 h-2 rounded-full bg-warn-fill" aria-hidden="true" />
+            80% revenue threshold
+          </span>
+          <button
+            class="ml-auto text-xs text-accent hover:underline"
+            @click="drillOpen('Top Customers', { metric: 'top_customers' })"
+          >
+            View rankings →
+          </button>
+        </div>
+      </div>
+
+      <!-- Stat tiles: CLV portfolio / Diamond tier / Champions / Quote conversion -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 rounded-lg border border-outline-gray-1 bg-surface-white overflow-hidden">
+        <div class="px-4 py-3 border-b sm:border-b-0 border-r border-outline-gray-1">
+          <div class="text-xs font-medium uppercase tracking-wide text-ink-gray-5 mb-1">CLV Portfolio</div>
+          <div class="text-lg font-semibold text-ink-gray-9 tnum leading-tight">{{ money(summary.total_clv as number) }}</div>
+          <div class="text-xs text-ink-gray-6 mt-0.5">{{ money(summary.avg_clv as number) }} avg</div>
+        </div>
+        <div class="px-4 py-3 border-b sm:border-b-0 sm:border-r border-outline-gray-1">
+          <div class="text-xs font-medium uppercase tracking-wide text-ink-gray-5 mb-1">Diamond Tier</div>
+          <div class="text-lg font-semibold text-ink-gray-9 tnum leading-tight">{{ formatNumber((summary.clv_tier_distribution as Record<string,number>)?.Diamond ?? 0) }}</div>
+          <div class="text-xs text-ink-gray-6 mt-0.5">Top 10% → {{ formatPercent(paretoAnalysis.top_10_percent_contribute as number) }}</div>
+        </div>
+        <div class="px-4 py-3 border-r border-outline-gray-1">
+          <div class="text-xs font-medium uppercase tracking-wide text-ink-gray-5 mb-1">Champions</div>
+          <div class="text-lg font-semibold text-ink-gray-9 tnum leading-tight">{{ formatNumber((summary.rfm_segment_distribution as Record<string,number>)?.Champions ?? 0) }}</div>
+          <div class="text-xs text-ink-gray-6 mt-0.5">+ {{ formatNumber((summary.rfm_segment_distribution as Record<string,number>)?.['Loyal Customers'] ?? 0) }} Loyal</div>
+        </div>
+        <div class="px-4 py-3">
+          <div class="text-xs font-medium uppercase tracking-wide text-ink-gray-5 mb-1">Quote Conversion</div>
+          <div class="text-lg font-semibold text-ink-gray-9 tnum leading-tight">{{ summary.quote_conversion_rate != null ? formatPercent(summary.quote_conversion_rate as number) : NO_VALUE }}</div>
+          <div class="text-xs text-ink-gray-6 mt-0.5">{{ formatNumber(summary.converted_quotes as number) }} / {{ formatNumber(summary.total_quotes as number) }}</div>
+        </div>
+      </div>
+
+      <!-- RFM ranked bar list (Variant A: horizontal, sorted by count desc) -->
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white">
+        <div class="px-4 py-3 border-b border-outline-gray-1">
+          <SectionHeader variant="caption" title="RFM Segment Distribution" :level="3"
+            :hint="`${formatNumber(summary.total_customers as number)} customers`" />
+        </div>
+        <div class="p-4 space-y-2.5">
+          <div
+            v-for="seg in rfmSortedSegments"
+            :key="seg.label"
+            class="flex items-center gap-3 min-w-0"
+          >
+            <span class="w-32 shrink-0 text-sm text-ink-gray-7 truncate">{{ seg.label }}</span>
+            <div class="flex-1 min-w-0">
+              <div
+                class="h-2 rounded-full bg-surface-gray-2"
+                role="img"
+                :aria-label="`${seg.label}: ${seg.count} customers (${formatPercent(seg.pct)})`"
+              >
+                <div class="h-full rounded-full" :class="seg.fillClass" :style="{ width: `${seg.barWidth}%` }" />
+              </div>
+            </div>
+            <span class="tnum text-sm font-medium text-ink-gray-9 w-8 text-right shrink-0">{{ formatNumber(seg.count) }}</span>
+            <span class="text-xs text-ink-gray-6 w-10 text-right shrink-0">{{ formatPercent(seg.pct) }}</span>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader variant="caption" title="Churn Risk Distribution" :level="3" />
-      <div class="space-y-3 mt-4">
-        <div v-for="(count, risk) in (summary.churn_risk_distribution as Record<string, number>)" :key="risk"
-          class="flex items-center gap-3">
-          <Badge v-bind="severityBadge(churnSeverity(String(risk)))" :label="String(risk)" size="sm" />
-          <span class="flex-1" />
-          <span class="tnum font-medium text-ink-gray-9">{{ formatNumber(count) }}</span>
-          <span class="text-sm text-ink-gray-6">{{ formatPercent((count / (summary.total_customers as number)) * 100) }}</span>
+    <!-- Right: Attention Rail (1/3 width, at-risk customers sorted by CLV) -->
+    <div class="flex flex-col rounded-lg border border-outline-gray-1 bg-surface-white overflow-hidden min-h-0">
+      <!-- Rail header -->
+      <div class="px-4 py-3 bg-surface-red-1 border-b border-outline-gray-1 shrink-0">
+        <div class="flex items-center gap-2 text-sm font-semibold text-ink-gray-9">
+          <AlertTriangle class="w-3.5 h-3.5 text-neg shrink-0" aria-hidden="true" />
+          Needs Attention
+        </div>
+        <div class="text-xs text-ink-gray-6 mt-0.5">
+          {{ atRiskSummaryCount }} accounts · High + Critical churn risk
         </div>
       </div>
-    </div>
 
-    <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader variant="caption" title="80/20 Analysis" :level="3" />
-      <div class="space-y-4 mt-4">
-        <div class="flex items-center justify-between p-3 rounded-lg bg-surface-gray-1">
-          <span class="text-ink-gray-7">Top 10% contribute</span>
-          <span class="text-xl font-bold text-ink-gray-9">{{ formatPercent(paretoAnalysis.top_10_percent_contribute as number) }}</span>
+      <!-- Critical section -->
+      <template v-if="atRiskCritical.length">
+        <div class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-neg bg-surface-gray-1 border-b border-outline-gray-1">
+          Critical ({{ atRiskCritical.length }})
         </div>
-        <div class="flex items-center justify-between p-3 rounded-lg bg-surface-gray-1">
-          <span class="text-ink-gray-7">Top 20% contribute</span>
-          <span class="text-xl font-bold text-ink-gray-9">{{ formatPercent(paretoAnalysis.top_20_percent_contribute as number) }}</span>
+        <div
+          v-for="item in atRiskCritical.slice(0, 3)"
+          :key="item.customer_id"
+          class="px-4 py-3 border-b border-outline-gray-1"
+        >
+          <div class="flex items-start justify-between gap-2 mb-1">
+            <span class="text-xs font-medium text-ink-gray-9 leading-snug truncate">{{ item.customer_name }}</span>
+            <Badge v-bind="severityBadge('critical')" size="sm" class="shrink-0" />
+          </div>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span class="tnum text-sm font-semibold text-ink-gray-8">{{ money(item.historical_clv) }}</span>
+            <span class="text-xs text-ink-gray-6">{{ item.recency_days }}d inactive</span>
+            <span v-if="(item.outstanding_amount ?? 0) > 0" class="text-xs text-warn">{{ money(item.outstanding_amount) }} o/s</span>
+          </div>
+          <button class="mt-1.5 text-xs text-accent hover:underline" @click="viewCustomerDetail(item.customer_id)">
+            View →
+          </button>
         </div>
-        <div class="flex items-center justify-between p-3 rounded-lg bg-surface-gray-1">
-          <span class="text-ink-gray-7">Customers for 80% revenue</span>
-          <span class="text-xl font-bold text-ink-gray-9">{{ formatPercent(paretoAnalysis.top_80_percent_customers as number) }}</span>
+      </template>
+
+      <!-- High section -->
+      <template v-if="atRiskHigh.length">
+        <div class="px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-warn bg-surface-gray-1 border-b border-outline-gray-1">
+          High ({{ atRiskHigh.length }})
         </div>
+        <div
+          v-for="item in atRiskHigh.slice(0, 4)"
+          :key="item.customer_id"
+          class="px-4 py-3 border-b border-outline-gray-1"
+        >
+          <div class="flex items-start justify-between gap-2 mb-1">
+            <span class="text-xs font-medium text-ink-gray-9 leading-snug truncate">{{ item.customer_name }}</span>
+            <Badge v-bind="severityBadge('high')" size="sm" class="shrink-0" />
+          </div>
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5">
+            <span class="tnum text-sm font-semibold text-ink-gray-8">{{ money(item.historical_clv) }}</span>
+            <span class="text-xs text-ink-gray-6">{{ item.recency_days }}d inactive</span>
+            <span v-if="(item.outstanding_amount ?? 0) > 0" class="text-xs text-warn">{{ money(item.outstanding_amount) }} o/s</span>
+          </div>
+          <button class="mt-1.5 text-xs text-accent hover:underline" @click="viewCustomerDetail(item.customer_id)">
+            View →
+          </button>
+        </div>
+      </template>
+
+      <!-- Footer: actions count -->
+      <div class="px-4 py-3 bg-surface-gray-1 border-t border-outline-gray-1 mt-auto shrink-0">
+        <div class="text-xs text-ink-gray-6 mb-2">{{ nextActionsTotal }} actions queued across flagged accounts</div>
       </div>
-    </div>
 
-    <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
-      <SectionHeader variant="caption" title="Health Distribution" :level="3" />
-      <div class="space-y-3 mt-4">
-        <div v-for="(count, status) in (summary.health_distribution as Record<string, number>)" :key="status"
-          class="flex items-center gap-3">
-          <Badge v-bind="severityBadge(healthSeverity(String(status)))" :label="String(status)" size="sm" />
-          <span class="flex-1" />
-          <span class="tnum font-medium text-ink-gray-9">{{ formatNumber(count) }}</span>
-          <span class="text-sm text-ink-gray-6">{{ formatPercent((count / (summary.total_customers as number)) * 100) }}</span>
+      <!-- Health distribution mini-grid -->
+      <div class="px-4 py-3 border-t border-outline-gray-1 shrink-0">
+        <div class="text-xs font-medium uppercase tracking-wider text-ink-gray-5 mb-2">Health distribution</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <div
+            v-for="(count, status) in healthDistribution"
+            :key="status"
+            class="text-center py-2 rounded"
+            :class="healthDistTint(String(status))"
+          >
+            <div class="text-sm font-semibold text-ink-gray-9 tnum">{{ formatNumber(count) }}</div>
+            <div class="text-xs text-ink-gray-6">{{ status }}</div>
+          </div>
         </div>
+        <button
+          class="mt-2 text-xs text-accent hover:underline"
+          @click="drillOpen('Customers by Health Status', { metric: 'customers' })"
+        >
+          View customers →
+        </button>
       </div>
     </div>
   </div>
 
   <!-- ═══ Customers (list) ═══ -->
   <div v-if="activeTab === 'cust-list'" class="space-y-4">
+    <TabBrief :brief="tabBriefs['cust-list']" />
+    <StatStrip :items="listStrip" :currency="baseCurrency" />
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <section class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
+        <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">Critical accounts</h3>
+        <p v-if="!criticalTop.length" class="px-4 py-6 text-sm text-ink-gray-6">No customers are at Critical churn risk.</p>
+        <ol v-else class="divide-y divide-outline-gray-1">
+          <li v-for="(c, i) in criticalTop" :key="c.customer_id" class="flex min-w-0 items-center gap-3 px-4 py-3">
+            <span class="tnum w-5 shrink-0 text-sm text-ink-gray-6">{{ i + 1 }}</span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-semibold text-ink-gray-9">{{ c.customer_name || c.customer_id }}</p>
+              <p class="truncate text-xs text-ink-gray-6">{{ c.territory || NO_VALUE }} · {{ c.recency_days == null ? NO_VALUE : `${c.recency_days}d inactive` }}</p>
+            </div>
+            <Badge theme="gray" variant="subtle" :label="c.clv_tier || '-'" size="sm" />
+            <span class="tnum shrink-0 text-sm font-semibold text-ink-gray-9">{{ money(c.total_clv) }}</span>
+          </li>
+        </ol>
+      </section>
+      <section class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
+        <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">Health by tier</h3>
+        <table class="w-full text-sm">
+          <thead class="bg-surface-gray-1">
+            <tr>
+              <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Tier</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Accounts</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">At Risk</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Healthy</th>
+              <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Critical</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="t in tierHealth" :key="t.tier" class="border-b border-outline-gray-1">
+              <td class="px-4 py-2 font-medium text-ink-gray-9">{{ t.tier }}</td>
+              <td class="tnum px-4 py-2 text-right text-ink-gray-9">{{ t.accounts }}</td>
+              <td class="tnum px-4 py-2 text-right text-ink-red-3">{{ t.atRisk }}</td>
+              <td class="tnum px-4 py-2 text-right text-ink-green-3">{{ t.healthy }}</td>
+              <td class="tnum px-4 py-2 text-right text-ink-gray-9">{{ t.critical }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
     <div class="flex flex-wrap gap-4 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
       <div class="flex-1 min-w-[200px]">
         <FormControl
@@ -822,15 +1192,13 @@ onMounted(() => {
         Showing 100 of {{ customers.length }} customers
       </div>
     </div>
+    <TabActions class="mt-6" :actions="tabBriefs['cust-list']?.actions" />
   </div>
 
   <!-- ═══ Geography ═══ -->
   <div v-if="activeTab === 'cust-geography'" class="space-y-6">
-    <div class="grid gap-4 sm:grid-cols-3">
-      <KpiCard label="Territories covered" :value="formatNumber(geoAnalysis.coverage?.territories_covered)" />
-      <KpiCard label="Customer groups" :value="formatNumber(geoAnalysis.coverage?.customer_groups_covered)" />
-      <KpiCard label="Total revenue" :amount="geoAnalysis.coverage?.total_revenue as number" :currency="baseCurrency" />
-    </div>
+    <TabBrief :brief="tabBriefs['cust-geography']" />
+    <StatStrip :items="geoStrip" :currency="baseCurrency" />
 
     <div class="rounded-lg border border-outline-gray-1 bg-card">
       <div class="h-[500px]">
@@ -951,21 +1319,44 @@ onMounted(() => {
         Showing 100 of {{ geoRows.length }} rows
       </div>
     </div>
+
+    <div v-if="customerGroups.length" class="rounded-lg border border-outline-gray-1 bg-card overflow-x-auto">
+      <div class="px-4 py-3 border-b border-outline-gray-1">
+        <h3 class="text-base font-semibold text-ink-gray-9">Customer group breakdown</h3>
+        <p class="text-xs text-ink-gray-6">Revenue and health by customer group.</p>
+      </div>
+      <table class="w-full">
+        <caption class="sr-only">Customer groups: accounts, revenue, average order value and average health score.</caption>
+        <thead class="bg-surface-gray-1">
+          <tr>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">Customer group</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Accounts</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Revenue</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Avg order value</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Avg health score</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-outline-gray-1">
+          <tr v-for="g in customerGroups.slice(0, 10)" :key="g.customer_group">
+            <td class="px-4 py-3 font-medium text-ink-gray-8">{{ g.customer_group || 'Unclassified' }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ formatNumber(g.customer_count) }}</td>
+            <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(g.total_revenue) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(g.avg_order_value) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ formatNumber(g.avg_health_score, 1) }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div v-if="customerGroups.length > 10" class="px-4 py-3 text-sm text-center text-ink-gray-6 bg-surface-gray-1">
+        Showing 10 of {{ customerGroups.length }} groups
+      </div>
+    </div>
+    <TabActions class="mt-6" :actions="tabBriefs['cust-geography']?.actions" />
   </div>
 
   <!-- ═══ Actions ═══ -->
   <div v-if="activeTab === 'cust-actions'" class="space-y-6">
-    <!-- Impact summary: money at stake, not just a count -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-      <KpiCard label="Revenue at risk" :amount="actionsSummary.revenueAtRisk" :currency="baseCurrency"
-        sublabel="churn + re-engagement" :severity="actionsSummary.revenueAtRisk > 0 ? 'high' : undefined" />
-      <KpiCard label="Outstanding to collect" :amount="actionsSummary.outstanding" :currency="baseCurrency"
-        sublabel="payment follow-ups" :severity="actionsSummary.outstanding > 0 ? 'medium' : undefined" />
-      <KpiCard label="Upsell + nurture upside" :amount="actionsSummary.upside" :currency="baseCurrency"
-        sublabel="predicted 12-mo value" />
-      <KpiCard label="Customers flagged" :value="formatNumber(nextActionsTotal)"
-        :sublabel="`${actionsSummary.high} high priority${nextActionsTotal > nextActions.length ? ` (of top ${nextActions.length})` : ''}`" />
-    </div>
+    <TabBrief :brief="tabBriefs['cust-actions']" />
+    <StatStrip :items="actionsStrip" :currency="baseCurrency" />
 
     <!-- Filters -->
     <div class="flex flex-wrap items-center gap-3 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
@@ -1027,10 +1418,13 @@ onMounted(() => {
         </div>
       </div>
     </div>
+    <TabActions class="mt-6" :actions="tabBriefs['cust-actions']?.actions" />
   </div>
 
   <!-- ═══ Cohorts ═══ -->
   <div v-if="activeTab === 'cust-cohorts'" class="space-y-6">
+    <TabBrief :brief="tabBriefs['cust-cohorts']" />
+    <StatStrip :items="cohortStrip" :currency="baseCurrency" />
     <div class="p-6 bg-surface-white rounded-lg border border-outline-gray-1">
       <SectionHeader variant="caption" title="Average Retention by Month" :level="3" />
       <div class="flex flex-wrap gap-2 mt-4">
@@ -1067,10 +1461,12 @@ onMounted(() => {
         </table>
       </div>
     </div>
+    <TabActions class="mt-6" :actions="tabBriefs['cust-cohorts']?.actions" />
   </div>
 
   <!-- ═══ Patterns ═══ -->
   <div v-if="activeTab === 'cust-patterns'" class="space-y-6">
+    <TabBrief :brief="patternsBrief" />
     <div v-if="isLoadingPatterns" class="flex items-center justify-center h-64">
       <div class="text-center space-y-3">
         <SkeletonBlock class="h-24 w-96 rounded-xl mx-auto" />
@@ -1206,10 +1602,12 @@ onMounted(() => {
       <Activity class="w-12 h-12 mx-auto text-ink-gray-4" aria-hidden="true" />
       <p class="mt-4 text-ink-gray-6">No purchase pattern data available</p>
     </div>
+    <TabActions class="mt-6" :actions="patternsBrief?.actions" />
   </div>
 
   <!-- ═══ Rankings ═══ -->
   <div v-if="activeTab === 'cust-rankings'" class="p-6 space-y-4">
+    <TabBrief :brief="tabBriefs['cust-rankings']" />
     <!-- Category filters -->
     <div class="flex flex-wrap items-center gap-3 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
       <div class="flex-1 min-w-[200px]">
@@ -1308,5 +1706,6 @@ onMounted(() => {
         <span v-if="scorecard">({{ scorecard.customers.length }} customers total)</span>
       </div>
     </div>
+    <TabActions class="mt-6" :actions="tabBriefs['cust-rankings']?.actions" />
   </div>
 </template>

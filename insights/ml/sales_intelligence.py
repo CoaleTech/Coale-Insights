@@ -86,6 +86,7 @@ def calculate_revenue_metrics(
         total_revenue=si.base_net_total.sum(),
         total_transactions=si.count(),
         unique_customers=si.customer.nunique(),
+        last_posting=si.posting_date.max(),
     ).execute()
     overall = overall_df.iloc[0]
     total_revenue = float(overall["total_revenue"] or 0)
@@ -93,9 +94,17 @@ def calculate_revenue_metrics(
     unique_customers = int(overall["unique_customers"] or 0)
     avg_order_value = round(total_revenue / total_transactions, 2) if total_transactions else 0
 
-    # Daily series (31 days ending at the window end -- not "today", or a past
-    # or custom range would be cut off at today-30d and lose its tail).
-    anchor = end or datetime.now()
+    # Daily series (last 30 days of the actual data, not the filter window end).
+    # Using `end` (which equals today for the 12m preset) makes the daily window
+    # start at today-30, which is past the last invoice when data has a lag
+    # (e.g. max invoice date Sep 14 → daily_cutoff Sep 22 → zero rows).
+    # `calculate_comparisons` already solves this with the same pattern.
+    import pandas as _pd
+    _max_row = overall["last_posting"]
+    if _max_row is not None and not _pd.isna(_max_row):
+        anchor = _pd.Timestamp(_max_row).to_pydatetime()
+    else:
+        anchor = end or datetime.now()
     daily_cutoff = (anchor - timedelta(days=30)).date()
     si_daily = si.filter(si.posting_date >= daily_cutoff)
     daily_df = (
@@ -528,16 +537,32 @@ def calculate_comparisons(
     # day-of-month comparison to stay apples-to-apples.
     si_yoy = base
 
-    def _slice(si_base, start_d, end_d):
-        si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))
+    def _slice(si_base, start_d, end_d, full_end=None):
+        """Revenue/txns for [start_d, end_d]; with `full_end`, also the full
+        [start_d, full_end] month (`full_*`) from the same scan."""
+        if full_end is None:
+            si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))
+            return si_period.aggregate(
+                revenue=si_period.base_net_total.sum(),
+                transactions=si_period.count(),
+            ).execute().iloc[0]
+        si_period = si_base.filter(si_base.posting_date.between(start_d, full_end))
+        lfl = si_period.posting_date <= end_d
         return si_period.aggregate(
-            revenue=si_period.base_net_total.sum(),
-            transactions=si_period.count(),
+            revenue=si_period.base_net_total.sum(where=lfl),
+            transactions=si_period.count(where=lfl),
+            full_revenue=si_period.base_net_total.sum(),
+            full_transactions=si_period.count(),
         ).execute().iloc[0]
 
+    import calendar as _cal
+    ly_days = _cal.monthrange(last_year_month_start.year, last_year_month_start.month)[1]
     cur = _slice(si, current_month_start, today)
-    last = _slice(si, last_month_start, last_month_end)
-    last_year = _slice(si_yoy, last_year_month_start, last_year_month_end)
+    last = _slice(si, last_month_start, last_month_end, last_month_final_day)
+    last_year = _slice(
+        si_yoy, last_year_month_start, last_year_month_end,
+        last_year_month_start.replace(day=ly_days),
+    )
 
     current_revenue = float(cur["revenue"] or 0)
     last_month_revenue = float(last["revenue"] or 0)
@@ -553,6 +578,22 @@ def calculate_comparisons(
     yoy_growth = round((current_revenue - last_year_revenue) / last_year_revenue * 100, 1) if last_year_revenue > 0 else 0
     mom_txn_growth = round((current_txns - last_txns) / last_txns * 100, 1) if last_txns > 0 else 0
     yoy_txn_growth = round((current_txns - last_year_txns) / last_year_txns * 100, 1) if last_year_txns > 0 else 0
+
+    # Full-calendar-month comparisons: no day-of-month cap so the reader sees
+    # the actual prior-month total, not a same-duration slice.
+    # `mom_growth` (like-for-like) is kept for backward compat; `mom_growth_full`
+    # is the headline figure — last complete calendar month vs prior.
+    last_full_revenue = float(last["full_revenue"] or 0)
+    last_full_txns = int(last["full_transactions"] or 0)
+    mom_growth_full = (
+        round((current_revenue - last_full_revenue) / last_full_revenue * 100, 1)
+        if last_full_revenue > 0 else None
+    )
+    last_year_full_revenue = float(last_year["full_revenue"] or 0)
+    yoy_growth_full = (
+        round((current_revenue - last_year_full_revenue) / last_year_full_revenue * 100, 1)
+        if last_year_full_revenue > 0 else None
+    )
 
     # Monthly trend (last 13 months for MoM).
     si_monthly = si.mutate(period=si.posting_date.strftime("%Y-%m"))
@@ -585,10 +626,17 @@ def calculate_comparisons(
             "aov": current_aov,
             "period": current_month_start.strftime("%Y-%m"),
         },
+        # last_month: same-duration like-for-like slice (day-of-month cap applied)
         "last_month": {
             "revenue": last_month_revenue,
             "transactions": last_txns,
             "aov": last_aov,
+            "period": last_month_start.strftime("%Y-%m"),
+        },
+        # last_month_full: entire prior calendar month (no day cap)
+        "last_month_full": {
+            "revenue": round(last_full_revenue, 2),
+            "transactions": last_full_txns,
             "period": last_month_start.strftime("%Y-%m"),
         },
         "last_year_same_month": {
@@ -597,8 +645,18 @@ def calculate_comparisons(
             "aov": last_year_aov,
             "period": last_year_month_start.strftime("%Y-%m"),
         },
+        # last_year_full: entire same calendar month of prior year (no day cap)
+        "last_year_full": {
+            "revenue": round(last_year_full_revenue, 2),
+            "period": last_year_month_start.strftime("%Y-%m"),
+        },
+        # mom_growth: like-for-like (same-duration slice; backward compatible)
         "mom_growth": mom_growth,
+        # mom_growth_full: headline MoM — current period vs full prior calendar month
+        "mom_growth_full": mom_growth_full,
         "yoy_growth": yoy_growth,
+        # yoy_growth_full: current period vs full prior-year same calendar month
+        "yoy_growth_full": yoy_growth_full,
         "mom_txn_growth": mom_txn_growth,
         "yoy_txn_growth": yoy_txn_growth,
         "monthly_trend": monthly_trend,
@@ -1051,6 +1109,63 @@ def aggregate_forecasts(date_filter: str = "12m", company: str | None = None) ->
     }
 
 
+def _compute_verdict_headline(
+    summary: dict[str, Any],
+    comparisons: dict[str, Any],
+    fulfillment: dict[str, Any],
+    forecasts: dict[str, Any],
+    base_currency: str,
+) -> str:
+    """One-sentence revenue overview verdict, computed server-side (Rule 7).
+    Combines total revenue, YoY classification, softest month, DSO alert, and
+    forecast projection into a single readable headline for the Overview tab card.
+    """
+    def _fmt(v: float) -> str:
+        if v >= 1e9: return f"{v / 1e9:.1f}B"
+        if v >= 1e6: return f"{v / 1e6:.1f}M"
+        if v >= 1e3: return f"{v / 1e3:.0f}K"
+        return f"{v:.0f}"
+
+    total_rev = float(summary.get("total_revenue") or 0)
+    yoy = summary.get("yoy_growth")
+    yoy_full = summary.get("yoy_growth_full")
+    cur = f"{base_currency} {_fmt(total_rev)}"
+
+    # The YoY figures compare only the latest (often partial) month, not the
+    # 12-month total, so say so and show both bases instead of a bare adjective.
+    if yoy is None:
+        yoy_phrase = ""
+    else:
+        yoy_phrase = f"latest month {yoy:+.1f}% YoY like-for-like"
+        if yoy_full is not None:
+            yoy_phrase += f" ({yoy_full:+.1f}% vs the full month last year)"
+
+    trend = comparisons.get("monthly_trend") or []
+    complete = [m for m in trend if not m.get("is_partial")]
+    softest = min(complete, key=lambda m: m.get("revenue", 0), default=None) if complete else None
+
+    parts = [f"Revenue {cur}"]
+    if yoy_phrase:
+        parts[0] += f" — {yoy_phrase}"
+
+    if softest:
+        mon = datetime.strptime(softest["period"], "%Y-%m").strftime("%B")
+        parts.append(f"{mon} at {base_currency} {_fmt(softest['revenue'])} is the softest month in the window")
+
+    dso = float(fulfillment.get("dso") or 0)
+    if dso > 30:
+        parts.append(f"DSO {dso:.0f} days is {dso - 30:.0f} days above the 30-day target")
+
+    fs = (forecasts.get("sales_forecast") or {}).get("forecast_summary") or {}
+    fc_total = fs.get("total_forecast")
+    fc_days = fs.get("days")
+    stale = int(fs.get("stale_days") or 0)
+    if fc_total and fc_days and stale < 90:
+        parts.append(f"The {fc_days}-day forecast projects {base_currency} {_fmt(float(fc_total))}")
+
+    return ". ".join(parts) + "."
+
+
 def run_sales_intelligence(
     date_filter: str = "12m",
     company: str | None = None,
@@ -1064,6 +1179,7 @@ def run_sales_intelligence(
     margins = analyze_margins(date_filter, company)
     fulfillment = analyze_fulfillment(date_filter, company)
     forecasts = aggregate_forecasts(date_filter, company)
+    currency = _base_currency(company)
 
     summary = {
         "total_revenue": revenue_metrics["total_revenue"],
@@ -1073,20 +1189,25 @@ def run_sales_intelligence(
         "cash_ratio": payment_mix["cash_ratio"],
         "credit_ratio": payment_mix["credit_ratio"],
         "mom_growth": comparisons["mom_growth"],
+        "mom_growth_full": comparisons["mom_growth_full"],
         "yoy_growth": comparisons["yoy_growth"],
+        "yoy_growth_full": comparisons["yoy_growth_full"],
         "overall_margin": margins["overall_margin"],
         "fulfillment_rate": fulfillment["fulfillment_rate"],
         "dso": fulfillment["dso"],
         "total_sales_reps": sales_reps["total_reps"],
     }
 
+    verdict_headline = _compute_verdict_headline(summary, comparisons, fulfillment, forecasts, currency)
+
     return {
         "status": "success",
         "analysis_date": datetime.now().isoformat(),
-        "base_currency": _base_currency(company),
+        "base_currency": currency,
         "revenue_basis": REVENUE_BASIS,
         "date_filter": date_filter,
         "summary": summary,
+        "verdict_headline": verdict_headline,
         "revenue_metrics": revenue_metrics,
         "payment_mix": payment_mix,
         "sales_reps": sales_reps,
