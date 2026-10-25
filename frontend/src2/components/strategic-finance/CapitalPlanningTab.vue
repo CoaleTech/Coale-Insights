@@ -107,6 +107,14 @@
               <td class="px-4 py-3 text-sm text-center text-ink-gray-6">{{ asset.status || NO_VALUE }}</td>
             </tr>
           </tbody>
+          <tfoot v-if="ledgerOnlyGap !== null">
+            <tr class="bg-surface-amber-1">
+              <td colspan="2" class="px-4 py-3 text-sm font-medium text-ink-gray-9">Ledger-only assets (not in the Asset register)</td>
+              <td class="px-4 py-3 text-sm text-right font-medium text-ink-gray-9 tnum">{{ formatMoney(ledgerOnlyGap, currency) }}</td>
+              <td class="px-4 py-3 text-sm text-right text-ink-gray-6">{{ NO_VALUE }}</td>
+              <td class="px-4 py-3 text-sm text-center text-ink-gray-6">Gap</td>
+            </tr>
+          </tfoot>
         </table>
       </div>
       <div v-else class="text-center py-8 text-ink-gray-6 mt-4">No assets recorded</div>
@@ -174,6 +182,12 @@ const registerNote = computed(() => {
   const reg = props.data?.register_gross_assets ?? 0
   if (gross - reg <= 1) return null
   return `The Asset register covers ${formatMoney(reg, currency.value)} of ${formatMoney(gross, currency.value)} fixed assets on the books. Categories and the table below show registered assets only.`
+})
+
+/** Gross assets on the ledger that have no Asset record, or null when the register covers them. */
+const ledgerOnlyGap = computed(() => {
+  const gap = (props.data?.total_gross_assets ?? 0) - (props.data?.register_gross_assets ?? 0)
+  return gap > 1 ? gap : null
 })
 
 // CSS var-based series colours for category bars (non-text fills, >=3:1 on white).
