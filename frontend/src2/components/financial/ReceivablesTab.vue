@@ -41,23 +41,33 @@
 		<!-- Aging Analysis -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Accounts Receivable Aging" :level="3" />
-			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-44 sm:h-52 lg:h-56" :config="arAgingConfig" />
-			<table v-if="data.aging_buckets?.length" class="sr-only">
-				<caption>Accounts receivable by aging bucket</caption>
+			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-80" :config="arAgingConfig" />
+			<table v-if="data.aging_buckets?.length" class="mt-4 w-full text-sm">
+				<caption class="sr-only">Accounts receivable by aging bucket</caption>
 				<thead>
-					<tr>
-						<th scope="col">Bucket</th>
-						<th scope="col">Amount</th>
-						<th scope="col">Invoices</th>
+					<tr class="text-xs uppercase text-ink-gray-6">
+						<th scope="col" class="px-3 py-2 text-left font-medium">Bucket</th>
+						<th scope="col" class="px-3 py-2 text-right font-medium">Amount</th>
+						<th scope="col" class="px-3 py-2 text-right font-medium">Invoices</th>
+						<th scope="col" class="px-3 py-2 text-right font-medium">% of AR</th>
 					</tr>
 				</thead>
-				<tbody>
-					<tr v-for="bucket in data.aging_buckets" :key="bucket.bucket">
-						<th scope="row">{{ bucket.bucket }}</th>
-						<td>{{ formatCurrency(bucket.amount, currency) }}</td>
-						<td>{{ bucket.count }}</td>
+				<tbody class="divide-y divide-outline-gray-1">
+					<tr v-for="bucket in agingRows.rows" :key="bucket.bucket">
+						<th scope="row" class="px-3 py-2 text-left font-normal text-ink-gray-9">{{ bucket.bucket }}</th>
+						<td class="px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(bucket.amount, currency) }}</td>
+						<td class="px-3 py-2 text-right text-ink-gray-7">{{ bucket.count }}</td>
+						<td class="px-3 py-2 text-right text-ink-gray-7">{{ bucket.share === null ? NO_VALUE : formatPercent(bucket.share) }}</td>
 					</tr>
 				</tbody>
+				<tfoot>
+					<tr class="border-t border-outline-gray-2 font-semibold text-ink-gray-9">
+						<th scope="row" class="px-3 py-2 text-left">Total</th>
+						<td class="px-3 py-2 text-right">{{ formatCurrency(agingRows.amount, currency) }}</td>
+						<td class="px-3 py-2 text-right">{{ agingRows.count }}</td>
+						<td class="px-3 py-2 text-right">{{ agingRows.amount > 0 ? formatPercent(100) : NO_VALUE }}</td>
+					</tr>
+				</tfoot>
 			</table>
 		</div>
 
@@ -130,7 +140,7 @@ import { deltaInk, severityBadge, scoreSeverity } from '../../utils/status'
 import { themeColor } from '../../utils/chartTheme'
 import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { formatDays, formatPeriod, get90PlusOverdue, glBalanceDiffers } from './format'
-import { formatMoney as formatCurrency } from '../../utils/format'
+import { formatMoney as formatCurrency, formatPercent, NO_VALUE } from '../../utils/format'
 import type { OverdueCustomerRow, ReceivablesData } from './types'
 
 const props = defineProps<{
@@ -139,6 +149,18 @@ const props = defineProps<{
 	finEndpoint: string
 	drillDown: ReturnType<typeof useDrillDown>
 }>()
+
+/** Aging buckets with each one's share of the bucket total, plus the totals. */
+const agingRows = computed(() => {
+	const buckets = props.data.aging_buckets ?? []
+	const amount = buckets.reduce((s, b) => s + Number(b.amount), 0)
+	const count = buckets.reduce((s, b) => s + Number(b.count), 0)
+	return {
+		amount,
+		count,
+		rows: buckets.map(b => ({ ...b, share: amount > 0 ? (Number(b.amount) / amount) * 100 : null })),
+	}
+})
 
 const arAgingConfig = computed(() => ({
 	title: '',
