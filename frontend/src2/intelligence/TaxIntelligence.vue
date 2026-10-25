@@ -513,6 +513,25 @@ const gstStackedBarConfig = computed(() => {
   }
 })
 
+/** Output GST to net GST, then the ITC at risk, one coloured bar each (the mock's GST Cash Bridge). */
+const gstBridgeConfig = computed(() => {
+  const steps = [
+    { key: 'Output GST', row: gstWaterfall.value[0], color: themeColor('--app-accent-strong') },
+    { key: 'Less ITC', row: gstWaterfall.value[1], color: themeColor('--app-pos-fill') },
+    { key: 'Net GST', row: gstWaterfall.value[2], color: themeColor('--app-accent-strong') },
+    { key: 'ITC at risk', row: gstWaterfall.value[3], color: themeColor('--app-neg-fill') },
+  ]
+  if (steps.every((s) => s.row.amount == null)) return null
+  return {
+    data: steps.map((s) => Object.fromEntries([['step', s.key], ...steps.map((o) => [o.key, o === s ? Number(s.row.amount ?? 0) : 0])])),
+    title: '',
+    xAxis: { key: 'step', type: 'category' as const },
+    yAxis: { title: 'Amount (INR)' },
+    stacked: true,
+    series: steps.map((s) => ({ name: s.key, type: 'bar' as const, color: s.color })),
+  }
+})
+
 const itcGaugeOptions = computed(() => {
   const pct = itcHealth.value.utilization_pct || 0
   return {
@@ -1655,6 +1674,11 @@ const actionsStrip = computed<StatItem[]>(() => [
               </div>
             </div>
 
+            <div v-if="gstBridgeConfig" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="GST Cash Bridge" hint="Output GST less input tax credit, and the credit at risk" :level="3" />
+              <IntelligenceChart :config="gstBridgeConfig" class="mt-4 h-52 sm:h-64" />
+            </div>
+
             <!-- Filing Status -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white">
@@ -1674,6 +1698,9 @@ const actionsStrip = computed<StatItem[]>(() => [
                   Filed: <span class="font-medium text-ink-gray-8">{{ filingCompliance.gstr1?.filed_due ?? 0 }}</span>
                   of {{ filingCompliance.gstr1?.due ?? 0 }} due
                 </p>
+                <div v-if="Number(filingCompliance.gstr1?.due) > 0" class="mt-2 flex h-2 overflow-hidden rounded-full bg-surface-red-3" role="img" :aria-label="`${filingCompliance.gstr1?.filed_due ?? 0} of ${filingCompliance.gstr1?.due} filed`">
+                  <div class="h-2 bg-surface-green-3" :style="{ width: `${Math.min(100, (Number(filingCompliance.gstr1?.filed_due ?? 0) / Number(filingCompliance.gstr1?.due)) * 100)}%` }" />
+                </div>
               </div>
               <div class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white">
                 <div class="flex items-center justify-between">
@@ -1692,6 +1719,9 @@ const actionsStrip = computed<StatItem[]>(() => [
                   Filed: <span class="font-medium text-ink-gray-8">{{ filingCompliance.gstr3b?.filed_due ?? 0 }}</span>
                   of {{ filingCompliance.gstr3b?.due ?? 0 }} due
                 </p>
+                <div v-if="Number(filingCompliance.gstr3b?.due) > 0" class="mt-2 flex h-2 overflow-hidden rounded-full bg-surface-red-3" role="img" :aria-label="`${filingCompliance.gstr3b?.filed_due ?? 0} of ${filingCompliance.gstr3b?.due} filed`">
+                  <div class="h-2 bg-surface-green-3" :style="{ width: `${Math.min(100, (Number(filingCompliance.gstr3b?.filed_due ?? 0) / Number(filingCompliance.gstr3b?.due)) * 100)}%` }" />
+                </div>
               </div>
             </div>
 
