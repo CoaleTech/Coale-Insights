@@ -206,11 +206,11 @@ const predictiveData = computed(() => riskData.value?.predictive_analytics ?? ({
 // Payment-risk rows carry only the customer code; names come from the credit scores.
 const customerNames = computed(() => new Map((creditData.value.customer_risk_scores ?? []).map(r => [r.customer, r.customer_name])))
 // Table order follows the mock: outstanding x risk score, highest first.
-const creditByExposure = computed(() =>
-  [...(creditData.value.customer_risk_scores ?? [])]
-    .sort((a, b) => (Number(b.outstanding) || 0) * (Number(b.risk_score) || 0) - (Number(a.outstanding) || 0) * (Number(a.risk_score) || 0))
-    .slice(0, 20),
-)
+const exposure = (r: { outstanding?: number; risk_score?: number }) => (Number(r.outstanding) || 0) * (Number(r.risk_score) || 0) / 100
+const byExposure = <T extends { outstanding?: number; risk_score?: number }>(rows: T[] | undefined) =>
+  [...(rows ?? [])].sort((a, b) => exposure(b) - exposure(a)).slice(0, 20)
+const creditByExposure = computed(() => byExposure(creditData.value.customer_risk_scores))
+const payablesByExposure = computed(() => byExposure(payablesData.value.supplier_risk_scores))
 // Weekly sample of the daily cash forecast, plus the last day.
 const forecastSample = computed(() => {
   const fc = predictiveData.value.cash_flow_forecast?.forecast ?? []
@@ -1106,7 +1106,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                         <Badge v-bind="severityBadge(customer.risk_category)" size="sm" />
                       </td>
                       <td class="py-2 text-right font-medium text-ink-gray-8">{{ customer.risk_score }}/100</td>
-                      <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency((Number(customer.outstanding) || 0) * (Number(customer.risk_score) || 0) / 100) }}</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency(exposure(customer)) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1154,11 +1154,12 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Avg Overdue Days</th>
                       <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Risk Category</th>
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Risk Score</th>
+                      <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Exposure × Risk</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr
-                      v-for="supplier in payablesData.supplier_risk_scores?.slice(0, 20)"
+                      v-for="supplier in payablesByExposure"
                       :key="supplier.supplier"
                       class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
@@ -1169,6 +1170,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                         <Badge v-bind="severityBadge(supplier.risk_category)" size="sm" />
                       </td>
                       <td class="py-2 text-right font-medium text-ink-gray-8">{{ supplier.risk_score }}/100</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency(exposure(supplier)) }}</td>
                     </tr>
                   </tbody>
                 </table>
