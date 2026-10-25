@@ -216,7 +216,7 @@
 				<!-- Actuals: Payables -->
 				<div v-if="activeTab === 'payables'">
 					<TabBrief class="mb-6" :brief="tabBriefs.payables" :as-of="financialData?.generated_at" />
-					<PayablesTab :data="payablesData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+					<PayablesTab :data="payablesData" :cash-flow="cashFlowData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
 					<TabActions class="mt-6" :actions="tabBriefs.payables?.actions" />
 				</div>
 

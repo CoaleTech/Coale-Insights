@@ -38,6 +38,34 @@
 			</div>
 		</div>
 
+		<!-- 7-day cash adequacy bridge + concentration: arithmetic on payload fields only -->
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<div v-if="bridge" class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+				<SectionHeader variant="caption" title="7-Day Cash Adequacy Bridge" hint="Liquid cash and fixed deposits against invoices due within 7 days" :level="3" />
+				<div class="mt-4 space-y-3">
+					<div v-for="row in bridge.rows" :key="row.label" class="grid grid-cols-[9rem_1fr_auto] sm:grid-cols-[12rem_1fr_auto] items-center gap-3 text-sm">
+						<span class="text-ink-gray-7">{{ row.label }}</span>
+						<div class="h-3 bg-surface-gray-2 rounded-full overflow-hidden" role="img" :aria-label="`${row.label}: ${row.text}`">
+							<div :class="['h-full rounded-full', row.fill]" :style="{ width: `${row.pct}%` }" />
+						</div>
+						<span class="tnum text-right font-medium text-ink-gray-9">{{ row.text }}</span>
+					</div>
+				</div>
+				<p class="mt-4 text-sm" :class="bridge.gap > 0 ? 'text-ink-red-3' : 'text-ink-gray-7'">
+					{{ bridge.note }}
+				</p>
+			</div>
+			<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+				<SectionHeader variant="caption" title="AP Concentration and Aging Health" :level="3" />
+				<dl class="mt-4 space-y-3 text-sm">
+					<div v-for="f in concentration" :key="f.label" class="flex items-baseline justify-between gap-4">
+						<dt class="text-ink-gray-7">{{ f.label }}</dt>
+						<dd class="tnum text-right font-medium text-ink-gray-9">{{ f.value }}</dd>
+					</div>
+				</dl>
+			</div>
+		</div>
+
 		<!-- Aging Analysis -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Accounts Payable Aging" :level="3" />
@@ -158,14 +186,15 @@ import { deltaInk } from '../../utils/status'
 import { themeColor } from '../../utils/chartTheme'
 import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { formatDate, formatDays, get90PlusOverdue, glBalanceDiffers } from './format'
-import { formatMoney as formatCurrency } from '../../utils/format'
-import type { PayablesData, TopSupplierRow } from './types'
+import { formatMoney as formatCurrency, formatPercent, NO_VALUE } from '../../utils/format'
+import type { CashFlowData, PayablesData, TopSupplierRow } from './types'
 
 const props = defineProps<{
 	data: PayablesData
 	currency: string
 	finEndpoint: string
 	drillDown: ReturnType<typeof useDrillDown>
+	cashFlow?: CashFlowData
 }>()
 
 const apAgingConfig = computed(() => ({
@@ -178,6 +207,56 @@ const apAgingConfig = computed(() => ({
 	yAxis: { title: props.currency, yMin: 0 },
 	series: [{ name: 'Amount', type: 'bar' as const, color: themeColor('--app-warn-fill') }],
 }))
+
+const bridge = computed(() => {
+	const cash = props.cashFlow
+	if (cash?.liquid_cash == null || !Number.isFinite(Number(cash.liquid_cash))) return null
+	const liquid = Number(cash.liquid_cash)
+	const fd = Number(cash.fd_balance) || 0
+	const due = (props.data.upcoming_payments ?? [])
+		.filter(b => b.days_until_due <= 7)
+		.reduce((s, b) => s + Number(b.outstanding_amount), 0)
+	const net = liquid + fd - due
+	const gap = Math.max(due - liquid, 0)
+	const scale = Math.max(Math.abs(liquid), fd, due, Math.abs(net)) || 1
+	const money = (n: number) => formatCurrency(n, props.currency)
+	const row = (label: string, amount: number, fill: string, text: string) => ({
+		label, fill, text, pct: Math.min(Math.abs(amount) / scale * 100, 100),
+	})
+	return {
+		gap,
+		rows: [
+			row('Liquid cash', liquid, liquid >= 0 ? 'bg-pos-fill' : 'bg-neg-fill', money(liquid)),
+			row('Fixed deposits', fd, 'bg-muted-fill', money(fd)),
+			row('Due within 7 days', due, 'bg-warn-fill', `-${money(due)}`),
+			row('Net after 7-day payments', net, net >= 0 ? 'bg-pos-fill' : 'bg-neg-fill', money(net)),
+		],
+		note: gap > 0
+			? `Payments due within 7 days exceed liquid cash by ${money(gap)}. After counting fixed deposits the net is ${money(net)}.`
+			: `Liquid cash covers the ${money(due)} due within 7 days.`,
+	}
+})
+
+const concentration = computed(() => {
+	const d = props.data
+	const total = Number(d.total_outstanding)
+	const top = d.top_suppliers?.[0]
+	const bucket = [...(d.aging_buckets ?? [])].sort((a, b) => Number(b.amount) - Number(a.amount))[0]
+	const share = (n: number) => (total > 0 ? formatPercent(n / total * 100) : NO_VALUE)
+	return [
+		{ label: 'Days payable outstanding', value: formatDays(d.current_dpo) },
+		{ label: 'Average open invoice age', value: formatDays(d.avg_open_payable_age_days) },
+		{ label: 'Average overdue days', value: formatDays(d.avg_overdue_days) },
+		{
+			label: top ? `Largest supplier: ${top.supplier_name || top.supplier}` : 'Largest supplier',
+			value: top ? `${formatCurrency(top.total_outstanding, props.currency)} (${share(Number(top.total_outstanding))} of AP, ${top.invoice_count} invoices)` : NO_VALUE,
+		},
+		{
+			label: bucket ? `Largest aging bucket: ${bucket.bucket}` : 'Largest aging bucket',
+			value: bucket ? `${formatCurrency(bucket.amount, props.currency)} (${share(Number(bucket.amount))} of AP)` : NO_VALUE,
+		},
+	]
+})
 
 const open90Plus = () =>
 	props.drillDown.open(props.finEndpoint, 'Overdue 90+ Days AP', { metric: 'overdue_ap_90' })

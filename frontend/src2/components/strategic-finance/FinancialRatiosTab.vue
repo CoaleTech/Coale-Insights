@@ -129,6 +129,30 @@
                 {{ formatMultiple(quarter.asset_turnover) }}
               </td>
             </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                EBITDA Margin
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'em-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
+              >
+                {{ formatPercent(quarter.ebitda_margin) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                Working Capital Turnover
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'wt-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
+              >
+                {{ formatMultiple(quarter.working_capital_turnover) }}
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -149,7 +173,7 @@
           <div class="flex justify-between mb-1">
             <span class="text-sm font-medium text-ink-gray-7">{{ benchmark.name }}</span>
             <span class="text-sm text-ink-gray-6">
-              {{ benchmark.actual }} / {{ benchmark.benchmark }} (benchmark)
+              {{ benchmark.actual }} / {{ benchmark.benchmark }} (benchmark)<template v-if="benchmark.delta"> · {{ benchmark.delta }}</template>
             </span>
           </div>
           <!-- Non-text fill bar with aria label -->
@@ -302,7 +326,13 @@ const ratioCards = computed(() => {
 // Summary strip is capped at six; the benchmark list below shows every ratio.
 const headlineCards = computed(() => ratioCards.value.slice(0, 6))
 
-const quarterlyTrends = computed(() => props.data?.trends?.slice(-4) || [])
+const quarterlyTrends = computed(() => props.data?.trends || [])
+
+const deltaText = (name: string, d: number): string => {
+  const sign = d > 0 ? '+' : d < 0 ? '-' : ''
+  const abs = Math.abs(d).toFixed(isPercentCard(name) ? 1 : 2)
+  return `${sign}${abs}${isPercentCard(name) ? 'pp' : 'x'} vs benchmark`
+}
 
 const benchmarkComparison = computed(() => {
   if (!props.data?.ratio_cards) return []
@@ -316,6 +346,7 @@ const benchmarkComparison = computed(() => {
       name: card.name,
       actual: fmt(card.value),
       benchmark: fmt(benchmark),
+      delta: available && card.benchmark != null ? deltaText(card.name, Number(card.value) - Number(card.benchmark)) : '',
       actualPosition: available ? Math.min((Math.abs(actual) / maxVal) * 100, 100) : 0,
       benchmarkPosition: Math.min((benchmark / maxVal) * 100, 100),
       severity: ratioStatusSeverity(card.status),

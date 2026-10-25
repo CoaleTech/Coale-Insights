@@ -184,6 +184,20 @@
       </div>
     </div>
 
+    <!-- 12-month trend charts: working capital and current ratio -->
+    <div v-if="allMonths.length" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+        <SectionHeader variant="caption" title="Working Capital: 12-Month Trend" :level="3" />
+        <IntelligenceChart class="mt-4 h-80" :config="wcChartConfig" />
+        <p v-if="wcSummary" class="mt-3 text-xs text-ink-gray-6">{{ wcSummary }}</p>
+      </div>
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
+        <SectionHeader variant="caption" title="Current Ratio: 12-Month Trend" :level="3" />
+        <IntelligenceChart class="mt-4 h-80" :config="ratioChartConfig" />
+        <p v-if="ratioSummary" class="mt-3 text-xs text-ink-gray-6">{{ ratioSummary }}</p>
+      </div>
+    </div>
+
     <!-- Trend Analysis (Months as Columns) -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
       <SectionHeader variant="caption" title="Working Capital Trends" hint="Last 6 months" :level="3">
@@ -279,6 +293,8 @@ import {
 import { scoreSeverity, severityFill, severityAria, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
+import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
+import { themeColor } from '../../utils/chartTheme'
 import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { WorkingCapitalData, WorkingCapitalTrendRow } from './types'
 
@@ -329,6 +345,42 @@ const ratioInk = (value: number | null | undefined): string =>
 // API trend rows include display fields (period, current_assets, current_liabilities) beyond the
 // shared minimal contract; cast once at this computed boundary.
 const trendMonths = computed(() => (props.data?.trends as unknown as TrendRow[] | undefined)?.slice(-6) || [])
+
+const allMonths = computed(() => (props.data?.trends as unknown as TrendRow[] | undefined) ?? [])
+
+const wcChartConfig = computed(() => ({
+  title: '',
+  data: allMonths.value.map((m) => ({ period: formatPeriod(m.period), 'Working Capital': Number(m.working_capital) })),
+  xAxis: { key: 'period', type: 'category' as const },
+  yAxis: { title: currency.value },
+  series: [{ name: 'Working Capital', type: 'bar' as const, color: themeColor('--app-pos') }],
+}))
+
+const ratioChartConfig = computed(() => ({
+  title: '',
+  data: allMonths.value.map((m) => ({ period: formatPeriod(m.period), 'Current Ratio': m.current_ratio == null ? undefined : Number(m.current_ratio) })),
+  xAxis: { key: 'period', type: 'category' as const },
+  yAxis: { title: 'x' },
+  series: [{ name: 'Current Ratio', type: 'line' as const, color: themeColor('--app-accent') }],
+}))
+
+/** Trough, peak and latest straight from the monthly rows. */
+const wcSummary = computed(() => {
+  const rows = allMonths.value.filter((m) => Number.isFinite(Number(m.working_capital)))
+  if (rows.length < 2) return ''
+  const lo = rows.reduce((a, b) => (Number(b.working_capital) < Number(a.working_capital) ? b : a))
+  const hi = rows.reduce((a, b) => (Number(b.working_capital) > Number(a.working_capital) ? b : a))
+  const last = rows[rows.length - 1]
+  return `Lowest ${formatMoney(Number(lo.working_capital), currency.value)} (${formatPeriod(lo.period)}), highest ${formatMoney(Number(hi.working_capital), currency.value)} (${formatPeriod(hi.period)}), latest ${formatMoney(Number(last.working_capital), currency.value)}.`
+})
+
+const ratioSummary = computed(() => {
+  const rows = allMonths.value.filter((m) => m.current_ratio != null && Number.isFinite(Number(m.current_ratio)))
+  if (rows.length < 2) return ''
+  const lo = rows.reduce((a, b) => (Number(b.current_ratio) < Number(a.current_ratio) ? b : a))
+  const last = rows[rows.length - 1]
+  return `Lowest ${Number(lo.current_ratio).toFixed(2)}x (${formatPeriod(lo.period)}), latest ${Number(last.current_ratio).toFixed(2)}x (${formatPeriod(last.period)}).`
+})
 
 const formatPeriod = (period: string | undefined): string => {
   if (!period) return ''
