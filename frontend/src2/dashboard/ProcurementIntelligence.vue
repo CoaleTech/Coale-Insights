@@ -243,7 +243,7 @@
                 <div class="flex-1">
                   <div class="font-medium text-ink-gray-9">{{ supplierLabel(sup) }}</div>
                   <div class="text-sm text-ink-gray-6">
-                    On-time: {{ formatPercent(sup.on_time_rate) }} | Quality: {{ formatPercent(sup.quality_rate) }}
+                    {{ formatCount(sup.po_count) }} POs | {{ formatCurrency(sup.total_value) }} | On-time {{ formatPercent(sup.on_time_rate) }} | Lead {{ formatDays(sup.avg_lead_time) }}
                   </div>
                 </div>
                 <div class="text-lg font-bold text-ink-gray-9">{{ scoreLabel(sup.overall_score) }}</div>
@@ -266,7 +266,7 @@
                 <div class="flex-1">
                   <div class="font-medium text-ink-gray-9">{{ supplierLabel(sup) }}</div>
                   <div class="text-sm text-ink-gray-6">
-                    On-time: {{ formatPercent(sup.on_time_rate) }} | Quality: {{ formatPercent(sup.quality_rate) }}
+                    {{ formatCount(sup.po_count) }} POs | {{ formatCurrency(sup.total_value) }} | On-time {{ formatPercent(sup.on_time_rate) }} | Lead {{ formatDays(sup.avg_lead_time) }}
                   </div>
                 </div>
                 <div class="text-lg font-bold text-ink-gray-9">{{ scoreLabel(sup.overall_score) }}</div>
@@ -1071,6 +1071,7 @@ const baseCurrency = computed(() => procurementData.value?.base_currency)
 const lastUpdated = computed(() => procurementData.value?.generated_at ?? null)
 const tabBriefs = computed(() => procurementData.value?.tab_briefs ?? {})
 const suppliersStrip = computed<StatItem[]>(() => [
+  { label: 'Suppliers Scored', value: supplierData.value.all_suppliers?.length || null },
   { label: 'Avg Performance Score', value: supplierData.value.avg_score ?? null, unit: '/100' },
   { label: 'Avg On-Time Rate', percent: supplierData.value.avg_on_time_rate ?? null },
   { label: qualityStatus.value === 'not_implemented' ? 'Avg Quality Rate (not tracked)' : 'Avg Quality Rate', percent: qualityStatus.value === 'not_implemented' ? null : (supplierData.value.avg_quality_rate ?? null) },
