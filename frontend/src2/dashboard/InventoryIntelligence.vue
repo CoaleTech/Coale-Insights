@@ -289,6 +289,12 @@ function suffixed(value: unknown, suffix: string): string {
   return n === undefined ? NO_VALUE : `${n}${suffix}`
 }
 
+/** Coefficient of variation; the server sends 999 when it could not be computed. */
+function itemCv(value: unknown): string {
+  const n = asNumber(value)
+  return n === undefined || n >= 999 ? NO_VALUE : n.toFixed(2)
+}
+
 function coveragePct(item: unknown): number | undefined {
   const c = asNumber((item as Record<string, unknown>).coverage)
   return c === undefined ? undefined : c * 100
@@ -1133,6 +1139,7 @@ function handleDashboardRedirect(target: string) {
                           <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Item</th>
                           <th scope="col" class="px-3 py-2 text-center text-ink-gray-6">Class</th>
                           <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Sales value</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">CV (demand var.)</th>
                           <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Stock</th>
                           <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Strategy</th>
                         </tr>
@@ -1164,6 +1171,7 @@ function handleDashboardRedirect(target: string) {
                             )" :label="String((item as Record<string, unknown>).xyz_class)" size="sm" class="ml-1" />
                           </td>
                           <td class="px-3 py-2 text-right text-xs text-ink-gray-6">{{ money((item as Record<string, unknown>).total_value as number) }}</td>
+                          <td class="px-3 py-2 text-right text-xs tnum text-ink-gray-6">{{ itemCv((item as Record<string, unknown>).cv) }}</td>
                           <td class="px-3 py-2 text-right text-xs text-ink-gray-6">{{ formatCount((item as Record<string, unknown>).stock_qty as number) }}</td>
                           <td class="px-3 py-2 text-xs text-ink-gray-6">{{ (item as Record<string, unknown>).strategy || NO_VALUE }}</td>
                         </tr>
