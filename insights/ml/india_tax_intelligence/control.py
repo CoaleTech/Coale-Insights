@@ -38,6 +38,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import frappe
+from pypika.terms import Field
 
 from insights.api.ml.ibis_source import t
 from insights.ml.india_tax_intelligence.data import (
@@ -145,26 +146,25 @@ def get_action_queue(intelligence) -> Dict[str, Any]:
             summary={},
         )
 
-    conditions = ["a.plan_type = 'Tax'", "a.status IN %(open_states)s"]
-    params: Dict[str, Any] = {"open_states": tuple(OPEN_ACTION_STATES)}
-    if intelligence.company:
-        conditions.append("(r.company = %(company)s OR a.plan IS NULL OR a.plan = '')")
-        params["company"] = intelligence.company
-
-    rows = frappe.db.sql(
-        f"""
-        SELECT a.name, a.title, a.action_key, a.area, a.priority, a.status,
-               a.plan_state, a.owner_role, a.owner_type, a.impact_kes,
-               a.due_date, a.first_seen, a.last_seen, a.rationale, a.steps,
-               a._assign
-        FROM `tab{ACTION_DOCTYPE}` a
-        LEFT JOIN `tabJKM Weekly Report` r ON r.name = a.plan
-        WHERE {' AND '.join(conditions)}
-        ORDER BY a.impact_kes DESC
-        """,
-        params,
-        as_dict=True,
+    action, report = frappe.qb.DocType(ACTION_DOCTYPE), frappe.qb.DocType("JKM Weekly Report")
+    query = (
+        frappe.qb.from_(action)
+        .left_join(report)
+        .on(report.name == action.plan)
+        .select(
+            action.name, action.title, action.action_key, action.area, action.priority, action.status,
+            action.plan_state, action.owner_role, action.owner_type, action.impact_kes,
+            action.due_date, action.first_seen, action.last_seen, action.rationale, action.steps,
+            Field("_assign", table=action),
+        )
+        .where((action.plan_type == "Tax") & action.status.isin(list(OPEN_ACTION_STATES)))
+        .orderby(action.impact_kes, order=frappe.qb.desc)
     )
+    if intelligence.company:
+        query = query.where(
+            (report.company == intelligence.company) | action.plan.isnull() | (action.plan == "")
+        )
+    rows = query.run(as_dict=True)
 
     today = _today()
     out: List[Dict[str, Any]] = []

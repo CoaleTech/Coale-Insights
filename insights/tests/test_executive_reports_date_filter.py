@@ -16,6 +16,7 @@ claims to cover -- "Daily revenue" and "Period revenue" were both actually
 the un-scoped call.
 """
 
+from datetime import timedelta
 from unittest.mock import patch
 
 import frappe
@@ -27,6 +28,9 @@ from insights.reports.executive_reports import ExecutiveReports
 class TestExecutiveReportsSalesDateFilter(FrappeTestCase):
     def test_period_tokens_map_to_distinct_windows(self):
         er = ExecutiveReports()
+        # The quarter start equals the month start on the first month of a quarter;
+        # pin it apart so the three tokens are distinct on any calendar day.
+        er.current_quarter_start = er.current_month_start - timedelta(days=60)
         mtd = er._sales_date_filter("MTD")
         qtd = er._sales_date_filter("QTD")
         ytd = er._sales_date_filter("YTD")
