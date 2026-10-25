@@ -69,6 +69,7 @@ interface CustomerRow {
   churn_risk?: string
   total_clv?: number
   historical_clv?: number
+  predicted_12m_clv?: number
   health_status?: string
   health_score?: number
   order_count?: number
@@ -205,7 +206,7 @@ const customers = computed(() => {
 const criticalTop = computed(() =>
   ((props.data.customers ?? []) as unknown as CustomerRow[])
     .filter(c => c.churn_risk === 'Critical')
-    .sort((a, b) => (b.total_clv ?? 0) - (a.total_clv ?? 0))
+    .sort((a, b) => Number(b.predicted_12m_clv ?? 0) - Number(a.predicted_12m_clv ?? 0))
     .slice(0, 5),
 )
 const TIER_ORDER = ['Diamond', 'Platinum', 'Gold', 'Silver', 'Bronze']
@@ -1166,7 +1167,10 @@ const toneOf = (s: Severity): StatItem['tone'] =>
               <p class="truncate text-xs text-ink-gray-6">{{ c.territory || NO_VALUE }} · {{ c.recency_days == null ? NO_VALUE : `${c.recency_days}d inactive` }}</p>
             </div>
             <Badge theme="gray" variant="subtle" :label="c.clv_tier || '-'" size="sm" />
-            <span class="tnum shrink-0 text-sm font-semibold text-ink-gray-9">{{ money(c.total_clv) }}</span>
+            <div class="shrink-0 text-right">
+              <p class="tnum text-sm font-semibold text-ink-gray-9">{{ money(c.predicted_12m_clv) }}</p>
+              <p class="text-xs text-ink-gray-6">12m CLV</p>
+            </div>
           </li>
         </ol>
       </section>
