@@ -299,6 +299,22 @@ const operationalStrip = computed<StatItem[]>(() => {
     { label: 'Invoice Error Rate', value: formatPercent(o.process_risks?.invoice_error_rate, 2) },
   ]
 })
+// Approval time and downtime ship as null (not instrumented); null renders "-", never 0.
+const processIndicators = computed(() => {
+  const p = operationalData.value.process_risks
+  const row = (label: string, v: number | null | undefined, display: string, tracked: string) => {
+    const value = v ?? null
+    return { label, value, display, note: value === null ? 'Not tracked in ERP yet' : tracked }
+  }
+  const err = p?.invoice_error_rate ?? null
+  const appr = p?.average_approval_time ?? null
+  const down = p?.system_downtime_incidents ?? null
+  return [
+    row('Invoice error rate', err, formatPercent(err, 2), 'Computed from submitted invoices'),
+    row('Avg approval time', appr, String(appr), 'Workflow approval time'),
+    row('System downtime', down, String(down), 'Downtime incidents'),
+  ]
+})
 const predictiveStrip = computed<StatItem[]>(() => {
   const p = predictiveData.value
   const fc = p.cash_flow_forecast?.forecast ?? []
@@ -1300,6 +1316,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Total Orders</th>
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Total Value</th>
                       <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Avg Delay</th>
+                      <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Cancelled</th>
                       <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Risk Score</th>
                     </tr>
                   </thead>
@@ -1312,7 +1329,8 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                       <td class="py-2 text-ink-gray-8">{{ supplier.supplier_name }}</td>
                       <td class="py-2 text-right text-ink-gray-8">{{ supplier.total_orders }}</td>
                       <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency(supplier.total_value) }}</td>
-                      <td class="py-2 text-right text-ink-gray-8">{{ Math.round(supplier.avg_delay_days || 0) }} days</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ supplier.avg_delay_days == null ? NO_VALUE : `${Math.abs(Math.round(supplier.avg_delay_days * 10) / 10)}d ${supplier.avg_delay_days < 0 ? 'early' : 'late'}` }}</td>
+                      <td class="py-2 text-right text-ink-gray-8">{{ formatCount(supplier.cancelled_orders ?? null) }}</td>
                       <td class="py-2 text-center">
                         <Badge v-bind="severityBadge(supplier.risk_category)" size="sm" />
                       </td>
@@ -1322,6 +1340,18 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </div>
           </div>
         </div>
+
+          <!-- Process risk indicators: approval time and downtime are null in the payload (not instrumented) -->
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Process Risk Indicators" :level="3" />
+            <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div v-for="p in processIndicators" :key="p.label" class="rounded-lg p-4" :class="p.value === null ? 'bg-surface-gray-2' : 'bg-surface-gray-1'">
+                <div class="text-xs font-medium uppercase tracking-wide text-ink-gray-6">{{ p.label }}</div>
+                <div class="mt-1 text-xl font-semibold text-ink-gray-9 tnum">{{ p.value === null ? NO_VALUE : p.display }}</div>
+                <div class="text-sm text-ink-gray-6">{{ p.note }}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Tab 5: Compliance Risk -->
