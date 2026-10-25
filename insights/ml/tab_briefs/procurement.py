@@ -173,7 +173,7 @@ def _forecasts(p: dict):
     )
     details = []
     if f.get("avg_monthly_spend") is not None:
-        details.append(detail("Historical average", f"Spend averaged {money(f['avg_monthly_spend'], cur)} a month over the history shown."))
+        details.append(detail("Historical average", f"Spend averaged {money(f['avg_monthly_spend'], cur)} a month over the last 6 complete months."))
     cats = f.get("category_forecast") or []
     if cats:
         c = max(cats, key=lambda r: r.get("forecast_3m") or 0)
