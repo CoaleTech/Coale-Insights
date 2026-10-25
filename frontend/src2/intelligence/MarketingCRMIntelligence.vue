@@ -56,26 +56,6 @@
         @retry="retry"
       >
         <div class="px-6 py-5">
-        <!-- Alerts. The action list, worst first. -->
-        <section v-if="tabIndex !== 0 && alerts.length" class="mb-5 space-y-2" aria-label="Alerts">
-          <article
-            v-for="(alert, i) in alerts"
-            :key="i"
-            class="flex items-start gap-3 rounded-lg border border-outline-gray-1 bg-surface-white p-4"
-          >
-            <Badge
-              v-bind="severityBadge(alert.severity)"
-              :label="severityBadge(alert.severity).label"
-              size="sm"
-              class="mt-0.5 flex-shrink-0"
-            />
-            <div class="min-w-0">
-              <p class="text-sm font-medium text-ink-gray-9">{{ alert.title }}</p>
-              <p class="mt-0.5 text-sm text-ink-gray-6">{{ alert.description }}</p>
-            </div>
-          </article>
-        </section>
-
         <Tabs v-model="tabIndex" :tabs="tabs" />
 
         <!-- Funnel tab: Hero + Attention Rail (Variant C) -->
@@ -505,7 +485,7 @@
             <TabActions class="mt-6" :actions="tabBriefs.coverage?.actions" />
           </div>
           <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-            <SectionHeader variant="caption" title="Territory" hint="All time" />
+            <SectionHeader variant="caption" title="Territory" hint="All time. Bar is green above team average, red under 5%" />
             <table class="mt-4 w-full text-sm">
               <caption class="sr-only">Leads and conversions by territory</caption>
               <thead>
@@ -514,6 +494,7 @@
                   <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Leads</th>
                   <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Converted</th>
                   <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Conv.</th>
+                  <th scope="col" class="w-1/3 pb-2 pl-3 text-left font-medium text-ink-gray-6">Rate</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-outline-gray-1">
@@ -527,6 +508,15 @@
                   </td>
                   <td class="tnum py-2 text-right text-ink-gray-7">
                     {{ row.leads > 0 ? `${((row.converted / row.leads) * 100).toFixed(1)}%` : NO_VALUE }}
+                  </td>
+                  <td class="py-2 pl-3">
+                    <div class="h-1.5 w-full rounded-full bg-surface-gray-2">
+                      <div
+                        class="h-1.5 rounded-full"
+                        :class="severityFill(territorySeverity(territoryRate(row)))"
+                        :style="{ width: `${maxTerritoryRate ? (territoryRate(row) / maxTerritoryRate) * 100 : 0}%` }"
+                      />
+                    </div>
                   </td>
                 </tr>
               </tbody>
@@ -611,6 +601,7 @@ import {
   deltaInk,
   scoreSeverity,
   severityBadge,
+  severityFill,
   type Severity,
 } from '../utils/status'
 
@@ -905,6 +896,21 @@ const trendConfig = computed(() => ({
 /** Conversion bands. Named so the thresholds are visible at the call site. */
 function conversionSeverity(rate: number): Severity {
   return scoreSeverity(rate, { good: 10, warn: 3 })
+}
+
+/** Territory bar: green above the team average, red under 5%, amber between. */
+function territorySeverity(rate: number): Severity {
+  const avg = data.value?.kpis?.lead_conversion_rate
+  if (avg != null && rate > avg) return 'low'
+  return rate < 5 ? 'high' : 'medium'
+}
+
+const maxTerritoryRate = computed(() =>
+  Math.max(0, ...territories.value.map((t) => (t.leads > 0 ? (t.converted / t.leads) * 100 : 0))),
+)
+
+function territoryRate(row: { leads: number; converted: number }): number {
+  return row.leads > 0 ? (row.converted / row.leads) * 100 : 0
 }
 
 function sharePct(count: number, total: number): number {
