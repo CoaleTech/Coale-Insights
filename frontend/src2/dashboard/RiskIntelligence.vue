@@ -205,6 +205,12 @@ const complianceData = computed(() => riskData.value?.compliance_risk ?? ({} as 
 const predictiveData = computed(() => riskData.value?.predictive_analytics ?? ({} as PredictiveSection))
 // Payment-risk rows carry only the customer code; names come from the credit scores.
 const customerNames = computed(() => new Map((creditData.value.customer_risk_scores ?? []).map(r => [r.customer, r.customer_name])))
+// Table order follows the mock: outstanding x risk score, highest first.
+const creditByExposure = computed(() =>
+  [...(creditData.value.customer_risk_scores ?? [])]
+    .sort((a, b) => (Number(b.outstanding) || 0) * (Number(b.risk_score) || 0) - (Number(a.outstanding) || 0) * (Number(a.risk_score) || 0))
+    .slice(0, 20),
+)
 // Weekly sample of the daily cash forecast, plus the last day.
 const forecastSample = computed(() => {
   const fc = predictiveData.value.cash_flow_forecast?.forecast ?? []
@@ -1088,7 +1094,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                   </thead>
                   <tbody>
                     <tr
-                      v-for="customer in creditData.customer_risk_scores?.slice(0, 20)"
+                      v-for="customer in creditByExposure"
                       :key="customer.customer"
                       class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
                     >
