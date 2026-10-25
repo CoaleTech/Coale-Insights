@@ -1139,9 +1139,13 @@ function handleChatNavigation(path: string) {
                 class="flex items-start gap-3 p-3 bg-surface-gray-1 rounded-lg">
                 <Zap class="w-5 h-5 text-ink-gray-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <div>
+                  <p v-if="typeof rec !== 'string' && (rec.priority || rec.category)" class="text-xs uppercase text-ink-gray-6">{{ [rec.priority, rec.category].filter(Boolean).join(' · ') }}</p>
                   <p class="text-sm font-medium text-ink-gray-8">{{ typeof rec === 'string' ? rec : rec.title }}</p>
                   <p v-if="rec.description" class="text-xs text-ink-gray-6 mt-1">{{ rec.description }}</p>
                   <p v-if="rec.impact" class="text-xs text-ink-gray-6 mt-1">Impact: {{ rec.impact }}</p>
+                  <ul v-if="typeof rec !== 'string' && rec.actions?.length" class="list-disc pl-5 mt-2 space-y-0.5 text-xs text-ink-gray-7">
+                    <li v-for="a in rec.actions" :key="a">{{ a }}</li>
+                  </ul>
                 </div>
               </div>
             </div>

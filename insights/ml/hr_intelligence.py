@@ -1061,7 +1061,7 @@ class HRIntelligence:
                 "priority": "high",
                 "category": "Retention",
                 "title": "Address High Attrition Rate",
-                "description": f"Current attrition rate of {attr.get('attrition_rate_pct', 0)}% is above industry average.",
+                "description": f"Current attrition rate is {attr.get('attrition_rate_pct', 0)}%.",
                 "actions": ["Conduct exit interviews", "Review compensation", "Improve management training"],
             })
         if att.get("attendance_rate_pct", 0) < 92 and att.get("attendance_rate_pct", 0) > 0:
