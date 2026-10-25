@@ -852,6 +852,19 @@ const repsStrip = computed<StatItem[]>(() => {
   ]
 })
 
+/** "Apr 26, ₹2.25M gross profit, +4.1pp vs blended" for a margin-trend month; the blended margin is the payload's overall margin. */
+const monthSub = (t: Record<string, unknown> | null): string | undefined => {
+  if (!t) return undefined
+  const blended = asNumber(margins.value.overall_margin)
+  const gp = asNumber(t.gross_profit)
+  const diff = blended === undefined ? null : Number(t.margin_pct) - blended
+  return [
+    formatPeriod(t.period as string),
+    gp === undefined ? null : `${money(gp)} gross profit`,
+    diff === null ? null : `${diff >= 0 ? '+' : '-'}${Math.abs(diff).toFixed(1)}pp vs blended`,
+  ].filter(Boolean).join(', ')
+}
+
 const marginsStrip = computed<StatItem[]>(() => {
   const done = ((margins.value.margin_trend ?? []) as Record<string, unknown>[])
     .filter(t => t.is_partial !== true && typeof t.margin_pct === 'number')
@@ -861,8 +874,8 @@ const marginsStrip = computed<StatItem[]>(() => {
   const top = groups.reduce<Record<string, unknown> | null>((a, g) => (a === null || (g.margin_pct as number) > (a.margin_pct as number) ? g : a), null)
   return [
     { label: 'Blended Margin', percent: asNumber(margins.value.overall_margin) ?? null, sublabel: `${money(margins.value.total_profit as number)} gross profit` },
-    { label: 'Peak Month', percent: hi ? (hi.margin_pct as number) : null, sublabel: hi ? formatPeriod(hi.period as string) : undefined },
-    { label: 'Trough Month', percent: lo ? (lo.margin_pct as number) : null, sublabel: lo ? formatPeriod(lo.period as string) : undefined },
+    { label: 'Peak Month', percent: hi ? (hi.margin_pct as number) : null, sublabel: monthSub(hi) },
+    { label: 'Trough Month', percent: lo ? (lo.margin_pct as number) : null, sublabel: monthSub(lo) },
     { label: 'Top Group Margin', percent: top ? (top.margin_pct as number) : null, sublabel: top ? String(top.item_group) : undefined },
   ]
 })
