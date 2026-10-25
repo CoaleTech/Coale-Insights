@@ -69,7 +69,7 @@
 		<!-- Aging Analysis -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Accounts Payable Aging" :level="3" />
-			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-44 sm:h-52 lg:h-56" :config="apAgingConfig" />
+			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-80" :config="apAgingConfig" />
 			<table v-if="data.aging_buckets?.length" class="sr-only">
 				<caption>Accounts payable by aging bucket</caption>
 				<thead>

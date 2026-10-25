@@ -74,7 +74,7 @@
 		<!-- Collections -->
 		<div v-if="data.collection_trend?.length" class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Monthly Collections" :level="3" />
-			<IntelligenceChart class="mt-4 h-44 sm:h-52 lg:h-56" :config="collectionTrendConfig" />
+			<IntelligenceChart class="mt-4 h-80" :config="collectionTrendConfig" />
 			<table class="sr-only">
 				<caption>Receipts collected per month</caption>
 				<thead>

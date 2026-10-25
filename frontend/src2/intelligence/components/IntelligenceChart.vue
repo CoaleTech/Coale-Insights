@@ -20,10 +20,12 @@
   cell instead: measured 892px at 1024x768 where 256px was asked for. The
   wrapper receives the caller's height and `h-full` resolves against it.
 
-  Deliberately no height of its own here, or it would collide the same way.
+  Deliberately no height of its own here, or it would collide the same way. The
+  one exception is `min-h-[300px]`, which mirrors frappe-ui's ECharts root: a
+  caller height under 300px used to leave the chart overflowing its wrapper.
 -->
 <template>
-  <div class="w-full">
+  <div class="w-full min-h-[300px]">
     <!-- frappe-ui's ECharts applies `options` only on mount, so a theme switch needs a remount. -->
     <ECharts :key="theme" :options="options" :error="error" />
   </div>

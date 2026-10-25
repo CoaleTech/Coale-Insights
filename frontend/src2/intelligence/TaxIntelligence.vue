@@ -1594,7 +1594,7 @@ const actionsStrip = computed<StatItem[]>(() => [
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader variant="caption" title="Monthly GST Breakdown (CGST / SGST / IGST)" :level="3" />
-                <div class="h-52 sm:h-64 lg:h-72 mt-4">
+                <div class="h-80 mt-4">
                   <IntelligenceChart v-if="gstStackedBarConfig" :config="gstStackedBarConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No GST data available</div>
                 </div>
@@ -2282,7 +2282,7 @@ const actionsStrip = computed<StatItem[]>(() => [
 
               <div v-if="tdsBarConfig" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader variant="caption" title="Top 5 TDS Sections" :level="3" />
-                <div class="h-52 sm:h-64 lg:h-72 mt-4">
+                <div class="h-80 mt-4">
                   <IntelligenceChart :config="tdsBarConfig" class="h-52 sm:h-64 lg:h-72" />
                 </div>
               </div>
@@ -2414,7 +2414,7 @@ const actionsStrip = computed<StatItem[]>(() => [
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader variant="caption" title="Effective Tax Rate Trend" :level="3" />
-                <div class="h-52 sm:h-64 lg:h-72 mt-4">
+                <div class="h-80 mt-4">
                   <IntelligenceChart v-if="effectiveRateTrendConfig" :config="effectiveRateTrendConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No trend data available</div>
                 </div>
@@ -2437,7 +2437,7 @@ const actionsStrip = computed<StatItem[]>(() => [
 
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader variant="caption" title="GST Forecast (Next 3 Months)" :level="3" />
-                <div class="h-52 sm:h-64 lg:h-72 mt-4">
+                <div class="h-80 mt-4">
                   <IntelligenceChart v-if="taxForecastConfig" :config="taxForecastConfig" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No forecast data available</div>
                 </div>

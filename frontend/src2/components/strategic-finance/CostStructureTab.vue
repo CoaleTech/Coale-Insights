@@ -108,7 +108,7 @@
           :level="3"
         />
         <template v-if="forecast?.status === 'success'">
-          <div class="mt-4 h-56 sm:h-64 lg:h-72">
+          <div class="mt-4 h-80">
             <IntelligenceChart v-if="forecastChartConfig" :config="forecastChartConfig" />
           </div>
           <div v-if="forecast.forecast?.length" class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
