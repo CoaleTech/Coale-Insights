@@ -1225,33 +1225,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           <TabBrief :brief="tabBriefs.cashflow" :as-of="riskData?.generated_at" />
           <StatStrip :items="cashflowStrip" :currency="baseCurrency" />
 
-          <!-- Revenue Concentration -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-          <SectionHeader variant="caption" title="Revenue Concentration Analysis" hint="Top customers by revenue share" :level="3" />
-          <div class="mt-4">
-            <div class="space-y-3">
-                <div
-                  v-for="customer in cashflowData.customer_concentration"
-                  :key="customer.customer"
-                  class="flex items-center justify-between p-3 bg-surface-gray-1 rounded"
-                >
-                  <div>
-                    <div class="font-medium text-ink-gray-8">{{ customer.customer_name }}</div>
-                    <div class="text-sm text-ink-gray-6">{{ formatCurrency(customer.revenue) }}</div>
-                  </div>
-                  <div class="text-right flex items-center gap-2">
-                    <div class="font-bold text-ink-gray-8">{{ customer.revenue_share?.toFixed(1) }}%</div>
-                    <Badge
-                      v-if="customer.revenue_share > 30"
-                      v-bind="severityBadge('high')"
-                      size="sm"
-                    />
-                  </div>
-                </div>
-              </div>
-          </div>
-        </div>
-
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <!-- Overdue Days Trend -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Overdue Days Trend" hint="Average days overdue, by month" :level="3" />
@@ -1289,6 +1263,39 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </tbody>
             </table>
           </div>
+          </div>
+          <!-- Revenue Concentration -->
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <SectionHeader variant="caption" title="Revenue Concentration Analysis" hint="Top customers by revenue share" :level="3" />
+          <div class="mt-4">
+            <div class="space-y-3">
+                <div
+                  v-for="customer in cashflowData.customer_concentration"
+                  :key="customer.customer"
+                  class="p-3 bg-surface-gray-1 rounded"
+                >
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="font-medium text-ink-gray-8">{{ customer.customer_name }}</div>
+                      <div class="text-sm text-ink-gray-6">{{ formatCurrency(customer.revenue) }}</div>
+                    </div>
+                    <div class="text-right flex items-center gap-2">
+                      <div class="font-bold text-ink-gray-8">{{ customer.revenue_share?.toFixed(1) }}%</div>
+                      <Badge
+                        v-if="customer.revenue_share > 30"
+                        v-bind="severityBadge('high')"
+                        size="sm"
+                      />
+                    </div>
+                  </div>
+                  <div class="mt-2 h-1.5 rounded-full bg-surface-gray-3">
+                    <div class="h-1.5 rounded-full bg-surface-blue-3" :style="{ width: `${Math.min(100, Number(customer.revenue_share) || 0)}%` }" />
+                  </div>
+                </div>
+              </div>
+          </div>
+        </div>
+
           <TabActions class="mt-6" :actions="tabBriefs.cashflow?.actions" />
         </div>
 
