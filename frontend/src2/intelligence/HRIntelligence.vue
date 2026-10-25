@@ -993,7 +993,7 @@ function handleChatNavigation(path: string) {
                     <Building2 class="w-5 h-5 text-ink-gray-5" aria-hidden="true" />
                     <div>
                       <p class="text-sm font-medium text-ink-gray-8">{{ dept.department }}</p>
-                      <p class="text-xs text-ink-gray-6">{{ dept.headcount }} {{ dept.headcount === 1 ? 'employee' : 'employees' }}</p>
+                      <p class="text-xs text-ink-gray-6">{{ dept.headcount }} {{ dept.headcount === 1 ? 'employee' : 'employees' }} · {{ formatPercent(dept.headcount / departments.reduce((n, d) => n + d.headcount, 0) * 100) }} of headcount</p>
                     </div>
                   </div>
                 </div>

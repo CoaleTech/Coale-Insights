@@ -67,7 +67,7 @@ interface DSOPeriod { period: string; avg_days_overdue?: number }
 /** Inventory risk by item group row. */
 interface InventoryRiskRow { item_group: string; total_items?: number; stockout_items: number; stock_value?: number; risk_category?: string }
 /** Supplier reliability row from operational risk. */
-interface SupplierReliabilityRow { supplier: string; supplier_name?: string; total_orders?: number; total_value?: number; avg_delay_days?: number; risk_category?: string }
+interface SupplierReliabilityRow { supplier: string; supplier_name?: string; total_orders?: number; total_value?: number; avg_delay_days?: number; cancelled_orders?: number; risk_category?: string }
 /** GST compliance status block (GSTR-1/GSTR-3B filing, e-Invoice coverage). */
 interface GstStatus {
   gstr1_status?: string; gstr1_latest_period?: string
@@ -159,7 +159,7 @@ interface ComplianceSection {
 }
 /** Typed predictive analytics sub-section. */
 interface PredictiveSection {
-  cash_flow_forecast?: { status?: string; forecast?: { ds: string; yhat: number }[]; model_performance?: { trend?: string } }
+  cash_flow_forecast?: { status?: string; forecast?: { ds: string; yhat: number; yhat_lower?: number; yhat_upper?: number }[]; model_performance?: { trend?: string } }
   revenue_forecast?: { status?: string }
   anomalies?: AnomalyRow[]
   early_warnings?: EarlyWarningRow[]
@@ -264,6 +264,19 @@ const creditTiers = computed(() => {
   }
   const rank = (c: string) => (TIER_ORDER.includes(c) ? TIER_ORDER.indexOf(c) : TIER_ORDER.length)
   return { rows: [...by.values()].sort((a, b) => rank(a.category) - rank(b.category)), scored: rows.length }
+})
+const payablesStrip = computed<StatItem[]>(() => {
+  const p = payablesData.value
+  const buckets = p.aging_analysis ?? []
+  const bills = buckets.reduce((n, b) => n + (Number(b.invoice_count) || 0), 0)
+  const oldest = buckets.find((b) => b.aging_bucket === '90+ Days')
+  const totalSuppliers = overviewData.value.total_suppliers
+  return [
+    { label: 'Total AP', amount: p.total_outstanding == null ? null : Number(p.total_outstanding), sublabel: buckets.length ? `${formatCount(bills)} bills` : undefined },
+    { label: 'High-Risk Suppliers', value: p.high_risk_suppliers ?? null, tone: (p.high_risk_suppliers ?? 0) > 0 ? 'neg' : undefined, sublabel: totalSuppliers == null ? undefined : `of ${formatCount(totalSuppliers)} total` },
+    { label: 'Avg Days Overdue', value: p.avg_days_overdue == null ? null : Math.round(Number(p.avg_days_overdue)), unit: ' days' },
+    { label: 'Overdue 90+ Days', amount: oldest?.outstanding_amount == null ? null : Number(oldest.outstanding_amount), tone: Number(oldest?.outstanding_amount) > 0 ? 'neg' : undefined, sublabel: oldest ? `${formatCount(oldest.invoice_count ?? null)} bills` : undefined },
+  ]
 })
 const cashflowStrip = computed<StatItem[]>(() => {
   const c = cashflowData.value
@@ -1067,25 +1080,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         <!-- Tab 3: Payables Risk -->
         <div v-if="activeTab === 'payables'" class="space-y-6">
           <TabBrief :brief="tabBriefs.payables" :as-of="riskData?.generated_at" />
-          <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <KpiCard
-              label="Total Outstanding"
-              :value="formatCurrency(payablesData.total_outstanding as number)"
-              :clickable="true"
-              @click="drillDown.open(RISK_ENDPOINT, 'Overdue Payables', { metric: 'overdue_payables' })"
-            />
-            <KpiCard
-              label="High Risk Suppliers"
-              :value="payablesData.high_risk_suppliers"
-              :severity="(payablesData.high_risk_suppliers as number) > 0 ? 'high' : undefined"
-            />
-            <KpiCard
-              label="Avg Days Overdue"
-              :value="payablesData.avg_days_overdue == null ? undefined : Math.round(payablesData.avg_days_overdue as number)"
-              unit=" days"
-              :severity="scoreSeverity(payablesData.avg_days_overdue as number, { good: 30, warn: 60, higherIsBetter: false })"
-            />
-          </div>
+          <StatStrip :items="payablesStrip" :currency="baseCurrency" />
 
           <!-- Aging Analysis -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -1141,6 +1136,33 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </div>
           </div>
         </div>
+          <div v-if="operationalData.supplier_performance?.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Supplier Delivery Reliability" hint="From Operational Risk" :level="3" />
+            <div class="mt-4 overflow-x-auto">
+              <table class="w-full">
+                <thead>
+                  <tr class="border-b border-outline-gray-1">
+                    <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Supplier</th>
+                    <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Orders</th>
+                    <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Total Value</th>
+                    <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Avg Delay</th>
+                    <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Cancelled</th>
+                    <th scope="col" class="text-center py-2 text-sm font-medium text-ink-gray-7">Delivery Risk</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="s in operationalData.supplier_performance" :key="s.supplier" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
+                    <td class="py-2 text-ink-gray-8">{{ s.supplier_name }}</td>
+                    <td class="py-2 text-right text-ink-gray-8">{{ formatCount(s.total_orders ?? null) }}</td>
+                    <td class="py-2 text-right text-ink-gray-8">{{ formatCurrency(s.total_value) }}</td>
+                    <td class="py-2 text-right text-ink-gray-8">{{ s.avg_delay_days == null ? NO_VALUE : `${Math.abs(Math.round(s.avg_delay_days * 10) / 10)}d ${s.avg_delay_days < 0 ? 'early' : 'late'}` }}</td>
+                    <td class="py-2 text-right text-ink-gray-8">{{ formatCount(s.cancelled_orders ?? null) }}</td>
+                    <td class="py-2 text-center"><Badge v-bind="severityBadge(s.risk_category)" size="sm" /></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
           <TabActions class="mt-6" :actions="tabBriefs.payables?.actions" />
         </div>
 
@@ -1493,12 +1515,16 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 <tr class="border-b border-outline-gray-1">
                   <th scope="col" class="text-left py-2 text-sm font-medium text-ink-gray-7">Date</th>
                   <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Forecast cash</th>
+                  <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Lower</th>
+                  <th scope="col" class="text-right py-2 text-sm font-medium text-ink-gray-7">Upper</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="pt in forecastSample" :key="pt.ds" class="border-b border-outline-gray-1">
                   <td class="py-2 text-ink-gray-8">{{ formatDate(pt.ds) }}</td>
                   <td class="py-2 text-right font-medium" :class="pt.yhat < 0 ? 'text-ink-red-3' : 'text-ink-gray-8'">{{ formatCurrency(pt.yhat) }}</td>
+                  <td class="py-2 text-right text-ink-gray-8">{{ pt.yhat_lower == null || pt.yhat_upper == null ? NO_VALUE : formatCurrency(Math.min(pt.yhat_lower, pt.yhat_upper)) }}</td>
+                  <td class="py-2 text-right text-ink-gray-8">{{ pt.yhat_lower == null || pt.yhat_upper == null ? NO_VALUE : formatCurrency(Math.max(pt.yhat_lower, pt.yhat_upper)) }}</td>
                 </tr>
               </tbody>
             </table>
