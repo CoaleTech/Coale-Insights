@@ -239,7 +239,10 @@ function handleDashboardRedirect(_target: string) {
       @retry="retryAll"
     >
       <!-- Unified KPI strip: 6 cards mixing revenue + customer metrics -->
-      <div class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <div
+        v-if="activeTab.id === 'rev-overview' || activeTab.id === 'cust-overview'"
+        class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 2xl:grid-cols-6"
+      >
         <KpiCard
           label="Total Revenue"
           :value="money(salesSummary.total_revenue)"

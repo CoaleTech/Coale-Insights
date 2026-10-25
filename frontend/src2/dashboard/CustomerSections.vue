@@ -1105,6 +1105,16 @@ const toneOf = (s: Severity): StatItem['tone'] =>
         </table>
       </section>
     </div>
+    <section class="rounded-lg border border-outline-gray-1 bg-card" aria-label="RFM segments">
+      <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">RFM segments</h3>
+      <dl class="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4 lg:grid-cols-8">
+        <div v-for="seg in rfmSortedSegments" :key="seg.label" class="min-w-0 rounded-md border border-outline-gray-1 bg-surface-gray-1 p-3">
+          <dt class="truncate text-xs uppercase tracking-wide text-ink-gray-6" :title="seg.label">{{ seg.label }}</dt>
+          <dd class="tnum text-xl font-semibold text-ink-gray-9">{{ formatNumber(seg.count) }}</dd>
+          <dd class="text-xs text-ink-gray-6">{{ formatPercent(seg.pct) }} of customers</dd>
+        </div>
+      </dl>
+    </section>
     <div class="flex flex-wrap gap-4 p-4 bg-surface-white rounded-lg border border-outline-gray-1">
       <div class="flex-1 min-w-[200px]">
         <FormControl
@@ -1269,6 +1279,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
               @click="setGeoSort('customers')" @keydown.enter="setGeoSort('customers')" @keydown.space.prevent="setGeoSort('customers')">
               Customers <span v-if="geoSortKey === 'customers'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
             </th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Rev share</th>
             <th scope="col" tabindex="0" role="button" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6 cursor-pointer select-none"
               :aria-sort="geoSortKey === 'revenue' ? (geoSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
               @click="setGeoSort('revenue')" @keydown.enter="setGeoSort('revenue')" @keydown.space.prevent="setGeoSort('revenue')">
@@ -1289,6 +1300,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
               @click="setGeoSort('transactions')" @keydown.enter="setGeoSort('transactions')" @keydown.space.prevent="setGeoSort('transactions')">
               Transactions <span v-if="geoSortKey === 'transactions'" aria-hidden="true">{{ geoSortDir === 'desc' ? '▼' : '▲' }}</span>
             </th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Avg order</th>
             <th scope="col" class="px-4 py-3"></th>
           </tr>
         </thead>
@@ -1303,10 +1315,12 @@ const toneOf = (s: Severity): StatItem['tone'] =>
               </div>
             </td>
             <td v-if="effectiveGeoDim !== 'customer'" class="px-4 py-3 text-right tnum text-ink-gray-7">{{ formatNumber(row.customers) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ Number(geoTotals?.revenue) ? formatPercent((Number(row.revenue) / Number(geoTotals?.revenue)) * 100) : NO_VALUE }}</td>
             <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(row.revenue) }}</td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(row.gross_profit) }}</td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ formatPercent(row.margin_pct) }}</td>
             <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ formatNumber(row.transactions) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ Number(row.transactions) ? money(Number(row.revenue) / Number(row.transactions)) : NO_VALUE }}</td>
             <td class="px-4 py-3 text-center"><ChevronRight class="w-4 h-4 text-ink-gray-5 inline" aria-hidden="true" /></td>
           </tr>
         </tbody>
