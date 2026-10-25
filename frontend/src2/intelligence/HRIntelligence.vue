@@ -904,6 +904,29 @@ function handleChatNavigation(path: string) {
           <TabBrief :brief="tabBriefs.attrition" :as-of="data?.generated_at" />
           <StatStrip :items="attritionStrip" />
 
+          <!-- What happened (TTM): headcount movement behind the attrition rate -->
+          <div v-if="hasData && data?.headcount_metrics" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="What Happened (TTM)" :level="3" />
+            <dl class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">Opening headcount</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ openingHeadcount }}</dd>
+              </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">Total exits</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ data.attrition_metrics?.total_exits ?? NO_VALUE }}</dd>
+              </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">New hires</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ data.headcount_metrics.new_hires ?? NO_VALUE }}</dd>
+              </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">Net headcount change</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ data.headcount_metrics.net_growth ?? NO_VALUE }}</dd>
+              </div>
+            </dl>
+          </div>
+
           <!-- Attrition Risk Assessment -->
           <div v-if="hasData && attritionRisk" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Attrition Risk Assessment" :level="3" />
