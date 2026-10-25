@@ -247,6 +247,13 @@
 					<TabActions class="mt-6" :actions="tabBriefs.cost?.actions" />
 				</div>
 
+				<!-- Actuals: Forex (honest empty state while every invoice is in base currency) -->
+				<div v-if="activeTab === 'forex'">
+					<TabBrief class="mb-6" :brief="tabBriefs.forex" :as-of="financialData?.generated_at" />
+					<ForexExposureTab :data="forexData" :currency="baseCurrency" :fin-endpoint="FIN_ENDPOINT" :drill-down="drillDown" />
+					<TabActions class="mt-6" :actions="tabBriefs.forex?.actions" />
+				</div>
+
 				<!-- Planning: Cash Forecast (90-day) -->
 				<div v-if="activeTab === 'cashforecast'">
 					<TabBrief class="mb-6" :brief="tabBriefs.cashforecast" :as-of="strategicTyped?.generated_at" />
@@ -375,6 +382,7 @@ import OverviewTab from '../components/financial/OverviewTab.vue'
 import CashFlowTab from '../components/financial/CashFlowTab.vue'
 import ReceivablesTab from '../components/financial/ReceivablesTab.vue'
 import PayablesTab from '../components/financial/PayablesTab.vue'
+import ForexExposureTab from '../components/financial/ForexExposureTab.vue'
 import TabBrief, { type Brief } from '../intelligence/components/TabBrief.vue'
 import TabActions from '../intelligence/components/TabActions.vue'
 
@@ -465,6 +473,7 @@ const tabs: { id: string; label: string; group: TabGroup }[] = [
 	{ id: 'working', label: 'Working Capital', group: 'actuals' },
 	{ id: 'ratios', label: 'Ratios', group: 'actuals' },
 	{ id: 'cost', label: 'Cost Structure', group: 'actuals' },
+	{ id: 'forex', label: 'Forex', group: 'actuals' },
 	{ id: 'cashforecast', label: 'Cash Forecast', group: 'planning' },
 	{ id: 'cashflow13', label: '13-Week Cash Flow', group: 'planning' },
 	{ id: 'capital', label: 'Capital Planning', group: 'planning' },

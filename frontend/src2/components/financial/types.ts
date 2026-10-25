@@ -257,4 +257,5 @@ export interface ForexData {
 	net_unrealized?: number
 	exposure_summary?: ForexExposureRow[]
 	at_risk_invoices?: AtRiskInvoice[]
+	realized_forex_trend?: { period: string; forex_gain: number; forex_loss: number }[]
 }

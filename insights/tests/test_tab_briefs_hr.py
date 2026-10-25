@@ -5,15 +5,26 @@ from insights.tests.tab_briefs_fixture import load
 
 
 class TestBriefs(unittest.TestCase):
-    def test_attrition_brief_merges_department_health(self):
+    def test_attrition_brief(self):
         b = briefs(load("hr"))["attrition"]
         self.assertEqual(b["severity"], "high")
         self.assertIn("63.6%", b["headline"])
         self.assertIn("7 involuntary and 0 voluntary", b["headline"])
-        self.assertIn("3 employees (27.3%) without a department", b["headline"])
+        self.assertNotIn("department", b["headline"])
 
-    def test_payroll_brief_absent_until_salary_slips_exist(self):
-        self.assertNotIn("payroll", briefs(load("hr")))
+    def test_department_brief(self):
+        b = briefs(load("hr"))["department"]
+        self.assertEqual(b["severity"], "medium")
+        self.assertEqual(
+            b["headline"],
+            "5 departments named; the largest, Sales, has 4 employees (36.4% of 11). 3 employees (27.3%) have no department.",
+        )
+        self.assertEqual([a["title"] for a in b["actions"]], ["Plan cover for single-person departments", "Assign 3 employees to a department"])
+
+    def test_payroll_brief_explains_the_gap_until_salary_slips_exist(self):
+        b = briefs(load("hr"))["payroll"]
+        self.assertEqual(b["headline"], "No Salary Slip records exist, so payroll and compensation figures are unavailable for 11 active employees.")
+        self.assertEqual(b["actions"][0]["title"], "Set up payroll in HRMS")
 
     def test_payroll_brief_with_data(self):
         p = load("hr")
@@ -27,5 +38,5 @@ class TestBriefs(unittest.TestCase):
         self.assertIn("7 exits a year", b["headline"])
         self.assertIn("76.4%", b["headline"])
 
-    def test_merged_department_id_is_gone(self):
-        self.assertNotIn("department", briefs(load("hr")))
+    def test_every_tab_has_a_brief(self):
+        self.assertEqual(set(briefs(load("hr"))), {"attrition", "department", "payroll", "planning"})

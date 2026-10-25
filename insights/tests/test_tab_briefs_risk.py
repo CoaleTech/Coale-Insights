@@ -8,8 +8,8 @@ class TestBriefs(unittest.TestCase):
     def setUp(self):
         self.b = briefs(load("risk"))
 
-    def test_merged_tabs_replace_their_parts(self):
-        self.assertEqual(set(self.b), {"cashflow", "operational", "compliance", "counterparty", "signals"})
+    def test_one_brief_per_tab(self):
+        self.assertEqual(set(self.b), {"credit", "payables", "cashflow", "operational", "compliance", "predictive", "ledger"})
 
     def test_cashflow(self):
         b = self.b["cashflow"]
@@ -39,17 +39,34 @@ class TestBriefs(unittest.TestCase):
         self.assertEqual(b["severity"], "low")
         self.assertTrue(b["headline"].startswith("GST filings are up to date."))
 
-    def test_counterparty_leads_with_receivables(self):
-        b = self.b["counterparty"]
+    def test_credit_is_receivables_only(self):
+        b = self.b["credit"]
         self.assertEqual(b["severity"], "medium")  # credit component Medium, 43.2 avg days overdue
         self.assertIn("93% of receivables (₹18,311,406 of ₹19,714,214) is past payment terms", b["headline"])
         self.assertIn("38 customers rated high risk", b["headline"])
-        self.assertNotIn("payable", b["headline"].lower())
+        self.assertNotIn("supplier", b["headline"].lower())
 
-    def test_signals(self):
-        b = self.b["signals"]
+    def test_payables_takes_the_worst_supplier_category(self):
+        b = self.b["payables"]
+        self.assertEqual(b["severity"], "critical")  # the largest balances are rated Critical
+        self.assertEqual(
+            b["headline"],
+            "₹19,069,276 is owed to suppliers, 86% of it (₹16,417,303) past terms; 32 suppliers rated high risk.",
+        )
+
+    def test_predictive(self):
+        b = self.b["predictive"]
         self.assertEqual(b["severity"], "critical")  # the payload's own early warning
         self.assertEqual(
             b["headline"],
-            "30-day cash forecast: -₹60,403 on 7 Dec 2026. 10 customers flagged for payment delay risk. 0 ledger anomalies detected.",
+            "30-day cash forecast: -₹60,403 on 7 Dec 2026. 10 customers flagged for payment delay risk.",
         )
+
+    def test_ledger_clean_and_flagged(self):
+        self.assertEqual(self.b["ledger"]["severity"], "none")
+        p = load("risk")
+        p["predictive_analytics"]["anomalies"] = [{"severity": "high", "type": "round_amount", "description": "Invoice X is a round 1,000,000", "date": "2026-10-01"}]
+        b = briefs(p)["ledger"]
+        self.assertEqual(b["severity"], "high")
+        self.assertEqual(b["headline"], "1 ledger anomaly detected by the model.")
+        self.assertEqual(b["details"][0]["label"], "Round amount")

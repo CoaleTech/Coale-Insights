@@ -51,10 +51,11 @@ const tabDefs = [
   { label: 'ABC/XYZ' },
   { label: 'Itemwise BE' },
   { label: 'Aging (FIFO)' },
+  { label: 'Warehouses & Transfers' },
   { label: 'Procurement' },
 ]
 
-const tabIds = ['overview', 'turnover', 'abc-xyz', 'itemwise-be', 'aging', 'procurement']
+const tabIds = ['overview', 'turnover', 'abc-xyz', 'itemwise-be', 'aging', 'warehouses', 'procurement']
 const activeTab = computed(() => tabIds[tabIndex.value] ?? 'overview')
 
 const tabBriefs = computed(() => inventoryData.value?.tab_briefs ?? {})
@@ -769,8 +770,12 @@ function handleDashboardRedirect(target: string) {
               </div><!-- end attention rail -->
 
             </div><!-- end 3-col grid -->
-          <!-- Warehouses & Transfers (folded into Overview) -->
-          <div class="mt-8">
+          </div>
+
+          <!-- Warehouses & Transfers -->
+          <div v-if="activeTab === 'warehouses'">
+            <TabBrief class="mb-6" :brief="tabBriefs.warehouses" :as-of="inventoryData?.generated_at" />
+          <div>
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <!-- Warehouse Stock -->
               <div>
@@ -911,6 +916,7 @@ function handleDashboardRedirect(target: string) {
               </div>
             </div>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.warehouses?.actions" />
 
           </div>
 

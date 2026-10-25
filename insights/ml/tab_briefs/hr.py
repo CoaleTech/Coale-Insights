@@ -1,7 +1,4 @@
-"""Tab briefs for the HR dashboard (Rule 7: server-built sentences).
-
-Three tabs: attrition (absorbs Department Health), payroll, planning.
-"""
+"""Tab briefs for the HR dashboard (Rule 7: server-built sentences)."""
 
 from . import action, brief, detail, money, plural
 
@@ -30,19 +27,15 @@ def _departments(p: dict):
 
 def _attrition(p: dict):
     am, risk = p.get("attrition_metrics") or {}, p.get("attrition_risk") or {}
-    eng, hc = p.get("engagement_indicators") or {}, p.get("headcount_metrics") or {}
+    eng = p.get("engagement_indicators") or {}
     rate, exits = am.get("attrition_rate_pct"), am.get("total_exits")
     if rate is None or exits is None:
         return None
-    invol, vol, total = am.get("involuntary_exits"), am.get("voluntary_exits"), hc.get("total_employees")
+    invol, vol = am.get("involuntary_exits"), am.get("voluntary_exits")
     text = f"Attrition is {_pct(rate)} TTM: {plural(exits, 'exit')}"
     if invol is not None and vol is not None:
         text += f", {invol} involuntary and {vol} voluntary"
     text += "."
-    un, solo, n_named = _departments(p)
-    if un and total:
-        text += f" {plural(un, 'employee')} ({_pct(un * 100 / total)}) without a department."
-
     details, actions = [], []
     if risk.get("predicted_attrition_rate") is not None:
         details.append(detail("Predicted attrition", f"{_pct(risk['predicted_attrition_rate'])}, risk score {risk.get('risk_score')}/100."))
@@ -57,21 +50,50 @@ def _attrition(p: dict):
     att = p.get("attendance_metrics") or {}
     if att.get("attendance_rate_pct") is not None:
         details.append(detail("Attendance", f"{att['attendance_rate_pct']:g}% attendance, {plural(att.get('late_arrivals') or 0, 'late arrival')} ({att.get('late_arrival_rate_pct')}%)."))
-    if solo:
-        details.append(detail("Single-person departments", f"{len(solo)} of {n_named} named departments have one employee: {', '.join(solo)}."))
     if exits and invol == exits:
         actions.append(action("Review the reasons for involuntary exits", f"All {plural(exits, 'exit')} in the period were involuntary."))
-    if un:
-        actions.append(action(f"Assign {plural(un, 'employee')} to a department", "Department figures cannot attribute these employees until the Department field is set."))
-    if solo:
-        actions.append(action("Plan cover for single-person departments", f"{', '.join(solo)} each have one employee."))
     return brief(_sev(risk.get("risk_level") or am.get("attrition_risk_level")), text, details, actions)
+
+
+def _department(p: dict):
+    dh = p.get("department_health") or {}
+    dm = dh.get("department_metrics") or {}
+    total = (p.get("headcount_metrics") or {}).get("total_employees")
+    if not dm or not total:
+        return None
+    un, solo, n_named = _departments(p)
+    big = dh.get("largest_department")
+    text = f"{plural(n_named, 'department')} named"
+    if big and big in dm:
+        n = dm[big].get("headcount") or 0
+        text += f"; the largest, {_dept(big)}, has {plural(n, 'employee')} ({_pct(n * 100 / total)} of {total})"
+    if un:
+        text += f". {plural(un, 'employee')} ({_pct(un * 100 / total)}) have no department"
+    details, actions = [], []
+    if solo:
+        details.append(detail("Single-person departments", f"{len(solo)} of {n_named} named departments have one employee: {', '.join(solo)}."))
+        actions.append(action("Plan cover for single-person departments", f"{', '.join(solo)} each have one employee."))
+    if un:
+        details.append(detail("Unassigned", "Their exits, attendance and payroll cost cannot be attributed to a department."))
+        actions.append(action(f"Assign {plural(un, 'employee')} to a department", "Department figures cannot attribute these employees until the Department field is set."))
+    if (p.get("payroll_metrics") or {}).get("payroll_efficiency") == "no_data":
+        details.append(detail("Payroll cost", "Department payroll cost is unavailable because no Salary Slips exist."))
+    return brief("medium" if un or solo else "low", text + ".", details, actions)
 
 
 def _payroll(p: dict):
     pm = p.get("payroll_metrics") or {}
-    if not pm or pm.get("payroll_efficiency") == "no_data":
-        return None  # the tab shows its own empty state until Salary Slips exist
+    if not pm:
+        return None
+    if pm.get("payroll_efficiency") == "no_data":
+        n = (p.get("headcount_metrics") or {}).get("total_employees")
+        who = f"for {plural(n, 'active employee')}" if n else "for the workforce"
+        return brief(
+            "medium",
+            f"No Salary Slip records exist, so payroll and compensation figures are unavailable {who}.",
+            [detail("Not an error", "The analysis ran; the source documents do not exist yet, so total payroll, average salary, cost per employee, deduction rate and pay ratio show as unavailable.")],
+            [action("Set up payroll in HRMS", "Create a Salary Structure for each employee, then process and submit a Payroll Entry so Salary Slips exist. The tab fills at the next dashboard refresh.")],
+        )
     cur = p.get("currency") or p.get("base_currency")
     text = (
         f"Payroll cost {money(pm.get('total_payroll_cost'), cur)} across "
@@ -121,5 +143,5 @@ def _planning(p: dict):
 
 
 def briefs(p: dict) -> dict:
-    out = {"attrition": _attrition(p), "payroll": _payroll(p), "planning": _planning(p)}
+    out = {"attrition": _attrition(p), "department": _department(p), "payroll": _payroll(p), "planning": _planning(p)}
     return {k: v for k, v in out.items() if v}

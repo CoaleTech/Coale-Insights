@@ -1,7 +1,4 @@
-"""Tab briefs for the Tax dashboard (Rule 7: server-built sentences).
-
-Customs is merged into `legal` ("Notices & Customs"), so there is no `customs` key.
-"""
+"""Tab briefs for the Tax dashboard (Rule 7: server-built sentences)."""
 
 from datetime import date, datetime
 
@@ -193,25 +190,29 @@ def _actions(p: dict):
 
 
 def _legal(p: dict):
-    reg, cus = p.get("legal_register") or {}, p.get("customs_summary") or {}
+    reg = p.get("legal_register") or {}
     s = reg.get("summary") or {}
-    if not (reg.get("available") or cus.get("available")):
+    if not reg.get("available"):
         return None
     cur = p.get("base_currency")
-    text = (
-        f"{plural(s.get('open') or 0, 'legal matter')} open with {money(s.get('exposure') or 0, cur)} exposure"
-        f"; {plural(cus.get('documents') or 0, 'Bill of Entry', 'Bills of Entry')} recorded."
-    )
-    active = s.get("open") or cus.get("documents")
-    details = []
-    if cus.get("note"):
-        details.append(detail("Customs", cus["note"] + "."))
+    text = f"{plural(s.get('open') or 0, 'legal matter')} open with {money(s.get('exposure') or 0, cur)} exposure."
     actions = []
     if s.get("overdue"):
         actions.append(action("Resolve overdue legal matters", f"{plural(s['overdue'], 'matter')} past due.", impact=money(s.get("exposure"), cur)))
+    return brief("high" if s.get("overdue") else "medium" if s.get("open") else "none", text, [], actions)
+
+
+def _customs(p: dict):
+    cus = p.get("customs_summary") or {}
+    if not cus.get("available"):
+        return None
+    docs = cus.get("documents") or 0
+    text = f"{plural(docs, 'Bill of Entry', 'Bills of Entry')} recorded."
+    details = [detail("Customs", cus["note"] + ".")] if cus.get("note") else []
+    actions = []
     if cus.get("unreconciled"):
         actions.append(action("Reconcile Bills of Entry", f"{plural(cus['unreconciled'], 'Bill of Entry', 'Bills of Entry')} unreconciled."))
-    return brief("high" if s.get("overdue") else "medium" if active else "none", text, details, actions)
+    return brief("medium" if docs else "none", text, details, actions)
 
 
 def briefs(p: dict) -> dict:
@@ -222,5 +223,6 @@ def briefs(p: dict) -> dict:
         "planning": _planning(p),
         "actions": _actions(p),
         "legal": _legal(p),
+        "customs": _customs(p),
     }
     return {k: v for k, v in out.items() if v}

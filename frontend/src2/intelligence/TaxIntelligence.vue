@@ -206,12 +206,13 @@ const tabs = [
   { label: 'Compliance' },
   { label: 'TDS & TCS' },
   { label: 'Income Tax' },
-  { label: 'Notices & Customs' },
+  { label: 'Notices & Legal' },
+  { label: 'Customs' },
   { label: 'Action Queue' },
 ]
 
 const TAB_IDS = [
-  'overview', 'gst', 'compliance', 'tds', 'planning', 'legal', 'actions',
+  'overview', 'gst', 'compliance', 'tds', 'planning', 'legal', 'customs', 'actions',
 ] as const
 const activeTab = computed(() => TAB_IDS[activeTabIndex.value] ?? 'overview')
 
@@ -2471,6 +2472,12 @@ const actionsStrip = computed<StatItem[]>(() => [
                 silently booked as a liability.
               </p>
             </div>
+            <TabActions class="mt-6" :actions="tabBriefs.legal?.actions" />
+          </div>
+
+          <!-- Customs: its own tab; the Bills of Entry register and the RCM comparison are not a legal matter. -->
+          <div v-if="activeTab === 'customs'" class="space-y-6">
+            <TabBrief :brief="tabBriefs.customs" :as-of="data?.generated_at" />
             <section class="space-y-6" aria-label="Customs and import duty">
               <SectionHeader variant="caption" title="Customs & Import Duty" :level="3" />
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -2551,7 +2558,7 @@ const actionsStrip = computed<StatItem[]>(() => [
               </div>
             </div>
             </section>
-            <TabActions class="mt-6" :actions="tabBriefs.legal?.actions" />
+            <TabActions class="mt-6" :actions="tabBriefs.customs?.actions" />
           </div>
           <!--
             Action Queue: the operational engine. No exception, notice or

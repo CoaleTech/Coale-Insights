@@ -2,9 +2,6 @@
 
 Severity comes from the server's own risk categories (``overview.risk_components``)
 and the payload's per-fact categories; nothing is re-scored here.
-
-Merged tabs: ``counterparty`` (receivables and payables risk) and ``signals``
-(predictive analytics and early warnings).
 """
 
 from datetime import datetime
@@ -40,7 +37,7 @@ def _names(rows: list, key: str, name_key: str, cur, amount_key: str = "outstand
     return ", ".join(f"{r.get(name_key) or r.get(key)} ({money(r.get(amount_key), cur)})" for r in rows) + "."
 
 
-def _counterparty(p: dict):
+def _credit(p: dict):
     c = p.get("credit_risk") or {}
     aging = c.get("aging_analysis") or []
     total = _f(c.get("total_outstanding"))
@@ -80,23 +77,42 @@ def _counterparty(p: dict):
             f"{plural(big.get('invoice_count') or 0, 'invoice')} sit in this bucket.",
             impact=money(big["outstanding_amount"], cur),
         ))
-
-    ap = p.get("payables_risk") or {}
-    if ap.get("total_outstanding") is not None:
-        line = f"{money(ap['total_outstanding'], cur)} is owed to suppliers"
-        if ap.get("avg_days_overdue") is not None:
-            line += f", {ap['avg_days_overdue']:g} days overdue on average"
-        if ap.get("high_risk_suppliers") is not None:
-            line += f"; {plural(ap['high_risk_suppliers'], 'supplier')} rated high risk"
-        details.append(detail("Payables", line + "."))
-        owed = sorted(ap.get("supplier_risk_scores") or [], key=lambda r: -_f(r.get("outstanding")))[:TOP_N]
-        if owed:
-            actions.append(action(
-                "Agree payment plans with the largest supplier balances",
-                _names(owed, "supplier", "supplier_name", cur),
-                impact=money(sum(_f(r.get("outstanding")) for r in owed), cur),
-            ))
     return brief(_sev(_component(p, "credit_risk"), by_days), text, details, actions)
+
+
+def _payables(p: dict):
+    ap = p.get("payables_risk") or {}
+    aging = ap.get("aging_analysis") or []
+    total = _f(ap.get("total_outstanding"))
+    if not aging or not total:
+        return None
+    cur = p.get("base_currency")
+    past_buckets = [b for b in aging if b.get("aging_bucket") != "Current"]
+    past = sum(_f(b.get("outstanding_amount")) for b in past_buckets)
+    avg = ap.get("avg_days_overdue")
+    by_days = None if avg is None else "low" if avg <= 30 else "medium" if avg <= 60 else "high"
+    text = f"{money(total, cur)} is owed to suppliers, {round(past * 100 / total)}% of it ({money(past, cur)}) past terms"
+    if ap.get("high_risk_suppliers") is not None:
+        text += f"; {plural(ap['high_risk_suppliers'], 'supplier')} rated high risk"
+    text += "."
+    details, actions = [], []
+    if avg is not None:
+        details.append(detail("Payment speed", f"Open bills average {avg:g} days overdue."))
+    big = max(past_buckets, key=lambda b: _f(b.get("outstanding_amount")), default=None)
+    if big:
+        details.append(detail(
+            "Largest past-due bucket",
+            f"{big['aging_bucket']} holds {money(big['outstanding_amount'], cur)} across {plural(big.get('invoice_count') or 0, 'bill')}.",
+        ))
+    owed = sorted(ap.get("supplier_risk_scores") or [], key=lambda r: -_f(r.get("outstanding")))[:TOP_N]
+    if owed:
+        details.append(detail("Largest supplier balances", _names(owed, "supplier", "supplier_name", cur)))
+        actions.append(action(
+            "Agree payment plans with the largest supplier balances",
+            _names(owed, "supplier", "supplier_name", cur),
+            impact=money(sum(_f(r.get("outstanding")) for r in owed), cur),
+        ))
+    return brief(_sev(by_days, *[r.get("risk_category") for r in owed]), text, details, actions)
 
 
 def _cashflow(p: dict):
@@ -215,7 +231,7 @@ def _compliance(p: dict):
     return brief(_sev(_component(p, "compliance_risk"), "high" if late else None), text, details, actions)
 
 
-def _signals(p: dict):
+def _predictive(p: dict):
     a = p.get("predictive_analytics") or {}
     fc = (a.get("cash_flow_forecast") or {}).get("forecast") or []
     if not fc:
@@ -224,14 +240,12 @@ def _signals(p: dict):
     last = fc[-1]
     d = datetime.strptime(last["ds"], "%Y-%m-%d")
     risky = (a.get("payment_risk_forecast") or {}).get("high_risk_customers") or []
-    anomalies = a.get("anomalies") or []
     text = (
         f"{len(fc)}-day cash forecast: {money(last['yhat'], cur)} on {d.day} {d:%b %Y}. "
-        f"{plural(len(risky), 'customer')} flagged for payment delay risk. "
-        f"{plural(len(anomalies), 'ledger anomaly', 'ledger anomalies')} detected."
+        f"{plural(len(risky), 'customer')} flagged for payment delay risk."
     )
     warnings = a.get("early_warnings") or []
-    sev = _sev(*[w.get("severity") for w in warnings], "medium" if risky or anomalies else None)
+    sev = _sev(*[w.get("severity") for w in warnings], "medium" if risky else None)
 
     details, actions = [], []
     perf = (a.get("cash_flow_forecast") or {}).get("model_performance") or {}
@@ -249,12 +263,27 @@ def _signals(p: dict):
     return brief(sev, text, details, actions)
 
 
+def _ledger(p: dict):
+    a = p.get("predictive_analytics")
+    if a is None:
+        return None
+    rows = a.get("anomalies") or []
+    if not rows:
+        return brief("none", "The model detected no ledger anomalies. The full ledger scan runs on request from this tab.")
+    text = f"{plural(len(rows), 'ledger anomaly', 'ledger anomalies')} detected by the model."
+    top = sorted(rows, key=lambda r: -_ORDER.index(_sev(r.get("severity"))))[:TOP_N]
+    details = [detail(str(r.get("type") or "anomaly").replace("_", " ").capitalize(), f"{r.get('description')}.") for r in top]
+    return brief(_sev(*[r.get("severity") for r in rows]), text, details, [action("Run the ledger scan", "The scan checks submitted invoices on request and is not part of the cached figures.")])
+
+
 def briefs(p: dict) -> dict:
     out = {
-        "counterparty": _counterparty(p),
+        "credit": _credit(p),
+        "payables": _payables(p),
         "cashflow": _cashflow(p),
         "operational": _operational(p),
         "compliance": _compliance(p),
-        "signals": _signals(p),
+        "predictive": _predictive(p),
+        "ledger": _ledger(p),
     }
     return {k: v for k, v in out.items() if v}

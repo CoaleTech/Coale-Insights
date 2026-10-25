@@ -219,11 +219,13 @@ const lastUpdated = computed(() => riskData.value?.generated_at ?? null)
 // Tabs - numeric index for frappe-ui Tabs component
 const tabDefs = [
   { label: 'Overview', value: 'overview' },
-  { label: 'Counterparty', value: 'counterparty' },
+  { label: 'Credit Risk', value: 'credit' },
+  { label: 'Payables Risk', value: 'payables' },
   { label: 'Cash Flow Risk', value: 'cashflow' },
   { label: 'Operational Risk', value: 'operational' },
   { label: 'Compliance Risk', value: 'compliance' },
-  { label: 'Signals', value: 'signals' },
+  { label: 'Predictive Analytics', value: 'predictive' },
+  { label: 'Ledger Anomalies', value: 'ledger' },
 ]
 const activeTabIndex = ref(0)
 const activeTab = computed(() => tabDefs[activeTabIndex.value]?.value ?? 'overview')
@@ -256,7 +258,7 @@ const operationalStrip = computed<StatItem[]>(() => {
     { label: 'Invoice Error Rate', value: formatPercent(o.process_risks?.invoice_error_rate, 2) },
   ]
 })
-const signalsStrip = computed<StatItem[]>(() => {
+const predictiveStrip = computed<StatItem[]>(() => {
   const p = predictiveData.value
   const fc = p.cash_flow_forecast?.forecast ?? []
   const last = fc.at(-1)
@@ -266,7 +268,6 @@ const signalsStrip = computed<StatItem[]>(() => {
     { label: `${fc.length}-Day Cash Forecast`, amount: last?.yhat ?? null, sublabel: last ? formatDate(last.ds) : undefined },
     { label: 'Forecast Trend', value: p.cash_flow_forecast?.model_performance?.trend ?? null },
     { label: 'High-Risk Customers', value: risky.length, sublabel: delay == null ? undefined : `Avg market delay ${delay} days` },
-    { label: 'Anomalies Detected', value: (p.anomalies ?? []).length },
   ]
 })
 
@@ -947,8 +948,8 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         </div>
 
         <!-- Tab 2: Credit Risk -->
-        <div v-if="activeTab === 'counterparty'" class="space-y-6">
-          <TabBrief :brief="tabBriefs.counterparty" :as-of="riskData?.generated_at" />
+        <div v-if="activeTab === 'credit'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.credit" :as-of="riskData?.generated_at" />
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <KpiCard
               label="Total Outstanding"
@@ -1022,12 +1023,13 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 </table>
               </div>
           </div>
-          <TabActions class="mt-6" :actions="tabBriefs.counterparty?.actions" />
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.credit?.actions" />
         </div>
 
-        <!-- Supplier payables -->
-        <div class="space-y-6 pt-2">
-          <SectionHeader variant="caption" title="Supplier Payables" :level="3" />
+        <!-- Tab 3: Payables Risk -->
+        <div v-if="activeTab === 'payables'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.payables" :as-of="riskData?.generated_at" />
           <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
             <KpiCard
               label="Total Outstanding"
@@ -1102,7 +1104,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </div>
           </div>
         </div>
-        </div>
+          <TabActions class="mt-6" :actions="tabBriefs.payables?.actions" />
         </div>
 
         <!-- Tab 3: Cash Flow Risk -->
@@ -1372,10 +1374,9 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           </div>
         </div>
 
-        <!-- Tab 6: Predictive Analytics -->
-        <div v-if="activeTab === 'signals'" class="space-y-6">
-          <TabBrief :brief="tabBriefs.signals" :as-of="riskData?.generated_at" />
-          <StatStrip :items="signalsStrip" :currency="baseCurrency" />
+        <!-- Tab 7: Ledger Anomalies -->
+        <div v-if="activeTab === 'ledger'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.ledger" :as-of="riskData?.generated_at" />
 
           <!-- Anomaly Detection -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -1403,8 +1404,21 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                 No anomalies detected in recent data
               </div>
           </div>
-          <TabActions class="mt-6" :actions="tabBriefs.signals?.actions" />
+          </div>
+
+          <!-- Ledger scan: issued on mount, so it runs on request -->
+          <div class="space-y-3">
+            <SectionHeader variant="caption" title="Ledger scan" hint="Scans submitted invoices when run" :level="3" />
+            <Button v-if="!showLedger" variant="outline" @click="showLedger = true">Run ledger scan</Button>
+            <LedgerAnomalies v-else />
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.ledger?.actions" />
         </div>
+
+        <!-- Tab 6: Predictive Analytics -->
+        <div v-if="activeTab === 'predictive'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.predictive" :as-of="riskData?.generated_at" />
+          <StatStrip :items="predictiveStrip" :currency="baseCurrency" />
 
           <!-- Early Warning Alerts -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -1494,13 +1508,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               </div>
           </div>
         </div>
-
-          <!-- Ledger Anomalies: the scan is issued on mount, so it runs on request -->
-          <div class="space-y-3">
-            <SectionHeader variant="caption" title="Ledger Anomalies" hint="Scans submitted invoices when run" :level="3" />
-            <Button v-if="!showLedger" variant="outline" @click="showLedger = true">Run ledger scan</Button>
-            <LedgerAnomalies v-else />
-          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.predictive?.actions" />
         </div>
       </div>
     </IntelligenceDashboardShell>

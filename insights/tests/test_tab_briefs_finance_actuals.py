@@ -10,7 +10,7 @@ class TestBriefs(unittest.TestCase):
         self.b = briefs(self.p)
 
     def test_tabs(self):
-        self.assertEqual(set(self.b), {"cashflow", "receivables", "payables"})
+        self.assertEqual(set(self.b), {"cashflow", "receivables", "payables", "forex"})
 
     def test_cashflow_counts_complete_months_only(self):
         b = self.b["cashflow"]
@@ -39,3 +39,17 @@ class TestBriefs(unittest.TestCase):
 
     def test_missing_data_omits_tab(self):
         self.assertEqual(briefs({"base_currency": "INR"}), {})
+
+    def test_forex_is_an_honest_empty_state_without_foreign_invoices(self):
+        b = self.b["forex"]
+        self.assertEqual(b["severity"], "none")
+        self.assertIn("No foreign currency exposure", b["headline"])
+        self.assertIn("Realised forex nets ₹22,873 across 3 months", b["headline"])
+
+    def test_forex_flags_at_risk_foreign_invoices(self):
+        self.p["forex"]["exposure_summary"] = [{"currency": "USD"}]
+        self.p["forex"]["net_exposure_base"] = 8300000
+        self.p["forex"]["at_risk_invoices"] = [{"name": "SI-1"}]
+        b = briefs(self.p)["forex"]
+        self.assertEqual(b["severity"], "medium")
+        self.assertIn("₹8,300,000 across 1 currency. 1 foreign currency invoice at risk.", b["headline"])

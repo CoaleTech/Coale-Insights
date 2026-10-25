@@ -180,30 +180,37 @@ const {
   })
 
 const tabIndex = ref(0)
-// With no Work Orders the OEE, Capacity, Forecast and Recommendations tabs have
-// nothing to show but what is missing, so they collapse into one Production tab.
-// Once Work Orders exist they return with their own bodies.
-const tabs = computed(() =>
-  data.value?.production_metrics?.total_work_orders === 0
-    ? [
-        { id: 'overview', label: 'Overview' },
-        { id: 'production', label: 'Production' },
-      ]
-    : [
-        { id: 'overview', label: 'Overview' },
-        { id: 'oee', label: 'OEE Analysis' },
-        { id: 'capacity', label: 'Capacity' },
-        { id: 'forecast', label: 'Production Forecast' },
-        { id: 'recommendations', label: 'Recommendations' },
-      ],
-)
-const activeTab = computed(() => tabs.value[tabIndex.value]?.id ?? 'overview')
+// The four mock tabs always exist. With no Work Orders each one renders the
+// payload's own note about what is missing instead of zero-filled gauges.
+const tabs = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'oee', label: 'OEE Analysis' },
+  { id: 'capacity', label: 'Capacity' },
+  { id: 'forecast', label: 'Production Forecast' },
+  { id: 'recommendations', label: 'Recommendations' },
+]
+const noWorkOrders = computed(() => data.value?.production_metrics?.total_work_orders === 0)
+const activeTab = computed(() => tabs[tabIndex.value]?.id ?? 'overview')
 const tabBriefs = computed(() => data.value?.tab_briefs ?? {})
 const noteOf = (section: unknown) => (section as { message?: string } | undefined)?.message
-const productionStrip = computed<StatItem[]>(() => [
+const oeeStrip = computed<StatItem[]>(() => [
   { label: 'OEE Score', percent: data.value?.oee_analysis?.oee_score_pct ?? null, sublabel: 'Not measured' },
+  { label: 'Availability', percent: data.value?.oee_analysis?.availability_pct ?? null },
+  { label: 'Performance', percent: data.value?.oee_analysis?.performance_pct ?? null },
+  { label: 'Quality', percent: data.value?.oee_analysis?.quality_pct ?? null },
+])
+const capacityStrip = computed<StatItem[]>(() => [
+  { label: 'Utilization', percent: data.value?.capacity_utilization?.overall_utilization_pct ?? null, sublabel: 'Not measured' },
+  { label: 'Bottlenecks', value: data.value?.bottleneck_analysis?.bottleneck_count ?? null },
+  { label: 'Work Orders', value: data.value?.production_metrics?.total_work_orders ?? null },
+])
+const forecastStrip = computed<StatItem[]>(() => [
   { label: 'Work Orders', value: data.value?.production_metrics?.total_work_orders ?? null },
   { label: 'Produced Qty', value: data.value?.production_metrics?.total_production_qty ?? null },
+  { label: 'Monthly Growth Rate', percent: noWorkOrders.value ? null : (data.value?.production_metrics?.monthly_growth_rate ?? null) },
+])
+const recommendationsStrip = computed<StatItem[]>(() => [
+  { label: 'Active Alerts', value: data.value?.recommendations?.length ?? null },
   { label: 'Pending Material Requests', value: data.value?.production_metrics?.pending_material_requests ?? null },
 ])
 const productionGaps = computed(() =>
@@ -216,6 +223,7 @@ const productionGaps = computed(() =>
     { title: 'Recommendations', note: data.value?.recommendations?.length ? undefined : 'No recommendations generated yet.' },
   ].filter((s): s is { title: string; note: string } => !!s.note),
 )
+const gapsFor = (...titles: string[]) => productionGaps.value.filter((g) => titles.includes(g.title))
 
 const oeeAnalysis = computed(() => data.value?.oee_analysis ?? ({} as OeeAnalysis))
 const productionMetrics = computed(() => data.value?.production_metrics ?? ({} as ProductionMetrics))
@@ -734,8 +742,10 @@ onMounted(() => {
         </div>
 
         <!-- OEE Analysis -->
-        <div v-if="activeTab === 'oee'">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div v-if="activeTab === 'oee'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.oee" />
+          <StatStrip :items="oeeStrip" />
+          <div v-if="!noWorkOrders" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- OEE Score Breakdown -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <SectionHeader variant="caption" title="OEE Score Breakdown" :level="3" />
@@ -842,11 +852,24 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div
+              v-for="gap in gapsFor('OEE', 'Quality')"
+              :key="gap.title"
+              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
+            >
+              <SectionHeader variant="caption" :title="gap.title" :level="3" />
+              <p class="mt-3 text-sm text-ink-gray-7">{{ gap.note }}</p>
+            </div>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.oee?.actions" />
         </div>
 
         <!-- Capacity -->
-        <div v-if="activeTab === 'capacity'">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div v-if="activeTab === 'capacity'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.capacity" />
+          <StatStrip :items="capacityStrip" />
+          <div v-if="!noWorkOrders" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Capacity Utilization -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <SectionHeader variant="caption" title="Capacity Utilization" :level="3" />
@@ -926,11 +949,24 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div
+              v-for="gap in gapsFor('Capacity', 'Bottlenecks')"
+              :key="gap.title"
+              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
+            >
+              <SectionHeader variant="caption" :title="gap.title" :level="3" />
+              <p class="mt-3 text-sm text-ink-gray-7">{{ gap.note }}</p>
+            </div>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.capacity?.actions" />
         </div>
 
         <!-- Production Forecast -->
-        <div v-if="activeTab === 'forecast'">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div v-if="activeTab === 'forecast'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.forecast" />
+          <StatStrip :items="forecastStrip" />
+          <div v-if="!noWorkOrders" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <SectionHeader variant="caption" title="Production Forecast" :level="3" />
               <div v-if="productionForecast && Object.keys(productionForecast).length > 0" class="space-y-3 mt-4">
@@ -967,10 +1003,23 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div
+              v-for="gap in gapsFor('Production Forecast')"
+              :key="gap.title"
+              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
+            >
+              <SectionHeader variant="caption" :title="gap.title" :level="3" />
+              <p class="mt-3 text-sm text-ink-gray-7">{{ gap.note }}</p>
+            </div>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.forecast?.actions" />
         </div>
 
         <!-- Recommendations -->
-        <div v-if="activeTab === 'recommendations'">
+        <div v-if="activeTab === 'recommendations'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.recommendations" />
+          <StatStrip :items="recommendationsStrip" />
           <div v-if="recommendations.length > 0">
             <ListView
               class="mt-4 list-ink-fix"
@@ -993,24 +1042,9 @@ onMounted(() => {
           <div v-else class="bg-surface-white rounded-lg border border-outline-gray-1 p-12 text-center text-ink-gray-6">
             <p class="text-sm">No recommendations available. Refresh to generate insights.</p>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.recommendations?.actions" />
         </div>
 
-        <!-- Production (merged while there are no Work Orders) -->
-        <div v-if="activeTab === 'production'" class="space-y-6">
-          <TabBrief :brief="tabBriefs.production" />
-          <StatStrip :items="productionStrip" />
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div
-              v-for="gap in productionGaps"
-              :key="gap.title"
-              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
-            >
-              <SectionHeader variant="caption" :title="gap.title" :level="3" />
-              <p class="mt-3 text-sm text-ink-gray-7">{{ gap.note }}</p>
-            </div>
-          </div>
-          <TabActions class="mt-6" :actions="tabBriefs.production?.actions" />
-        </div>
 
       </div>
     </IntelligenceDashboardShell>

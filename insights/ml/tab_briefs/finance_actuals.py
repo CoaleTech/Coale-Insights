@@ -123,9 +123,35 @@ def _payables(p: dict):
     return brief(sev, text + f", against liquid cash of {money(liquid, cur)}.", details, actions)
 
 
+def _forex(p: dict):
+    fx = p.get("forex")
+    if fx is None:
+        return None
+    cur = p.get("base_currency")
+    trend = fx.get("realized_forex_trend") or []
+    realised = sum(_f(r.get("forex_gain")) - _f(r.get("forex_loss")) for r in trend)
+    tail = f" Realised forex nets {money(realised, cur)} across {plural(len(trend), 'month')} with entries." if trend else ""
+    rows = fx.get("exposure_summary") or []
+    if not rows:
+        return brief(
+            "none",
+            f"No foreign currency exposure: no open invoice is outside {cur}.{tail}",
+            [],
+            [],
+        )
+    net = _f(fx.get("net_exposure_base"))
+    risky = fx.get("at_risk_invoices") or []
+    text = f"Net foreign currency exposure is {money(net, cur)} across {plural(len(rows), 'currency', 'currencies')}."
+    actions = []
+    if risky:
+        text += f" {plural(len(risky), 'foreign currency invoice')} at risk."
+        actions.append(action("Review at-risk foreign currency invoices", f"{plural(len(risky), 'invoice')} flagged in the payload."))
+    return brief("medium" if risky else "low", text + tail, [], actions)
+
+
 def briefs(p: dict) -> dict:
     out = {}
-    for tab, fn in (("cashflow", _cashflow), ("receivables", _receivables), ("payables", _payables)):
+    for tab, fn in (("cashflow", _cashflow), ("receivables", _receivables), ("payables", _payables), ("forex", _forex)):
         b = fn(p)
         if b:
             out[tab] = b

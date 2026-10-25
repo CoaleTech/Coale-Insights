@@ -8,8 +8,23 @@ class TestBriefs(unittest.TestCase):
     def setUp(self):
         self.b = briefs(load("inventory"))
 
-    def test_no_warehouses_brief(self):
-        self.assertEqual(set(self.b), {"turnover", "abc-xyz", "aging", "procurement"})
+    def test_warehouses(self):
+        b = self.b["warehouses"]
+        self.assertEqual(b["severity"], "low")
+        self.assertEqual(
+            b["headline"],
+            "₹1,025,946 of stock sits across 2 warehouses; Warehouse - JKM holds 72.8% of it. "
+            "Reserved demand of 132,145 units is 11.8× the 11,185 units on hand.",
+        )
+        self.assertFalse(b.get("actions"))
+
+    def test_warehouses_uncovered_reserved_demand_is_flagged(self):
+        p = load("inventory")
+        for w in p["warehouse_analysis"]["by_warehouse"]:
+            w["ordered_qty"] = "0"
+        b = briefs(p)["warehouses"]
+        self.assertEqual(b["severity"], "medium")
+        self.assertIn("120,960 uncovered", b["actions"][0]["text"])
 
     def test_turnover_names_the_slowest_group(self):
         b = self.b["turnover"]

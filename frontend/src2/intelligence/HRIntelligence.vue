@@ -228,17 +228,14 @@ const drillDown = useDrillDown()
 const period = ref('TTM')
 
 const tabIndex = ref(0)
-// Payroll is hidden until a Salary Slip exists; Department Health lives inside Attrition.
-const tabs = computed(() => {
-  const eff = data.value?.payroll_metrics?.payroll_efficiency
-  return [
-    { id: 'overview', label: 'Workforce Overview' },
-    { id: 'attrition', label: 'Attrition & Department Health' },
-    ...(eff && eff !== 'no_data' ? [{ id: 'payroll', label: 'Payroll & Compensation' }] : []),
-    { id: 'planning', label: 'Workforce Planning' },
-  ]
-})
-const activeTab = computed(() => tabs.value[tabIndex.value]?.id ?? 'overview')
+const tabs = [
+  { id: 'overview', label: 'Workforce Overview' },
+  { id: 'attrition', label: 'Attrition & Retention' },
+  { id: 'payroll', label: 'Payroll & Compensation' },
+  { id: 'department', label: 'Department Health' },
+  { id: 'planning', label: 'Workforce Planning' },
+]
+const activeTab = computed(() => tabs[tabIndex.value]?.id ?? 'overview')
 const tabBriefs = computed(() => data.value?.tab_briefs ?? {})
 const attritionStrip = computed<StatItem[]>(() => {
   const am = data.value?.attrition_metrics
@@ -252,13 +249,29 @@ const attritionStrip = computed<StatItem[]>(() => {
     { label: 'Predicted Attrition', percent: data.value?.attrition_risk?.predicted_attrition_rate ?? null, sublabel: 'next period' },
   ]
 })
+// No Salary Slips: show the dash, not a zero that reads as a real payroll of nothing.
+const payrollMissing = computed(() => data.value?.payroll_metrics?.payroll_efficiency === 'no_data')
 const payrollStrip = computed<StatItem[]>(() => {
   const pm = data.value?.payroll_metrics
+  const gap = payrollMissing.value
   return [
-    { label: 'Total Payroll', amount: pm?.total_payroll_cost ?? null },
-    { label: 'Avg Salary', amount: pm?.average_salary ?? null },
-    { label: 'Cost Per Employee', amount: pm?.cost_per_employee ?? null },
-    { label: 'Deduction Rate', percent: pm?.deduction_rate_pct ?? null },
+    { label: 'Total Payroll', amount: gap ? null : pm?.total_payroll_cost ?? null },
+    { label: 'Avg Salary', amount: gap ? null : pm?.average_salary ?? null },
+    { label: 'Cost Per Employee', amount: gap ? null : pm?.cost_per_employee ?? null },
+    { label: 'Deduction Rate', percent: gap ? null : pm?.deduction_rate_pct ?? null },
+  ]
+})
+const departmentStrip = computed<StatItem[]>(() => {
+  const dm = data.value?.department_health?.department_metrics
+  if (!dm) return []
+  const named = Object.keys(dm).filter(d => d !== '(Unassigned)')
+  const total = data.value?.headcount_metrics?.total_employees ?? null
+  const big = data.value?.department_health?.largest_department
+  return [
+    { label: 'Named Departments', value: named.length },
+    { label: 'Unassigned', value: dm['(Unassigned)']?.headcount ?? 0, sublabel: total == null ? undefined : `of ${total} employees` },
+    { label: 'Largest Department', value: big ? big.split(' - ')[0] : null, sublabel: big && dm[big] ? `${dm[big].headcount} employees` : undefined },
+    { label: 'Single-Person Departments', value: named.filter(d => dm[d].headcount === 1).length, sublabel: `of ${named.length} named` },
   ]
 })
 const planningStrip = computed<StatItem[]>(() => {
@@ -959,6 +972,13 @@ function handleChatNavigation(path: string) {
               />
             </div>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.attrition?.actions" />
+        </div>
+
+        <!-- Department Health -->
+        <div v-show="activeTab === 'department'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.department" :as-of="data?.generated_at" />
+          <StatStrip :items="departmentStrip" />
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Department Overview" :level="3" />
             <div v-if="hasData && departments.length > 0" class="space-y-3 mt-4">
@@ -997,7 +1017,7 @@ function handleChatNavigation(path: string) {
               <SkeletonBlock v-for="n in 4" :key="n" class="h-16 w-full" />
             </div>
           </div>
-          <TabActions class="mt-6" :actions="tabBriefs.attrition?.actions" />
+          <TabActions class="mt-6" :actions="tabBriefs.department?.actions" />
         </div>
 
         <!-- Payroll & Compensation -->
@@ -1006,7 +1026,7 @@ function handleChatNavigation(path: string) {
           <StatStrip :items="payrollStrip" :currency="baseCurrency" />
 
           <!-- Compensation Analysis -->
-          <div v-if="hasData && data?.compensation_analysis" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <div v-if="hasData && data?.compensation_analysis && !payrollMissing" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Compensation Analysis" :level="3" />
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div class="bg-surface-gray-1 rounded-lg p-4">

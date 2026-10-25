@@ -1,7 +1,4 @@
-"""Tab briefs for the Inventory dashboard (Rule 7: server-built sentences).
-
-Warehouses is folded into the Overview tab and carries no brief of its own.
-"""
+"""Tab briefs for the Inventory dashboard (Rule 7: server-built sentences)."""
 
 from . import action, brief, detail, money, plural
 
@@ -151,12 +148,51 @@ def _procurement(p: dict):
     return brief(sev, text + ".", details, actions)
 
 
+def _warehouses(p: dict):
+    wa = p.get("warehouse_analysis") or {}
+    whs = wa.get("by_warehouse") or []
+    if not whs:
+        return None
+    cur = p.get("base_currency")
+    recs = p.get("transfer_recommendations") or []
+    multi = wa.get("multi_warehouse_items") or []
+    top = whs[0]
+    on_hand, reserved, ordered = (sum(_f(w.get(k)) for w in whs) for k in ("total_qty", "reserved_qty", "ordered_qty"))
+    text = (
+        f"{money(wa.get('total_stock_value'), cur)} of stock sits across {plural(len(whs), 'warehouse')}; "
+        f"{top.get('warehouse')} holds {_num(_f(top.get('pct_of_total')))}% of it"
+    )
+    if on_hand > 0 and reserved > 0:
+        text += f". Reserved demand of {_num(reserved)} units is {_num(reserved / on_hand)}× the {_num(on_hand)} units on hand"
+    details = [
+        detail(
+            str(w.get("warehouse")),
+            f"{plural(int(_f(w.get('item_count'))), 'item')}, {_num(_f(w.get('total_qty')))} units on hand worth "
+            f"{money(_f(w.get('stock_value')), cur)}; {_num(_f(w.get('reserved_qty')))} reserved, {_num(_f(w.get('ordered_qty')))} on order.",
+        )
+        for w in whs[:4]
+    ]
+    if multi:
+        details.append(detail("Split stock", f"{plural(len(multi), 'item')} held in more than one warehouse."))
+    actions = []
+    if recs:
+        actions.append(action("Review transfer recommendations", f"{plural(len(recs), 'transfer')} suggested to rebalance stock between warehouses."))
+    uncovered = reserved - on_hand - ordered
+    if uncovered > 0:
+        actions.append(action(
+            "Cover reserved demand",
+            f"{_num(reserved)} units are reserved against {_num(on_hand)} on hand and {_num(ordered)} on open orders, leaving {_num(uncovered)} uncovered.",
+        ))
+    return brief("medium" if recs or uncovered > 0 else "low", text + ".", details, actions)
+
+
 def briefs(p: dict) -> dict:
     out = {
         "turnover": _turnover(p),
         "abc-xyz": _abc_xyz(p),
         "aging": _aging(p),
         "procurement": _procurement(p),
+        "warehouses": _warehouses(p),
     }
     return {k: v for k, v in out.items() if v}
 

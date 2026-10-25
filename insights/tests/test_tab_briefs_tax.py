@@ -45,12 +45,11 @@ class TestBriefs(unittest.TestCase):
         self.assertIn("ITC, e-Waybill are flagged with no action", b["headline"])
         self.assertIn("TDS overdue is ₹82,434", b["headline"])
 
-    def test_legal_is_empty_register_and_customs_is_merged(self):
-        b = self.b["legal"]
-        self.assertEqual(b["severity"], "none")
-        self.assertIn("0 legal matters open", b["headline"])
-        self.assertIn("0 Bills of Entry recorded", b["headline"])
-        self.assertNotIn("customs", self.b)
+    def test_legal_and_customs_are_separate_tabs(self):
+        self.assertEqual(self.b["legal"]["severity"], "none")
+        self.assertEqual(self.b["legal"]["headline"], "0 legal matters open with ₹0 exposure.")
+        self.assertEqual(self.b["customs"]["severity"], "none")
+        self.assertEqual(self.b["customs"]["headline"], "0 Bills of Entry recorded.")
 
     def test_no_dash_or_nan(self):
         for tab, b in self.b.items():

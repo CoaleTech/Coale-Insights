@@ -18,6 +18,7 @@ import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import KpiCard from './components/KpiCard.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
 import SectionHeader from './components/SectionHeader.vue'
+import StatStrip, { type StatItem } from './components/StatStrip.vue'
 
 // ── Payload interfaces ────────────────────────────────────────────────────────
 
@@ -151,6 +152,73 @@ const tabs = [
   { label: 'Governance' },
   { label: 'Recommendations' },
 ]
+
+// The engine is not implemented, so every pillar tab is an honest empty state.
+// HR and Procurement context is read from those dashboards' own endpoints and
+// labelled as context; nothing here is an ESG score.
+interface HrContext {
+  headcount_metrics?: { total_employees?: number }
+  attrition_metrics?: { attrition_rate_pct?: number }
+  attendance_metrics?: { attendance_rate_pct?: number }
+  engagement_indicators?: { engagement_score?: number }
+}
+interface ProcContext {
+  base_currency?: string
+  spend_overview?: { total_spend?: number; supplier_count?: number; invoice_count?: number }
+}
+const gapTab = ref(0)
+const gapTabs = tabs
+const { data: hrCtx } = useIntelligenceDashboard<HrContext>({
+  url: 'insights.api.ml.get_hr_overview',
+  params: computed(() => ({ period: 'TTM' })),
+  cache: 'esg-hr-context',
+})
+const { data: procCtx } = useIntelligenceDashboard<ProcContext>({
+  url: 'insights.api.ml.procurement_intelligence',
+  params: computed(() => ({ date_filter: '12m' })),
+  cache: 'esg-procurement-context',
+})
+const gapPanels = computed(() => [
+  {
+    headline: 'Environmental metrics are not tracked',
+    text: 'Carbon footprint, energy mix, waste recycled and water usage have no source data yet.',
+    context: 'Procurement context (12 months), not an ESG measure',
+    strip: [
+      { label: 'Procurement Spend', amount: procCtx.value?.spend_overview?.total_spend ?? null },
+      { label: 'Suppliers', value: procCtx.value?.spend_overview?.supplier_count ?? null },
+      { label: 'Purchase Invoices', value: procCtx.value?.spend_overview?.invoice_count ?? null },
+      { label: 'Emissions Category Coverage', value: null, sublabel: 'Not tracked' },
+    ] as StatItem[],
+    sources: ['Purchase Invoice items: Fuel, Grid, Renewable item groups', 'Stock Entry records: waste and material transfers'],
+  },
+  {
+    headline: 'Social metrics are not tracked by the ESG engine',
+    text: 'Diversity, health and safety incidents and wellbeing have no ESG source data yet. HR Intelligence carries workforce signals that are real but are not ESG scores.',
+    context: 'HR context (trailing 12 months), not an ESG measure',
+    strip: [
+      { label: 'Headcount', value: hrCtx.value?.headcount_metrics?.total_employees ?? null },
+      { label: 'Attrition', percent: hrCtx.value?.attrition_metrics?.attrition_rate_pct ?? null },
+      { label: 'Attendance', percent: hrCtx.value?.attendance_metrics?.attendance_rate_pct ?? null },
+      { label: 'Engagement Score', value: hrCtx.value?.engagement_indicators?.engagement_score ?? null },
+    ] as StatItem[],
+    sources: ['Employee records: gender and designation fields', 'HR Incident / Accident logs', 'Payroll and Leave Allocation data'],
+  },
+  {
+    headline: 'Governance scores are not computed',
+    text: 'Ethics, transparency and risk scores have no source data yet.',
+    context: 'Governance scores',
+    strip: ['Ethics', 'Transparency', 'Risk', 'Overall'].map((label) => ({ label, value: null, sublabel: 'Not computed' })) as StatItem[],
+    sources: ['Supplier records: country, type and group', 'Compliance and audit log entries'],
+  },
+  {
+    headline: 'No ESG recommendations',
+    text: 'The ESG engine returns no recommendations. Zero recommendations means the engine is inactive, not that every pillar is in good standing.',
+    context: '',
+    strip: [] as StatItem[],
+    sources: [] as string[],
+  },
+])
+const gapPanel = computed(() => gapPanels.value[gapTab.value - 1])
 
 const esgScore = computed((): EsgScore =>
   data.value?.esg_score ?? ({} as EsgScore))
@@ -327,10 +395,13 @@ function handleDashboardRedirect(target: string) {
           </p>
         </div>
       </div>
+      <div class="mx-6 mt-5">
+        <Tabs v-model="gapTab" :tabs="gapTabs" />
+      </div>
 
       <div class="flex-1 p-6">
         <!-- Overview: pillar descriptions + intended ERPNext sources (no numbers) -->
-        <div>
+        <div v-if="gapTab === 0">
           <p class="text-sm text-ink-gray-6 mb-5">
             When operational, this dashboard will track the following pillars using data already in ERPNext:
           </p>
@@ -394,6 +465,22 @@ function handleDashboardRedirect(target: string) {
               </div>
             </div>
 
+          </div>
+        </div>
+        <div v-else-if="gapPanel" class="space-y-6">
+          <div class="rounded-lg bg-surface-gray-2 border border-outline-gray-1 px-4 py-3">
+            <p class="text-sm font-medium text-ink-gray-8">{{ gapPanel.headline }}</p>
+            <p class="text-sm text-ink-gray-6 mt-0.5">{{ gapPanel.text }}</p>
+          </div>
+          <div v-if="gapPanel.strip.length" class="space-y-2">
+            <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide">{{ gapPanel.context }}</p>
+            <StatStrip :items="gapPanel.strip" :currency="procCtx?.base_currency" />
+          </div>
+          <div v-if="gapPanel.sources.length" class="bg-surface-white rounded-lg border border-outline-gray-1 p-5">
+            <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-1.5">ERPNext sources</p>
+            <ul class="text-sm text-ink-gray-6 space-y-1 list-disc list-inside">
+              <li v-for="source in gapPanel.sources" :key="source">{{ source }}</li>
+            </ul>
           </div>
         </div>
       </div>
