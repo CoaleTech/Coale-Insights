@@ -235,6 +235,27 @@ const abcShare = computed(() => {
   for (const r of rows) out[r.class ?? ''] = total > 0 ? `${formatPercent(((r.total_value || 0) / total) * 100)} of sales` : NO_VALUE
   return out
 })
+/** ABC rows by XYZ columns for the management grid; each cell is the payload `matrix` row for that class. */
+const abcGrid = computed(() => {
+  const m = (abcXyz.value?.matrix ?? []) as { class?: string; item_count?: number; total_value?: number; stock_value?: number }[]
+  return ['A', 'B', 'C'].map(a => ({
+    abc: a,
+    cells: ['X', 'Y', 'Z'].map(x => ({ cls: a + x, row: m.find(r => r.class === a + x) })),
+  }))
+})
+/** Pareto concentration: each ABC class's share of classified sales value, with its share of items. */
+const abcPareto = computed(() => {
+  const rows = (abcXyz.value?.abc_summary ?? []) as { class?: string; item_count?: number; total_value?: number }[]
+  const total = rows.reduce((s, r) => s + (Number(r.total_value) || 0), 0)
+  const items = rows.reduce((s, r) => s + (Number(r.item_count) || 0), 0)
+  return rows.map(r => ({
+    cls: r.class ?? '',
+    value: Number(r.total_value) || 0,
+    items: Number(r.item_count) || 0,
+    pct: total > 0 ? ((Number(r.total_value) || 0) / total) * 100 : null,
+    itemPct: items > 0 ? ((Number(r.item_count) || 0) / items) * 100 : null,
+  }))
+})
 const demandPlanning = computed(() => (inventoryData.value?.demand_planning as Record<string, unknown> | null) ?? null)
 
 // Max value for age bucket bars (avoids inline template Math.max)
@@ -266,15 +287,6 @@ function openWarehouse(wh: unknown) {
 function suffixed(value: unknown, suffix: string): string {
   const n = asNumber(value)
   return n === undefined ? NO_VALUE : `${n}${suffix}`
-}
-
-function leadTimeDays(supplier: unknown): number | undefined {
-  const n = asNumber((supplier as Record<string, unknown>).avg_lead_time)
-  return n === undefined ? undefined : Math.round(n)
-}
-function leadTimeInk(supplier: unknown): string {
-  const days = leadTimeDays(supplier)
-  return days === undefined ? 'text-ink-gray-6' : deltaInk(days - 14, { higherIsBetter: false })
 }
 
 function coveragePct(item: unknown): number | undefined {
@@ -352,6 +364,20 @@ const agingRiskCount = computed(() => {
   const b = agingBuckets.value
   if (!b) return 0
   return (b['181-365 days']?.count ?? 0) + (b['365+ days']?.count ?? 0)
+})
+
+/** Portfolio split by age zone (0-180d, 181-365d, 365+d); shares are of the FIFO snapshot total. */
+const agingZones = computed(() => {
+  const b = agingBuckets.value
+  if (!b) return []
+  const sum = (names: string[], k: 'value' | 'count') => names.reduce((s, n) => s + (Number(b[n]?.[k]) || 0), 0)
+  const zones = [
+    { label: 'Safe stock (0-180d)', names: ['0-30 days', '31-60 days', '61-90 days', '91-180 days'], fill: 'bg-pos-fill' },
+    { label: 'At risk (181-365d)', names: ['181-365 days'], fill: 'bg-warn-fill' },
+    { label: 'Write-off (365+d)', names: ['365+ days'], fill: 'bg-neg-fill' },
+  ].map(z => ({ label: z.label, fill: z.fill, value: sum(z.names, 'value'), count: sum(z.names, 'count') }))
+  const total = zones.reduce((s, z) => s + z.value, 0)
+  return zones.map(z => ({ ...z, pct: total > 0 ? (z.value / total) * 100 : null, total }))
 })
 
 /** Proportional segments for the C+aging heat-strip in the hero caption. */
@@ -1066,61 +1092,34 @@ function handleDashboardRedirect(target: string) {
                 <div>
                   <SectionHeader variant="caption" title="ABC/XYZ Classification Matrix" :level="3"
                                  :hint="`${formatCount(abcXyz.total_items as number)} items, ${formatDate(abcXyz.classification_date as string)}`" />
-                  <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
-                    <table class="w-full text-sm">
-                      <thead class="bg-surface-gray-1">
-                        <tr>
-                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Class</th>
-                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
-                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Sales Value</th>
-                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Stock Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr
-                          v-for="(item, idx) in abcXyz.matrix as unknown[]"
-                          :key="idx"
-                          class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
-                        >
-                          <td class="px-4 py-2">
-                            <Badge v-bind="severityBadge(
-                              ((item as Record<string, unknown>).class as string | undefined)?.startsWith('A') ? 'none' :
-                              ((item as Record<string, unknown>).class as string | undefined)?.startsWith('B') ? 'medium' : 'high'
-                            )" :label="String((item as Record<string, unknown>).class)" size="sm" />
-                          </td>
-                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).item_count as number) }}</td>
-                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).total_value as number) }}</td>
-                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).stock_value as number) }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <div class="mt-4 grid grid-cols-[auto_repeat(3,minmax(0,1fr))] gap-px overflow-hidden rounded-lg border border-outline-gray-1 bg-surface-gray-3 text-sm">
+                    <div class="bg-surface-gray-1 px-3 py-2" />
+                    <div v-for="h in ['X: Stable', 'Y: Variable', 'Z: Erratic']" :key="h" class="bg-surface-gray-1 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-gray-6">{{ h }}</div>
+                    <template v-for="r in abcGrid" :key="r.abc">
+                      <div class="bg-surface-gray-1 px-3 py-2 text-xs font-medium uppercase tracking-wide text-ink-gray-6">{{ r.abc }}</div>
+                      <div v-for="c in r.cells" :key="c.cls" class="bg-surface-white px-3 py-2">
+                        <p class="font-semibold text-ink-gray-9">{{ c.cls }}</p>
+                        <p class="text-ink-gray-7">{{ formatCount(c.row?.item_count as number) }} items</p>
+                        <p class="tnum text-ink-gray-8">{{ money(c.row?.total_value as number) }} sales</p>
+                        <p class="tnum text-xs text-ink-gray-6">{{ money(c.row?.stock_value as number) }} stock</p>
+                      </div>
+                    </template>
                   </div>
 
                   <!-- ABC Summary -->
-                  <SectionHeader variant="caption" title="ABC Summary (by Value)" :level="4" class="mt-6 mb-3" />
-                  <div class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
-                    <table class="w-full text-sm">
-                      <thead class="bg-surface-gray-1">
-                        <tr>
-                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Class</th>
-                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Items</th>
-                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Total Value</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(item, idx) in abcXyz.abc_summary as unknown[]" :key="idx"
-                            class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
-                          <td class="px-4 py-2">
-                            <Badge v-bind="severityBadge(
-                              (item as Record<string, unknown>).class === 'A' ? 'none' :
-                              (item as Record<string, unknown>).class === 'B' ? 'medium' : 'high'
-                            )" :label="String((item as Record<string, unknown>).class)" size="sm" />
-                          </td>
-                          <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ formatCount((item as Record<string, unknown>).item_count as number) }}</td>
-                          <td class="px-4 py-2 text-right text-ink-gray-6">{{ money((item as Record<string, unknown>).total_value as number) }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <SectionHeader variant="caption" title="Pareto concentration (by value)" :level="4" class="mt-6 mb-3" />
+                  <div class="space-y-3 rounded-lg border border-outline-gray-1 bg-surface-white p-4">
+                    <div v-for="p in abcPareto" :key="p.cls">
+                      <div class="flex items-baseline justify-between gap-3 text-sm">
+                        <span class="font-medium text-ink-gray-8">Class {{ p.cls }}</span>
+                        <span class="tnum text-ink-gray-7">
+                          {{ money(p.value) }} · {{ p.pct === null ? NO_VALUE : formatPercent(p.pct) }} · {{ formatCount(p.items) }} items<template v-if="p.itemPct !== null"> ({{ formatPercent(p.itemPct) }})</template>
+                        </span>
+                      </div>
+                      <div class="mt-1 h-2 w-full overflow-hidden rounded-full bg-surface-gray-2">
+                        <div class="h-full rounded-full bg-muted-fill" :style="{ width: `${p.pct ?? 0}%` }" />
+                      </div>
+                    </div>
                   </div>
                 </div>
 
@@ -1291,6 +1290,22 @@ function handleDashboardRedirect(target: string) {
                     Age calculation based on FIFO (First-In-First-Out) valuation method
                   </p>
                 </div>
+
+                <div v-if="agingZones.length" class="mt-6 rounded-lg border border-outline-gray-1 bg-surface-white p-4">
+                  <SectionHeader variant="caption" title="Capital at risk vs portfolio" :level="4" />
+                  <div class="mt-3 space-y-3">
+                    <div v-for="z in agingZones" :key="z.label">
+                      <div class="flex items-baseline justify-between gap-3 text-sm">
+                        <span class="text-ink-gray-7">{{ z.label }}, {{ formatCount(z.count) }} items</span>
+                        <span class="tnum font-semibold text-ink-gray-8">{{ money(z.value) }} · {{ z.pct === null ? NO_VALUE : formatPercent(z.pct) }}</span>
+                      </div>
+                      <div class="mt-1 h-2 w-full overflow-hidden rounded-full bg-surface-gray-2">
+                        <div class="h-full rounded-full" :class="z.fill" :style="{ width: `${z.pct ?? 0}%` }" />
+                      </div>
+                    </div>
+                  </div>
+                  <p class="mt-3 text-sm text-ink-gray-7">Total portfolio <span class="tnum font-semibold text-ink-gray-8">{{ money(agingZones[0].total) }}</span></p>
+                </div>
               </div>
 
               <!-- Aging by Product Group -->
@@ -1372,44 +1387,7 @@ function handleDashboardRedirect(target: string) {
           <!-- Procurement Tab -->
           <div v-if="activeTab === 'procurement'">
             <TabBrief class="mb-6" :brief="tabBriefs.procurement" :as-of="inventoryData?.generated_at" />
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <!-- Supplier Performance -->
-              <div>
-                <SectionHeader variant="caption" :title="`Supplier Performance (${windowText})`" :level="3" />
-                <div class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
-                  <table class="w-full text-sm">
-                    <thead class="bg-surface-gray-1">
-                      <tr>
-                        <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Supplier</th>
-                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Orders</th>
-                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Value</th>
-                        <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Lead Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr
-                        v-for="(supplier, idx) in procurementInsights.supplier_performance as unknown[]"
-                        :key="idx"
-                        class="border-b border-outline-gray-1 hover:bg-surface-gray-1"
-                      >
-                        <td class="px-4 py-2 font-medium text-ink-gray-9 truncate max-w-[150px]"
-                            :title="(supplier as Record<string, unknown>).supplier_name as string">
-                          {{ (supplier as Record<string, unknown>).supplier_name || (supplier as Record<string, unknown>).supplier }}
-                        </td>
-                        <td class="px-4 py-2 text-right text-ink-gray-6">{{ formatCount((supplier as Record<string, unknown>).order_count as number) }}</td>
-                        <td class="px-4 py-2 text-right font-bold text-ink-gray-9">{{ money((supplier as Record<string, unknown>).total_value as number) }}</td>
-                        <td class="px-4 py-2 text-right">
-                          <!-- Lead time: good <= 7, warn <= 14, higherIsBetter: false -->
-                          <span :class="['font-medium', leadTimeInk(supplier)]">
-                            {{ leadTimeDays(supplier) === undefined ? NO_VALUE : `${leadTimeDays(supplier)} days` }}
-                          </span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
+            <div>
               <!-- Reorder Needed -->
               <div>
                 <SectionHeader variant="caption" title="Items Needing Reorder" :level="3">

@@ -972,6 +972,41 @@ function handleChatNavigation(path: string) {
               />
             </div>
           </div>
+
+          <!-- Engagement score decomposition: the three payload contributions, in points of 100. -->
+          <div v-if="hasData && data?.engagement_indicators?.key_indicators" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader
+              variant="caption"
+              :title="`Engagement score decomposition: ${data.engagement_indicators.engagement_score ?? 0} / 100`"
+              :level="3"
+            />
+            <div
+              class="mt-4 flex h-6 w-full overflow-hidden rounded bg-surface-gray-1"
+              role="img"
+              :aria-label="`Engagement score ${data.engagement_indicators.engagement_score ?? 0} of 100`"
+            >
+              <div class="h-full bg-surface-gray-7" :style="{ width: `${Number(data.engagement_indicators.key_indicators.attendance_contribution) || 0}%` }" />
+              <div class="h-full bg-surface-gray-5" :style="{ width: `${Number(data.engagement_indicators.key_indicators.retention_contribution) || 0}%` }" />
+              <div class="h-full bg-surface-gray-3" :style="{ width: `${Number(data.engagement_indicators.key_indicators.leave_pattern_contribution) || 0}%` }" />
+            </div>
+            <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-ink-gray-7">
+              <div class="flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-sm bg-surface-gray-7" aria-hidden="true" />
+                <dt>Attendance</dt>
+                <dd class="tnum font-semibold text-ink-gray-8">{{ data.engagement_indicators.key_indicators.attendance_contribution ?? 0 }} pts</dd>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-sm bg-surface-gray-5" aria-hidden="true" />
+                <dt>Retention</dt>
+                <dd class="tnum font-semibold text-ink-gray-8">{{ data.engagement_indicators.key_indicators.retention_contribution ?? 0 }} pts</dd>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-sm bg-surface-gray-3" aria-hidden="true" />
+                <dt>Leave pattern</dt>
+                <dd class="tnum font-semibold text-ink-gray-8">{{ data.engagement_indicators.key_indicators.leave_pattern_contribution ?? 0 }} pts</dd>
+              </div>
+            </dl>
+          </div>
           <TabActions class="mt-6" :actions="tabBriefs.attrition?.actions" />
         </div>
 

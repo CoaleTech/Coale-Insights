@@ -532,6 +532,7 @@
                   <th scope="col" class="pb-2 text-left font-medium text-ink-gray-6">Owner</th>
                   <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Leads</th>
                   <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">Conv.</th>
+                  <th scope="col" class="pb-2 text-right font-medium text-ink-gray-6">vs team</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-outline-gray-1">
@@ -546,6 +547,9 @@
                   <td class="tnum py-2 text-right text-ink-gray-9">{{ formatNumber(row.leads) }}</td>
                   <td class="tnum py-2 text-right" :class="ownerDeltaInk(row.conversion_rate - avgOwnerConversion)">
                     {{ row.conversion_rate }}%
+                  </td>
+                  <td class="tnum py-2 text-right text-ink-gray-7">
+                    {{ kpis.lead_conversion_rate ? `${row.conversion_rate >= kpis.lead_conversion_rate ? '+' : ''}${(row.conversion_rate - kpis.lead_conversion_rate).toFixed(1)} pp` : NO_VALUE }}
                   </td>
                 </tr>
               </tbody>
