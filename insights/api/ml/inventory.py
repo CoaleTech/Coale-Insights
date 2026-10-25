@@ -395,7 +395,7 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
         frappe.has_permission("Supplier", throw=True)
         from insights.ml.inventory_intelligence import InventoryIntelligence
 
-        _, candidates = InventoryIntelligence(date_filter=f.get("date_filter") or "12m")._pending_orders()
+        _total, candidates = InventoryIntelligence(date_filter=f.get("date_filter") or "12m")._pending_orders()
         return {
             "columns": [
                 {"label": "Purchase Order", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Order"},
