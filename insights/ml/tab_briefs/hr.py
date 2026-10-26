@@ -33,8 +33,10 @@ def _attrition(p: dict):
         return None
     invol, vol = am.get("involuntary_exits"), am.get("voluntary_exits")
     text = f"Attrition is {_pct(rate)} TTM: {plural(exits, 'exit')}"
-    if invol is not None and vol is not None:
+    if invol is not None and vol is not None and invol + vol:
         text += f", {invol} involuntary and {vol} voluntary"
+    elif exits:
+        text += ", with no exit reason recorded"
     text += "."
     details, actions = [], []
     if risk.get("predicted_attrition_rate") is not None:

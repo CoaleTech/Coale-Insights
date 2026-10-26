@@ -339,7 +339,7 @@ const kpis = computed(() => {
       // "X of Y" denominator: with only ~11 employees, a percent-only display
       // is misleading — one exit is 9 pp. Show the absolute count and total.
       sublabel: att.total_exits != null
-        ? `${att.total_exits} of ${total} exits · ${formatPercent(att.involuntary_rate_pct)} involuntary`
+        ? `${att.total_exits} of ${total} exits · ${att.involuntary_exits ? `${formatPercent(att.involuntary_rate_pct)} involuntary` : 'reasons not recorded'}`
         : undefined,
       delta: att.attrition_change || undefined,
       deltaHigherIsBetter: false,
@@ -491,7 +491,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
       badge: 'CRITICAL',
       category: 'RETENTION',
       title: `Address ${formatPercent(att.attrition_rate_pct)} Attrition Rate`,
-      description: `${invol === exits && exits > 0 ? `All ${exits}` : `${invol} of ${exits}`} exit${exits !== 1 ? 's' : ''} involuntary — above industry average. Risk score ${risk.risk_score ?? 0}/100; predicted ${formatPercent(risk.predicted_attrition_rate)} next period.`,
+      description: `${exits} exit${exits !== 1 ? 's' : ''}${invol ? ` (${invol} involuntary)` : ''} — above industry average. Risk score ${risk.risk_score ?? 0}/100; predicted ${formatPercent(risk.predicted_attrition_rate)} next period.`,
       actions: ['Conduct exit interviews immediately', 'Implement retention bonuses', 'Employee satisfaction survey', 'Review management practices'],
     })
   }

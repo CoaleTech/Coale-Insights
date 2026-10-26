@@ -261,14 +261,23 @@ class HRIntelligence:
                 voluntary=(
                     emp_exits["resignation_letter_date"].notnull().cast("int").sum()
                 ),
+                # Involuntary only when a non-resignation reason is recorded;
+                # exits with neither field set are unclassified, not involuntary.
+                involuntary=(
+                    (emp_exits["resignation_letter_date"].isnull()
+                     & emp_exits["reason_for_leaving"].notnull()
+                     & (emp_exits["reason_for_leaving"] != "")).cast("int").sum()
+                ),
             )
             .execute()
         )
         total_exits = 0
         voluntary_exits = 0
+        involuntary_exits = 0
         if exits_df is not None and len(exits_df):
             total_exits = int(exits_df.iloc[0].get("total") or 0)
             voluntary_exits = int(exits_df.iloc[0].get("voluntary") or 0)
+            involuntary_exits = int(exits_df.iloc[0].get("involuntary") or 0)
 
         # Department composition (active only).
         # Ibis gotcha: count must reference the filtered+grouped relation,
@@ -362,7 +371,7 @@ class HRIntelligence:
             "new_hires": int(new_hires),
             "total_exits": total_exits,
             "voluntary_exits": voluntary_exits,
-            "involuntary_exits": max(0, total_exits - voluntary_exits),
+            "involuntary_exits": involuntary_exits,
             "department_breakdown": dept_breakdown,
             "employment_type_breakdown": emp_type_breakdown,
             "gender_dist": gender_dist,
