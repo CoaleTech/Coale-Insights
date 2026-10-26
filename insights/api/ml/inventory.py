@@ -268,10 +268,10 @@ def get_inventory_detail(metric: str, filters: str) -> dict:
             .select(Bin.item_code)
             .distinct()
         )
+        # KPI counts Bin items regardless of disabled status; the drill must
+        # match the same population. No disabled filter here.
         base_q = (
             frappe.qb.from_(Item)
-            .where(Item.disabled == 0)
-            .where(Item.is_stock_item == 1)
             .where(Item.name.isin(active_item_codes))
         )
         rows = (
