@@ -1122,11 +1122,14 @@ const gstBridgeNote = computed(() => {
   const risk = asNumber(itcHealth.value.at_risk_supplier_unfiled) ?? 0
   return `ITC balance ${formatCurrency(bal)} after utilisation (${formatPercent(itcHealth.value.utilization_pct)} used). Balance less ITC at risk: ${formatCurrency(bal - risk)}.`
 })
+const SCORE_TONE: Record<string, StatItem['tone']> = { none: 'pos', low: 'pos', medium: 'warn', high: 'neg', critical: 'neg' }
+const scoreTone = (score: number | null | undefined): StatItem['tone'] =>
+  score == null ? undefined : SCORE_TONE[complianceSeverity(score)]
 const gstStrip = computed<StatItem[]>(() => [
   { label: 'Net GST', amount: data.value?.net_gst ?? null, sublabel: gstPeriod.value ? `Net payable, ${gstPeriod.value}` : undefined },
-  { label: 'ITC At Risk', amount: itcHealth.value.at_risk_supplier_unfiled ?? null, sublabel: withCount(itcHealth.value.at_risk_invoice_count, 'invoices') },
-  { label: 'e-Invoice Coverage', percent: einvoiceStatus.value.coverage_pct ?? null, sublabel: `${einvoiceStatus.value.filed ?? '-'} of ${einvoiceStatus.value.total ?? '-'} with IRN` },
-  { label: 'Recon Match Rate', percent: reconciliationScore.value.match_rate_pct ?? null, sublabel: withCount(reconciliationScore.value.unactioned_count, 'rows unactioned') },
+  { label: 'ITC At Risk', amount: itcHealth.value.at_risk_supplier_unfiled ?? null, sublabel: withCount(itcHealth.value.at_risk_invoice_count, 'invoices'), tone: (asNumber(itcHealth.value.at_risk_supplier_unfiled) ?? 0) > 0 ? 'neg' : undefined },
+  { label: 'e-Invoice Coverage', percent: einvoiceStatus.value.coverage_pct ?? null, sublabel: `${einvoiceStatus.value.filed ?? '-'} of ${einvoiceStatus.value.total ?? '-'} with IRN`, tone: scoreTone(einvoiceStatus.value.coverage_pct) },
+  { label: 'Recon Match Rate', percent: reconciliationScore.value.match_rate_pct ?? null, sublabel: withCount(reconciliationScore.value.unactioned_count, 'rows unactioned'), tone: scoreTone(reconciliationScore.value.match_rate_pct) },
 ])
 const complianceStrip = computed<StatItem[]>(() => {
   const score = data.value?.compliance_score
