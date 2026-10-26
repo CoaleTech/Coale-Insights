@@ -1076,26 +1076,32 @@ const gstPeriod = computed(() => {
 
 /** GSTR-1, GSTR-3B, e-Invoice IRN and e-Waybill as one progress list; every figure is a payload field or a ratio of two. */
 const gstFilingRows = computed(() => {
-  const returnRow = (key: string, name: string, r: Record<string, any> = {}) => {
+  const returnRow = (key: string, name: string, r: Record<string, any> = {}, owed: { label: string; amount: number }[] = []) => {
     const due = asNumber(r.due) ?? 0
     const filed = asNumber(r.filed_due) ?? 0
     const overdue = asNumber(r.overdue) ?? 0
+    const owedTotal = owed.reduce((s, o) => s + o.amount, 0)
     return {
       key,
       title: `${name} (periods due through ${r.due_through ? monthLabel(String(r.due_through)) : NO_VALUE})`,
-      chip: overdue > 0 ? `${overdue} overdue` : String(r.status || 'No Data'),
+      chip: overdue > 0 ? `${overdue} overdue${owed.length ? ` · ${formatCurrency(owedTotal)}` : ''}` : String(r.status || 'No Data'),
       severity: filingSeverity(r.status),
       pct: due > 0 ? (filed / due) * 100 : null,
-      note: due > 0 ? `${filed} of ${due} filed.` : 'No periods due in this window.',
+      note: (due > 0 ? `${filed} of ${due} filed.` : 'No periods due in this window.')
+        + (owed.length ? ` ${owed.map((o) => `${o.label} (${formatCurrency(o.amount)})`).join(' and ')} overdue.` : ''),
     }
   }
+  // The cash outlook already lists each overdue GSTR-3B with the tax accrued for its period.
+  const gstr3bOwed = ((cashOutlook.value.overdue?.events ?? []) as Record<string, any>[])
+    .filter((e) => e.stream === 'gst' && String(e.label).startsWith('GSTR-3B '))
+    .map((e) => ({ label: monthLabel(String(e.label).slice(8)), amount: Number(e.amount) }))
   const ei = einvoiceStatus.value
   const ew = ewaybillStatus.value
   const applicable = (asNumber(ew.total) ?? 0) - (asNumber(ew.not_applicable) ?? 0)
   const issues = (asNumber(ew.pending) ?? 0) + (asNumber(ew.failed) ?? 0)
   return [
     returnRow('gstr1', 'GSTR-1', filingCompliance.value.gstr1),
-    returnRow('gstr3b', 'GSTR-3B', filingCompliance.value.gstr3b),
+    returnRow('gstr3b', 'GSTR-3B', filingCompliance.value.gstr3b, gstr3bOwed),
     {
       key: 'einvoice',
       title: `e-Invoice IRN (${formatNumber(ei.total)} eligible invoices)`,
