@@ -164,7 +164,7 @@ def _operational(p: dict):
     groups_all = o.get("inventory_risks") or []
     items = sum(g.get("stockout_items") or 0 for g in groups_all) or top.get("stockout_items", 0)
     total = sum(g.get("total_items") or 0 for g in groups_all) or top.get("total_items", 0)
-    pct = round(items / total * 100, 1) if total else top["stockout_risk_score"]
+    pct = round(items / total * 100 + 1e-9, 1) if total else top["stockout_risk_score"]  # half up, as the tile shows it
     value = sum(g.get("stock_value") or 0 for g in groups_all) if groups_all else top.get("stock_value")
     text = f"{pct:g}% of active stock items are in stockout ({items:,} of {total:,})."
     sup = [s for s in o.get("supplier_performance") or [] if s.get("avg_delay_days") is not None]

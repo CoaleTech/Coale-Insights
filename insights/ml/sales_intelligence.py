@@ -259,7 +259,7 @@ def calculate_payment_mix(
     date_filter: str = "12m",
     company: str | None = None,
 ) -> dict[str, Any]:
-    """Cash (outstanding == 0) vs Credit (outstanding > 0) by period.
+    """Cash (settled, due on the posting date) vs Credit (credit terms, or still open).
 
     `outstanding_amount` and `grand_total` are computed via two
     conditional aggregate measures in one query; the bucket split is
@@ -275,9 +275,9 @@ def calculate_payment_mix(
         si = si.filter(si.posting_date <= end.date())
 
     # Split on the net-of-tax base so cash_total + credit_total equals
-    # summary.total_revenue; `outstanding_amount == 0` only classifies an
-    # invoice as settled.
-    is_cash = si.outstanding_amount == 0
+    # summary.total_revenue. An invoice due after its posting date is a credit
+    # sale even once paid.
+    is_cash = (si.outstanding_amount == 0) & (si.due_date <= si.posting_date)
     overall_df = si.aggregate(
         total=si.base_net_total.sum(),
         cash_total=ibis.ifelse(is_cash, si.base_net_total, 0).sum(),
@@ -303,7 +303,7 @@ def calculate_payment_mix(
         _anchor = end or datetime.now()
     daily_cutoff = (_anchor - timedelta(days=30)).date()
     si_daily = si.filter(si.posting_date >= daily_cutoff)
-    is_cash_daily = si_daily.outstanding_amount == 0
+    is_cash_daily = (si_daily.outstanding_amount == 0) & (si_daily.due_date <= si_daily.posting_date)
     daily_df = (
         si_daily.group_by(si_daily.posting_date)
         .aggregate(

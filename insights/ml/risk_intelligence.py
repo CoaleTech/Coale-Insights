@@ -31,7 +31,7 @@ import frappe
 import ibis
 from frappe import _
 
-from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.ibis_source import company_filter, default_company, t, with_paid_date
 
 # Risk-score thresholds (0-100). Same as the original class.
 RISK_THRESHOLDS = {
@@ -1143,59 +1143,52 @@ def _inventory_risks() -> list[dict]:
 
 
 def _supplier_performance(company: str | None) -> list[dict]:
-    pi = t("Purchase Invoice")
-    s = t("Supplier")
-    cutoff = _months_ago(HISTORY_MONTHS)
-    q = company_filter(pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff), company)
-    delay = ibis.ifelse(
-        pi.due_date.isnull() | pi.posting_date.isnull(),
-        ibis.null(),
-        pi.posting_date.cast("date").delta(pi.due_date.cast("date"), unit="day"),
+    """Delivery reliability per supplier from Purchase Orders and their receipts.
+
+    Delay = first submitted Purchase Receipt date minus the PO due date; a PO not
+    yet received counts as late by its days past due, and one not yet due is left
+    out (the same population the Procurement on-time rate uses). Purchase Invoice
+    posting vs due date, used before, is the credit period and was always early.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT po.supplier, s.supplier_name,
+            SUM(po.docstatus = 1) AS total_orders,
+            SUM(IF(po.docstatus = 1, po.base_grand_total, 0)) AS total_value,
+            AVG(IF(po.docstatus = 1 AND po.schedule_date IS NOT NULL
+                   AND (r.first_pr IS NOT NULL OR po.schedule_date < CURDATE()),
+                   DATEDIFF(COALESCE(r.first_pr, CURDATE()), po.schedule_date), NULL)) AS avg_delay_days,
+            SUM(po.docstatus = 2) AS cancelled_orders
+        FROM `tabPurchase Order` po
+        LEFT JOIN `tabSupplier` s ON s.name = po.supplier
+        LEFT JOIN (
+            SELECT pri.purchase_order, MIN(pr.posting_date) AS first_pr
+            FROM `tabPurchase Receipt Item` pri
+            JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent AND pr.docstatus = 1
+            GROUP BY pri.purchase_order
+        ) r ON r.purchase_order = po.name
+        WHERE po.docstatus IN (1, 2) AND po.transaction_date >= %(cutoff)s
+            AND (%(company)s IS NULL OR po.company = %(company)s)
+        GROUP BY po.supplier, s.supplier_name
+        HAVING total_orders > 5
+        ORDER BY total_value DESC LIMIT 20
+        """,
+        {"cutoff": _months_ago(HISTORY_MONTHS), "company": company},
+        as_dict=True,
     )
-    cancelled = (pi.status == "Cancelled").cast("int")
-    df = (
-        q.group_by(pi.supplier)
-        .aggregate(
-            total_orders=q.count(),
-            total_value=pi.grand_total.sum(),
-            avg_delay_days=delay.mean(),
-            cancelled_orders=cancelled.sum(),
-        )
-        .order_by(ibis.desc("total_value"))
-        .limit(20)
-        .execute()
-    )
-    # Filter to total_orders > 5 (HAVING-equivalent) in Python on the small result.
-    df = df[df["total_orders"] > 5]
-    supplier_names = {
-        r["name"]: r["supplier_name"]
-        for r in frappe.get_all(
-            "Supplier",
-            fields=["name", "supplier_name"],
-            filters={"name": ["in", df["supplier"].dropna().tolist()]}
-            if not df.empty
-            else {},
-        )
-    }
     out: list[dict] = []
-    for r in df.to_dict(orient="records"):
-        supp = r.get("supplier")
-        if not supp:
-            continue
-        delay_avg = float(r.get("avg_delay_days") or 0)
-        delay_factor = max(0.0, delay_avg) / 30.0
-        cancel_rate = (
-            float(r.get("cancelled_orders") or 0) / float(r.get("total_orders") or 1)
-        )
-        score = min(100.0, delay_factor * 50.0 + cancel_rate * 50.0)
+    for r in rows:
+        delay_avg = None if r.avg_delay_days is None else round(float(r.avg_delay_days), 1)
+        cancel_rate = float(r.cancelled_orders or 0) / float((r.total_orders or 0) + (r.cancelled_orders or 0))
+        score = min(100.0, max(0.0, delay_avg or 0.0) / 30.0 * 50.0 + cancel_rate * 50.0)
         out.append(
             {
-                "supplier": supp,
-                "supplier_name": supplier_names.get(supp, supp),
-                "total_orders": int(r.get("total_orders") or 0),
-                "total_value": float(r.get("total_value") or 0),
-                "avg_delay_days": round(delay_avg, 1),
-                "cancelled_orders": int(r.get("cancelled_orders") or 0),
+                "supplier": r.supplier,
+                "supplier_name": r.supplier_name or r.supplier,
+                "total_orders": int(r.total_orders or 0),
+                "total_value": float(r.total_value or 0),
+                "avg_delay_days": delay_avg,
+                "cancelled_orders": int(r.cancelled_orders or 0),
                 "reliability_risk_score": round(score, 1),
                 "risk_category": _risk_category(score),
             }
@@ -1486,17 +1479,17 @@ def _predict_payment_delays(company: str | None) -> dict:
     """Customers whose paid invoices have a high average days-to-pay."""
     si = t("Sales Invoice")
     cutoff = _months_ago(HISTORY_MONTHS)
-    q = company_filter(
+    q = with_paid_date(company_filter(
         si.filter(si.docstatus == 1, si.outstanding_amount == 0, si.posting_date >= cutoff),
         company,
-    )
+    ))
     delay = ibis.ifelse(
-        si.modified.isnull() | si.due_date.isnull(),
+        q.paid_date.isnull() | q.due_date.isnull(),
         ibis.null(),
-        si.modified.cast("date").delta(si.due_date.cast("date"), unit="day"),
+        q.paid_date.delta(q.due_date.cast("date"), unit="day"),
     )
     df = (
-        q.group_by(si.customer)
+        q.group_by(q.customer)
         .aggregate(
             avg_delay=delay.mean(),
             delay_stddev=delay.std(),

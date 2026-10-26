@@ -215,6 +215,23 @@ def sle_cost() -> ir.Table:
     )
 
 
+def with_paid_date(si: ir.Table) -> ir.Table:
+    """Sales Invoice expression plus ``paid_date``: the posting date of its
+    last submitted Payment Entry, i.e. when it was actually settled. An invoice
+    closed some other way (credit note, journal) falls back to ``modified``,
+    which is only an approximation -- it moves on any later edit and ran about
+    9 days after the real payment on this site's closed invoices.
+    """
+    import ibis
+
+    per, pe = t("Payment Entry Reference"), t("Payment Entry")
+    refs = per.filter(per.reference_doctype == "Sales Invoice").select(invoice=per.reference_name, pe_name=per.parent)
+    pes = pe.filter(pe.docstatus == 1).select(pe_name=pe.name, pay_date=pe.posting_date)
+    paid = refs.join(pes, "pe_name").group_by("invoice").aggregate(paid_on=lambda x: x.pay_date.max())
+    joined = si.left_join(paid, si.name == paid.invoice)
+    return joined.mutate(paid_date=ibis.coalesce(joined.paid_on.cast("date"), joined.modified.cast("date")))
+
+
 def line_cogs(sii: ir.Table, dn_rate: ir.Column, sle_svd: ir.Column | None = None) -> ir.Column:
     """Effective per-line cost of goods sold for a Sales Invoice Item.
 

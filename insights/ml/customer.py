@@ -48,6 +48,7 @@ from insights.api.ml.ibis_source import (
     line_cogs,
     sle_cost,
     t,
+    with_paid_date,
 )
 
 
@@ -493,21 +494,18 @@ def compute_customer_intelligence(
         df["overdue_count"] = 0
 
     # Real avg days-to-pay per customer, from fully-closed invoices in the
-    # period: days between `posting_date` and `modified` -- the same
-    # definition `payment_prediction.py._fetch_customer_history` uses for
-    # the whole book (closest signal to "date it was fully paid" without a
-    # dedicated payment-date column here). Previously this column never
-    # existed here, so `_composite_health_score` silently fell back to a
-    # flat 30-day/50-score default for every customer -- "Payment Score"
-    # never actually reflected anyone's payment behaviour. Fixed 2026-08-17.
+    # period: days between `posting_date` and the last Payment Entry
+    # (`with_paid_date`), the same definition `payment_prediction.py` uses.
+    # Without it `_composite_health_score` fell back to a flat 30-day/50-score
+    # default for every customer.
     import ibis
 
-    closed_si = si.filter(si.outstanding_amount == 0)
+    closed_si = with_paid_date(si.filter(si.outstanding_amount == 0))
     closed_si = closed_si.mutate(
         days_to_pay=ibis.ifelse(
-            closed_si.modified.isnull() | closed_si.posting_date.isnull(),
+            closed_si.paid_date.isnull() | closed_si.posting_date.isnull(),
             ibis.null(),
-            closed_si.modified.cast("date").delta(closed_si.posting_date.cast("date"), unit="day"),
+            closed_si.paid_date.delta(closed_si.posting_date.cast("date"), unit="day"),
         )
     )
     dtp_per_customer = closed_si.group_by(closed_si.customer).aggregate(
@@ -1296,19 +1294,19 @@ def _customer_rfm(customer_id: str, date_filter: str, company: Optional[str]):
 def _customer_avg_days_to_pay(customer_id: str, company: Optional[str]):
     """Real average days-to-pay for one customer, from fully-closed
     (`outstanding_amount == 0`) invoices: days between `posting_date` and
-    `modified` -- same definition `payment_prediction.py` uses for the
-    whole book. Returns `None` when the customer has no closed invoices
+    the last Payment Entry's posting date (`with_paid_date`). Returns `None` when
+    the customer has no closed invoices
     yet -- callers must treat that as "unknown", not "paid instantly".
     """
     import ibis
 
     si = _si_base(company, customer=customer_id)
-    si = si.filter(si.outstanding_amount == 0)
+    si = with_paid_date(si.filter(si.outstanding_amount == 0))
     si = si.mutate(
         days_to_pay=ibis.ifelse(
-            si.modified.isnull() | si.posting_date.isnull(),
+            si.paid_date.isnull() | si.posting_date.isnull(),
             ibis.null(),
-            si.modified.cast("date").delta(si.posting_date.cast("date"), unit="day"),
+            si.paid_date.delta(si.posting_date.cast("date"), unit="day"),
         )
     )
     row = si.aggregate(avg_days_to_pay=si.days_to_pay.mean()).execute().iloc[0]
