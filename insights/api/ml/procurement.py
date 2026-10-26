@@ -231,6 +231,7 @@ def get_procurement_detail(metric: str, filters: str) -> dict:
             "docstatus": 1,
             "schedule_date": ("<", frappe.utils.today()),
             "status": ("not in", ["Completed", "Cancelled", "Closed"]),
+            "per_received": ("<", 100),
         }
         if company:
             db_filters["company"] = company

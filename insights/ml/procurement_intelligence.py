@@ -660,6 +660,7 @@ class ProcurementIntelligence:
             overdue_po_count=PO.name.count(
                 where=(PO.schedule_date < today)
                 & (~PO.status.isin(["Completed", "Cancelled", "Closed"]))
+                & (PO.per_received < 100)
             ),
         ).execute()
         total_po_count = int(po_volume_agg["total_po_count"].iloc[0]) if len(po_volume_agg) else 0
