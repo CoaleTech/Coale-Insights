@@ -88,6 +88,11 @@ _FD_PREFIX = "fixed deposit"
 def _load_cash_breakdown(intelligence) -> None:
     """Compute liquid_cash / fd_balance / total_cash once and cache on the intelligence object.
 
+    Book balance: post-dated entries count, so cheques already written reduce
+    cash before they clear. Open payables do not include them (they are
+    unallocated payments), so dating the balance at today would overstate the
+    forecast's opening cash.
+
     Mirrors financial_intelligence._cash_accounts(): Bank + Cash by account_type
     plus any account whose name starts with "fixed deposit" (case-insensitive in
     MySQL's default utf8mb4_unicode_ci collation).  Using the name-match for FDs
@@ -97,7 +102,6 @@ def _load_cash_breakdown(intelligence) -> None:
         return
     gle = DocType("GL Entry")
     acc = DocType("Account")
-    today = datetime.now().strftime('%Y-%m-%d')
     rows = (
         frappe.qb.from_(gle)
         .join(acc).on(gle.account == acc.name)
@@ -111,7 +115,6 @@ def _load_cash_breakdown(intelligence) -> None:
             | acc.account_name.like("Fixed Deposit%")
         )
         .where(gle.company == intelligence.company)
-        .where(gle.posting_date <= today)
         .where(gle.is_cancelled == 0)
         .groupby(acc.account_type, acc.account_name)
         .run(as_dict=True)

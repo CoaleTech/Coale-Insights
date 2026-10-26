@@ -15,7 +15,7 @@
     <template v-else>
       <!-- Cash Position Overview -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <KpiCard label="Current Cash" :amount="data.current_cash" :currency="currency" sublabel="Bank and cash dated up to today; fixed deposits excluded" />
+        <KpiCard label="Current Cash" :amount="data.current_cash" :currency="currency" sublabel="Bank and cash book balance, post-dated cheques included; fixed deposits excluded" />
         <KpiCard label="Expected AR Inflows" :amount="data.expected_ar_inflows" :currency="currency" />
         <KpiCard label="Expected AP Outflows" :amount="data.expected_ap_outflows" :currency="currency" />
         <KpiCard
