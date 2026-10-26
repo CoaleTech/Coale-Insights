@@ -209,7 +209,7 @@ class BreakevenEngine:
             .on(SalesInvoiceItem.parent == SalesInvoice.name)
             .select(
                 SalesInvoiceItem.item_code,
-                Sum(SalesInvoiceItem.net_amount).as_("period_revenue"),
+                Sum(SalesInvoiceItem.base_net_amount).as_("period_revenue"),
                 Sum(SalesInvoiceItem.qty).as_("period_qty"),
             )
             .where(SalesInvoice.docstatus == 1)
@@ -262,7 +262,7 @@ class BreakevenEngine:
             .select(
                 SalesInvoiceItem.item_code,
                 Coalesce(Sum(SalesInvoiceItem.qty), 0).as_("total_qty"),
-                Coalesce(Sum(SalesInvoiceItem.net_amount), 0).as_("total_revenue"),
+                Coalesce(Sum(SalesInvoiceItem.base_net_amount), 0).as_("total_revenue"),
             )
             .where(SalesInvoice.docstatus == 1)
             .where(SalesInvoice.company == self.company)
@@ -339,7 +339,7 @@ class BreakevenEngine:
             "total_fixed_costs": total_fixed,
             "items": results,
             # all invoiced revenue in the period, incl. items no longer enabled
-            "period_revenue": None if item_group else sum(float(s.total_revenue or 0) for s in sales),
+            "period_revenue": None if item_group else sum(float(sp.period_revenue or 0) for sp in sales_prices),
         }
 
     def calculate_employee_breakeven(self) -> dict[str, Any]:

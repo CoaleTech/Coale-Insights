@@ -297,8 +297,8 @@ class InventoryIntelligence:
         # selling-price * qty, i.e. revenue, NOT cost).
         rev_expr = (
             sii.join(si, sii.parent == si.name, how="semi")
-            .select(sii.amount)
-            .aggregate(revenue_12m=sii.amount.sum())
+            .select(sii.base_amount)
+            .aggregate(revenue_12m=sii.base_amount.sum())
         )
         rev_df = rev_expr.execute()
         revenue_12m = float(rev_df.iloc[0]["revenue_12m"] or 0)
@@ -324,10 +324,10 @@ class InventoryIntelligence:
         # .amount is revenue, not cost -- see comment above).
         by_group_sales = (
             sii.join(si, sii.parent == si.name, how="semi")
-            .select(sii.item_code, sii.amount)
+            .select(sii.item_code, sii.base_amount)
             .left_join(Item, sii.item_code == Item.name)
             .group_by(Item.item_group)
-            .aggregate(sales_12m=sii.amount.sum())
+            .aggregate(sales_12m=sii.base_amount.sum())
             .mutate(item_group=ibis.coalesce(Item.item_group, ibis.literal("Uncategorized")))
             .order_by(ibis.desc("sales_12m"))
             .limit(10)
@@ -378,7 +378,7 @@ class InventoryIntelligence:
             .group_by(sii.item_code, sii.item_name)
             .aggregate(
                 qty_sold=sii.stock_qty.sum(),
-                sales_value=sii.amount.sum(),
+                sales_value=sii.base_amount.sum(),
             )
             .order_by(ibis.desc("qty_sold"))
             .limit(10)
@@ -1064,11 +1064,11 @@ class ABCXYZClassification:
         # Per-item: total sales value (12 months)
         per_item_sales = (
             sii.join(si, sii.parent == si.name, how="semi")
-            .select(sii.item_code, sii.stock_qty, sii.amount)
+            .select(sii.item_code, sii.stock_qty, sii.base_amount)
             .group_by(sii.item_code)
             .aggregate(
                 total_qty=sii.stock_qty.sum(),
-                total_value=sii.amount.sum(),
+                total_value=sii.base_amount.sum(),
             )
             .execute()
         )
