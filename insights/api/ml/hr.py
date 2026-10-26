@@ -310,6 +310,8 @@ def get_hr_detail(metric: str, filters: str) -> dict:
 def _hr_employee_list(db_filters: dict, start: int, page_size: int) -> dict:
     """Fetch employees with permission-safe get_list."""
     frappe.has_permission("Employee", "read", throw=True)
+    # The tiles label employees with no department / type "(Unassigned)".
+    db_filters = {k: ("is", "not set") if v == "(Unassigned)" else v for k, v in db_filters.items()}
 
     rows = frappe.get_list(
         "Employee",
