@@ -338,6 +338,8 @@ class BreakevenEngine:
             "date_range": {"start": start, "end": end},
             "total_fixed_costs": total_fixed,
             "items": results,
+            # all invoiced revenue in the period, incl. items no longer enabled
+            "period_revenue": None if item_group else sum(float(s.total_revenue or 0) for s in sales),
         }
 
     def calculate_employee_breakeven(self) -> dict[str, Any]:
@@ -703,7 +705,9 @@ class BreakevenEngine:
         avg_cm = round(total_cm / total_qty, 2) if total_qty > 0 else 0.0
 
         overall_be_qty = round(total_fixed / avg_cm, 2) if self.configured and avg_cm > 0 else 0.0
-        actual_revenue = sum(i.get("actual_revenue", 0) for i in item_data.get("items", []))
+        actual_revenue = item_data.get("period_revenue")
+        if actual_revenue is None:
+            actual_revenue = sum(i.get("actual_revenue", 0) for i in item_data.get("items", []))
         overall_be_revenue = _be_revenue(total_fixed, total_variable, actual_revenue) if self.configured else None
         coverage = round(actual_revenue / overall_be_revenue, 2) if overall_be_revenue else None
         safety_margin = (
