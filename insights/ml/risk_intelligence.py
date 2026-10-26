@@ -1010,24 +1010,25 @@ def _overdue_days_trend(company: str | None) -> list[dict]:
     si = t("Sales Invoice")
     cutoff = _months_ago(HISTORY_MONTHS)
     today = ibis.literal(datetime.now().date()).cast("date")
-    q = company_filter(
-        si.filter(si.docstatus == 1, si.posting_date >= cutoff), company
-    )
-    # Same sign-inversion fix as the credit-risk aggregates above:
-    # `today - due_date` so positive means days past due. The downstream
-    # trend chart expects positive values for late-paying periods.
+    q = with_paid_date(company_filter(
+        si.filter(si.docstatus == 1, si.is_return == 0, si.posting_date >= cutoff), company
+    ))
+    # Days late per invoice: settled invoices by the day they were paid, open
+    # ones by today, never below zero. Measuring `today - due_date` for every
+    # invoice, paid or not, made older months look hundreds of days "overdue".
+    settled_on = ibis.ifelse(q.outstanding_amount == 0, q.paid_date, today)
     days_overdue = ibis.ifelse(
-        si.due_date.isnull(),
+        q.due_date.isnull(),
         ibis.null(),
-        today.delta(si.due_date.cast("date"), unit="day"),
+        ibis.greatest(settled_on.delta(q.due_date.cast("date"), unit="day"), 0),
     )
     df = (
-        q.mutate(month=si.posting_date.truncate("M"), days=days_overdue)
+        q.mutate(month=q.posting_date.truncate("M"), days=days_overdue)
         .group_by("month")
         .aggregate(
             avg_days_overdue=days_overdue.mean(),
-            monthly_sales=si.grand_total.sum(),
-            month_end_outstanding=si.outstanding_amount.sum(),
+            monthly_sales=q.grand_total.sum(),
+            month_end_outstanding=q.outstanding_amount.sum(),
         )
         .order_by("month")
         .execute()
