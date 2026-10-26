@@ -315,7 +315,7 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "customer": cust,
                 "overdue_days": 60,
                 "title": f"Overdue Customer: {names.get(cust) or cust}",
-                "description": f"Outstanding: {_plain_money(out, base_cur)}",
+                "description": f"Overdue more than 60 days: {_plain_money(out, base_cur)}",
                 "action": "Review credit limit and payment terms",
                 # The same figure as a number. ``description`` is a formatted
                 # string, so a table could only right-align these by parsing
