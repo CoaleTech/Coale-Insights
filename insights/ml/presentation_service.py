@@ -534,14 +534,15 @@ class PresentationModeService:
         """Format metric values for presentation. ``fmt`` is the source KPI's
         own format (currency/percentage/risk_score/decimal) when it has one."""
         try:
-            if fmt == "currency" or (fmt is None and ('amount' in metric_key or 'total' in metric_key or 'cost' in metric_key)):
-                return self._currency(value)
-            if fmt == "percentage" or (fmt is None and ('percentage' in metric_key or 'rate' in metric_key)):
-                return f"{value:.1f}%"
-            if fmt == "risk_score" or (fmt is None and 'score' in metric_key):
-                return f"{value:.0f}/100"
-            if 'count' in metric_key:
+            k = metric_key.lower()
+            if fmt is None and any(w in k for w in ("count", "skus", "qty", "customers", "orders", "employees", "headcount", "invoices", "suppliers")):
                 return f"{value:,.0f}"
+            if fmt == "percentage" or (fmt is None and ('percentage' in k or 'rate' in k or 'growth' in k)):
+                return f"{value:.1f}%"
+            if fmt == "risk_score" or (fmt is None and 'score' in k):
+                return f"{value:.0f}/100"
+            if fmt == "currency" or (fmt is None and any(w in k for w in ("amount", "total", "cost", "value", "revenue", "clv", "gst", "spend", "expense", "profit"))):
+                return self._currency(value)
             return f"{value:,.2f}".rstrip("0").rstrip(".")
         except Exception:
             return str(value)
