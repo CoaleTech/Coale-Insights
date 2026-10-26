@@ -1143,7 +1143,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
         </div>
         <button
           class="mt-2 text-xs text-accent hover:underline"
-          @click="drillOpen('Customers by Health Status', { metric: 'customers' })"
+          @click="drillOpen('Customers by Health Status', { metric: 'top_customers', date_filter: props.dateFilter })"
         >
           View customers →
         </button>

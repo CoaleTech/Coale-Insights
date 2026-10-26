@@ -1077,10 +1077,10 @@ def _cohort_analysis(start, end, company):
         cohort_result.append({
             "cohort": str(idx),
             "size": size,
-            "retention": {int(k): round(float(v), 1) for k, v in row.items()
+            "retention": {str(int(k)): round(float(v), 1) for k, v in row.items()
                           if not (isinstance(v, float) and math.isnan(v))},
         })
-    avg_retention = {int(k): round(float(v), 1) for k, v in retention.mean().items()
+    avg_retention = {str(int(k)): round(float(v), 1) for k, v in retention.mean().items()
                      if not (isinstance(v, float) and math.isnan(v))}
     return {
         "cohort_retention": cohort_result[-12:],
@@ -2149,7 +2149,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
     if not profit.empty:
         profit["gross_profit"] = profit["gross_profit"].astype(float)
         profit["line_revenue"] = profit["line_revenue"].astype(float)
-        profit["margin_pct"] = 0.0
+        profit["margin_pct"] = None
         nonzero = profit["line_revenue"] > 0
         profit.loc[nonzero, "margin_pct"] = (
             profit.loc[nonzero, "gross_profit"] / profit.loc[nonzero, "line_revenue"] * 100
@@ -2193,7 +2193,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
     merged = base.merge(profit, on="customer", how="left")
     merged = merged.merge(consistency, on="customer", how="left")
     merged = merged.fillna({
-        "gross_profit": 0.0, "margin_pct": 0.0,
+        "gross_profit": 0.0,
         "months_active": 0, "consistency_score": 0.0, "avg_monthly_spend": 0.0,
     })
     merged["months_active"] = merged["months_active"].astype(int)
