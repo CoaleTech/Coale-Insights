@@ -1340,7 +1340,7 @@ const scenarioRows = computed(() => {
             <td class="px-4 py-2">
               <span :class="[
                 'w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold',
-                rep.rank === 1 ? 'bg-surface-amber-3 text-ink-gray-9' :
+                rep.rank === 1 ? 'bg-surface-amber-2 text-ink-gray-9' :
                 rep.rank === 2 ? 'bg-surface-gray-3 text-ink-gray-7' :
                 rep.rank === 3 ? 'bg-surface-gray-4 text-ink-gray-7' :
                 'bg-surface-gray-2 text-ink-gray-6'
