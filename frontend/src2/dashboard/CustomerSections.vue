@@ -1249,14 +1249,15 @@ const toneOf = (s: Severity): StatItem['tone'] =>
         <thead class="bg-surface-gray-1">
           <tr>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">Customer</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">RFM Segment</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">Territory</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">CLV Tier</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-left text-ink-gray-6">RFM Segment</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Hist CLV</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">12M CLV</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Total CLV</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Gross Profit</th>
+            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Orders</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-center text-ink-gray-6">Health</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-center text-ink-gray-6">Churn Risk</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Orders</th>
-            <th scope="col" class="px-4 py-3 text-sm font-medium text-right text-ink-gray-6">Recency</th>
             <th scope="col" class="px-4 py-3 text-sm font-medium text-center text-ink-gray-6"></th>
           </tr>
         </thead>
@@ -1268,25 +1269,22 @@ const toneOf = (s: Severity): StatItem['tone'] =>
             @keydown.enter="viewCustomerDetail(customer.customer_id)"
             @keydown.space.prevent="viewCustomerDetail(customer.customer_id)">
             <td class="px-4 py-3">
-              <div class="flex items-center gap-2">
-                <div>
-                  <p class="font-medium text-ink-gray-8">{{ customer.customer_name }}</p>
-                  <p class="text-sm text-ink-gray-6">{{ customer.territory || 'No territory' }}</p>
-                </div>
-              </div>
+              <p class="font-medium text-ink-gray-8">{{ customer.customer_name }}</p>
+              <p class="text-sm text-ink-gray-6">{{ customer.customer_id }}</p>
             </td>
-            <td class="px-4 py-3"><Badge theme="gray" variant="subtle" :label="customer.rfm_segment || '-'" size="sm" /></td>
+            <td class="px-4 py-3 text-ink-gray-7">{{ customer.territory || NO_VALUE }}</td>
             <td class="px-4 py-3"><Badge theme="gray" variant="subtle" :label="customer.clv_tier || '-'" size="sm" /></td>
+            <td class="px-4 py-3 whitespace-nowrap"><Badge theme="gray" variant="subtle" :label="customer.rfm_segment || '-'" size="sm" /></td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(customer.historical_clv) }}</td>
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(customer.predicted_12m_clv) }}</td>
             <td class="px-4 py-3 text-right tnum font-medium text-ink-gray-8">{{ money(customer.total_clv ?? customer.historical_clv) }}</td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ money(customer.gross_profit) }}</td>
-            <td class="px-4 py-3 text-center">
-              <Badge v-bind="severityBadge(healthSeverity(customer.health_status))" :label="customer.health_score == null ? NO_VALUE : String(Math.round(customer.health_score))" size="sm" />
+            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ customer.order_count }}</td>
+            <td class="px-4 py-3 text-center" :title="customer.health_score == null ? undefined : `Health score ${Math.round(customer.health_score)}`">
+              <Badge v-bind="severityBadge(healthSeverity(customer.health_status))" :label="customer.health_status || NO_VALUE" size="sm" />
             </td>
             <td class="px-4 py-3 text-center">
               <Badge v-bind="severityBadge(churnSeverity(customer.churn_risk))" :label="customer.churn_risk || '-'" size="sm" />
             </td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-7">{{ customer.order_count }}</td>
-            <td class="px-4 py-3 text-right tnum text-ink-gray-6">{{ customer.recency_days == null ? NO_VALUE : `${Math.round(customer.recency_days)}d` }}</td>
             <td class="px-4 py-3 text-center"><ChevronRight class="w-4 h-4 text-ink-gray-5 inline" aria-hidden="true" /></td>
           </tr>
         </tbody>
