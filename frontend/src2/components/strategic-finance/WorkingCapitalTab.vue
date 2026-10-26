@@ -103,7 +103,7 @@
               <p :class="['text-xl font-bold', cccSeverity === 'high' || cccSeverity === 'critical' ? 'text-ink-red-4' : 'text-ink-gray-9']">
                 {{ days(data?.cash_conversion_cycle, 0) }}
               </p>
-              <p class="text-xs text-ink-gray-6">days</p>
+              <p class="text-xs text-ink-gray-9">days</p>
             </div>
           </div>
           <p class="mt-2 text-sm font-medium text-ink-gray-7">CCC</p>
