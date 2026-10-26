@@ -19,6 +19,13 @@ def _pct(v) -> str:
     return f"{v:.1f}".rstrip("0").rstrip(".") + "%"
 
 
+def _period(v) -> str:
+    try:
+        return datetime.strptime(str(v), "%m%Y").strftime("%b %Y")
+    except ValueError:
+        return str(v or "unknown")
+
+
 def _gst(p: dict):
     rec, itc = p.get("reconciliation_score") or {}, p.get("itc_health") or {}
     score = rec.get("match_rate_pct")
@@ -48,6 +55,24 @@ def _gst(p: dict):
             f"{money(itc['available'], cur)} available, {money(itc.get('utilised'), cur)} utilised ({itc.get('utilization_pct')}%), "
             f"{money(itc.get('balance'), cur)} balance.",
         ))
+    fc = p.get("filing_compliance") or {}
+    logged = {str(r.get("return_type", "")).upper(): r for r in fc.get("logged_all_time") or []}
+    g2b, g1 = logged.get("GSTR2B"), logged.get("GSTR1")
+    if g2b and g1:
+        details.append(detail(
+            "Return log",
+            f"{plural(g2b['count'], 'GSTR-2B period')} logged (latest {_period(g2b.get('latest_period'))}) against "
+            f"{plural(g1['count'], 'GSTR-1 period')}. The match rate covers {(rec.get('total_count') or 0):,} rows.",
+        ))
+    filing = [
+        f"{name} {g['filed_due']} of {g['due']} filed" + (f", {g['overdue']} overdue" if g.get("overdue") else "")
+        for name, g in (("GSTR-1", fc.get("gstr1") or {}), ("GSTR-3B", fc.get("gstr3b") or {})) if g.get("due")
+    ]
+    if filing:
+        details.append(detail("Filing", "; ".join(filing) + "."))
+    window = (p.get("einvoice_compliance_info") or {}).get("itc_time_limit")
+    if window:
+        details.append(detail("ITC window", f"Credit can be claimed until the {window}."))
     actions = []
     if rec.get("unactioned_count"):
         actions.append(action(

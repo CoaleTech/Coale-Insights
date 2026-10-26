@@ -3,7 +3,7 @@ import IntelligenceChart from './components/IntelligenceChart.vue'
 defineOptions({ name: 'TaxIntelligence' })
 import { Breadcrumbs, Button, Badge, Tabs } from 'frappe-ui'
 import {
-  RefreshCcw, AlertTriangle, CheckCircle, FileText,
+  RefreshCcw, AlertTriangle, CheckCircle,
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
@@ -12,7 +12,6 @@ import { severityBadge, severityFill, scoreSeverity, deltaInk, prioritySeverity,
 import { asNumber, formatCount, formatDate, formatMoney, formatPercent as sharedPercent, NO_VALUE } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
-import BaseChart from '../charts/components/BaseChart.vue'
 import KpiCard from './components/KpiCard.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
 import SectionHeader from './components/SectionHeader.vue'
@@ -491,28 +490,6 @@ function matrixCellText(row: MatrixRow, key: string): string {
   }
 }
 
-const gstStackedBarConfig = computed(() => {
-  if (!gstSummary.value.length) return null
-  const palette = chartPalette(3)
-  return {
-    data: gstSummary.value.map((d: GstSummaryRow) => ({
-      month: d.month,
-      CGST: d.cgst ?? 0,
-      SGST: d.sgst ?? 0,
-      IGST: d.igst ?? 0,
-    })),
-    title: '',
-    xAxis: { key: 'month', type: 'category' as const },
-    yAxis: { title: 'Amount (INR)' },
-    stacked: true,
-    series: [
-      { name: 'CGST', type: 'bar' as const, color: palette[0] },
-      { name: 'SGST', type: 'bar' as const, color: palette[1] },
-      { name: 'IGST', type: 'bar' as const, color: palette[2] },
-    ],
-  }
-})
-
 /** Output GST to net GST, then the ITC at risk, one coloured bar each (the mock's GST Cash Bridge). */
 const gstBridgeConfig = computed(() => {
   const steps = [
@@ -529,22 +506,6 @@ const gstBridgeConfig = computed(() => {
     yAxis: { title: 'Amount (INR)' },
     stacked: true,
     series: steps.map((s) => ({ name: s.key, type: 'bar' as const, color: s.color })),
-  }
-})
-
-const itcGaugeOptions = computed(() => {
-  const pct = itcHealth.value.utilization_pct || 0
-  return {
-    series: [{
-      type: 'gauge', startAngle: 180, endAngle: 0, min: 0, max: 100,
-      axisLine: { lineStyle: { width: 10, color: [[0.3, themeColor('--app-neg-fill')], [0.7, themeColor('--app-warn-fill')], [1, themeColor('--app-pos-fill')]] } },
-      pointer: { itemStyle: { color: 'auto' } },
-      axisTick: { distance: -10, length: 6, lineStyle: { color: '#fff', width: 1 } },
-      splitLine: { distance: -10, length: 14, lineStyle: { color: '#fff', width: 2 } },
-      axisLabel: { color: 'inherit', distance: 18, fontSize: 10 },
-      detail: { valueAnimation: true, formatter: '{value}%', color: 'inherit', fontSize: 24, offsetCenter: [0, '30%'] },
-      data: [{ value: pct, name: 'Utilization' }],
-    }],
   }
 })
 
@@ -1065,7 +1026,12 @@ const overviewFilingRows = computed<FilingStatusRow[]>(() => {
 const reconTable = computed(() => {
   const r = reconciliationScore.value
   const row = (label: string, k: string) => ({ label, count: asNumber(r[`${k}_count`]), amount: asNumber(r[`${k}_amount`]) })
-  return [row('Matched', 'matched'), row('Suggested', 'suggested'), row('Mismatch', 'mismatch'), row('Unmatched', 'unmatched')]
+  return [
+    { ...row('Matched', 'matched'), severity: 'low' as Severity },
+    { ...row('Suggested', 'suggested'), severity: 'medium' as Severity },
+    { ...row('Mismatch', 'mismatch'), severity: 'high' as Severity },
+    { ...row('Unmatched', 'unmatched'), severity: 'high' as Severity },
+  ]
 })
 
 /** Reconciliation breakdown for col 3 score panel. */
@@ -1101,8 +1067,63 @@ const itcAtRiskPct = computed((): number => {
 
 const tabBriefs = computed(() => data.value?.tab_briefs ?? {})
 const withCount = (n: unknown, text: string) => (typeof n === 'number' ? `${n.toLocaleString('en-US')} ${text}` : undefined)
+const monthLabel = (m: string) => new Date(`${m}-01T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+/** Months the Output GST table covers, straight from the payload rows. */
+const gstPeriod = computed(() => {
+  const r = gstSummary.value
+  return r.length ? `${monthLabel(r[0].month)} to ${monthLabel(r[r.length - 1].month)}` : null
+})
+
+/** GSTR-1, GSTR-3B, e-Invoice IRN and e-Waybill as one progress list; every figure is a payload field or a ratio of two. */
+const gstFilingRows = computed(() => {
+  const returnRow = (key: string, name: string, r: Record<string, any> = {}) => {
+    const due = asNumber(r.due) ?? 0
+    const filed = asNumber(r.filed_due) ?? 0
+    const overdue = asNumber(r.overdue) ?? 0
+    return {
+      key,
+      title: `${name} (periods due through ${r.due_through ? monthLabel(String(r.due_through)) : NO_VALUE})`,
+      chip: overdue > 0 ? `${overdue} overdue` : String(r.status || 'No Data'),
+      severity: filingSeverity(r.status),
+      pct: due > 0 ? (filed / due) * 100 : null,
+      note: due > 0 ? `${filed} of ${due} filed.` : 'No periods due in this window.',
+    }
+  }
+  const ei = einvoiceStatus.value
+  const ew = ewaybillStatus.value
+  const applicable = (asNumber(ew.total) ?? 0) - (asNumber(ew.not_applicable) ?? 0)
+  const issues = (asNumber(ew.pending) ?? 0) + (asNumber(ew.failed) ?? 0)
+  return [
+    returnRow('gstr1', 'GSTR-1', filingCompliance.value.gstr1),
+    returnRow('gstr3b', 'GSTR-3B', filingCompliance.value.gstr3b),
+    {
+      key: 'einvoice',
+      title: `e-Invoice IRN (${formatNumber(ei.total)} eligible invoices)`,
+      chip: (ei.coverage_pct ?? 0) >= 100 ? 'Covered' : 'Gap',
+      severity: ((ei.coverage_pct ?? 0) >= 100 ? 'none' : 'medium') as Severity,
+      pct: asNumber(ei.coverage_pct),
+      note: `${formatNumber(ei.exempt)} exempt invoices excluded. ${formatNumber(ei.pending)} pending, ${formatNumber(ei.failed)} failed.`,
+    },
+    {
+      key: 'ewaybill',
+      title: `e-Waybill (${formatNumber(applicable)} applicable)`,
+      chip: issues > 0 ? `${issues} to resolve` : 'Clear',
+      severity: (issues > 0 ? 'medium' : 'none') as Severity,
+      pct: applicable > 0 ? ((asNumber(ew.active) ?? 0) / applicable) * 100 : null,
+      note: `${formatNumber(ew.not_applicable)} not applicable. ${formatNumber(ew.pending)} pending, ${formatNumber(ew.failed)} failed.`,
+    },
+  ]
+})
+
+/** Footnote under the cash bridge: the ITC balance and what is left once the at-risk credit is set aside. */
+const gstBridgeNote = computed(() => {
+  const bal = asNumber(itcHealth.value.balance)
+  if (bal == null) return null
+  const risk = asNumber(itcHealth.value.at_risk_supplier_unfiled) ?? 0
+  return `ITC balance ${formatCurrency(bal)} after utilisation (${formatPercent(itcHealth.value.utilization_pct)} used). Balance less ITC at risk: ${formatCurrency(bal - risk)}.`
+})
 const gstStrip = computed<StatItem[]>(() => [
-  { label: 'Net GST', amount: data.value?.net_gst ?? null },
+  { label: 'Net GST', amount: data.value?.net_gst ?? null, sublabel: gstPeriod.value ? `Net payable, ${gstPeriod.value}` : undefined },
   { label: 'ITC At Risk', amount: itcHealth.value.at_risk_supplier_unfiled ?? null, sublabel: withCount(itcHealth.value.at_risk_invoice_count, 'invoices') },
   { label: 'e-Invoice Coverage', percent: einvoiceStatus.value.coverage_pct ?? null, sublabel: `${einvoiceStatus.value.filed ?? '-'} of ${einvoiceStatus.value.total ?? '-'} with IRN` },
   { label: 'Recon Match Rate', percent: reconciliationScore.value.match_rate_pct ?? null, sublabel: withCount(reconciliationScore.value.unactioned_count, 'rows unactioned') },
@@ -1591,219 +1612,164 @@ const actionsStrip = computed<StatItem[]>(() => [
           <div v-if="activeTab === 'gst'" class="space-y-6">
             <TabBrief :brief="tabBriefs.gst" :as-of="data?.generated_at" />
             <StatStrip :items="gstStrip" :currency="baseCurrency" />
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader variant="caption" title="Monthly GST Breakdown (CGST / SGST / IGST)" :level="3" />
-                <div class="h-80 mt-4">
-                  <IntelligenceChart v-if="gstStackedBarConfig" :config="gstStackedBarConfig" class="h-52 sm:h-64 lg:h-72" />
-                  <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No GST data available</div>
-                </div>
-                <div v-if="gstStackedBarConfig" class="mt-4 overflow-x-auto">
-                  <table class="w-full text-xs whitespace-nowrap [&_td]:!px-1.5 [&_th]:!px-1.5">
-                    <caption class="sr-only">Monthly GST: CGST, SGST, IGST, total and effective rate on revenue</caption>
-                    <thead class="bg-surface-gray-1">
-                      <tr>
-                        <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Month</th>
-                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">CGST</th>
-                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">SGST</th>
-                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">IGST</th>
-                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Total</th>
-                        <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Rate</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="d in gstTable.rows" :key="d.month" class="border-b border-outline-gray-1">
-                        <th scope="row" class="px-3 py-2 text-left font-normal text-ink-gray-8">{{ d.month }}</th>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.cgst) }}</td>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.sgst) }}</td>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.igst) }}</td>
-                        <td class="tnum px-3 py-2 text-right font-medium text-ink-gray-9">{{ formatCurrency(d.total) }}</td>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ d.rate }}</td>
-                      </tr>
-                      <tr class="bg-surface-gray-1 font-medium">
-                        <th scope="row" class="px-3 py-2 text-left text-ink-gray-9">{{ gstTable.ytd.month }}</th>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.cgst) }}</td>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.sgst) }}</td>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.igst) }}</td>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.total) }}</td>
-                        <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ gstTable.ytd.rate }}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-                <SectionHeader variant="caption" title="ITC Utilisation" :level="3" />
-                <div class="h-52 sm:h-64 lg:h-72 mt-4">
-                  <BaseChart :options="itcGaugeOptions" />
-                </div>
-                <div class="grid grid-cols-2 gap-4 mt-4">
-                  <!-- The gauge above divides `Set off` by `Accrued`, so both
-                       of its operands are on the screen beside it, and the
-                       balance they leave is named rather than inferred. Netting
-                       these into one figure is what previously reported this
-                       company's 78% utilisation as 22% -- the same reason
-                       reverse charge is shown unnetted further down. -->
-                  <KpiCard
-                    label="Accrued"
-                    :amount="itcHealth.accrued"
-                    :currency="baseCurrency"
-                    variant="tile"
-                  />
-                  <KpiCard
-                    label="Set off"
-                    :amount="itcHealth.utilised"
-                    :currency="baseCurrency"
-                    variant="tile"
-                  />
-                  <KpiCard
-                    label="Balance"
-                    :amount="itcHealth.balance"
-                    :currency="baseCurrency"
-                    variant="tile"
-                  />
-                  <KpiCard
-                    label="Ineligible"
-                    :amount="itcHealth.ineligible"
-                    :currency="baseCurrency"
-                    sublabel="Sec 17(5) blocked"
-                    variant="tile"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <div v-if="gstBridgeConfig" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader variant="caption" title="GST Cash Bridge" hint="Output GST less input tax credit, and the credit at risk" :level="3" />
-              <IntelligenceChart :config="gstBridgeConfig" class="mt-4 h-52 sm:h-64" />
-            </div>
-
-            <!-- Filing Status -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="text-sm font-medium text-ink-gray-9">GSTR-1</p>
-                    <Badge
-                      v-bind="severityBadge(filingSeverity(filingCompliance.gstr1?.status))"
-                      :label="filingCompliance.gstr1?.status || 'No Data'"
-                      size="sm"
-                      class="mt-1"
-                    />
+            <div class="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+              <div class="min-w-0 space-y-6">
+                <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+                  <SectionHeader variant="caption" :title="gstPeriod ? `Output GST: ${gstPeriod}` : 'Output GST'" :level="3" />
+                  <div v-if="gstSummary.length" class="mt-4 overflow-x-auto">
+                    <table class="w-full text-xs whitespace-nowrap [&_td]:!px-1.5 [&_th]:!px-1.5">
+                      <caption class="sr-only">Monthly GST: CGST, SGST, IGST, total and effective rate on revenue</caption>
+                      <thead class="bg-surface-gray-1">
+                        <tr>
+                          <th scope="col" class="px-3 py-2 text-left text-ink-gray-6">Month</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">CGST</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">SGST</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">IGST</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Total</th>
+                          <th scope="col" class="px-3 py-2 text-right text-ink-gray-6">Rate</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="d in gstTable.rows" :key="d.month" class="border-b border-outline-gray-1">
+                          <th scope="row" class="px-3 py-2 text-left font-normal text-ink-gray-8">{{ monthLabel(d.month) }}</th>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.cgst) }}</td>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.sgst) }}</td>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ formatCurrency(d.igst) }}</td>
+                          <td class="tnum px-3 py-2 text-right font-medium text-ink-gray-9">{{ formatCurrency(d.total) }}</td>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-7">{{ d.rate }}</td>
+                        </tr>
+                        <tr class="bg-surface-gray-1 font-medium">
+                          <th scope="row" class="px-3 py-2 text-left text-ink-gray-9">{{ gstTable.ytd.month }}</th>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.cgst) }}</td>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.sgst) }}</td>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.igst) }}</td>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(gstTable.ytd.total) }}</td>
+                          <td class="tnum px-3 py-2 text-right text-ink-gray-9">{{ gstTable.ytd.rate }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <p class="mt-3 text-xs text-ink-gray-6">
+                      Effective rate {{ gstTable.ytd.rate }} on revenue of {{ formatCurrency(gstTable.ytd.revenue) }}.
+                    </p>
                   </div>
-                  <FileText class="w-8 h-8 text-ink-gray-5" aria-hidden="true" />
+                  <div v-else class="mt-4 py-6 text-center text-ink-gray-6">No GST data available</div>
                 </div>
-                <p class="text-sm mt-2 text-ink-gray-6">
-                  Filed: <span class="font-medium text-ink-gray-8">{{ filingCompliance.gstr1?.filed_due ?? 0 }}</span>
-                  of {{ filingCompliance.gstr1?.due ?? 0 }} due
-                </p>
-                <div v-if="Number(filingCompliance.gstr1?.due) > 0" class="mt-2 flex h-2 overflow-hidden rounded-full bg-surface-red-3" role="img" :aria-label="`${filingCompliance.gstr1?.filed_due ?? 0} of ${filingCompliance.gstr1?.due} filed`">
-                  <div class="h-2 bg-surface-green-3" :style="{ width: `${Math.min(100, (Number(filingCompliance.gstr1?.filed_due ?? 0) / Number(filingCompliance.gstr1?.due)) * 100)}%` }" />
+
+                <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+                  <SectionHeader variant="caption" title="GSTR Filing Status" hint="Returns due, e-Invoice IRN and e-Waybill" :level="3" />
+                  <ul class="mt-4 space-y-4">
+                    <li v-for="f in gstFilingRows" :key="f.key">
+                      <div class="flex items-center justify-between gap-3">
+                        <p class="text-sm font-medium text-ink-gray-9">{{ f.title }}</p>
+                        <Badge v-bind="severityBadge(f.severity)" :label="f.chip" size="sm" />
+                      </div>
+                      <div
+                        v-if="f.pct != null"
+                        class="mt-2 flex h-2 overflow-hidden rounded-full bg-surface-red-3"
+                        role="img"
+                        :aria-label="`${f.title}: ${formatPercent(f.pct)}`"
+                      >
+                        <div class="h-2 bg-surface-green-3" :style="{ width: `${Math.min(100, Math.max(0, f.pct))}%` }" />
+                      </div>
+                      <p class="mt-1 flex justify-between gap-3 text-xs text-ink-gray-6">
+                        <span>{{ f.note }}</span>
+                        <span class="tnum shrink-0">{{ formatPercent(f.pct) }}</span>
+                      </p>
+                    </li>
+                  </ul>
                 </div>
               </div>
-              <div class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <p class="text-sm font-medium text-ink-gray-9">GSTR-3B</p>
-                    <Badge
-                      v-bind="severityBadge(filingSeverity(filingCompliance.gstr3b?.status))"
-                      :label="filingCompliance.gstr3b?.status || 'No Data'"
-                      size="sm"
-                      class="mt-1"
-                    />
+
+              <div class="min-w-0 space-y-6">
+                <div v-if="gstBridgeConfig" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+                  <SectionHeader variant="caption" title="GST Cash Bridge" hint="Output GST less input tax credit, and the credit at risk" :level="3" />
+                  <IntelligenceChart :config="gstBridgeConfig" class="mt-4 h-52 sm:h-64" />
+                  <p v-if="gstBridgeNote" class="mt-3 text-xs text-ink-gray-6">{{ gstBridgeNote }}</p>
+                </div>
+
+                <div v-if="asNumber(reconciliationScore.total_count)" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+                  <SectionHeader
+                    variant="caption"
+                    title="2A/2B Reconciliation"
+                    :hint="`Data runs ${reconciliationScore.data_from ? formatDate(String(reconciliationScore.data_from)) + ' to ' : 'to '}${formatDate(String(reconciliationScore.data_through ?? ''))}`"
+                    :level="3"
+                  />
+                  <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-sm">
+                      <thead class="bg-surface-gray-1">
+                        <tr>
+                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Status</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Rows</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Amount</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="r in reconTable" :key="r.label" class="border-b border-outline-gray-1">
+                          <td class="px-4 py-2 text-ink-gray-8">
+                            <span class="mr-2 inline-block h-2 w-2 rounded-full align-middle" :class="severityFill(r.severity)" aria-hidden="true" />{{ r.label }}
+                          </td>
+                          <td class="tnum px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(r.count) }}</td>
+                          <td class="tnum px-4 py-2 text-right text-ink-gray-8">{{ formatCurrency(r.amount) }}</td>
+                        </tr>
+                        <tr class="font-medium">
+                          <td class="px-4 py-2 text-ink-gray-8">Total rows</td>
+                          <td class="tnum px-4 py-2 text-right text-ink-gray-8">{{ formatNumber(reconciliationScore.total_count) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(reconciliationScore.unactioned_count) }} unactioned</td>
+                        </tr>
+                      </tbody>
+                    </table>
                   </div>
-                  <FileText class="w-8 h-8 text-ink-gray-5" aria-hidden="true" />
                 </div>
-                <p class="text-sm mt-2 text-ink-gray-6">
-                  Filed: <span class="font-medium text-ink-gray-8">{{ filingCompliance.gstr3b?.filed_due ?? 0 }}</span>
-                  of {{ filingCompliance.gstr3b?.due ?? 0 }} due
-                </p>
-                <div v-if="Number(filingCompliance.gstr3b?.due) > 0" class="mt-2 flex h-2 overflow-hidden rounded-full bg-surface-red-3" role="img" :aria-label="`${filingCompliance.gstr3b?.filed_due ?? 0} of ${filingCompliance.gstr3b?.due} filed`">
-                  <div class="h-2 bg-surface-green-3" :style="{ width: `${Math.min(100, (Number(filingCompliance.gstr3b?.filed_due ?? 0) / Number(filingCompliance.gstr3b?.due)) * 100)}%` }" />
+
+                <!-- HSN Summary -->
+                <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+                  <!-- Row count comes from the server cap (`HSN_TOP_N`), so the
+                       title counts what rendered rather than restating a
+                       constant the payload could stop honouring. -->
+                  <SectionHeader
+                    variant="caption"
+                    :title="hsnSummary.length ? `HSN Summary (Top ${hsnSummary.length} by Revenue)` : 'HSN Summary'"
+                    :level="3"
+                  />
+                  <div class="overflow-x-auto mt-4">
+                    <table class="w-full text-sm">
+                      <thead class="bg-surface-gray-1">
+                        <tr>
+                          <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">HSN Code</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Revenue (Pre-GST)</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Actual GST</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Eff. Rate</th>
+                          <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Invoices</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr
+                          v-for="hsn in hsnSummary"
+                          :key="hsn.hsn_code"
+                          class="border-b border-outline-gray-1 hover:bg-surface-gray-1 cursor-pointer transition-colors motion-reduce:transition-none"
+                          tabindex="0"
+                          @click="openHsnDrillDown(hsn)"
+                          @keydown.enter="openHsnDrillDown(hsn)"
+                        >
+                          <td class="px-4 py-2 font-medium text-ink-gray-8">{{ hsn.hsn_code || NO_VALUE }}</td>
+                          <td class="tnum px-4 py-2 text-right text-ink-gray-7">{{ formatCurrency(hsn.revenue) }}</td>
+                          <td class="tnum px-4 py-2 text-right text-ink-gray-7">{{ formatCurrency(hsn.actual_gst) }}</td>
+                          <td class="px-4 py-2 text-right">
+                            <Badge
+                              v-bind="severityBadge(hsnRateSeverity(hsn.effective_gst_rate))"
+                              :label="formatPercent(hsn.effective_gst_rate)"
+                              size="sm"
+                            />
+                          </td>
+                          <td class="tnum px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(hsn.invoice_count) }}</td>
+                        </tr>
+                        <tr v-if="!hsnSummary.length">
+                          <td colspan="5" class="px-4 py-6 text-center text-ink-gray-6">No HSN data available</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
-            </div>
-
-            <div v-if="asNumber(reconciliationScore.total_count)" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader
-                variant="caption"
-                title="GSTR-2A/2B reconciliation"
-                :hint="`Data runs to ${formatDate(String(reconciliationScore.data_through ?? ''))}`"
-                :level="3"
-              />
-              <div class="overflow-x-auto mt-4">
-                <table class="w-full text-sm">
-                  <thead class="bg-surface-gray-1">
-                    <tr>
-                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">Status</th>
-                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Rows</th>
-                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="r in reconTable" :key="r.label" class="border-b border-outline-gray-1">
-                      <td class="px-4 py-2 text-ink-gray-8">{{ r.label }}</td>
-                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(r.count) }}</td>
-                      <td class="px-4 py-2 text-right text-ink-gray-8">{{ formatCurrency(r.amount) }}</td>
-                    </tr>
-                    <tr class="font-medium">
-                      <td class="px-4 py-2 text-ink-gray-8">Total rows</td>
-                      <td class="px-4 py-2 text-right text-ink-gray-8">{{ formatNumber(reconciliationScore.total_count) }}</td>
-                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(reconciliationScore.unactioned_count) }} unactioned</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <!-- HSN Summary -->
-            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <!-- Row count comes from the server cap (`HSN_TOP_N`), so the
-                   title counts what rendered rather than restating a
-                   constant the payload could stop honouring. -->
-              <SectionHeader
-                variant="caption"
-                :title="hsnSummary.length ? `HSN Summary (Top ${hsnSummary.length} by Revenue)` : 'HSN Summary'"
-                :level="3"
-              />
-              <div class="overflow-x-auto mt-4">
-                <table class="w-full text-sm">
-                  <thead class="bg-surface-gray-1">
-                    <tr>
-                      <th scope="col" class="px-4 py-2 text-left text-ink-gray-6">HSN Code</th>
-                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Revenue (Pre-GST)</th>
-                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Actual GST</th>
-                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Eff. Rate</th>
-                      <th scope="col" class="px-4 py-2 text-right text-ink-gray-6">Invoices</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="hsn in hsnSummary"
-                      :key="hsn.hsn_code"
-                      class="border-b border-outline-gray-1 hover:bg-surface-gray-1 cursor-pointer transition-colors motion-reduce:transition-none"
-                      tabindex="0"
-                      @click="openHsnDrillDown(hsn)"
-                      @keydown.enter="openHsnDrillDown(hsn)"
-                    >
-                      <td class="px-4 py-2 font-medium text-ink-gray-8">{{ hsn.hsn_code || NO_VALUE }}</td>
-                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatCurrency(hsn.revenue) }}</td>
-                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatCurrency(hsn.actual_gst) }}</td>
-                      <td class="px-4 py-2 text-right">
-                        <Badge
-                          v-bind="severityBadge(hsnRateSeverity(hsn.effective_gst_rate))"
-                          :label="formatPercent(hsn.effective_gst_rate)"
-                          size="sm"
-                        />
-                      </td>
-                      <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(hsn.invoice_count) }}</td>
-                    </tr>
-                    <tr v-if="!hsnSummary.length">
-                      <td colspan="5" class="px-4 py-6 text-center text-ink-gray-6">No HSN data available</td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
             </div>
             <TabActions class="mt-6" :actions="tabBriefs.gst?.actions" />
