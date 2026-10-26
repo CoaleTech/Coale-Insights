@@ -1030,7 +1030,7 @@ const reconTable = computed(() => {
     { ...row('Matched', 'matched'), severity: 'low' as Severity },
     { ...row('Suggested', 'suggested'), severity: 'medium' as Severity },
     { ...row('Mismatch', 'mismatch'), severity: 'high' as Severity },
-    { ...row('Unmatched', 'unmatched'), severity: 'high' as Severity },
+    { ...row('Unmatched', 'unmatched'), severity: 'none' as Severity },
   ]
 })
 
