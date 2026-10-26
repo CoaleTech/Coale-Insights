@@ -293,7 +293,7 @@ class BreakevenEngine:
             vc = bin_cost_map.get(item.item_code, 0.0)
             if vc <= 0:
                 vc = float(master_map.get(item.item_code, {}).get("master_variable_cost", 0))
-            cm = sp - vc
+            cm = sp - vc if sp > 0 else 0.0
             actual_qty = float(sales_map.get(item.item_code, {}).get("total_qty", 0))
             total_contribution += cm * actual_qty
 
@@ -305,7 +305,7 @@ class BreakevenEngine:
             vc = bin_cost_map.get(item.item_code, 0.0)
             if vc <= 0:
                 vc = float(master_map.get(item.item_code, {}).get("master_variable_cost", 0))
-            cm = round(sp - vc, 2)
+            cm = round(sp - vc, 2) if sp > 0 else 0.0
             actual_qty = float(sales_map.get(item.item_code, {}).get("total_qty", 0))
             actual_revenue = float(sales_map.get(item.item_code, {}).get("total_revenue", 0))
 

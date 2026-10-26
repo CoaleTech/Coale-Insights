@@ -61,8 +61,9 @@ class TestBriefs(unittest.TestCase):
     def test_lazy_itemwise_be(self):
         empty = {"period": "Quarterly", "date_range": {"start": "2026-07-01", "end": "2026-09-30"}, "items": []}
         self.assertEqual(lazy_itemwise_be(empty)["severity"], "none")
-        some = {"period": "Quarterly", "items": [{"coverage": 0.5}, {"coverage": 2.0}, {"coverage": None}]}
+        some = {"period": "Quarterly", "total_fixed_costs": 1000, "items": [{"coverage": 0.5}, {"coverage": 2.0}, {"coverage": None}]}
         b = lazy_itemwise_be(some)
         self.assertEqual(b["severity"], "high")
         self.assertIn("3 items analyzed for Quarterly; 1 sell below", b["headline"])
+        self.assertIn("no fixed cost centres", lazy_itemwise_be({**some, "total_fixed_costs": 0})["headline"])
         self.assertIsNone(lazy_itemwise_be({}))

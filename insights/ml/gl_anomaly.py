@@ -194,7 +194,7 @@ class GLAnomalyDetection:
             out.append(
                 {
                     "gl_entry": r["name"],
-                    "posting_date": str(r["posting_date"]),
+                    "posting_date": str(r["posting_date"])[:10],
                     "account": r["account"],
                     "voucher_type": r["voucher_type"],
                     "voucher_no": r["voucher_no"],

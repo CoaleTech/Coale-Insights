@@ -204,7 +204,9 @@ def lazy_itemwise_be(r: dict):
     rng = r.get("date_range") or {}
     if not items:
         return brief("none", f"Item break-even returned 0 items for {r.get('period')} ({rng.get('start')} to {rng.get('end')}).")
-    below = [i for i in items if i.get("coverage") is not None and i["coverage"] < 1]
     text = f"{plural(len(items), 'item')} analyzed for {r.get('period')}"
+    if not r.get("total_fixed_costs"):
+        return brief("none", text + "; no fixed cost centres are set in Insights Settings, so break-even quantities are zero and coverage cannot be rated.")
+    below = [i for i in items if i.get("coverage") is not None and i["coverage"] < 1]
     text += f"; {len(below)} sell below their break-even quantity." if below else "; none sell below their break-even quantity."
     return brief("high" if below else "low", text)

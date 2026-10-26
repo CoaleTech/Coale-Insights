@@ -470,7 +470,7 @@ def _operations_kpis(inv: Dict[str, Any], proc: Dict[str, Any]) -> Dict[str, Any
         # SKUs out of stock, which is the opposite of what the data says.
         out_of_stock = _f(stock.get("out_of_stock_count"))
         if total_items > 0 and out_of_stock > 0:
-            stockout_pct = round((out_of_stock / total_items) * 100, 1)
+            stockout_pct = round((out_of_stock / total_items) * 100 + 1e-9, 1)  # half up: 36/64 = 56.3, as the other pages show
             out["stockout_rate"] = _kpi(
                 stockout_pct, label=_("Stockout Rate %"), format="percentage",
                 target=2.0, variance_pct=stockout_pct - 2.0,

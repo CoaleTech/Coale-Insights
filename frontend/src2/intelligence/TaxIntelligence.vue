@@ -1031,6 +1031,12 @@ const reconTable = computed(() => {
     { ...row('Suggested', 'suggested'), severity: 'medium' as Severity },
     { ...row('Mismatch', 'mismatch'), severity: 'high' as Severity },
     { ...row('Unmatched', 'unmatched'), severity: 'none' as Severity },
+    {
+      label: 'Manual / amended',
+      count: (asNumber(r.manual_match_count) ?? 0) + (asNumber(r.amended_count) ?? 0),
+      amount: (asNumber(r.manual_match_amount) ?? 0) + (asNumber(r.amended_amount) ?? 0),
+      severity: 'none' as Severity,
+    },
   ]
 })
 
@@ -1256,7 +1262,7 @@ const actionsStrip = computed<StatItem[]>(() => [
           label="Net GST (YTD)"
           :amount="asNumber(data?.net_gst)"
           :currency="baseCurrency"
-          sublabel="Output minus ITC utilised"
+          sublabel="Output tax less input tax credit"
         />
         <KpiCard
           label="ITC at Risk"

@@ -1540,7 +1540,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
 
           <!-- Ledger scan: issued on mount, so it runs on request -->
           <div class="space-y-3">
-            <SectionHeader variant="caption" title="Ledger scan" hint="Scans submitted invoices when run" :level="3" />
+            <SectionHeader variant="caption" title="Ledger scan" hint="Ranks last 12 months of ledger entries when run" :level="3" />
             <Button v-if="!showLedger" variant="outline" @click="showLedger = true">Run ledger scan</Button>
             <LedgerAnomalies v-else />
           </div>

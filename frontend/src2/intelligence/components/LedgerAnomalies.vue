@@ -12,7 +12,7 @@ defineOptions({ name: 'LedgerAnomalies' })
  */
 import { computed } from 'vue'
 import { useIntelligenceDashboard } from '../composables/useIntelligenceDashboard'
-import { formatCount, formatMoney } from '../../utils/format'
+import { formatCount, formatDate, formatMoney } from '../../utils/format'
 
 interface AnomalyRow {
   gl_entry: string
@@ -49,8 +49,9 @@ const state = computed(() => anomalies.data.value?.status as string | undefined)
 
     <template v-else-if="anomalies.hasData.value">
       <p class="text-sm text-ink-gray-6">
-        {{ formatCount(flagged) }} of {{ formatCount(scanned) }} entries flagged. Unusual is not
-        the same as wrong — a year-end adjustment is unusual by design.
+        Top {{ formatCount(Math.min(rows.length, 25)) }} of {{ formatCount(scanned) }} ledger entries from the last
+        12 months, ranked by how far the amount sits from the account's norm. Unusual is not the
+        same as wrong — a year-end adjustment is unusual by design.
       </p>
       <div class="mt-3 bg-surface-white border border-outline-gray-1 rounded-lg overflow-x-auto">
         <table class="w-full text-sm">
@@ -61,7 +62,7 @@ const state = computed(() => anomalies.data.value?.status as string | undefined)
               <th class="text-left font-medium px-4 py-2">Voucher</th>
               <th class="text-right font-medium px-4 py-2">Debit</th>
               <th class="text-right font-medium px-4 py-2">Credit</th>
-              <th class="text-right font-medium px-4 py-2">Score</th>
+              <th class="text-right font-medium px-4 py-2">Z-score</th>
             </tr>
           </thead>
           <tbody>
@@ -70,7 +71,7 @@ const state = computed(() => anomalies.data.value?.status as string | undefined)
               :key="row.gl_entry"
               class="border-b border-outline-gray-1 last:border-0"
             >
-              <td class="px-4 py-2 text-ink-gray-7 whitespace-nowrap">{{ row.posting_date }}</td>
+              <td class="px-4 py-2 text-ink-gray-7 whitespace-nowrap">{{ formatDate(row.posting_date) }}</td>
               <td class="px-4 py-2 text-ink-gray-9">{{ row.account }}</td>
               <td class="px-4 py-2 text-ink-gray-7">
                 {{ row.voucher_type }}
@@ -83,7 +84,7 @@ const state = computed(() => anomalies.data.value?.status as string | undefined)
                 {{ row.credit ? formatMoney(row.credit, ledgerCurrency) : '—' }}
               </td>
               <td class="px-4 py-2 text-right font-medium text-ink-gray-9 tabular-nums">
-                {{ row.score }}
+                {{ row.score.toFixed(1) }}
               </td>
             </tr>
           </tbody>

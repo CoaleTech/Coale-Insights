@@ -919,7 +919,7 @@ class InventoryIntelligence:
                         "current_stock": current,
                         # effective trigger: configured level or 14 days of demand, whichever is higher
                         "reorder_level": round(threshold, 1),
-                        "avg_daily_demand": avg_daily,
+                        "avg_daily_demand": round(avg_daily, 2),
                     }
                 )
         candidates.sort(key=lambda x: x["avg_daily_demand"], reverse=True)
