@@ -359,6 +359,9 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
     total_inflows = sum(w['inflows']['total'] for w in future_weeks)
     total_outflows = sum(w['outflows']['total'] for w in future_weeks)
     ending_cash = weeks[-1]['closing_balance'] if weeks else current_cash
+    # Totals above cover forecast weeks only, so the headline opening balance is
+    # where the first of them opens: opening + inflows - outflows = ending.
+    forecast_opening = future_weeks[0]['opening_balance'] if future_weeks else current_cash
 
     min_balance_week = min(all_weeks, key=lambda w: w['closing_balance']) if all_weeks else None
     weeks_below_threshold = sum(1 for w in all_weeks if w['below_threshold'])
@@ -370,7 +373,7 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
     variance_analysis = generate_variance_analysis(intelligence, weeks)
 
     return {
-        'opening_balance': round(opening_balance, 2),
+        'opening_balance': round(forecast_opening, 2),
         'current_cash': round(current_cash, 2),
         'min_cash_threshold': round(min_cash_threshold, 2),
         'currency': intelligence.base_currency,
