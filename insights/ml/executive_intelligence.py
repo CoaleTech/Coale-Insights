@@ -277,36 +277,56 @@ def _load_marketing(period: str) -> Dict[str, Any]:
 # ────────────────────────────────────────────────────────────────────────────
 
 
+def _gl_period_pnl(period: str) -> tuple[float, float]:
+    """(revenue, profit) summed from the ledger over `period`'s window:
+    Income minus Expense, cancelled entries and period-closing vouchers
+    excluded -- the same basis as FinancialIntelligence's ytd_* scalars."""
+    import ibis
+
+    from insights.api.ml.ibis_source import company_filter, t
+    from insights.ml.hr_intelligence import _period_end_date, _period_start_date
+
+    gle, acc = t("GL Entry"), t("Account")
+    j = company_filter(gle.join(acc, gle["account"] == acc["name"]), _company())
+    j = j.filter(
+        (j["is_cancelled"] == 0)
+        & (j["voucher_type"] != "Period Closing Voucher")
+        & (j["posting_date"] >= _period_start_date(period))
+        & (j["posting_date"] <= _period_end_date(period))
+    )
+    row = j.aggregate(
+        income=ibis.ifelse(j["root_type"] == "Income", j["credit"] - j["debit"], 0).sum(),
+        expense=ibis.ifelse(j["root_type"] == "Expense", j["debit"] - j["credit"], 0).sum(),
+    ).execute().iloc[0]
+    income, expense = float(row["income"] or 0), float(row["expense"] or 0)
+    return income, income - expense
+
+
 def _financial_kpis(data: Dict[str, Any], period: str = "YTD") -> Dict[str, Any]:
     if data.get("error"):
         return _unavailable("Financial")
     try:
-        # FinancialIntelligence always computes two P&L windows in its
-        # `_calculate_financial_overview()`:
-        # - mtd_*  = current calendar month (hardcoded `datetime.now().replace(day=1)`)
-        # - ytd_*  = fiscal year to date (hardcoded `fy_start`)
-        #
-        # When the executive period selector is set to anything other than MTD
-        # (e.g. YTD, QTD, TTM), the `mtd_revenue` field is the current calendar
-        # month's income -- which is 0 on a site whose last invoice was in the
-        # prior month. Using `ytd_revenue` here (fiscal YTD) is the correct and
-        # honest figure for YTD/QTD/TTM; the label is set accordingly so the
-        # CEO can reconcile it against the underlying data.
+        # FinancialIntelligence computes two fixed P&L windows: current calendar
+        # month (mtd_*) and fiscal year to date (ytd_*). Those two answer the
+        # MTD and YTD pickers exactly; QTD, TTM and custom ranges are summed
+        # straight from the ledger over the selected window instead of
+        # silently showing the fiscal-YTD figure under a different picker.
         overview = data.get("overview", {}) or {}
-        use_mtd = period == "MTD"
-        if use_mtd:
+        if period == "MTD":
             rev = _f(overview.get("mtd_revenue"))
             profit = _f(overview.get("mtd_profit"))
-            rev_label = _("Revenue (MTD)")
-            margin_label = _("Net Margin (MTD)")
-        else:
+            suffix = "MTD"
+        elif period == "YTD":
             rev = _f(overview.get("ytd_revenue"))
             profit = _f(overview.get("ytd_profit"))
-            # FinancialIntelligence uses fiscal-year start for ytd_* regardless
-            # of the date_filter arg, so "YTD" is always the correct label.
-            rev_label = _("Revenue (YTD)")
-            margin_label = _("Net Margin (YTD)")
-        net_margin = (profit / rev * 100) if rev else 0.0
+            suffix = "YTD"
+        else:
+            rev, profit = _gl_period_pnl(period)
+            suffix = period if period in ("QTD", "TTM") else _("Range")
+        rev_label = _("Revenue ({0})").format(suffix)
+        margin_label = _("Net Margin ({0})").format(suffix)
+        # No revenue in the window means no margin, not a 0% margin.
+        net_margin = (profit / rev * 100) if rev else None
 
         cash_flow = data.get("cash_flow", {}) or {}
         raw_runway = cash_flow.get("runway_months")
@@ -336,8 +356,10 @@ def _financial_kpis(data: Dict[str, Any], period: str = "YTD") -> Dict[str, Any]
                 extra={"rag_status": _rag(rev, green=1, amber=0)},
             ),
             "net_margin": _kpi(
-                round(net_margin, 2), label=margin_label, format="percentage",
-                target=10.0, variance_pct=net_margin - 10.0,
+                None if net_margin is None else round(net_margin, 2),
+                label=margin_label, format="percentage",
+                target=10.0,
+                variance_pct=None if net_margin is None else net_margin - 10.0,
                 rag=_rag(net_margin, green=10, amber=5),
             ),
             "cash_runway": runway_kpi,
@@ -357,10 +379,8 @@ def _sales_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
         fulfillment = data.get("fulfillment", {}) or {}
 
         mom_growth = _f(summary.get("mom_growth", comparisons.get("mom_growth")))
-        yoy_growth = _f(summary.get("yoy_growth", comparisons.get("yoy_growth")))
         overall_margin = _f(summary.get("overall_margin", margins.get("overall_margin")))
-        # Prefer MoM as the headline growth KPI; fall back to YoY if MoM is 0.
-        growth_rate = mom_growth if mom_growth else yoy_growth
+        growth_rate = mom_growth
         # AOV from revenue metrics
         rev_metrics = data.get("revenue_metrics", {}) or {}
         pipeline_value = _f(rev_metrics.get("total_revenue", summary.get("total_revenue")))

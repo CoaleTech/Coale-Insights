@@ -553,13 +553,20 @@ def get_executive_detail(metric: str, filters: str) -> dict:
 
     if metric == "revenue_invoices":
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        db_filters = {"docstatus": 1}
+        # Same basis as the "Revenue 12m" card (executive_intelligence._trend_sparklines):
+        # trailing 12 months, submitted, credit notes excluded, tax-exclusive.
+        from insights.api.ml.utils import parse_date_filter
+
+        win_start, _end = parse_date_filter("12m")
+        db_filters = {"docstatus": 1, "is_return": 0}
+        if win_start:
+            db_filters["posting_date"] = (">=", win_start.date())
         if company:
             db_filters["company"] = company
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "grand_total"],
+            fields=["name", "customer", "posting_date", "base_net_total"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -568,7 +575,7 @@ def get_executive_detail(metric: str, filters: str) -> dict:
                 {"label": _("Invoice"), "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date"},
-                {"label": _("Total"), "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": _("Net Total"), "fieldname": "base_net_total", "fieldtype": "Currency"},
             ],
             "rows": rows,
             "total": frappe.db.count("Sales Invoice", filters=db_filters),
