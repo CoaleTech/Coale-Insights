@@ -60,20 +60,22 @@ def get_ai_insights(query: str, context: str = None, complexity: str = "simple")
         
         # Process through AI router
         start_time = frappe.utils.now()
-        result = model_router.process_task(task_request)
+        routed = model_router.route_request(task_request)
         processing_time = frappe.utils.time_diff_in_seconds(frappe.utils.now(), start_time)
-        
-        # Cache result if successful
-        if result.get("success"):
-            cache_manager.set(cache_key, result, ttl=3600)  # Cache for 1 hour
-        
+
+        if not routed.get("success"):
+            return {"success": False, "error": routed.get("error") or _("The AI service returned no answer"), "processing_time": processing_time}
+
+        # The page reads response.content
+        result = {"content": routed.get("result"), "model_used": routed.get("model_used")}
+        cache_manager.set(cache_key, result, ttl=3600)  # Cache for 1 hour
+
         return {
             "success": True,
             "response": result,
             "cached": False,
             "processing_time": processing_time,
             "model_used": result.get("model_used"),
-            "tokens_used": result.get("tokens_used")
         }
         
     except Exception as e:

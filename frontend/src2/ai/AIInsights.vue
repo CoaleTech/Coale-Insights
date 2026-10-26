@@ -73,14 +73,14 @@ async function askQuestion(question: string) {
 	scrollToBottom()
 	
 	try {
-		const response = await apiCall('insights.api.ai_insights.get_ai_insights', {
+		const response = await apiCall<any>('insights.api.ai_insights.get_ai_insights', {
 			query: question,
 			complexity: selectedComplexity.value
 		})
 		
 		messages.value.push({
 			type: 'ai',
-			content: response.response?.content || 'I received your question but couldn\'t generate a response.',
+			content: response.response?.content || response.error || 'I received your question but couldn\'t generate a response.',
 			metadata: {
 				model_used: response.model_used,
 				processing_time: response.processing_time,
@@ -129,10 +129,11 @@ async function getBIInsights(module: string) {
 			if (recentInsights.value.length > 5) {
 				recentInsights.value.pop()
 			}
-		} else if (response?.ai_insights?.error) {
+		} else {
+			const ai = response?.ai_insights
 			messages.value.push({
 				type: 'ai',
-				content: `Error getting ${module} insights: ${response.ai_insights.error}`,
+				content: ai?.error ? `Error getting ${module} insights: ${ai.error}` : (ai?.message || 'No insights were returned.'),
 				timestamp: new Date()
 			})
 		}
@@ -166,8 +167,16 @@ function clearChat() {
 	messages.value = []
 }
 
-onMounted(() => {
+const aiOnline = ref(false)
+
+onMounted(async () => {
 	document.title = 'AI Insights | Insights'
+	try {
+		const s = await call('insights.ai.openrouter_client.get_ai_status')
+		aiOnline.value = !!(s?.enabled && s?.configured)
+	} catch {
+		aiOnline.value = false
+	}
 })
 </script>
 
@@ -184,8 +193,8 @@ onMounted(() => {
 			</div>
 			<div class="flex items-center gap-3">
 				<div class="flex items-center gap-1 text-sm text-ink-gray-6">
-					<div class="w-2 h-2 rounded-full bg-pos-fill"></div>
-					<span>AI Online</span>
+					<div class="w-2 h-2 rounded-full" :class="aiOnline ? 'bg-pos-fill' : 'bg-surface-gray-4'"></div>
+					<span>{{ aiOnline ? 'AI Online' : 'AI not configured' }}</span>
 				</div>
 				<Button v-if="messages.length > 0" variant="outline" size="sm" @click="clearChat">
 					Clear Chat
