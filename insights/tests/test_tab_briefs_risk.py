@@ -26,9 +26,11 @@ class TestBriefs(unittest.TestCase):
         self.assertIn("All 20 tracked suppliers deliver early on average", b["headline"])
 
     def test_compliance_overdue_filings_are_high(self):
-        b = self.b["compliance"]
+        p = load("risk")
+        p["compliance_risk"]["gst_status"].update(gstr1_overdue=1, gstr3b_overdue=2)
+        b = briefs(p)["compliance"]
         self.assertEqual(b["severity"], "high")  # component is Low, filings are Overdue
-        self.assertIn("GSTR-1 and GSTR-3B for Oct 2026 are overdue", b["headline"])
+        self.assertIn("GSTR-1 has 1 overdue period and GSTR-3B has 2 overdue periods", b["headline"])
         self.assertIn("e-Invoice coverage is 100%", b["headline"])
         self.assertIn("9,497 of 9,497 documents are complete", b["headline"])
 

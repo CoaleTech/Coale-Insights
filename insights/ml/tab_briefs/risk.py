@@ -193,13 +193,6 @@ def _operational(p: dict):
     return brief(_sev(_component(p, "operational_risk"), top.get("risk_category")), text, details, actions)
 
 
-def _period(raw: str) -> str:
-    try:
-        return datetime.strptime(str(raw).zfill(6), "%m%Y").strftime("%b %Y")
-    except ValueError:
-        return ""
-
-
 def _compliance(p: dict):
     c = p.get("compliance_risk") or {}
     g = c.get("gst_status") or {}
@@ -211,10 +204,10 @@ def _compliance(p: dict):
         for name, key in (("GSTR-1", "gstr1"), ("GSTR-3B", "gstr3b"))
         if g.get(f"{key}_status") in ("Overdue", "Pending")
     ]
+    count = lambda key: g.get(f"{key}_overdue") or 1
     if late:
-        periods = {pd for _, pd in late}
-        when = f" for {_period(next(iter(periods)))}" if len(periods) == 1 and _period(next(iter(periods))) else ""
-        text = f"{' and '.join(n for n, _ in late)}{when} {'is' if len(late) == 1 else 'are'} overdue."
+        keys = {"GSTR-1": "gstr1", "GSTR-3B": "gstr3b"}
+        text = " and ".join(f"{n} has {plural(count(keys[n]), 'overdue period')}" for n, _ in late) + "."
     else:
         text = "GST filings are up to date."
     if g.get("einvoice_coverage_pct") is not None:
@@ -231,7 +224,7 @@ def _compliance(p: dict):
     lic = c.get("licenses") or []
     if lic:
         details.append(detail("Licences", "; ".join(f"{x['license_type']} {x['status']}" for x in lic) + "."))
-    actions = [action(f"File {name}" + (f" for {_period(pd)}" if _period(pd) else ""), "Its status is overdue.") for name, pd in late]
+    actions = [action(f"File overdue {name} returns", "Periods past the statutory due date are not filed.") for name, _ in late]
     return brief(_sev(_component(p, "compliance_risk"), "high" if late else None), text, details, actions)
 
 

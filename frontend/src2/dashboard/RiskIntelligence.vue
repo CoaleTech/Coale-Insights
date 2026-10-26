@@ -296,11 +296,14 @@ const cashflowStrip = computed<StatItem[]>(() => {
 })
 const operationalStrip = computed<StatItem[]>(() => {
   const o = operationalData.value
-  const top = o.top_inventory_risk
+  // Totals across every item group; the first group alone read 65.2% against 56.2% overall.
+  const groups = (o.inventory_risks ?? []) as InventoryRiskRow[]
+  const items = groups.reduce((s, g) => s + (g.total_items ?? 0), 0)
+  const out = groups.reduce((s, g) => s + g.stockout_items, 0)
   const suppliers = o.supplier_performance ?? []
   return [
-    { label: 'Stockout Rate', percent: top?.stockout_risk_score ?? null, sublabel: top ? `${formatCount(top.stockout_items)} of ${formatCount(top.total_items ?? null)} items` : undefined },
-    { label: 'Remaining Stock Value', amount: top?.stock_value ?? null },
+    { label: 'Stockout Rate', percent: items ? (out / items) * 100 : null, sublabel: items ? `${formatCount(out)} of ${formatCount(items)} items` : undefined },
+    { label: 'Remaining Stock Value', amount: items ? groups.reduce((s, g) => s + (g.stock_value ?? 0), 0) : null },
     { label: 'Suppliers Above Low Risk', value: suppliers.filter(s => s.risk_category !== 'Low').length, sublabel: `of ${formatCount(suppliers.length)} tracked` },
     { label: 'Invoice Error Rate', value: formatPercent(o.process_risks?.invoice_error_rate, 2) },
   ]
@@ -1059,7 +1062,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                   :sublabel="`${bucket.invoice_count} invoices`"
                   variant="tile"
                   clickable
-                  @click="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket + ' Overdue', { metric: 'overdue_invoices', aging_bucket: bucket.aging_bucket })"
+                  @click="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket === 'Current' ? 'Current, not yet due' : bucket.aging_bucket + ' Overdue', { metric: 'overdue_invoices', aging_bucket: bucket.aging_bucket })"
                 />
               </div>
             </div>
@@ -1148,7 +1151,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
                   :sublabel="`${bucket.invoice_count} bills`"
                   variant="tile"
                   clickable
-                  @click="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket + ' Overdue Payables', { metric: 'overdue_payables', aging_bucket: bucket.aging_bucket })"
+                  @click="drillDown.open(RISK_ENDPOINT, bucket.aging_bucket === 'Current' ? 'Payables, not yet due' : bucket.aging_bucket + ' Overdue Payables', { metric: 'overdue_payables', aging_bucket: bucket.aging_bucket })"
                 />
               </div>
             </div>

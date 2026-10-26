@@ -1227,6 +1227,8 @@ def _analyze_compliance_risk(company: str | None) -> dict:
 
     gst_status = {
         "gstr1_status": filing.get("gstr1", {}).get("status", "No Data"),
+        "gstr1_overdue": filing.get("gstr1", {}).get("overdue", 0),
+        "gstr3b_overdue": filing.get("gstr3b", {}).get("overdue", 0),
         "gstr1_latest_period": filing.get("gstr1", {}).get("latest_period", ""),
         "gstr3b_status": filing.get("gstr3b", {}).get("status", "No Data"),
         "gstr3b_latest_period": filing.get("gstr3b", {}).get("latest_period", ""),
@@ -1365,16 +1367,24 @@ def _generate_predictive_analytics(company: str | None) -> dict:
 
 
 def _forecast_cash_flow(company: str | None) -> dict:
-    """Moving-average cash-flow forecast over the next 30 days. Computed
-    on the small (one row per day for ~6 months) daily series that
-    Ibis pulls; no sklearn / no Prophet."""
+    """Moving-average cash forecast over the next 30 days: today's book cash
+    balance plus the average daily net cash flow of the last 30 days of
+    ledger activity (calendar days, so quiet days count as zero), trended by
+    the last week's pace. Cash is Bank + Cash + Fixed Deposit, matching the
+    Cash Position everywhere else. No sklearn / no Prophet."""
+    import pandas as pd
+
     gle = t("GL Entry")
     a = t("Account")
+    today = datetime.now().date()
     cutoff = _months_ago(6)
-    a_filtered = a.filter(a.account_type.isin(["Cash", "Bank"]))
+    a_filtered = a.filter(
+        a.account_type.isin(["Cash", "Bank"]) | a.account_name.lower().like("fixed deposit%")
+    )
     q = gle.join(a_filtered, gle.account == a_filtered.name).filter(
         gle.is_cancelled == 0,
         gle.posting_date >= cutoff,
+        gle.posting_date <= today,
     )
     if company:
         q = q.filter(gle.company == company)
@@ -1382,34 +1392,34 @@ def _forecast_cash_flow(company: str | None) -> dict:
         posting_date=gle.posting_date,
         amount=gle.debit.fill_null(0) - gle.credit.fill_null(0),
     ).execute()
-    if df.empty or len(df) < 7:
+    if df.empty or df["posting_date"].nunique() < 7:
         return {
             "status": "insufficient_data",
             "message": _("Need at least 7 days of cash flow data"),
         }
 
-    df = df.sort_values("posting_date")
-    values = df["amount"].astype(float).tolist()
-    dates = df["posting_date"].tolist()
-    recent_avg = sum(values[-30:]) / min(30, len(values[-30:]))
-    weekly_avg = sum(values[-7:]) / min(7, len(values[-7:]))
-    trend = (weekly_avg - recent_avg) / recent_avg if recent_avg else 0.0
+    df["posting_date"] = pd.to_datetime(df["posting_date"])
+    daily = df.groupby("posting_date")["amount"].sum().astype(float)
+    daily = daily.reindex(pd.date_range(daily.index.min(), daily.index.max()), fill_value=0.0)
+    values = daily.tolist()
+    recent_avg = sum(values[-30:]) / min(30, len(values))
+    weekly_avg = sum(values[-7:]) / min(7, len(values))
+    trend = (weekly_avg - recent_avg) / abs(recent_avg) if recent_avg else 0.0
 
     forecast = []
-    base_date = dates[-1] if dates else datetime.now().date()
+    balance = _current_cash_position(company)
+    opening = balance
     for i in range(1, 31):
-        d = base_date + timedelta(days=i)
-        predicted = recent_avg * (1 + trend * (i / 30.0))
-        # ±15 % band, symmetric around the prediction. Multiplying by 0.85/1.15
-        # inverts the band when `predicted` is negative (0.85 × negative is LESS
-        # negative than 1.15 × negative), so use absolute-value width instead.
-        band = abs(predicted) * 0.15
+        d = today + timedelta(days=i)
+        balance += recent_avg * (1 + trend * (i / 30.0))
+        # ±15 % of the movement so far, symmetric around the projected balance.
+        band = abs(balance - opening) * 0.15
         forecast.append(
             {
                 "ds": d.strftime("%Y-%m-%d"),
-                "yhat": round(float(predicted), 2),
-                "yhat_lower": round(float(predicted - band), 2),
-                "yhat_upper": round(float(predicted + band), 2),
+                "yhat": round(float(balance), 2),
+                "yhat_lower": round(float(balance - band), 2),
+                "yhat_upper": round(float(balance + band), 2),
             }
         )
     return {
@@ -1628,10 +1638,17 @@ def _early_warnings(cash_forecast: dict, company: str | None = None) -> list[dic
 
 
 def _gl_balance_for_account_types(account_types: list[str], company: str | None) -> float:
-    """Sum of (debit - credit) for leaf accounts of the given types."""
+    """Sum of (debit - credit) for leaf accounts of the given types.
+
+    Fixed-deposit accounts count as cash, by name, the same way the Finance
+    dashboard's cash position does; they are not typed Bank on this ledger.
+    """
     gle = t("GL Entry")
     a = t("Account")
-    a_filtered = a.filter(a.account_type.isin(account_types), a.is_group == 0)
+    match = a.account_type.isin(account_types)
+    if "Cash" in account_types:
+        match = match | a.account_name.lower().like("fixed deposit%")
+    a_filtered = a.filter(match, a.is_group == 0)
     q = (
         gle.join(a_filtered, gle.account == a_filtered.name)
         .filter(gle.is_cancelled == 0)
