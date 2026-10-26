@@ -282,6 +282,7 @@ def calculate_payment_mix(
         total=si.base_net_total.sum(),
         cash_total=ibis.ifelse(is_cash, si.base_net_total, 0).sum(),
         credit_total=ibis.ifelse(is_cash, 0, si.base_net_total).sum(),
+        last_posting=si.posting_date.max(),
     ).execute().iloc[0]
     total = float(overall_df["total"] or 0)
     cash_total = float(overall_df["cash_total"] or 0)
@@ -290,8 +291,17 @@ def calculate_payment_mix(
     cash_ratio = round(cash_total / total * 100, 1) if total > 0 else 0
     credit_ratio = round(credit_total / total * 100, 1) if total > 0 else 0
 
-    # Daily mix (31 days ending at the window end). Each day gets its own cash/credit row.
-    daily_cutoff = ((end or datetime.now()) - timedelta(days=30)).date()
+    # Daily mix: anchor to the latest invoice, not to `end` (which equals today
+    # for the 12m preset). When the ledger has a posting lag (e.g. last invoice
+    # 2026-09-14, today 2026-10-26), using `end` shifts the 30-day window past
+    # the last invoice and returns zero rows. Same pattern as calculate_revenue_metrics.
+    import pandas as _pd
+    _max_row = overall_df["last_posting"]
+    if _max_row is not None and not _pd.isna(_max_row):
+        _anchor = _pd.Timestamp(_max_row).to_pydatetime()
+    else:
+        _anchor = end or datetime.now()
+    daily_cutoff = (_anchor - timedelta(days=30)).date()
     si_daily = si.filter(si.posting_date >= daily_cutoff)
     is_cash_daily = si_daily.outstanding_amount == 0
     daily_df = (
@@ -1200,7 +1210,7 @@ def run_sales_intelligence(
 
     verdict_headline = _compute_verdict_headline(summary, comparisons, fulfillment, forecasts, currency)
 
-    return {
+    result: dict[str, Any] = {
         "status": "success",
         "analysis_date": datetime.now().isoformat(),
         "base_currency": currency,
@@ -1217,6 +1227,9 @@ def run_sales_intelligence(
         "fulfillment": fulfillment,
         "forecasts": forecasts,
     }
+    from insights.ml.tab_briefs.revenue import briefs as _rev_briefs
+    result["tab_briefs"] = _rev_briefs(result)
+    return result
 
 
 def get_sales_intelligence(

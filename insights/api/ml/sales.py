@@ -427,4 +427,98 @@ def get_sales_detail(metric: str, filters: str) -> dict:
             "total": frappe.db.count("Sales Invoice", filters=db_filters),
         }
 
+    if metric == "receivables":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters: Dict[str, Any] = {"docstatus": 1, "is_return": 0, "outstanding_amount": (">", 0)}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "posting_date", "grand_total", "outstanding_amount", "territory"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Grand Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
+                {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
+    if metric == "unfulfilled_orders":
+        frappe.has_permission("Sales Order", throw=True)
+        db_filters = {
+            "docstatus": 1,
+            "per_delivered": ("<", 100),
+            "status": ("not in", ["Cancelled", "Closed"]),
+        }
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Order",
+            filters=db_filters,
+            fields=["name", "customer", "transaction_date", "delivery_date", "grand_total", "per_delivered", "status"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Order", "fieldname": "name", "fieldtype": "Link", "options": "Sales Order"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Delivery", "fieldname": "delivery_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Delivered %", "fieldname": "per_delivered", "fieldtype": "Percent"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Order", filters=db_filters),
+        }
+
+    if metric == "invoices_by_period":
+        frappe.has_permission("Sales Invoice", throw=True)
+        inv_period = f.get("invoice_period") or period
+        # Accept YYYY-MM (from attention rail softest-month click) or fall back
+        # to the normal date-filter window.
+        if inv_period and len(inv_period) == 7 and inv_period[4] == "-":
+            import calendar as _cal
+            y, m = int(inv_period[:4]), int(inv_period[5:7])
+            period_start = f"{y:04d}-{m:02d}-01"
+            last_day = _cal.monthrange(y, m)[1]
+            period_end = f"{y:04d}-{m:02d}-{last_day:02d}"
+            db_filters = {
+                "docstatus": 1, "is_return": 0,
+                "posting_date": ("between", [period_start, period_end]),
+            }
+        else:
+            db_filters = _net_invoice_filters(company, inv_period)
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "posting_date", "base_net_total", "territory"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
+                {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
+
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)
