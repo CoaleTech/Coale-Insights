@@ -25,7 +25,7 @@ class TestBriefs(unittest.TestCase):
     def test_scenarios_uses_simulation_count_from_payload(self):
         b = self.b["scenarios"]
         self.assertEqual(b["severity"], "high")
-        self.assertIn("46.1% of 1,000 simulated outcomes", b["headline"])
+        self.assertIn("47.4% of 1,000 simulated outcomes", b["headline"])
         self.assertIn("assumed 40% fixed-cost share", b["headline"])
 
     def test_comparison_handles_signs(self):

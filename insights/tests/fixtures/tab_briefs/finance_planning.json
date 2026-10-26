@@ -2298,176 +2298,176 @@
    "revenue": 72004163.9676362
   },
   "monte_carlo": {
-   "expense_volatility": 18.2,
+   "simulations": 1000,
+   "revenue_volatility": 26.0,
+   "expense_volatility": 27.4,
+   "percentiles": {
+    "p5": -44956874.581311725,
+    "p10": -37146871.199180275,
+    "p25": -18578390.4016338,
+    "p50": 1790404.4925829656,
+    "p75": 17517820.119918026,
+    "p90": 30743944.82453405,
+    "p95": 38393789.47880521
+   },
+   "mean": -935287.9928764437,
+   "std": 25942222.384029932,
+   "probability_of_loss": 47.4,
+   "probability_exceed_base": 48.5,
    "histogram": [
     {
-     "bin_end": -65027439.416279435,
-     "bin_start": -71609079.26740007,
-     "count": 3,
-     "probability": 0.3
+     "bin_start": -86199908.77268659,
+     "bin_end": -78527641.94237968,
+     "count": 1,
+     "probability": 0.1
     },
     {
-     "bin_end": -58445799.5651588,
-     "bin_start": -65027439.416279435,
-     "count": 3,
-     "probability": 0.3
+     "bin_start": -78527641.94237968,
+     "bin_end": -70855375.1120728,
+     "count": 4,
+     "probability": 0.4
     },
     {
-     "bin_end": -51864159.714038156,
-     "bin_start": -58445799.5651588,
-     "count": 7,
-     "probability": 0.7000000000000001
+     "bin_start": -70855375.1120728,
+     "bin_end": -63183108.28176589,
+     "count": 8,
+     "probability": 0.8
     },
     {
-     "bin_end": -45282519.86291752,
-     "bin_start": -51864159.714038156,
-     "count": 14,
-     "probability": 1.4000000000000001
+     "bin_start": -63183108.28176589,
+     "bin_end": -55510841.451459,
+     "count": 15,
+     "probability": 1.5
     },
     {
-     "bin_end": -38700880.011796884,
-     "bin_start": -45282519.86291752,
-     "count": 21,
-     "probability": 2.1
+     "bin_start": -55510841.451459,
+     "bin_end": -47838574.6211521,
+     "count": 13,
+     "probability": 1.3
     },
     {
-     "bin_end": -32119240.16067624,
-     "bin_start": -38700880.011796884,
-     "count": 36,
-     "probability": 3.5999999999999996
+     "bin_start": -47838574.6211521,
+     "bin_end": -40166307.7908452,
+     "count": 37,
+     "probability": 3.6999999999999997
     },
     {
-     "bin_end": -25537600.309555605,
-     "bin_start": -32119240.16067624,
-     "count": 47,
-     "probability": 4.7
+     "bin_start": -40166307.7908452,
+     "bin_end": -32494040.960538305,
+     "count": 46,
+     "probability": 4.6
     },
     {
-     "bin_end": -18955960.45843497,
-     "bin_start": -25537600.309555605,
-     "count": 62,
-     "probability": 6.2
+     "bin_start": -32494040.960538305,
+     "bin_end": -24821774.13023141,
+     "count": 65,
+     "probability": 6.5
     },
     {
-     "bin_end": -12374320.607314333,
-     "bin_start": -18955960.45843497,
-     "count": 84,
-     "probability": 8.4
+     "bin_start": -24821774.13023141,
+     "bin_end": -17149507.299924508,
+     "count": 72,
+     "probability": 7.199999999999999
     },
     {
-     "bin_end": -5792680.756193697,
-     "bin_start": -12374320.607314333,
-     "count": 105,
-     "probability": 10.5
+     "bin_start": -17149507.299924508,
+     "bin_end": -9477240.46961762,
+     "count": 86,
+     "probability": 8.6
     },
     {
-     "bin_end": 788959.0949269384,
-     "bin_start": -5792680.756193697,
-     "count": 93,
-     "probability": 9.3
+     "bin_start": -9477240.46961762,
+     "bin_end": -1804973.6393107176,
+     "count": 102,
+     "probability": 10.2
     },
     {
-     "bin_end": 7370598.946047589,
-     "bin_start": 788959.0949269384,
-     "count": 136,
-     "probability": 13.600000000000001
+     "bin_start": -1804973.6393107176,
+     "bin_end": 5867293.190996185,
+     "count": 126,
+     "probability": 12.6
     },
     {
-     "bin_end": 13952238.797168225,
-     "bin_start": 7370598.946047589,
-     "count": 111,
-     "probability": 11.1
+     "bin_start": 5867293.190996185,
+     "bin_end": 13539560.021303073,
+     "count": 118,
+     "probability": 11.799999999999999
     },
     {
-     "bin_end": 20533878.64828886,
-     "bin_start": 13952238.797168225,
-     "count": 114,
-     "probability": 11.4
+     "bin_start": 13539560.021303073,
+     "bin_end": 21211826.851609975,
+     "count": 95,
+     "probability": 9.5
     },
     {
-     "bin_end": 27115518.499409497,
-     "bin_start": 20533878.64828886,
-     "count": 78,
-     "probability": 7.8
+     "bin_start": 21211826.851609975,
+     "bin_end": 28884093.681916863,
+     "count": 96,
+     "probability": 9.6
     },
     {
-     "bin_end": 33697158.35053013,
-     "bin_start": 27115518.499409497,
-     "count": 39,
-     "probability": 3.9
+     "bin_start": 28884093.681916863,
+     "bin_end": 36556360.512223765,
+     "count": 58,
+     "probability": 5.800000000000001
     },
     {
-     "bin_end": 40278798.20165077,
-     "bin_start": 33697158.35053013,
-     "count": 23,
-     "probability": 2.3
+     "bin_start": 36556360.512223765,
+     "bin_end": 44228627.34253067,
+     "count": 30,
+     "probability": 3.0
     },
     {
-     "bin_end": 46860438.052771404,
-     "bin_start": 40278798.20165077,
-     "count": 16,
-     "probability": 1.6
+     "bin_start": 44228627.34253067,
+     "bin_end": 51900894.17283757,
+     "count": 15,
+     "probability": 1.5
     },
     {
-     "bin_end": 53442077.90389204,
-     "bin_start": 46860438.052771404,
-     "count": 5,
-     "probability": 0.5
+     "bin_start": 51900894.17283757,
+     "bin_end": 59573161.00314446,
+     "count": 10,
+     "probability": 1.0
     },
     {
-     "bin_end": 60023717.75501269,
-     "bin_start": 53442077.90389204,
+     "bin_start": 59573161.00314446,
+     "bin_end": 67245427.83345136,
      "count": 3,
      "probability": 0.3
     }
    ],
-   "mean": -27168.08959064543,
    "named_scenarios": [
     {
-     "description": "95th percentile outcome",
      "name": "Best Case (P95)",
-     "net_income": 32226614.627514914,
+     "description": "95th percentile outcome",
+     "net_income": 38393789.47880521,
      "probability": 5
     },
     {
-     "description": "75th percentile outcome",
      "name": "Optimistic (P75)",
-     "net_income": 15706121.823803928,
+     "description": "75th percentile outcome",
+     "net_income": 17517820.119918026,
      "probability": 25
     },
     {
-     "description": "Median expected outcome",
      "name": "Base Case (P50)",
-     "net_income": 1838669.8285792004,
+     "description": "Median expected outcome",
+     "net_income": 1790404.4925829656,
      "probability": 50
     },
     {
-     "description": "25th percentile outcome",
      "name": "Pessimistic (P25)",
-     "net_income": -14545098.108370256,
+     "description": "25th percentile outcome",
+     "net_income": -18578390.4016338,
      "probability": 25
     },
     {
-     "description": "5th percentile outcome",
      "name": "Worst Case (P5)",
-     "net_income": -38408541.20759168,
+     "description": "5th percentile outcome",
+     "net_income": -44956874.581311725,
      "probability": 5
     }
-   ],
-   "percentiles": {
-    "p10": -29548068.72850517,
-    "p25": -14545098.108370256,
-    "p5": -38408541.20759168,
-    "p50": 1838669.8285792004,
-    "p75": 15706121.823803928,
-    "p90": 25699297.961484067,
-    "p95": 32226614.627514914
-   },
-   "probability_exceed_base": 48.7,
-   "probability_of_loss": 46.1,
-   "revenue_volatility": 26.0,
-   "simulations": 1000,
-   "std": 21768245.01837843
+   ]
   },
   "sensitivity": {
    "expense_changes": [

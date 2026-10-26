@@ -152,7 +152,34 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     else:
         rev_volatility = 0.15  # Default 15% volatility
 
-    exp_volatility = rev_volatility * 0.7  # Expenses less volatile
+    # Expense volatility: computed from actual GL expense history over the same
+    # 12-month window. The previous code used `rev_volatility * 0.7` — a fixed
+    # multiplier that produced a fabricated figure (~18%) instead of the real
+    # value (~27% on this bench), severely underestimating expense risk in the
+    # Monte Carlo. Falls back to `rev_volatility * 0.7` only when there is
+    # insufficient history to compute it.
+    monthly_expenses = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            month_expr,
+            Abs(Sum(gle.debit - gle.credit)).as_("expenses"),
+        )
+        .where(acc.root_type == "Expense")
+        .where(gle.posting_date.between(twelve_months_ago, last_month_end))
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .groupby(month_expr)
+        .run(as_dict=True)
+    )
+    if monthly_expenses and len(monthly_expenses) > 1:
+        exp_values = [float(r.expenses or 0) for r in monthly_expenses]
+        exp_mean = np.mean(exp_values)
+        exp_std = np.std(exp_values)
+        exp_volatility = exp_std / exp_mean if exp_mean > 0 else (rev_volatility * 0.7)
+    else:
+        exp_volatility = rev_volatility * 0.7  # fallback when insufficient history
 
     # Run simulations
     np.random.seed(42)  # For reproducibility

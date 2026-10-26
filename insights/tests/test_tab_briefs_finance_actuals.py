@@ -53,3 +53,16 @@ class TestBriefs(unittest.TestCase):
         b = briefs(self.p)["forex"]
         self.assertEqual(b["severity"], "medium")
         self.assertIn("₹8,300,000 across 1 currency. 1 foreign currency invoice at risk.", b["headline"])
+
+    def test_payables_due_date_strips_time_component(self):
+        """Ibis returns due_date as a pandas Timestamp with 00:00:00; the
+        brief must emit only the date portion, never "2026-10-24 00:00:00"."""
+        import copy
+        p2 = copy.deepcopy(self.p)
+        # Simulate the Timestamp shape: a string with time appended (same
+        # str() rendering as pandas Timestamp in an f-string).
+        for u in p2["payables"]["upcoming_payments"]:
+            u["due_date"] = str(u["due_date"]) + " 00:00:00"
+        headline = briefs(p2)["payables"]["headline"]
+        self.assertNotIn("00:00:00", headline)
+        self.assertRegex(headline, r"on \d{4}-\d{2}-\d{2}[^:]")

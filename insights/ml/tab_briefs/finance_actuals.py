@@ -115,8 +115,9 @@ def _payables(p: dict):
         return brief("none", f"{money(pay['total_outstanding'], cur)} is outstanding across {plural(pay.get('invoice_count') or 0, 'invoice')}; none falls due in the next {DUE_SOON_DAYS} days.", details, actions)
     due = sum(_f(u["outstanding_amount"]) for u in soon)
     first = min(soon, key=lambda u: u["days_until_due"])
-    text = f"{plural(len(soon), 'invoice')} totalling {money(due, cur)} fall due within {DUE_SOON_DAYS} days, the first being {first['name']} ({money(first['outstanding_amount'], cur)}) on {first['due_date']}"
-    actions.insert(0, action(f"Pay or schedule invoices due within {DUE_SOON_DAYS} days", f"{plural(len(soon), 'invoice')} fall due, the first on {first['due_date']}.", impact=money(due, cur)))
+    first_due = str(first["due_date"])[:10]  # strip time component from pandas Timestamp
+    text = f"{plural(len(soon), 'invoice')} totalling {money(due, cur)} fall due within {DUE_SOON_DAYS} days, the first being {first['name']} ({money(first['outstanding_amount'], cur)}) on {first_due}"
+    actions.insert(0, action(f"Pay or schedule invoices due within {DUE_SOON_DAYS} days", f"{plural(len(soon), 'invoice')} fall due, the first on {first_due}.", impact=money(due, cur)))
     if liquid is None:
         return brief("medium", text + ".", details, actions)
     sev = "high" if due > _f(liquid) else "medium"
