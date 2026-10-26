@@ -95,7 +95,7 @@
         <!-- CCC circle: non-text fill from severity -->
         <div class="text-center">
           <div
-            :class="['w-24 h-24 rounded-full flex items-center justify-center mx-auto', severityFill(cccSeverity)]"
+            :class="['w-24 h-24 rounded-full flex items-center justify-center mx-auto', severityTint(cccSeverity)]"
             :aria-label="severityAria('Cash Conversion Cycle', cccSeverity, days(data?.cash_conversion_cycle, 0))"
             role="img"
           >
@@ -290,7 +290,7 @@ import {
   ArrowDownCircle,
   TrendingUp,
 } from 'lucide-vue-next'
-import { scoreSeverity, severityFill, severityAria, type Severity } from '../../utils/status'
+import { scoreSeverity, severityTint, severityAria, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
