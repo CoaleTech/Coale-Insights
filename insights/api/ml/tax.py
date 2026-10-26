@@ -144,8 +144,8 @@ def get_tax_detail(metric: str, filters: str) -> dict:
                 SI.name,
                 SI.customer,
                 SI.posting_date,
-                SI.grand_total,
-                SI.total_taxes_and_charges,
+                SI.base_grand_total.as_("grand_total"),
+                SI.base_total_taxes_and_charges.as_("total_taxes_and_charges"),
             )
             .where(
                 (SI.docstatus == 1)
@@ -201,7 +201,7 @@ def get_tax_detail(metric: str, filters: str) -> dict:
         SI = frappe.qb.DocType("Sales Invoice")
         query = (
             frappe.qb.from_(SI)
-            .select(SI.name, SI.customer, SI.posting_date, SI.gst_category, SI.grand_total)
+            .select(SI.name, SI.customer, SI.posting_date, SI.gst_category, SI.base_grand_total.as_("grand_total"))
             .where(
                 (SI.docstatus == 1)
                 & SI.gst_category.isin(needs_irn_categories)
@@ -244,7 +244,7 @@ def get_tax_detail(metric: str, filters: str) -> dict:
         SI = frappe.qb.DocType("Sales Invoice")
         query = (
             frappe.qb.from_(SI)
-            .select(SI.name, SI.customer, SI.posting_date, SI.grand_total)
+            .select(SI.name, SI.customer, SI.posting_date, SI.base_grand_total.as_("grand_total"))
             .where(
                 (SI.docstatus == 1)
                 & (SI.e_waybill_status == "Pending")

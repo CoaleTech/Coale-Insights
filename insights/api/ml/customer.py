@@ -453,7 +453,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "base_net_total", "grand_total", "outstanding_amount"],
+            fields=["name", "customer", "posting_date", "base_net_total", "base_grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by=order_by,
             ignore_permissions=False,
         )
@@ -463,7 +463,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
-                {"label": "Total (incl. tax)", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total (incl. tax)", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
             ],
             "rows": rows,
@@ -566,7 +566,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "posting_date", "due_date", "base_net_total", "grand_total", "outstanding_amount", "status"],
+            fields=["name", "posting_date", "due_date", "base_net_total", "base_grand_total", "outstanding_amount", "status"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -576,7 +576,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
-                {"label": "Total (incl. tax)", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total (incl. tax)", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
             ],

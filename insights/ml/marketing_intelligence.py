@@ -719,7 +719,7 @@ class MarketingIntelligence:
 
             total_sales_value = float(
                 _scalar(
-                    so.aggregate(value=so["grand_total"].sum()),
+                    so.aggregate(value=so["base_grand_total"].sum()),
                     default=0.0,
                 )
             )
@@ -986,7 +986,7 @@ class MarketingIntelligence:
             )
             total_attributed_revenue = float(
                 _scalar(
-                    so.aggregate(value=so["grand_total"].sum()),
+                    so.aggregate(value=so["base_grand_total"].sum()),
                     default=0.0,
                 )
             )

@@ -610,7 +610,7 @@ def get_executive_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Order",
             filters=db_filters,
-            fields=["name", "customer", "transaction_date", "grand_total", "status"],
+            fields=["name", "customer", "transaction_date", "base_grand_total", "status"],
             start=start, page_length=page_size, order_by="transaction_date desc",
             ignore_permissions=False,
         )
@@ -619,7 +619,7 @@ def get_executive_detail(metric: str, filters: str) -> dict:
                 {"label": _("Order"), "fieldname": "name", "fieldtype": "Link", "options": "Sales Order"},
                 {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": _("Date"), "fieldname": "transaction_date", "fieldtype": "Date"},
-                {"label": _("Total"), "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": _("Total"), "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": _("Status"), "fieldname": "status", "fieldtype": "Data"},
             ],
             "rows": rows,

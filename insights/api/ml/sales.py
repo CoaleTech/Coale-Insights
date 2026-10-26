@@ -311,7 +311,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Order",
             filters=db_filters,
-            fields=["name", "customer", "transaction_date", "delivery_date", "grand_total", "status"],
+            fields=["name", "customer", "transaction_date", "delivery_date", "base_grand_total", "status"],
             start=start, page_length=page_size, order_by="transaction_date desc",
             ignore_permissions=False,
         )
@@ -321,7 +321,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
                 {"label": "Delivery", "fieldname": "delivery_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
             ],
             "rows": rows,
@@ -374,7 +374,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Quotation",
             filters=db_filters,
-            fields=["name", "party_name", "transaction_date", "grand_total", "status", "order_lost_reason"],
+            fields=["name", "party_name", "transaction_date", "base_grand_total", "status", "order_lost_reason"],
             start=start, page_length=page_size, order_by="transaction_date desc",
             ignore_permissions=False,
         )
@@ -383,7 +383,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Quotation", "fieldname": "name", "fieldtype": "Link", "options": "Quotation"},
                 {"label": "Party", "fieldname": "party_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
                 {"label": "Lost Reason", "fieldname": "order_lost_reason", "fieldtype": "Data"},
             ],
@@ -435,7 +435,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "grand_total", "outstanding_amount", "territory"],
+            fields=["name", "customer", "posting_date", "base_grand_total", "outstanding_amount", "territory"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -444,7 +444,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
-                {"label": "Grand Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Grand Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
                 {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
             ],
@@ -462,7 +462,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Order",
             filters=db_filters,
-            fields=["name", "customer", "transaction_date", "delivery_date", "grand_total", "per_delivered", "status"],
+            fields=["name", "customer", "transaction_date", "delivery_date", "base_grand_total", "per_delivered", "status"],
             start=start, page_length=page_size, order_by="transaction_date desc",
             ignore_permissions=False,
         )
@@ -472,7 +472,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
                 {"label": "Delivery", "fieldname": "delivery_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Delivered %", "fieldname": "per_delivered", "fieldtype": "Percent"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
             ],
