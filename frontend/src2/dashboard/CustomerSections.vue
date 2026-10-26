@@ -817,12 +817,15 @@ const geoStrip = computed<StatItem[]>(() => {
   ]
 })
 
-const actionsStrip = computed<StatItem[]>(() => [
-  { label: 'Customers Flagged', value: formatNumber(nextActionsTotal.value), sublabel: `${actionsSummary.value.high} high priority${nextActionsTotal.value > nextActions.value.length ? ` (of top ${nextActions.value.length})` : ''}` },
-  { label: 'Revenue at Risk', amount: actionsSummary.value.revenueAtRisk, sublabel: 'churn + re-engagement', tone: actionsSummary.value.revenueAtRisk > 0 ? 'neg' : undefined },
-  { label: 'Outstanding to Collect', amount: actionsSummary.value.outstanding, sublabel: 'payment follow-ups', tone: actionsSummary.value.outstanding > 0 ? 'warn' : undefined },
-  { label: 'Upsell + Nurture Upside', amount: actionsSummary.value.upside, sublabel: 'predicted 12-mo value' },
-])
+const actionsStrip = computed<StatItem[]>(() => {
+  const scope = nextActionsTotal.value > nextActions.value.length ? ` · top ${nextActions.value.length} customers` : ''
+  return [
+    { label: 'Customers Flagged', value: formatNumber(nextActionsTotal.value), sublabel: `${actionsSummary.value.high} high priority${nextActionsTotal.value > nextActions.value.length ? ` (of top ${nextActions.value.length})` : ''}` },
+    { label: 'Revenue at Risk', amount: actionsSummary.value.revenueAtRisk, sublabel: `churn + re-engagement${scope}`, tone: actionsSummary.value.revenueAtRisk > 0 ? 'neg' : undefined },
+    { label: 'Outstanding to Collect', amount: actionsSummary.value.outstanding, sublabel: `payment follow-ups${scope}`, tone: actionsSummary.value.outstanding > 0 ? 'warn' : undefined },
+    { label: 'Upsell + Nurture Upside', amount: actionsSummary.value.upside, sublabel: `predicted 12-mo value${scope}` },
+  ]
+})
 
 const cohortStrip = computed<StatItem[]>(() => {
   const avg = (cohortAnalysis.value.average_retention ?? {}) as Record<string, number>

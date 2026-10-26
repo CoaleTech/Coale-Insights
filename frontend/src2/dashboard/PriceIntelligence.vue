@@ -65,13 +65,13 @@
 						label="Items below valuation"
 						:value="belowValuation.length"
 						:severity="belowValuation.length ? 'critical' : 'good'"
-						sublabel="Sold under stock cost"
+						:sublabel="`Sold under stock cost, among the top ${marginRows.length} by revenue`"
 					/>
 					<KpiCard
 						label="Discount given"
 						:amount="totalDiscount"
 						:currency="currency"
-						sublabel="Against list price"
+						:sublabel="`Against list price, all items; the ${discountRows.length} largest are listed below`"
 					/>
 					<KpiCard
 						label="Quotations under floor"
@@ -289,6 +289,7 @@ interface PriceData {
 	lookback_days?: number
 	margin_by_item?: MarginRow[]
 	discount_pressure?: DiscountRow[]
+	discount_total?: number
 	floor_breaches?: GuardedSection<BreachRow>
 	approval_queue?: GuardedSection<QueueRow>
 }
@@ -331,9 +332,7 @@ const belowValuation = computed(() =>
 	marginRows.value.filter((row) => (row.margin_per_unit ?? 0) < 0),
 )
 
-const totalDiscount = computed(() =>
-	discountRows.value.reduce((sum, row) => sum + (row.discount_value ?? 0), 0),
-)
+const totalDiscount = computed(() => data.value?.discount_total ?? 0)
 
 /* The KPI's sublabel must not imply "zero breaches" when the section could not
  * be computed at all — the two are different claims. */

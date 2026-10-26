@@ -295,7 +295,7 @@ def _margin_columns(row: dict[str, Any]) -> None:
     row["margin_pct"] = round(margin / avg_rate * 100, 1)
 
 
-def _discount_pressure(company: str | None, limit: int = 15) -> list[dict[str, Any]]:
+def _discount_pressure(company: str | None, limit: int | None = 15) -> list[dict[str, Any]]:
     """Where the list price is not holding.
 
     ``price_list_rate`` is the pre-discount reference ERPNext itself stamped on
@@ -449,6 +449,7 @@ def _approval_queue(company: str | None) -> dict[str, Any]:
 def get_selling_price_intelligence() -> dict[str, Any]:
     """The whole Price Intelligence dashboard payload."""
     company = default_company()
+    discounts = _discount_pressure(company, limit=None)
     return {
         "status": "success",
         "company": company,
@@ -457,7 +458,10 @@ def get_selling_price_intelligence() -> dict[str, Any]:
         else None,
         "lookback_days": _LOOKBACK_DAYS,
         "margin_by_item": _realised_margin(company),
-        "discount_pressure": _discount_pressure(company),
+        "discount_pressure": discounts[:15],
+        # Every discounted item, not just the 15 listed: the card must not
+        # understate the discount given by dropping the long tail.
+        "discount_total": sum(r["discount_value"] for r in discounts),
         "floor_breaches": _floor_breaches(),
         "approval_queue": _approval_queue(company),
     }
