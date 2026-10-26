@@ -911,13 +911,14 @@ class InventoryIntelligence:
             if current_raw is None:
                 continue  # not in active SKU population
             current = float(current_raw or 0)
-            rl = float(rl_map.get(item, 0) or 0)
-            if current <= max(rl, avg_daily * 14):
+            threshold = max(float(rl_map.get(item, 0) or 0), avg_daily * 14)
+            if current <= threshold:
                 candidates.append(
                     {
                         "item_code": item,
                         "current_stock": current,
-                        "reorder_level": rl,
+                        # effective trigger: configured level or 14 days of demand, whichever is higher
+                        "reorder_level": round(threshold, 1),
                         "avg_daily_demand": avg_daily,
                     }
                 )
