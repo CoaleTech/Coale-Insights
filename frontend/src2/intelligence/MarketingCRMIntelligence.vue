@@ -333,7 +333,7 @@
           <TabBrief :brief="tabBriefs.channels" :as-of="data?.data_freshness?.latest_activity ?? undefined" />
           <StatStrip :items="channelsStrip" :currency="currency" />
           <div v-if="wonBars.length" class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
-            <SectionHeader variant="caption" title="Won revenue by channel" :hint="`Top ${wonBars.length}, ${currency} won`" />
+            <SectionHeader variant="caption" title="Won revenue by channel" :hint="`Top ${wonBars.length}, ${currency} won, all time`" />
             <ul class="mt-3 space-y-3">
               <li v-for="row in wonBars" :key="row.source">
                 <div class="flex items-baseline justify-between gap-3 text-sm">
