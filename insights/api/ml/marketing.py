@@ -485,6 +485,11 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     # period the user chose. open_value stays all-time (a Draft quote is live
     # pipeline whether it was raised yesterday or a year ago).
     won_value = float(period_by_status.get("Ordered", {}).get("value") or 0)
+    # Period-scoped won COUNT -- used as the drill-down denominator so the
+    # "X orders" sublabel next to won_value and the drill total both reflect
+    # the same window (audit fix 2026-10-26: all-time count was shown next to
+    # a period-scoped value, making 271 TTM orders appear as 585).
+    period_won_count = int(period_by_status.get("Ordered", {}).get("count") or 0)
     expired_value = float(period_by_status.get("Expired", {}).get("value") or 0)
     decided_value = won_value + expired_value + float(
         period_by_status.get("Lost", {}).get("value") or 0
@@ -694,9 +699,11 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
             "lead_conversion_rate": round(converted / total * 100, 1) if total else 0,
             "open_quote_value": open_value,
             "won_value": won_value,
+            "period_won_count": period_won_count,
             "expired_value": expired_value,
             "win_rate_by_value": round(won_value / decided_value * 100, 1) if decided_value else 0,
         },
+        "period_start": start_str,
         "funnel": funnel,
         "source_performance": source_rows,
         "lead_trend": trend,
@@ -814,11 +821,19 @@ def get_crm_detail(metric: str, filters: str) -> dict:
         # `_compute_marketing_overview`: docstatus < 2 (Draft + Submitted,
         # excludes Cancelled), not period-filtered -- same population the
         # funnel counts, so the drill-down total matches the stage number.
+        # creation_from (optional): when the caller passes the period start date
+        # (e.g. the "Won (ordered)" KPI row whose value is period-scoped), the
+        # drill is restricted to the same window so the money total reconciles.
+        # Draft (Open pipeline) rows do NOT pass creation_from: an open quote is
+        # live pipeline regardless of when it was raised (all-time is intentional).
         frappe.has_permission("Quotation", throw=True)
         db_filters = {"docstatus": ("<", 2)}
         status = f.get("status")
         if status:
             db_filters["status"] = ("in", status) if isinstance(status, list) else status
+        creation_from = f.get("creation_from")
+        if creation_from:
+            db_filters["creation"] = (">=", creation_from)
         rows = frappe.get_list(
             "Quotation",
             filters=db_filters,

@@ -235,13 +235,13 @@
                   <div
                     class="flex items-baseline justify-between gap-2 py-2.5 -mx-2 rounded px-2 cursor-pointer hover:bg-surface-gray-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
                     tabindex="0"
-                    @click="drillDown.open(CRM_ENDPOINT, 'Ordered Quotations', { metric: 'quotations', status: 'Ordered' })"
-                    @keydown.enter="drillDown.open(CRM_ENDPOINT, 'Ordered Quotations', { metric: 'quotations', status: 'Ordered' })"
+                    @click="drillDown.open(CRM_ENDPOINT, 'Ordered Quotations', { metric: 'quotations', status: 'Ordered', creation_from: data?.period_start })"
+                    @keydown.enter="drillDown.open(CRM_ENDPOINT, 'Ordered Quotations', { metric: 'quotations', status: 'Ordered', creation_from: data?.period_start })"
                   >
                     <dt class="text-sm text-ink-gray-7">Won (ordered)</dt>
                     <dd class="flex flex-shrink-0 items-baseline gap-2 text-right">
                       <span class="tnum text-sm font-semibold text-ink-gray-9">{{ formatMoney(kpis.won_value, currency, { compact: true }) }}</span>
-                      <span v-if="funnel[3]?.doc_count" class="text-xs text-ink-gray-5">{{ formatNumber(funnel[3].doc_count) }} orders</span>
+                      <span v-if="kpis.period_won_count" class="text-xs text-ink-gray-5">{{ formatNumber(kpis.period_won_count) }} orders</span>
                     </dd>
                   </div>
                   <div class="flex items-baseline justify-between gap-2 py-2.5">
@@ -665,9 +665,14 @@ interface MarketingPayload {
     lead_conversion_rate?: number
     open_quote_value?: number
     won_value?: number
+    /** Period-scoped ordered quotation count — matches the won_value window. */
+    period_won_count?: number
     expired_value?: number
     win_rate_by_value?: number
   }
+  /** ISO date string of the period start; passed to the Won drill so the drill
+   *  total matches kpis.won_value (audit fix 2026-10-26). */
+  period_start?: string
   funnel?: FunnelStage[]
   source_performance?: SourceRow[]
   lead_trend?: TrendPoint[]
@@ -723,6 +728,7 @@ const kpis = computed(() => ({
   lead_conversion_rate: data.value?.kpis?.lead_conversion_rate ?? 0,
   open_quote_value: data.value?.kpis?.open_quote_value ?? 0,
   won_value: data.value?.kpis?.won_value ?? 0,
+  period_won_count: data.value?.kpis?.period_won_count ?? 0,
   expired_value: data.value?.kpis?.expired_value ?? 0,
   win_rate_by_value: data.value?.kpis?.win_rate_by_value ?? 0,
 }))
