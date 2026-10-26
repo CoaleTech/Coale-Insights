@@ -985,13 +985,13 @@ const overviewFilingRows = computed<FilingStatusRow[]>(() => {
   const rows: FilingStatusRow[] = [
     {
       label: 'GSTR-1',
-      value: `${g1.filed ?? '-'}/${g1.total ?? '-'}`,
+      value: `${g1.filed_due ?? '-'}/${g1.due ?? '-'}`,
       status: (g1.overdue ?? 0) > 0 ? `${g1.overdue} OVERDUE` : (g1.status ?? '-'),
       severity: filingSeverity(g1.status),
     },
     {
       label: 'GSTR-3B',
-      value: `${g3.filed ?? '-'}/${g3.total ?? '-'}`,
+      value: `${g3.filed_due ?? '-'}/${g3.due ?? '-'}`,
       status: (g3.overdue ?? 0) > 0 ? `${g3.overdue} OVERDUE` : (g3.status ?? '-'),
       severity: filingSeverity(g3.status),
     },
@@ -1014,8 +1014,8 @@ const overviewFilingRows = computed<FilingStatusRow[]>(() => {
     },
     {
       label: 'TDS Challan',
-      value: formatCurrency(asNumber(tdsSummary.value.total_payable)),
-      status: 'Payable',
+      value: formatCurrency(tdsChallans.value.total),
+      status: tdsChallans.value.total > 0 ? 'Payable' : 'Settled',
       severity: 'none',
     },
   )
@@ -1155,7 +1155,7 @@ const complianceStrip = computed<StatItem[]>(() => {
   ]
 })
 const tdsStrip = computed<StatItem[]>(() => [
-  { label: 'TDS Payable', amount: tdsSummary.value.total_payable ?? null },
+  { label: 'TDS Deducted', sublabel: 'on supplier bills', amount: tdsSummary.value.total_payable ?? null },
   { label: 'RCM Gap', amount: rcmSummary.value.gap ?? null, sublabel: 'books vs portal' },
   { label: 'TDS Receivable', amount: tdsSummary.value.receivable ?? null },
   { label: 'PAN Exceptions', value: panSummary.value.suppliers_missing_pan ?? null },
@@ -2225,7 +2225,7 @@ const actionsStrip = computed<StatItem[]>(() => [
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader
                   variant="caption"
-                  :title="tdsHasSections ? 'TDS Payable by Section' : 'TDS Payable by Account Head'"
+                  :title="tdsHasSections ? 'TDS Deducted by Section' : 'TDS Deducted by Account Head'"
                   :hint="tdsHasSections ? undefined : 'Name the GL heads per section (194C, 194J, ...) to attribute rates and thresholds'"
                   :level="3"
                 />

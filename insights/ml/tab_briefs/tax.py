@@ -49,10 +49,10 @@ def _gst(p: dict):
             if rec.get(k + "_count") is not None
         ) + f" of {(rec.get('total_count') or 0):,}.",
     )]
-    if itc.get("available") is not None:
+    if itc.get("accrued") is not None:
         details.append(detail(
             "ITC",
-            f"{money(itc['available'], cur)} available, {money(itc.get('utilised'), cur)} utilised ({itc.get('utilization_pct')}%), "
+            f"{money(itc['accrued'], cur)} accrued, {money(itc.get('utilised'), cur)} utilised ({itc.get('utilization_pct')}%), "
             f"{money(itc.get('balance'), cur)} balance.",
         ))
     fc = p.get("filing_compliance") or {}
@@ -127,9 +127,11 @@ def _tds(p: dict):
             f"RCM books-to-portal gap is {money(rcm['gap'], cur)}: books {money((rcm.get('books') or {}).get('tax'), cur)} "
             f"against portal {money((rcm.get('portal') or {}).get('tax'), cur)}."
         )
-    late = [t for t in (p.get("tax_cash_outlook") or {}).get("tds_periods") or [] if t.get("overdue")]
+    periods = (p.get("tax_cash_outlook") or {}).get("tds_periods") or []
+    late = [t for t in periods if t.get("overdue")]
+    owed = sum(t.get("amount") or 0 for t in periods)
     if tds.get("total_payable"):
-        text = f"TDS payable is {money(tds['total_payable'], cur)}"
+        text = f"TDS deducted in the window is {money(tds['total_payable'], cur)}; {money(owed, cur)} is still to be deposited"
         parts.append(text + (f", {plural(len(late), 'period')} overdue." if late else "."))
     if not parts:
         return None
@@ -139,7 +141,7 @@ def _tds(p: dict):
         details.append(detail("RCM", f"Books hold {plural(b.get('invoices') or 0, 'invoice')}; the portal shows {plural(pt.get('rows') or 0, 'row')}."))
         actions.append(action("Reconcile RCM against the portal", "Books and portal tax differ.", impact=money(rcm["gap"], cur)))
     if tds.get("total_payable"):
-        details.append(detail("TDS position", f"{money(tds['total_payable'], cur)} payable and {money(tds.get('receivable'), cur)} receivable, net {money(tds.get('net_position'), cur)}."))
+        details.append(detail("TDS position", f"{money(tds['total_payable'], cur)} deducted and {money(tds.get('receivable'), cur)} receivable, net {money(tds.get('net_position'), cur)}."))
         if late:
             actions.append(action(
                 "Deposit overdue TDS",

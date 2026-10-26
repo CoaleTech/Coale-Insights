@@ -630,30 +630,37 @@ def _gstr3b_filing_status(intelligence) -> Dict[str, Optional[str]]:
 
 
 def _tds_accrual_by_month(intelligence, start: date, end: date) -> Dict[str, float]:
-    """TDS deducted per posting month, keyed ``YYYY-MM``.
+    """TDS still owed per posting month, keyed ``YYYY-MM``.
 
-    Same account-head match as :func:`data.get_tds_summary` — there is no
-    dedicated TDS flag on a charge row — grouped by month so each period can be
-    placed on its own challan due date instead of apportioned.
+    Credits to the TDS liability accounts per month, less every deposit
+    (debit) applied oldest-first, so a month the books already settled is not
+    reported as an unpaid challan. The residue sums to the GL liability balance.
     """
-    pi = _company_filter(t("Purchase Invoice"), intelligence.company)
-    pi = _docstatus_filter(pi)
-    pi = _date_filter(pi, start, end, "posting_date")
-    ptc = t("Purchase Taxes and Charges")
-    joined = pi.join(ptc, pi["name"] == ptc["parent"], how="inner")
-    head = ptc["account_head"].lower()
-    filtered = joined.filter(head.like("%tds%") | head.like("%tax deducted%"))
-    agg = filtered.group_by(
-        pi["posting_date"].strftime("%Y-%m").name("month")
-    ).aggregate(amount=filtered["base_tax_amount"].abs().sum())
-    df = agg.execute()
-    if df is None or df.empty:
-        return {}
-    return {
-        str(r["month"]): float(r["amount"] or 0)
-        for _, r in df.iterrows()
-        if r.get("month")
-    }
+    company_sql = "and gle.company = %(company)s" if intelligence.company else ""
+    rows = frappe.db.sql(
+        f"""
+        select date_format(gle.posting_date, '%%Y-%%m') as month,
+               sum(gle.credit) as credit, sum(gle.debit) as debit
+        from `tabGL Entry` gle
+        join `tabAccount` a on a.name = gle.account
+        where gle.is_cancelled = 0 and a.root_type = 'Liability'
+          and (lower(a.account_name) like '%%tds%%' or lower(a.account_name) like '%%tax deducted%%')
+          and lower(a.account_name) not like '%%interest%%'
+          and gle.posting_date <= %(end)s {company_sql}
+        group by month order by month
+        """,
+        {"end": end, "company": intelligence.company},
+        as_dict=True,
+    )
+    paid = sum(float(r.debit or 0) for r in rows)
+    out: Dict[str, float] = {}
+    for r in rows:
+        owed = float(r.credit or 0)
+        applied = min(paid, owed)
+        paid -= applied
+        if owed - applied > 0.005:
+            out[str(r.month)] = owed - applied
+    return out
 
 
 def _due_date_for_period(period: str, day: int) -> Optional[date]:
@@ -993,8 +1000,8 @@ def get_compliance_matrix(
                 "percent",
             ),
             "filing": _cell(
-                f"{gstr3b.get('filed') or 0}/{gstr3b.get('total') or 0} GSTR-3B",
-                f"GSTR-1 {gstr1.get('filed') or 0}/{gstr1.get('total') or 0}",
+                f"{gstr3b.get('filed_due') or 0}/{gstr3b.get('due') or 0} GSTR-3B",
+                f"GSTR-1 {gstr1.get('filed_due') or 0}/{gstr1.get('due') or 0}",
             ),
             "evidence": _cell(
                 round(float((einvoice or {}).get("coverage_pct") or 0), 2),
