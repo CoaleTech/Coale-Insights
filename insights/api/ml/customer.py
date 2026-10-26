@@ -430,6 +430,47 @@ def get_customer_detail(metric: str, filters: str) -> dict:
             "total": frappe.db.count("Customer", filters=db_filters),
         }
 
+    if metric == "customer_revenue":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters = _in_window({"docstatus": 1, "is_return": 0}, default="12m")
+        if company:
+            db_filters["company"] = company
+        kw = dict(filters=db_filters, group_by="customer", ignore_permissions=False)
+        rows = frappe.get_list(
+            "Sales Invoice",
+            fields=["customer", {"SUM": "base_net_total", "as": "revenue"}, {"COUNT": "name", "as": "invoices"}],
+            order_by="revenue desc", start=start, page_length=page_size, **kw,
+        )
+        return {
+            "columns": [
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Invoices", "fieldname": "invoices", "fieldtype": "Int"},
+                {"label": "Net Revenue", "fieldname": "revenue", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": len(frappe.get_list("Sales Invoice", pluck="customer", page_length=0, **kw)),
+        }
+
+    if metric == "customers_by_health":
+        frappe.has_permission("Customer", throw=True)
+        # Same cache entry the dashboard reads (keyed on the caller's company, not the user default).
+        payload = customer_intelligence(date_filter=date_filter or "12m", company=f.get("company"))
+        if payload.get("status") == "warming":
+            frappe.throw(_("Customer intelligence is still being computed. Try again shortly."))
+        custs = sorted(payload.get("data", {}).get("customers", []), key=lambda c: c["health_score"])
+        return {
+            "columns": [
+                {"label": "Customer", "fieldname": "customer_id", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
+                {"label": "Health Score", "fieldname": "health_score", "fieldtype": "Float"},
+                {"label": "Health Status", "fieldname": "health_status", "fieldtype": "Data"},
+                {"label": "Churn Risk", "fieldname": "churn_risk", "fieldtype": "Data"},
+                {"label": "Revenue to Date", "fieldname": "historical_clv", "fieldtype": "Currency"},
+            ],
+            "rows": custs[start:start + page_size],
+            "total": len(custs),
+        }
+
     if metric == "top_customers":
         frappe.has_permission("Sales Invoice", throw=True)
         # Revenue KPIs are submitted, non-return invoices in the window.

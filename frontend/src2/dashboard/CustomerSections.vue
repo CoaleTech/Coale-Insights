@@ -1002,7 +1002,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
           </span>
           <button
             class="ml-auto text-xs text-accent hover:underline"
-            @click="drillOpen('Top Customers', { metric: 'top_customers' })"
+            @click="drillOpen('Customers by Revenue', { metric: 'customer_revenue', date_filter: props.dateFilter })"
           >
             View rankings →
           </button>
@@ -1146,7 +1146,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
         </div>
         <button
           class="mt-2 text-xs text-accent hover:underline"
-          @click="drillOpen('Customers by Health Status', { metric: 'top_customers', date_filter: props.dateFilter })"
+          @click="drillOpen('Customers by Health Status', { metric: 'customers_by_health', date_filter: props.dateFilter })"
         >
           View customers →
         </button>
