@@ -34,7 +34,7 @@
         <KpiCard label="Gross Profit (YTD)" :amount="data.figures.gross_profit ?? undefined" :currency="currency" />
         <KpiCard label="Net Profit (YTD)" :amount="data.figures.net_profit" :currency="currency" />
         <KpiCard label="Salary Cost (YTD)" :amount="data.figures.salary_cost" :currency="currency" />
-        <KpiCard label="Fixed Cost (YTD)" :amount="data.figures.fixed_cost" :currency="currency" :clickable="true" @click="drillDown.open(finEndpoint, 'Fixed Costs', { metric: 'cost_structure_accounts' })" />
+        <KpiCard label="Fixed Cost (YTD)" :amount="data.figures.fixed_cost" :currency="currency" :clickable="data.figures.fixed_cost != null" @click="data.figures.fixed_cost != null && drillDown.open(finEndpoint, 'Fixed Costs', { metric: 'cost_structure_accounts' })" />
       </div>
 
       <!-- Revenue to profit waterfall: every step is arithmetic on the figures above -->
