@@ -58,7 +58,7 @@
          as a row with the badge trailing. -->
     <div
       class="flex min-w-0 gap-2"
-      :class="variant === 'tile' ? 'flex-col items-center' : 'items-start justify-between'"
+      :class="variant === 'tile' ? 'flex-col items-center' : 'flex-wrap items-start justify-between'"
     >
       <span class="min-w-0 text-sm text-ink-gray-6">{{ label }}</span>
       <!--
