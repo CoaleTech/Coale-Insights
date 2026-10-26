@@ -96,7 +96,9 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     # Calculate average daily flow
     if historical:
         daily_flows = [float(h.net_flow or 0) for h in historical]
-        avg_daily_flow = float(np.mean(daily_flows)) if daily_flows else 0
+        # Per calendar day of the window, not per day that happened to have a
+        # ledger entry (which overstated the daily rate by ~1.7x here).
+        avg_daily_flow = sum(daily_flows) / 90
         std_daily_flow = float(np.std(daily_flows)) if len(daily_flows) > 1 else abs(avg_daily_flow) * 0.3
     else:
         avg_daily_flow = 0

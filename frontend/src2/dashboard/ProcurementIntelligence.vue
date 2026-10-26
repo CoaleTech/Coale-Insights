@@ -1081,7 +1081,7 @@ const baseCurrency = computed(() => procurementData.value?.base_currency)
 const lastUpdated = computed(() => procurementData.value?.generated_at ?? null)
 const tabBriefs = computed(() => procurementData.value?.tab_briefs ?? {})
 const suppliersStrip = computed<StatItem[]>(() => [
-  { label: 'Suppliers Scored', value: supplierData.value.all_suppliers?.length || null },
+  { label: 'Suppliers Scored', value: supplierData.value.all_suppliers?.length || null, sublabel: 'top by spend, 2+ POs' },
   { label: 'Avg Performance Score', value: supplierData.value.avg_score ?? null, unit: '/100' },
   { label: 'Avg On-Time Rate', percent: supplierData.value.avg_on_time_rate ?? null },
   { label: qualityStatus.value === 'not_implemented' ? 'Avg Quality Rate (not tracked)' : 'Avg Quality Rate', percent: qualityStatus.value === 'not_implemented' ? null : (supplierData.value.avg_quality_rate ?? null) },

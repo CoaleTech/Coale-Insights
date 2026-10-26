@@ -48,10 +48,10 @@ const topLeads = computed<ScoredLead[]>(
 )
 const bySource = computed<SourceRate[]>(() => (leads.data.value?.by_source ?? []) as SourceRate[])
 const strip = computed<StatItem[]>(() => [
-  { label: 'Closed Leads Learned From', value: training.value.closed_total ?? null },
+  { label: 'Closed Leads Learned From', value: training.value.closed_total ?? null, sublabel: training.value.months_back ? `created in last ${training.value.months_back} months` : undefined },
   { label: 'Won', value: training.value.won ?? null },
   { label: 'Lost', value: training.value.lost ?? null },
-  { label: 'Open Leads Scored', value: training.value.open_scored ?? null },
+  { label: 'Open Leads Scored', value: training.value.open_scored ?? null, sublabel: 'highest-ranked only' },
   { label: 'Overall Win Rate', percent: (leads.data.value?.conversion_rate as number | undefined) ?? null },
 ])
 const asOf = computed(() => leads.data.value?.generated_at as string | undefined)

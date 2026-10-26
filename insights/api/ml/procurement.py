@@ -144,10 +144,10 @@ def ProcurementIntelligence(date_filter: str = "12m"):
 # ---------------------------------------------------------------------------
 
 _PO = {"label": "PO", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Order"}
-_PO_SUPPLIER = {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"}
+_PO_SUPPLIER = {"label": "Supplier", "fieldname": "supplier_name", "fieldtype": "Data"}
 _PO_DATE = {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"}
 _PO_EXPECTED = {"label": "Expected", "fieldname": "schedule_date", "fieldtype": "Date"}
-_PO_TOTAL = {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"}
+_PO_TOTAL = {"label": "Total", "fieldname": "base_grand_total", "fieldtype": "Currency"}
 _PO_STATUS = {"label": "Status", "fieldname": "status", "fieldtype": "Data"}
 _PO_RECEIVED = {"label": "% Received", "fieldname": "per_received", "fieldtype": "Percent"}
 
@@ -208,7 +208,7 @@ def get_procurement_detail(metric: str, filters: str) -> dict:
             db_filters["supplier"] = f["supplier"]
         return _detail(
             "Purchase Order", db_filters,
-            ["name", "supplier", "transaction_date", "schedule_date", "grand_total", "status"],
+            ["name", "supplier_name", "transaction_date", "schedule_date", "base_grand_total", "status"],
             [_PO, _PO_SUPPLIER, _PO_DATE, _PO_EXPECTED, _PO_TOTAL, _PO_STATUS],
             "transaction_date desc", start,
         )
@@ -220,7 +220,7 @@ def get_procurement_detail(metric: str, filters: str) -> dict:
             db_filters["company"] = company
         return _detail(
             "Purchase Order", db_filters,
-            ["name", "supplier", "transaction_date", "schedule_date", "grand_total", "status", "per_received"],
+            ["name", "supplier_name", "transaction_date", "schedule_date", "base_grand_total", "status", "per_received"],
             [_PO, _PO_SUPPLIER, _PO_EXPECTED, _PO_TOTAL, _PO_STATUS, _PO_RECEIVED],
             "schedule_date asc", start,
         )
@@ -237,7 +237,7 @@ def get_procurement_detail(metric: str, filters: str) -> dict:
             db_filters["company"] = company
         return _detail(
             "Purchase Order", db_filters,
-            ["name", "supplier", "transaction_date", "schedule_date", "grand_total", "per_received"],
+            ["name", "supplier_name", "transaction_date", "schedule_date", "base_grand_total", "per_received"],
             [_PO, _PO_SUPPLIER, _PO_EXPECTED, _PO_TOTAL, _PO_RECEIVED],
             "schedule_date asc", start,
         )
@@ -269,7 +269,7 @@ def get_procurement_detail(metric: str, filters: str) -> dict:
         fields = ["name", "posting_date", "due_date", "base_grand_total", "outstanding_amount", "status"]
         if metric == "overdue_invoices":
             columns.insert(1, _PO_SUPPLIER)
-            fields.insert(1, "supplier")
+            fields.insert(1, "supplier_name")
         return _detail("Purchase Invoice", db_filters, fields, columns, order_by, start)
 
     if metric == "item_purchases":
@@ -290,7 +290,7 @@ def get_procurement_detail(metric: str, filters: str) -> dict:
             db_filters.append(["Purchase Invoice", "posting_date", *window])
         return _detail(
             "Purchase Invoice", db_filters,
-            ["name", "supplier", "posting_date", f"{child}.qty as qty", f"{child}.uom as uom",
+            ["name", "supplier_name", "posting_date", f"{child}.qty as qty", f"{child}.uom as uom",
              f"{child}.base_rate as rate", f"{child}.base_amount as base_amount"],
             [
                 _INV, _PO_SUPPLIER, _INV_DATE,
