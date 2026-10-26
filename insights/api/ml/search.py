@@ -60,14 +60,14 @@ def perform_cross_dashboard_search(
 @frappe.whitelist()
 def get_search_suggestions(
     partial_query: str,
-    context: Dict[str, Any] | None = None,
+    context: Dict[str, Any] | str | None = None,
 ) -> Dict[str, Any]:
     """Get search suggestions for autocomplete."""
     try:
         from insights.ml.cross_dashboard_search import CrossDashboardSearchService
 
         service = CrossDashboardSearchService()
-        return success(service.get_search_suggestions(partial_query, context))
+        return success(service.get_search_suggestions(partial_query, frappe.parse_json(context) if context else None))
     except frappe.PermissionError:
         raise
     except Exception as e:
