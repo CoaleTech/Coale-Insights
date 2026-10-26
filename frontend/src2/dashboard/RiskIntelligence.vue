@@ -332,7 +332,7 @@ const predictiveStrip = computed<StatItem[]>(() => {
   const delay = p.payment_risk_forecast?.average_market_delay
   return [
     { label: `${fc.length}-Day Cash Forecast`, amount: last?.yhat ?? null, sublabel: last ? `${formatDate(last.ds)}${last.yhat_lower == null ? '' : ` · lower ${formatMoney(Math.min(last.yhat_lower, last.yhat_upper ?? last.yhat_lower), baseCurrency.value)}`}` : undefined },
-    { label: 'Forecast Trend', value: p.cash_flow_forecast?.model_performance?.trend ?? null, sublabel: fc.length > 1 ? `${formatMoney(fc[0].yhat, baseCurrency.value)} to ${formatMoney(fc[fc.length - 1].yhat, baseCurrency.value)}` : undefined },
+    { label: 'Forecast Change', value: fc.length > 1 && fc[0].yhat ? formatPercent(((fc[fc.length - 1].yhat - fc[0].yhat) / Math.abs(fc[0].yhat)) * 100) : null, sublabel: fc.length > 1 ? `${formatMoney(fc[0].yhat, baseCurrency.value)} to ${formatMoney(fc[fc.length - 1].yhat, baseCurrency.value)}` : undefined },
     { label: 'High-Risk Customers', value: risky.length, sublabel: delay == null ? undefined : `Avg market delay ${delay} days` },
     { label: 'Anomalies Detected', value: (p.anomalies ?? []).length, sublabel: 'Model scan' },
   ]

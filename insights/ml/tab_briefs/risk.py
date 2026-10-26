@@ -247,7 +247,7 @@ def _predictive(p: dict):
     details, actions = [], []
     perf = (a.get("cash_flow_forecast") or {}).get("model_performance") or {}
     if perf.get("method"):
-        details.append(detail("Forecast model", f"{perf['method']} over {len(fc)} days" + (f", trend {perf['trend']}." if perf.get("trend") else ".")))
+        details.append(detail("Forecast model", f"{perf['method']} over {len(fc)} days" + (f"; the last week's net cash pace is {perf['trend']} against the 30-day pace." if perf.get("trend") else ".")))
     for w in warnings:
         details.append(detail(w.get("title") or "Warning", f"{w.get('description')} ({w.get('timeframe')})."))
         actions.append(action(w.get("title") or "Act on the warning", f"{w.get('description')} ({w.get('timeframe')}).", impact=money(abs(w["amount"]), cur) if w.get("amount") is not None else None))
