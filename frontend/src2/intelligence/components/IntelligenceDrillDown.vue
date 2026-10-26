@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { DrillDownColumn } from '../composables/useDrillDown'
+import { formatDate, formatPercent } from '../../utils/format'
 import { Lock, Inbox } from 'lucide-vue-next'
 
 const props = defineProps<{
@@ -35,11 +36,13 @@ function cellValue(row: Record<string, unknown>, col: DrillDownColumn): string {
   if (col.fieldtype === 'Currency') {
     return new Intl.NumberFormat(undefined, { style: 'decimal', minimumFractionDigits: 2 }).format(Number(val))
   }
-  if (col.fieldtype === 'Date') {
-    // Rows carry arbitrary DocType columns, so the value is genuinely unknown
-    // here; Date wants a string or number.
-    return new Date(String(val)).toLocaleDateString()
+  if (col.fieldtype === 'Percent') return formatPercent(Number(val))
+  if (col.fieldtype === 'Float') {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(Number(val))
   }
+  // Rows carry arbitrary DocType columns, so the value is genuinely unknown
+  // here; formatDate wants a string.
+  if (col.fieldtype === 'Date') return formatDate(String(val))
   return String(val)
 }
 
