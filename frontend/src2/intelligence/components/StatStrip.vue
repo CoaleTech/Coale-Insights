@@ -9,7 +9,7 @@
 <template>
   <dl
     class="grid min-w-0 grid-cols-2 divide-x divide-y divide-outline-gray-1 overflow-hidden rounded-lg border border-outline-gray-1 bg-card sm:divide-y-0"
-    :class="items.length === 5 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'"
+    :class="items.length === 6 ? 'sm:grid-cols-3 lg:grid-cols-6' : items.length === 5 ? 'sm:grid-cols-5' : 'sm:grid-cols-4'"
   >
     <div v-for="item in items" :key="item.label" class="flex min-w-0 flex-col gap-1 p-4">
       <dt class="text-xs uppercase tracking-wide text-ink-gray-6">{{ item.label }}</dt>

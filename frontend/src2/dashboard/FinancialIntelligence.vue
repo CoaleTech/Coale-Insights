@@ -45,7 +45,7 @@
 			@retry="retry"
 		>
 			<!-- Summary Cards -->
-			<div class="p-6 grid grid-cols-2 md:grid-cols-3 2xl:grid-cols-6 gap-4">
+			<div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
 				<KpiCard
 					label="Net Profit (YTD)"
 					:amount="summary.netProfit"
@@ -230,7 +230,7 @@
 				<!-- Actuals: Ratios -->
 				<div v-if="activeTab === 'ratios'">
 					<TabBrief class="mb-6" :brief="tabBriefs.ratios" :as-of="strategicTyped?.generated_at" />
-					<FinancialRatiosTab :data="strategicTyped?.ratio_trends" :working-capital="strategicTyped?.working_capital ?? null" />
+					<FinancialRatiosTab :data="strategicTyped?.ratio_trends" :working-capital="strategicTyped?.working_capital ?? null" :currency="baseCurrency" />
 					<TabActions class="mt-6" :actions="tabBriefs.ratios?.actions" />
 				</div>
 

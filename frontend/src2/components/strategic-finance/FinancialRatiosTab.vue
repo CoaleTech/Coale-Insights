@@ -153,6 +153,32 @@
                 {{ formatMultiple(quarter.working_capital_turnover) }}
               </td>
             </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                ROCE
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'roce-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="ratioTrendInk(quarter.roce, roceTarget)"
+              >
+                {{ formatPercent(quarter.roce) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                EBIT
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'ebit-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="quarter.ebit != null && quarter.ebit < 0 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+              >
+                {{ formatMoney(quarter.ebit, currency) }}
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -201,7 +227,7 @@
 </template>
 
 <script setup lang="ts">
-import { NO_VALUE } from '../../utils/format'
+import { NO_VALUE, formatMoney } from '../../utils/format'
 import { computed } from 'vue'
 import {
   TrendingUp,
@@ -219,6 +245,7 @@ import type { RatioCard, RatioTrendRow, FinancialRatiosData, WorkingCapitalData 
 interface Props {
   data?: FinancialRatiosData
   workingCapital?: WorkingCapitalData | null
+  currency?: string | null
 }
 
 const props = defineProps<Props>()
@@ -277,6 +304,8 @@ const ratioGroups = computed(() => {
         { name: 'Net Profit Margin', value: formatPercent(c.net_margin), description: 'Net Income / Revenue' },
         { name: 'ROE', value: formatPercent(c.roe), description: 'Net Income / Shareholders Equity' },
         { name: 'ROA', value: formatPercent(c.roa), description: 'Net Income / Total Assets' },
+        { name: 'ROCE', value: formatPercent(c.roce), description: 'EBIT / (Total Assets - Current Liabilities)' },
+        { name: 'EBIT', value: formatMoney(c.ebit, props.currency), description: 'Net Income + Interest Expense' },
       ],
     },
     {
@@ -327,6 +356,9 @@ const ratioCards = computed(() => {
 const headlineCards = computed(() => ratioCards.value.slice(0, 6))
 
 const quarterlyTrends = computed(() => props.data?.trends || [])
+// Target comes from the payload (Insights Settings roce_target); 0 renders no verdict colour.
+const roceTarget = computed(() => props.data?.benchmarks?.roce ?? 0)
+
 
 const deltaText = (name: string, d: number): string => {
   const sign = d > 0 ? '+' : d < 0 ? '-' : ''

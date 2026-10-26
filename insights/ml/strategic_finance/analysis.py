@@ -724,6 +724,10 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         principal_repaid = max(0.0, prev_loan_balance - loan_balance) if prev_loan_balance is not None else 0.0
         prev_loan_balance = loan_balance
 
+        # Capital employed = total assets - current liabilities (trade payables,
+        # the same current-liability definition the Current Ratio uses). Taken
+        # before the asset floor below so a tiny balance cannot inflate ROCE.
+        capital_employed = assets - payables
         # Avoid division issues - use reasonable defaults
         assets = assets if assets > 1000 else 1
         equity = equity if equity > 1000 else 1
@@ -745,6 +749,8 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             "debt_to_equity": round(liabilities / equity, 2) if equity > 1000 else None,
             "asset_turnover": round(revenue / assets, 2) if assets > 1000 else None,
             "ebitda": round(ebitda, 2),
+            "ebit": round(ebit, 2),
+            "roce": round(ebit / capital_employed * 100, 1) if capital_employed > 1000 else None,
             "ebitda_margin": round(ebitda / revenue * 100, 1) if revenue > 0 else None,
             # Capped like `current_ratio`/`dso`/`ccc` above: a turnover or
             # coverage ratio computed from a denominator just over the 1000
@@ -771,6 +777,8 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         "working_capital_turnover": 4.0,
         "interest_coverage": 3.0,
         "dscr": 1.25,
+        # Same target the Break-Even tab uses (Insights Settings, default 15).
+        "roce": float(frappe.db.get_single_value("Insights Settings", "roce_target") or 15),
     }
 
     def _status(value, benchmark, higher_is_better=True):
@@ -807,5 +815,6 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             _card("Working Capital Turnover", "working_capital_turnover"),
             _card("Interest Coverage", "interest_coverage"),
             _card("DSCR", "dscr"),
+            _card("ROCE", "roce"),
         ]
     }

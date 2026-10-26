@@ -144,7 +144,7 @@ def _comparison(p: dict):
 
 
 def _unit(card: dict) -> str:
-    return "%" if "Margin" in card["name"] or card["name"] in ("ROA", "ROE") else ""
+    return "%" if "Margin" in card["name"] or card["name"] in ("ROA", "ROE", "ROCE") else ""
 
 
 def _ratios(p: dict):

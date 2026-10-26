@@ -231,6 +231,8 @@ export interface RatioTrendRow {
 	debt_ratio?: number
 	ebitda?: number
 	ebitda_margin?: number
+	ebit?: number
+	roce?: number
 	working_capital_turnover?: number
 	interest_coverage?: number
 	dscr?: number
@@ -240,6 +242,7 @@ export interface FinancialRatiosData {
 	ratio_cards?: RatioCard[]
 	trends?: RatioTrendRow[]
 	current_ratios?: RatioTrendRow
+	benchmarks?: Record<string, number>
 }
 
 // ---------------------------------------------------------------------------
