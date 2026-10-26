@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     import numpy as np
 
 
-from .data import format_currency, _gl_daily_cache, _gl_sum_period, _gl_cumulative
+from .data import format_currency, get_cash_total, _gl_daily_cache, _gl_sum_period, _gl_cumulative
 
 
 def _cash_like(acc):
@@ -572,7 +572,10 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     # Replaces 1 current-assets query + 1 current-liabilities query +
     # 1 monthly-trends GL query (3 DB round-trips → 0).
     gl = _gl_daily_cache(intelligence)
-    cash        = _gl_cumulative(gl, today_str, "cash")
+    # Book balance, same as the Cash Position card: post-dated payments already
+    # reduce cash (see data._load_cash_breakdown).
+    cash        = get_cash_total(intelligence)
+    post_dated  = cash - _gl_cumulative(gl, today_str, "cash")
     receivables = _gl_cumulative(gl, today_str, "receivable")
     inventory   = _gl_cumulative(gl, today_str, "inventory")
     total_current_assets      = cash + receivables + inventory
@@ -648,6 +651,10 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
             "working_capital": ca - cl,
             "current_ratio": round(ca / cl, 2) if cl > 0 else None,
         })
+    if trends:  # latest point is today's book position, matching the headline
+        trends[-1]["current_assets"] += post_dated
+        trends[-1]["working_capital"] += post_dated
+        trends[-1]["current_ratio"] = round(trends[-1]["current_assets"] / trends[-1]["current_liabilities"], 2) if trends[-1]["current_liabilities"] > 0 else None
 
 
     return {
