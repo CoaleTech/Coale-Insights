@@ -321,9 +321,11 @@ def cached_gp_lines(
 
     # Normalise posting_date to plain Python date (PyArrow path returns date,
     # normal path returns datetime64 -- comparisons to date objects must agree).
+    # `.astype(object)`: on an empty frame apply() keeps datetime64, which then
+    # refuses `>= date` (an empty window, e.g. this month before any invoice).
     df["posting_date"] = df["posting_date"].apply(
         lambda d: d.date() if hasattr(d, "date") and callable(d.date) else d
-    )
+    ).astype(object)
 
     # line_cogs: -svd when the stock ledger booked it, else qty * coalesce(rate, 0).
     # Mirrors ibis_source.line_cogs() exactly.

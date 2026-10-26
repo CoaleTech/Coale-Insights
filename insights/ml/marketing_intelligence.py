@@ -390,7 +390,7 @@ class MarketingIntelligence:
             )
             status_breakdown: Dict[str, int] = {}
             if status_df is not None and len(status_df):
-                for _, r in status_df.iterrows():
+                for _i, r in status_df.iterrows():
                     status_breakdown[str(r.get("status_label") or "Unset")] = int(
                         r.get("count") or 0
                     )
@@ -406,7 +406,7 @@ class MarketingIntelligence:
             stage_breakdown: Dict[str, int] = {}
             stage_values: Dict[str, float] = {}
             if stage_df is not None and len(stage_df):
-                for _, r in stage_df.iterrows():
+                for _i, r in stage_df.iterrows():
                     key = str(r.get("stage_label") or "Unset")
                     stage_breakdown[key] = int(r.get("count") or 0)
                     stage_values[key] = float(r.get("value") or 0)
@@ -493,21 +493,21 @@ class MarketingIntelligence:
 
             status_breakdown: Dict[str, int] = {}
             if status_df is not None and len(status_df):
-                for _, r in status_df.iterrows():
+                for _i, r in status_df.iterrows():
                     status_breakdown[str(r.get("status_label") or "Unset")] = int(
                         r.get("count") or 0
                     )
 
             source_breakdown: Dict[str, int] = {}
             if source_df is not None and len(source_df):
-                for _, r in source_df.iterrows():
+                for _i, r in source_df.iterrows():
                     source_breakdown[str(r.get("source_label") or "Unattributed")] = int(
                         r.get("count") or 0
                     )
 
             territory_breakdown: Dict[str, int] = {}
             if territory_df is not None and len(territory_df):
-                for _, r in territory_df.iterrows():
+                for _i, r in territory_df.iterrows():
                     territory_breakdown[str(r.get("territory_label") or "Unassigned")] = int(
                         r.get("count") or 0
                     )
@@ -529,7 +529,7 @@ class MarketingIntelligence:
             )
             monthly_trend: Dict[str, int] = {}
             if monthly_df is not None and len(monthly_df):
-                for _, r in monthly_df.iterrows():
+                for _i, r in monthly_df.iterrows():
                     monthly_trend[str(r.get("month") or "")] = int(r.get("count") or 0)
 
             # `custom_lead_score` is an optional custom field -- not
@@ -793,14 +793,14 @@ class MarketingIntelligence:
                 }
 
             quality_scores = []
-            for _, lead_row in df.iterrows():
+            for _i, lead_row in df.iterrows():
                 score = 0
                 factors = []
-
+            
                 if lead_row.get("company_name"):
                     score += 20
                     factors.append("Company provided")
-
+            
                 source = str(lead_row.get("source") or "").lower()
                 if "referral" in source or "existing customer" in source:
                     score += 25
@@ -808,7 +808,7 @@ class MarketingIntelligence:
                 elif "website" in source or "campaign" in source:
                     score += 15
                     factors.append("Digital source")
-
+            
                 status = str(lead_row.get("status") or "").lower()
                 if "converted" in status:
                     score += 30
@@ -816,7 +816,7 @@ class MarketingIntelligence:
                 elif "interested" in status or "qualified" in status:
                     score += 20
                     factors.append("Qualified")
-
+            
                 custom_score = lead_row.get("custom_lead_score")
                 if custom_score:
                     try:
@@ -824,7 +824,7 @@ class MarketingIntelligence:
                         factors.append(f"Custom score: {custom_score}")
                     except (TypeError, ValueError):
                         pass
-
+            
                 score = min(score, 100)
                 grade = (
                     "A"
@@ -909,21 +909,21 @@ class MarketingIntelligence:
 
             type_breakdown: Dict[str, int] = {}
             if type_df is not None and len(type_df):
-                for _, r in type_df.iterrows():
+                for _i, r in type_df.iterrows():
                     type_breakdown[str(r.get("type_label") or "Unset")] = int(
                         r.get("count") or 0
                     )
 
             territory_breakdown: Dict[str, int] = {}
             if territory_df is not None and len(territory_df):
-                for _, r in territory_df.iterrows():
+                for _i, r in territory_df.iterrows():
                     territory_breakdown[str(r.get("territory_label") or "Unassigned")] = int(
                         r.get("count") or 0
                     )
 
             group_breakdown: Dict[str, int] = {}
             if group_df is not None and len(group_df):
-                for _, r in group_df.iterrows():
+                for _i, r in group_df.iterrows():
                     group_breakdown[str(r.get("group_label") or "Unset")] = int(
                         r.get("count") or 0
                     )
@@ -937,7 +937,7 @@ class MarketingIntelligence:
             )
             monthly_acquisition: Dict[str, int] = {}
             if monthly_df is not None and len(monthly_df):
-                for _, r in monthly_df.iterrows():
+                for _i, r in monthly_df.iterrows():
                     monthly_acquisition[str(r.get("month") or "")] = int(
                         r.get("count") or 0
                     )
@@ -1068,14 +1068,14 @@ class MarketingIntelligence:
             )
             opp_by_source: Dict[str, int] = {}
             if opp_df is not None and len(opp_df):
-                for _, r in opp_df.iterrows():
+                for _i, r in opp_df.iterrows():
                     opp_by_source[str(r.get("source_label") or "Unattributed")] = int(
                         r.get("opportunities") or 0
                     )
 
             channel_performance: Dict[str, Dict[str, Any]] = {}
             if channel_df is not None and len(channel_df):
-                for _, r in channel_df.iterrows():
+                for _i, r in channel_df.iterrows():
                     name = str(r.get("source_label") or "Unattributed")
                     leads = int(r.get("leads") or 0)
                     qualified = int(r.get("qualified_leads") or 0)
@@ -1148,7 +1148,7 @@ class MarketingIntelligence:
             )
             quote_by_status: Dict[str, Dict[str, float]] = {}
             if quote_df is not None and len(quote_df):
-                for _, r in quote_df.iterrows():
+                for _i, r in quote_df.iterrows():
                     quote_by_status[str(r.get("status_label") or "Unset")] = {
                         "count": float(r.get("count") or 0),
                         "value": float(r.get("value") or 0),
@@ -1257,29 +1257,29 @@ class MarketingIntelligence:
             company_bonus = 15
 
             scored_leads = []
-            for _, lead_row in df.iterrows():
+            for _i, lead_row in df.iterrows():
                 score = 0
                 scoring_details = []
-
+            
                 source = str(lead_row.get("source") or "")
                 source_score = source_scores.get(source, 5)
                 score += source_score
                 scoring_details.append(f"Source ({source}): {source_score}")
-
+            
                 status = str(lead_row.get("status") or "")
                 status_score = status_scores.get(status, 5)
                 score += status_score
                 scoring_details.append(f"Status ({status}): {status_score}")
-
+            
                 if lead_row.get("company_name"):
                     score += company_bonus
                     scoring_details.append(f"Company provided: {company_bonus}")
-
+            
                 territory = str(lead_row.get("territory") or "All Territories")
                 territory_score = 10  # default
                 score += territory_score
                 scoring_details.append(f"Territory ({territory}): {territory_score}")
-
+            
                 custom_score = lead_row.get("custom_lead_score")
                 if custom_score:
                     try:
@@ -1287,7 +1287,7 @@ class MarketingIntelligence:
                         scoring_details.append(f"Custom score: {custom_score}")
                     except (TypeError, ValueError):
                         pass
-
+            
                 final_score = min(score, 100)
                 if final_score >= 80:
                     grade = "Hot"
@@ -1297,7 +1297,7 @@ class MarketingIntelligence:
                     grade = "Cold"
                 else:
                     grade = "Ice"
-
+            
                 scored_leads.append(
                     {
                         "lead": lead_row.get("name"),

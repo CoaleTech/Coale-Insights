@@ -132,3 +132,24 @@ class TestGenerateMarketingAlerts(FrappeTestCase):
             trend=[], source_rows=[], days_stale=59,
         )
         self.assertEqual(alerts, [])
+
+
+class TestMarketingAnalyzersOnEmptyWindow(FrappeTestCase):
+    """A window with no records takes each analyzer's empty-data branch, which
+    translates its message with `_()`. A loop variable named `_` in the same
+    function turns that into an UnboundLocalError."""
+
+    def test_empty_window_returns_a_message_not_an_error(self):
+        from insights.ml.marketing_intelligence import MarketingIntelligence
+
+        m = MarketingIntelligence()
+        for name in (
+            "_analyze_pipeline",
+            "_analyze_leads",
+            "_score_lead_quality",
+            "_analyze_customer_acquisition",
+            "_forecast_pipeline",
+            "_advanced_lead_scoring",
+        ):
+            with self.subTest(analyzer=name):
+                self.assertNotIn("error", getattr(m, name)("2099-01-01"))
