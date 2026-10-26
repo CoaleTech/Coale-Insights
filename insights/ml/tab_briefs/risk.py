@@ -161,16 +161,20 @@ def _operational(p: dict):
     if top.get("stockout_risk_score") is None:
         return None
     cur = p.get("base_currency")
-    items, total = top.get("stockout_items", 0), top.get("total_items", 0)
-    text = f"{top['stockout_risk_score']:g}% of stock items are in stockout ({items:,} of {total:,})."
+    groups_all = o.get("inventory_risks") or []
+    items = sum(g.get("stockout_items") or 0 for g in groups_all) or top.get("stockout_items", 0)
+    total = sum(g.get("total_items") or 0 for g in groups_all) or top.get("total_items", 0)
+    pct = round(items / total * 100, 1) if total else top["stockout_risk_score"]
+    value = sum(g.get("stock_value") or 0 for g in groups_all) if groups_all else top.get("stock_value")
+    text = f"{pct:g}% of active stock items are in stockout ({items:,} of {total:,})."
     sup = [s for s in o.get("supplier_performance") or [] if s.get("avg_delay_days") is not None]
     late = [s for s in sup if s["avg_delay_days"] > 0]
     if sup:
         text += f" All {len(sup)} tracked suppliers deliver early on average." if not late else f" {len(late)} of {len(sup)} tracked suppliers deliver late on average."
 
     details, actions = [], []
-    if top.get("stock_value") is not None:
-        details.append(detail("Stock position", f"The {total - items:,} items with stock are worth {money(top['stock_value'], cur)}."))
+    if value is not None:
+        details.append(detail("Stock position", f"The {total - items:,} items with stock are worth {money(value, cur)}."))
     if sup:
         worst = max(sup, key=lambda s: s["avg_delay_days"])
         details.append(detail("Supplier timing", f"{worst['supplier_name']} has the latest average delivery, {worst['avg_delay_days']:g} days against the due date (negative is early)."))
@@ -182,7 +186,7 @@ def _operational(p: dict):
         actions.append(action(
             "Review reorder levels for the item groups in stockout",
             "; ".join(f"{g['item_group']} ({g['stockout_items']:,} of {g['total_items']:,} items)" for g in groups) + ".",
-            impact=money(top.get("stock_value"), cur) if top.get("stock_value") is not None else None,
+            impact=money(value, cur) if value is not None else None,
         ))
     if late:
         actions.append(action("Follow up late suppliers", f"{plural(len(late), 'supplier')} deliver after the due date on average."))

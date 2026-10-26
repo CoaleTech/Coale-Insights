@@ -227,7 +227,7 @@ def _overview(
 ) -> dict:
     total_customers = _scalar_count("Customer")
     total_suppliers = _scalar_count("Supplier")
-    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+    total_items = _active_sku_count()
 
     aggregate_score = (
         credit_score * WEIGHTS["credit"]
@@ -373,7 +373,7 @@ def _risk_matrix(
     (currency fluctuation, security breach) were dropped rather than left
     fabricated -- see TODOS.md.
     """
-    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+    total_items = _active_sku_count()
     stockout_ratio = (_stockout_count() / total_items * 100.0) if total_items else 0.0
     supplier_share = _top_supplier_share()
 
@@ -455,7 +455,7 @@ def _aggregate_cashflow_risk(company: str | None) -> float:
 
 
 def _aggregate_operational_risk() -> float:
-    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+    total_items = _active_sku_count()
     if not total_items:
         return 0.0
     stockout_items = _stockout_count()
@@ -509,15 +509,11 @@ def _aggregate_compliance_risk(company: str | None) -> float:
             statuses = [filing.get("gstr1", {}).get("status"), filing.get("gstr3b", {}).get("status")]
             unknown_count = statuses.count("No Data") + statuses.count("Not Tracked")
             pending_count = statuses.count("Pending")
-            # "Unknown" (no logged returns, or filing_status not populated)
-            # is itself a compliance risk signal -- a finance team cannot
-            # claim "compliant" when the data is absent. 25 per occurrence
-            # is the same "moderate/unknown" budget the comment above
-            # advertised and the `not india_compliance_installed` branch
-            # already uses (30); 25 is slightly more conservative because
-            # at least one half of the picture (india_compliance itself
-            # being present) is known here.
-            risk_factors.append(pending_count * 40.0 + unknown_count * 25.0)
+            overdue_count = statuses.count("Overdue")
+            # "Overdue" (filed returns are past-due) is higher-risk than
+            # "Pending" (due but not yet filed): 60 vs 40 per return.
+            # "Unknown" (no logged returns) is its own signal: 25 per return.
+            risk_factors.append(overdue_count * 60.0 + pending_count * 40.0 + unknown_count * 25.0)
         else:
             risk_factors.append(30.0)
     except Exception:
@@ -1112,13 +1108,9 @@ def _inventory_risks() -> list[dict]:
     (``actual_qty * valuation_rate``), so no extra join is needed.
     """
     item = t("Item")
-    bin_ = t("Bin")
     items = item.filter(item.is_stock_item == 1).select(item.name, item.item_group)
-    bins = bin_.group_by(bin_.item_code).aggregate(
-        actual_qty=bin_.actual_qty.sum(),
-        stock_value=bin_.stock_value.sum(),
-    )
-    joined = items.left_join(bins, items.name == bins.item_code).select(
+    bins = _active_bins()
+    joined = items.join(bins, items.name == bins.item_code).select(
         items.name, items.item_group, bins.actual_qty, bins.stock_value
     )
     mutated = joined.mutate(stockout=joined.actual_qty.fill_null(0) <= 0)
@@ -1287,14 +1279,13 @@ def _analyze_compliance_risk(company: str | None) -> dict:
                         "rate": round(rate, 2),
                     }
                 )
-    if gst_status["gstr1_status"] == "Pending":
-        compliance_issues.append(
-            {"issue": "GSTR-1 returns pending for this fiscal year", "severity": "High", "rate": None}
-        )
-    if gst_status["gstr3b_status"] == "Pending":
-        compliance_issues.append(
-            {"issue": "GSTR-3B returns pending for this fiscal year", "severity": "High", "rate": None}
-        )
+    for return_type, status_key in (("GSTR-1", "gstr1"), ("GSTR-3B", "gstr3b")):
+        st = gst_status[f"{status_key}_status"]
+        if st in ("Pending", "Overdue"):
+            word = "overdue" if st == "Overdue" else "pending"
+            compliance_issues.append(
+                {"issue": f"{return_type} returns {word} for this fiscal year", "severity": "High", "rate": None}
+            )
     if not gstin:
         compliance_issues.append(
             {"issue": "No GSTIN on file for this company", "severity": "High", "rate": None}
@@ -1409,12 +1400,16 @@ def _forecast_cash_flow(company: str | None) -> dict:
     for i in range(1, 31):
         d = base_date + timedelta(days=i)
         predicted = recent_avg * (1 + trend * (i / 30.0))
+        # ±15 % band, symmetric around the prediction. Multiplying by 0.85/1.15
+        # inverts the band when `predicted` is negative (0.85 × negative is LESS
+        # negative than 1.15 × negative), so use absolute-value width instead.
+        band = abs(predicted) * 0.15
         forecast.append(
             {
                 "ds": d.strftime("%Y-%m-%d"),
                 "yhat": round(float(predicted), 2),
-                "yhat_lower": round(float(predicted * 0.85), 2),
-                "yhat_upper": round(float(predicted * 1.15), 2),
+                "yhat_lower": round(float(predicted - band), 2),
+                "yhat_upper": round(float(predicted + band), 2),
             }
         )
     return {
@@ -1654,24 +1649,32 @@ def _current_cash_position(company: str | None) -> float:
     return _gl_balance_for_account_types(["Cash", "Bank"], company)
 
 
-def _stockout_count() -> int:
-    """Count of stock items whose total quantity across every warehouse
-    is <= 0.
-
-    Previously an inner join of raw ``Bin`` rows to ``Item``, counting
-    matched rows with ``actual_qty <= 0`` directly -- an item with empty
-    stock in 3 warehouses was counted 3 times (over-count), while an item
-    with no ``Bin`` row at all (never stocked) was never counted at all
-    (under-count), since the inner join drops it. Bin is pre-aggregated
-    per item first, then left-joined, so every stock item is counted at
-    most once -- consistent with ``_inventory_risks``.
-    """
-    item = t("Item")
+def _active_bins():
+    """Per-item Bin totals over *active* SKUs only -- the Inventory dashboard's
+    definition (any non-zero actual/reserved/ordered qty). The item master
+    holds hundreds of catalogue items that never carried stock; counting those
+    as "stockouts" read 96.7% here against 56.2% on Inventory."""
     bin_ = t("Bin")
-    bins = bin_.group_by(bin_.item_code).aggregate(actual_qty=bin_.actual_qty.sum())
-    joined = item.filter(item.is_stock_item == 1).left_join(bins, item.name == bins.item_code)
-    count_result = joined.filter(joined.actual_qty.fill_null(0) <= 0).count().execute()
-    return int(count_result)
+    active = bin_.filter((bin_.actual_qty != 0) | (bin_.reserved_qty != 0) | (bin_.ordered_qty != 0))
+    return active.group_by(active.item_code).aggregate(
+        actual_qty=active.actual_qty.sum(), stock_value=active.stock_value.sum()
+    )
+
+
+def _active_sku_count() -> int:
+    item = t("Item")
+    bins = _active_bins()
+    joined = item.filter(item.is_stock_item == 1).join(bins, item.name == bins.item_code)
+    return int(joined.count().execute())
+
+
+def _stockout_count() -> int:
+    """Active SKUs whose total quantity across every warehouse is <= 0. Bin is
+    pre-aggregated per item, so each SKU is counted once."""
+    item = t("Item")
+    bins = _active_bins()
+    joined = item.filter(item.is_stock_item == 1).join(bins, item.name == bins.item_code)
+    return int(joined.filter(joined.actual_qty <= 0).count().execute())
 
 
 def _top_supplier_share() -> float:

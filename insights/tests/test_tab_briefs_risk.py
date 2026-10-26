@@ -22,7 +22,7 @@ class TestBriefs(unittest.TestCase):
     def test_operational_takes_the_worst_category(self):
         b = self.b["operational"]
         self.assertEqual(b["severity"], "critical")  # component is Medium, top inventory risk is Critical
-        self.assertIn("96.7% of stock items are in stockout (467 of 483)", b["headline"])
+        self.assertIn("95.1% of active stock items are in stockout (548 of 576)", b["headline"])
         self.assertIn("All 20 tracked suppliers deliver early on average", b["headline"])
 
     def test_compliance_overdue_filings_are_high(self):
