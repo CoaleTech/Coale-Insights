@@ -42,7 +42,7 @@
       </div>
 
       <!-- Summary KPI Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
         <KpiCard label="Opening Balance" :amount="data?.opening_balance" :currency="currency" />
         <KpiCard label="Total Inflows" :amount="data?.summary?.total_inflows" :currency="currency" />
         <KpiCard label="Total Outflows" :amount="data?.summary?.total_outflows" :currency="currency" />

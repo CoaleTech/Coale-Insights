@@ -39,7 +39,7 @@
 				</table>
 
 				<!-- P&L KPI tile strip (4 tiles, variant="tile") -->
-				<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-outline-gray-1">
+				<div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-2 wide:grid-cols-4 gap-3 pt-2 border-t border-outline-gray-1">
 					<KpiCard
 						variant="tile"
 						label="YTD Revenue"

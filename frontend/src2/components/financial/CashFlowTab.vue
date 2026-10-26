@@ -30,7 +30,7 @@
 				:hint="asOfLabel"
 				:level="3"
 			/>
-			<div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-6">
+			<div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3 wide:grid-cols-6">
 				<KpiCard label="Total Cash" :amount="data.total_cash" :currency="currency"
 					:sublabel="accountCountLabel" :clickable="true"
 					@click="drillDown.open(finEndpoint, 'Cash & Bank Accounts', { metric: 'cash_accounts' })" />
@@ -83,7 +83,7 @@
 					   :label="`${formatPercent(fd.pct_of_cash)} of cash`" size="sm" />
 			</div>
 
-			<div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+			<div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 wide:grid-cols-6">
 				<KpiCard variant="tile" label="Principal on Deposit" :amount="fd.balance" :currency="currency" />
 				<KpiCard variant="tile" label="Placed" :amount="fd.placed" :currency="currency"
 					:sublabel="placementLabel" />

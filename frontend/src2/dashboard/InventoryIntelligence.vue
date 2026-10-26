@@ -1078,7 +1078,7 @@ function handleDashboardRedirect(target: string) {
             <TabBrief class="mb-6" :brief="tabBriefs['abc-xyz']" :as-of="inventoryData?.generated_at" />
             <div v-if="abcXyz">
               <!-- Summary Cards -->
-              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+              <div class="grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4 mb-6">
                 <KpiCard label="Class A Items" :value="formatCount(abcXyz.summary?.a_count as number)"
                          :sublabel="`High value, ${abcShare.A ?? NO_VALUE}`" />
                 <KpiCard label="Class B Items" :value="formatCount(abcXyz.summary?.b_count as number)"

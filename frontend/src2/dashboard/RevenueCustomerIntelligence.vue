@@ -241,7 +241,7 @@ function handleDashboardRedirect(_target: string) {
       <!-- Unified KPI strip: 6 cards mixing revenue + customer metrics -->
       <div
         v-if="activeTab.id === 'rev-overview' || activeTab.id === 'cust-overview'"
-        class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 lg:grid-cols-6"
+        class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 wide:grid-cols-6"
       >
         <KpiCard
           label="Total Revenue"

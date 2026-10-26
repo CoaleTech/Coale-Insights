@@ -48,7 +48,7 @@
 		<!-- Overridable: a dashboard whose first screen is not a KPI strip should
 		     describe its own shape rather than flash the wrong one. -->
 		<slot name="skeleton">
-			<div class="grid grid-cols-2 gap-4 p-6 md:grid-cols-3 lg:grid-cols-6">
+			<div class="grid grid-cols-2 gap-4 p-6 md:grid-cols-3 wide:grid-cols-6">
 				<KpiCard v-for="n in kpiCount" :key="n" label="" value="" loading />
 			</div>
 			<div class="space-y-3 p-6">

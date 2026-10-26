@@ -45,7 +45,7 @@
 			@retry="retry"
 		>
 			<!-- Summary Cards -->
-			<div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+			<div class="p-6 grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
 				<KpiCard
 					label="Net Profit (YTD)"
 					:amount="summary.netProfit"

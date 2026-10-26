@@ -40,7 +40,7 @@
       @retry="retry"
     >
     <!-- Summary Cards -->
-    <div v-if="activeTab === 'spend'" class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+    <div v-if="activeTab === 'spend'" class="p-6 grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
       <KpiCard
         label="Total Spend"
         :amount="spendData.total_spend"
@@ -377,7 +377,7 @@
         <!-- PO Status Summary -->
         <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <SectionHeader variant="caption" title="Purchase Order Status" hint="POs ordered in period" :level="3" />
-          <div class="mt-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" v-if="purchaseData.po_status_summary?.length">
+          <div class="mt-4 grid grid-cols-2 md:grid-cols-4 wide:grid-cols-6 gap-4" v-if="purchaseData.po_status_summary?.length">
             <div v-for="status in purchaseData.po_status_summary" :key="status.status"
                  class="p-4 rounded-lg border border-outline-gray-1 bg-surface-white">
               <Badge v-bind="severityBadge(poStatusSeverity(status.status))"

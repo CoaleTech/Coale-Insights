@@ -1,7 +1,7 @@
 <template>
 	<div class="space-y-6">
 		<!-- AR Summary -->
-		<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+		<div class="grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
 			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
 				<div class="text-sm text-ink-gray-6">Total Outstanding</div>
 				<div class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data.total_outstanding, currency) }}</div>
