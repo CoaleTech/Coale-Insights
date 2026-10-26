@@ -179,6 +179,31 @@
                 {{ formatMoney(quarter.ebit, currency) }}
               </td>
             </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                EBITDA
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'ebitda-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="quarter.ebitda != null && quarter.ebitda < 0 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+              >
+                {{ formatMoney(quarter.ebitda, currency) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                Interest Coverage
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'ic-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
+              >
+                {{ formatMultiple(quarter.interest_coverage) }}
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
