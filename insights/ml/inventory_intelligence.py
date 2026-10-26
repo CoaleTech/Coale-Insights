@@ -1298,9 +1298,19 @@ class DemandForecasting:
         )
         stock_map = dict(zip(stock_now["item_code"], stock_now["stock_qty"]))
 
+        # Demand is the weighted mean of the last 3 completed calendar months,
+        # zero-filled: an item that stopped selling has zero recent demand. Taking
+        # the last 3 months an item *had* sales flagged discontinued lines as
+        # "reorder now" (304 of 309 here, 134 of the 141 with sales in those months).
+        first = datetime.now().replace(day=1)
+        recent = [(first - timedelta(days=1)).replace(day=1)]
+        for _ in range(2):
+            recent.append((recent[-1] - timedelta(days=1)).replace(day=1))
+        recent = [d.strftime("%Y-%m") for d in reversed(recent)]
         reorder_alerts: list[dict[str, Any]] = []
         for item_code, group in monthly.groupby("item_code"):
-            forecast = _weighted_forecast(list(group["qty"]))
+            by_period = dict(zip(group["period"], group["qty"]))
+            forecast = _weighted_forecast([by_period.get(p, 0.0) for p in recent])
             stock = float(stock_map.get(item_code, 0) or 0)
             # No forecast demand -> cover is undefined (null), not a sentinel.
             months_cover = stock / forecast if forecast > 0 else None
