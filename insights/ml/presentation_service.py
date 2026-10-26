@@ -307,14 +307,16 @@ class PresentationModeService:
         }
 
         if dashboard_type == "executive" and isinstance(data.get("kpis"), dict):
-            summary = {}
+            summary, meta = {}, {}
             for domain_kpis in data["kpis"].values():
                 if not isinstance(domain_kpis, dict):
                     continue
                 for kpi_key, kpi in domain_kpis.items():
                     if isinstance(kpi, dict) and isinstance(kpi.get("value"), (int, float)):
                         summary[kpi_key] = kpi["value"]
+                        meta[kpi_key] = {k: kpi.get(k) for k in ("label", "format")}
             data.setdefault("summary", summary)
+            data["_kpi_meta"] = meta
         else:
             source_key = summary_source_key.get(dashboard_type)
             block = data.get(source_key) if source_key else None
@@ -381,6 +383,10 @@ class PresentationModeService:
             if 'recommendations' in data and data['recommendations']:
                 summary_parts.append(f"{len(data['recommendations'])} improvement opportunities identified.")
             
+            if not summary_parts:
+                top = self._extract_key_metrics_for_presentation(data)[:3]
+                if top:
+                    summary_parts.append("Key figures: " + "; ".join(f"{m['label']} {m['formatted_value']}" for m in top) + ".")
             # Default summary if no specific data
             if not summary_parts:
                 summary_parts.append(f"Overall {dashboard_type.replace('_', ' ')} performance metrics reviewed.")
@@ -505,17 +511,18 @@ class PresentationModeService:
             if 'summary' in data:
                 summary = data['summary']
                 
+                meta = data.get("_kpi_meta", {})
                 for key, value in summary.items():
                     if isinstance(value, (int, float)):
-                        # Format the metric for presentation
-                        formatted_metric = {
-                            "label": key.replace('_', ' ').title(),
+                        m = meta.get(key, {})
+                        # no period-over-period series here, so no direction claim
+                        metrics.append({
+                            "label": m.get("label") or key.replace('_', ' ').title(),
                             "value": value,
-                            "formatted_value": self._format_metric_value(value, key),
-                            "trend": self._determine_trend_direction(value),
+                            "formatted_value": self._format_metric_value(value, key, m.get("format")),
+                            "trend": "stable",
                             "importance": "high" if "percentage" in key or "score" in key else "medium"
-                        }
-                        metrics.append(formatted_metric)
+                        })
             
             return metrics[:6]  # Limit to top 6 metrics
             
@@ -523,32 +530,27 @@ class PresentationModeService:
             logger.error(f"Error extracting key metrics: {e}")
             return []
     
-    def _format_metric_value(self, value: float, metric_key: str) -> str:
-        """Format metric values for presentation"""
+    def _format_metric_value(self, value: float, metric_key: str, fmt: str | None = None) -> str:
+        """Format metric values for presentation. ``fmt`` is the source KPI's
+        own format (currency/percentage/risk_score/decimal) when it has one."""
         try:
-            if 'percentage' in metric_key or 'rate' in metric_key:
+            if fmt == "currency" or (fmt is None and ('amount' in metric_key or 'total' in metric_key or 'cost' in metric_key)):
+                return self._currency(value)
+            if fmt == "percentage" or (fmt is None and ('percentage' in metric_key or 'rate' in metric_key)):
                 return f"{value:.1f}%"
-            elif 'amount' in metric_key or 'total' in metric_key or 'cost' in metric_key:
-                return f"${value:,.0f}"
-            elif 'score' in metric_key:
+            if fmt == "risk_score" or (fmt is None and 'score' in metric_key):
                 return f"{value:.0f}/100"
-            elif 'count' in metric_key:
+            if 'count' in metric_key:
                 return f"{value:,.0f}"
-            else:
-                return str(round(value, 2))
+            return f"{value:,.2f}".rstrip("0").rstrip(".")
         except Exception:
             return str(value)
     
-    def _determine_trend_direction(self, value: float) -> str:
-        """Determine trend direction for visualization"""
-        # This is simplified - real implementation would compare with historical data
-        if value > 0:
-            return "up"
-        elif value < 0:
-            return "down"
-        else:
-            return "stable"
-    
+    def _currency(self, value: float) -> str:
+        from frappe.utils import fmt_money
+
+        return fmt_money(value, precision=0, currency=frappe.db.get_default("currency"))
+
     def _has_trend_data(self, data: Dict) -> bool:
         """Check if dashboard has trend data for charts"""
         trend_keys = ['variance_trends', 'monthly_data', 'trend_analysis', 'historical_data']

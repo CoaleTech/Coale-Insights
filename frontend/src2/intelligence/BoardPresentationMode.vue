@@ -329,7 +329,7 @@ import {
   AlertTriangle
 } from 'lucide-vue-next'
 import PresentationSlide from './PresentationSlide.vue'
-import { apiCall } from '../helpers/api'
+import { apiCall, apiCallEnvelope } from '../helpers/api'
 import { BOARD_DASHBOARD_OPTIONS, BOARD_PRESENTATION_SOURCES } from '../helpers/dashboards'
 import { severityBadge } from '../utils/status'
 
@@ -350,11 +350,11 @@ interface PresentationData {
   slides?: PresentationSlideData[]
   error?: string
 }
-/** Response of `export_presentation_powerpoint` / `export_presentation_pdf`. */
+/** `apiCall` unwraps the `{status, data, message}` envelope of
+ * `export_presentation_powerpoint` / `export_presentation_pdf`, so this is its `data`. */
 interface PresentationExportResult {
-  status?: string
-  message?: string
-  data?: { download_ready?: boolean; [key: string]: unknown }
+  download_ready?: boolean
+  [key: string]: unknown
 }
 
 /** Map a priority / impact string to a Severity. */
@@ -456,9 +456,17 @@ const fetchedDashboardData = ref<Record<string, unknown>>({})
 
 async function fetchLiveDashboardData(dashboardType: string): Promise<Record<string, unknown>> {
   const urls: string[] = BOARD_PRESENTATION_SOURCES[dashboardType] || []
-  const results = await Promise.all(
-    urls.map((url) => apiCall<Record<string, unknown>>(url).catch(() => null)),
-  )
+  // A cold cache answers `warming` (null data) while it computes; generating
+  // from that produced an empty board pack. Poll each source until it lands.
+  const fetchSource = async (url: string): Promise<Record<string, unknown> | null> => {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const { data, warming } = await apiCallEnvelope<Record<string, unknown>>(url)
+      if (!warming) return data
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    }
+    return null
+  }
+  const results = await Promise.all(urls.map(fetchSource))
   const loaded = results.filter((r): r is Record<string, unknown> => r !== null)
   return Object.assign({ dashboard_type: dashboardType }, ...loaded)
 }
@@ -563,17 +571,15 @@ const performExport = async () => {
       export_options: exportOptions.value
     })
 
-    if (!result || result.status !== 'success') {
-      throw new Error(result?.message || 'Export failed')
-    }
+    if (!result) throw new Error('Export failed')
 
-    if (result.data?.download_ready === false) {
+    if (result.download_ready === false) {
       // Backend is honest: this format has no real document generator yet.
-      exportError.value = result.message || 'This export format is not yet available as a downloadable file.'
+      exportError.value = 'This export format is not yet available as a downloadable file. Use JSON to get the underlying presentation data.'
       return
     }
 
-    downloadExportedFile(result.data, exportFormat.value)
+    downloadExportedFile(result, exportFormat.value)
     showExportModal.value = false
   } catch (err) {
     console.error('Error exporting presentation:', err)
