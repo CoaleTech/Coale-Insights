@@ -141,7 +141,8 @@ def _tds(p: dict):
         details.append(detail("RCM", f"Books hold {plural(b.get('invoices') or 0, 'invoice')}; the portal shows {plural(pt.get('rows') or 0, 'row')}."))
         actions.append(action("Reconcile RCM against the portal", "Books and portal tax differ.", impact=money(rcm["gap"], cur)))
     if tds.get("total_payable"):
-        details.append(detail("TDS position", f"{money(tds['total_payable'], cur)} deducted and {money(tds.get('receivable'), cur)} receivable, net {money(tds.get('net_position'), cur)}."))
+        net = tds.get("net_position") or 0
+        details.append(detail("TDS position", f"{money(tds['total_payable'], cur)} deducted and {money(tds.get('receivable'), cur)} receivable, net {money(abs(net), cur)} {'payable' if net < 0 else 'receivable'}."))
         if late:
             actions.append(action(
                 "Deposit overdue TDS",
