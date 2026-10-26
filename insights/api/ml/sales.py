@@ -454,11 +454,9 @@ def get_sales_detail(metric: str, filters: str) -> dict:
 
     if metric == "unfulfilled_orders":
         frappe.has_permission("Sales Order", throw=True)
-        db_filters = {
-            "docstatus": 1,
-            "per_delivered": ("<", 100),
-            "status": ("not in", ["Cancelled", "Closed"]),
-        }
+        db_filters = {"docstatus": 1, "per_delivered": ("<", 100)}
+        if bound := _period_bound(period):
+            db_filters["transaction_date"] = bound
         if company:
             db_filters["company"] = company
         rows = frappe.get_list(

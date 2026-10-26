@@ -1179,7 +1179,7 @@ const scenarioRows = computed(() => {
         :severity="fulfillmentSeverity"
         :sublabel="fulfillmentSublabel"
         :clickable="true"
-        @click="drillOpen('Unfulfilled Orders', { metric: 'unfulfilled_orders' })"
+        @click="drillOpen('Unfulfilled Orders', { metric: 'unfulfilled_orders', period: props.dateFilter })"
       />
       <KpiCard
         variant="tile"
