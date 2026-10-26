@@ -1074,6 +1074,14 @@ const gstPeriod = computed(() => {
   return r.length ? `${monthLabel(r[0].month)} to ${monthLabel(r[r.length - 1].month)}` : null
 })
 
+/** Latest month's revenue against the first month's, so a short final month is read as such. */
+const gstRevenueTrend = computed(() => {
+  const r = gstTable.value.rows
+  if (r.length < 2 || !(r[0].revenue > 0)) return null
+  const [first, last] = [r[0], r[r.length - 1]]
+  return `${monthLabel(last.month)} revenue ${formatCurrency(last.revenue)} against ${monthLabel(first.month)} ${formatCurrency(first.revenue)} (${formatPercent(((last.revenue - first.revenue) / first.revenue) * 100)}).`
+})
+
 /** GSTR-1, GSTR-3B, e-Invoice IRN and e-Waybill as one progress list; every figure is a payload field or a ratio of two. */
 const gstFilingRows = computed(() => {
   const returnRow = (key: string, name: string, r: Record<string, any> = {}, owed: { label: string; amount: number }[] = []) => {
@@ -1658,7 +1666,7 @@ const actionsStrip = computed<StatItem[]>(() => [
                       </tbody>
                     </table>
                     <p class="mt-3 text-xs text-ink-gray-6">
-                      Effective rate {{ gstTable.ytd.rate }} on revenue of {{ formatCurrency(gstTable.ytd.revenue) }}.
+                      Effective rate {{ gstTable.ytd.rate }} on revenue of {{ formatCurrency(gstTable.ytd.revenue) }}.{{ gstRevenueTrend ? ` ${gstRevenueTrend}` : '' }}
                     </p>
                   </div>
                   <div v-else class="mt-4 py-6 text-center text-ink-gray-6">No GST data available</div>
