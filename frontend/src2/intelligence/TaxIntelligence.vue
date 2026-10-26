@@ -1714,10 +1714,15 @@ const actionsStrip = computed<StatItem[]>(() => [
                           <td class="tnum px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(r.count) }}</td>
                           <td class="tnum px-4 py-2 text-right text-ink-gray-8">{{ formatCurrency(r.amount) }}</td>
                         </tr>
-                        <tr class="font-medium">
+                        <tr class="border-b border-outline-gray-1 font-medium">
                           <td class="px-4 py-2 text-ink-gray-8">Total rows</td>
                           <td class="tnum px-4 py-2 text-right text-ink-gray-8">{{ formatNumber(reconciliationScore.total_count) }}</td>
-                          <td class="px-4 py-2 text-right text-ink-gray-7">{{ formatNumber(reconciliationScore.unactioned_count) }} unactioned</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-7">{{ NO_VALUE }}</td>
+                        </tr>
+                        <tr class="bg-surface-gray-1 font-medium">
+                          <td class="px-4 py-2 text-ink-red-4">Unactioned</td>
+                          <td class="tnum px-4 py-2 text-right text-ink-red-4">{{ formatNumber(reconciliationScore.unactioned_count) }}</td>
+                          <td class="px-4 py-2 text-right text-ink-gray-7">{{ NO_VALUE }}</td>
                         </tr>
                       </tbody>
                     </table>
