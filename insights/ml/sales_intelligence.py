@@ -510,14 +510,22 @@ def calculate_comparisons(
         t("Sales Invoice").docstatus == 1
     ).filter(t("Sales Invoice").is_return == 0)
 
-    # Anchor "current" to the latest month that actually has sales, not the
-    # calendar month. A no-op when the ledger is current (max posting date is
-    # in this month); when data lags -- e.g. the last invoice is weeks old --
-    # it stops the still-empty calendar month from reporting -100% MoM/YoY
-    # growth against a fully-populated prior month.
+    # MoM slice: subject to the user's date filter (both endpoints
+    # live inside the window).
+    si = base
+    start, end = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
+
+    # Anchor "current" to the latest month that actually has sales inside the
+    # window, not the calendar month. A no-op when the ledger is current; when
+    # data lags or the window ends before the latest sale, it stops the empty
+    # month from reporting -100% MoM/YoY growth against a populated one.
     import pandas as pd
     today = datetime.now().date()
-    max_posting = base.aggregate(m=base.posting_date.max()).execute().iloc[0]["m"]
+    max_posting = si.aggregate(m=si.posting_date.max()).execute().iloc[0]["m"]
     if max_posting is not None and not pd.isna(max_posting):
         anchor = pd.Timestamp(max_posting).date()
         if anchor < today:
@@ -531,16 +539,7 @@ def calculate_comparisons(
         last_month_final_day,
     )
     last_year_month_start = current_month_start.replace(year=current_month_start.year - 1)
-    last_year_month_end = last_year_month_start.replace(day=min(today.day, 28))
 
-    # MoM slice: subject to the user's date filter (both endpoints
-    # live inside the window).
-    si = base
-    start, end = parse_date_filter(date_filter)
-    if start is not None:
-        si = si.filter(si.posting_date >= start.date())
-    if end is not None:
-        si = si.filter(si.posting_date <= end.date())
 
     # YoY slice: skips the user's `date_filter` (which would push the cutoff
     # past the YoY window's start). Date filter is still respected for the
@@ -567,6 +566,7 @@ def calculate_comparisons(
 
     import calendar as _cal
     ly_days = _cal.monthrange(last_year_month_start.year, last_year_month_start.month)[1]
+    last_year_month_end = last_year_month_start.replace(day=min(today.day, ly_days))
     cur = _slice(si, current_month_start, today)
     last = _slice(si, last_month_start, last_month_end, last_month_final_day)
     last_year = _slice(
