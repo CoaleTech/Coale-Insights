@@ -251,7 +251,7 @@ function handleDashboardRedirect(_target: string) {
         />
         <KpiCard
           label="Customers"
-          :value="formatCount(custSummary.total_customers as number)"
+          :value="custSummary.total_customers == null ? undefined : formatCount(custSummary.total_customers as number)"
           :loading="!custData || custWarming"
         />
         <KpiCard

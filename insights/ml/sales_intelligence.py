@@ -555,7 +555,7 @@ def calculate_comparisons(
             return si_period.aggregate(
                 revenue=si_period.base_net_total.sum(),
                 transactions=si_period.count(),
-            ).execute().iloc[0]
+            ).execute().iloc[0].fillna(0)
         si_period = si_base.filter(si_base.posting_date.between(start_d, full_end))
         lfl = si_period.posting_date <= end_d
         return si_period.aggregate(
@@ -563,7 +563,7 @@ def calculate_comparisons(
             transactions=si_period.count(where=lfl),
             full_revenue=si_period.base_net_total.sum(),
             full_transactions=si_period.count(),
-        ).execute().iloc[0]
+        ).execute().iloc[0].fillna(0)
 
     import calendar as _cal
     ly_days = _cal.monthrange(last_year_month_start.year, last_year_month_start.month)[1]
