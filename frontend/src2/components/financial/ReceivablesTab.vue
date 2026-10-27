@@ -94,13 +94,13 @@
 
 		<!-- Top Debtors -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader variant="caption" title="Top Outstanding Customers" :level="3" />
+			<SectionHeader variant="caption" title="Top Overdue Customers" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full">
 					<thead>
 						<tr class="bg-surface-gray-1">
 							<th scope="col" class="px-4 py-3 text-left text-xs font-medium text-ink-gray-6 uppercase">Customer</th>
-							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Outstanding</th>
+							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Overdue</th>
 							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Invoices</th>
 							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Days Overdue</th>
 						</tr>

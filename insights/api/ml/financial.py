@@ -323,6 +323,8 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             if not party or not isinstance(party, str):
                 frappe.throw(_("{0} is required").format(_(party_field.title())), frappe.ValidationError)
             db_filters[party_field] = party
+            if is_ar:  # the tile lists overdue customers, so the drill lists their overdue invoices
+                db_filters["due_date"] = ("<", frappe.utils.today())
             order_by = "outstanding_amount desc"
         rows = frappe.get_list(
             doctype,
