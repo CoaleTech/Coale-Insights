@@ -597,10 +597,12 @@ def compute_customer_intelligence(
     df["purchase_frequency"] = df["order_count"] / df["lifespan_months"]
     df["recency_days"] = df["last_purchase"].apply(lambda x: (as_of_date - x).days)
 
-    # predicted 12-month CLV = orders/month * 12 * AOV, adjusted by tenure
+    # predicted 12-month CLV = run-rate over the WHOLE tenure (first purchase to
+    # today) x 12 x AOV, adjusted by tenure. Not the first-to-last span: that
+    # projects a one-off or long-dormant customer to keep buying at its old rate.
     df["tenure_months"] = df["first_purchase"].apply(lambda x: (as_of_date - x).days) / 30.44
     df["tenure_factor"] = (df["tenure_months"] / 24).clip(upper=1.5)
-    df["predicted_12m_clv"] = df["purchase_frequency"] * 12 * df["avg_order_value"]
+    df["predicted_12m_clv"] = df["order_count"] / df["tenure_months"].clip(lower=1) * 12 * df["avg_order_value"]
     df["adjusted_predicted_clv"] = df["predicted_12m_clv"] * df["tenure_factor"]
     df["total_clv"] = df["historical_clv"] + df["adjusted_predicted_clv"]
 
@@ -1498,7 +1500,7 @@ def _score_one_customer_row(row, cust, as_of_date, company=None):
     recency_days = (as_of_date - last_purchase).days
     tenure_months = max(0.0, ((as_of_date - first_purchase).days / 30.44))
 
-    predicted_12m = purchase_frequency * 12 * avg_order_value
+    predicted_12m = order_count / max(1.0, tenure_months) * 12 * avg_order_value
     tenure_factor = min(tenure_months / 24.0, 1.5)
     adjusted_predicted = predicted_12m * tenure_factor
     total_clv = historical_clv + adjusted_predicted
