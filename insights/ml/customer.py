@@ -1270,8 +1270,10 @@ def compute_customer_360(customer_id: str,
     response = {"status": "success", "customer": _to_native(customer),
                 "base_currency": _base_currency(company)}
     if include_purchases:
-        response["purchase_history"] = _get_customer_purchase_history(customer_id)
-        response["purchase_patterns"] = _analyze_customer_purchase_patterns(response["purchase_history"])
+        history = _get_customer_purchase_history(customer_id)
+        # Patterns use every invoice; the table shows the latest 50.
+        response["purchase_patterns"] = _analyze_customer_purchase_patterns(history)
+        response["purchase_history"] = history[:50]
     if include_recommendations:
         response["cross_sell"] = _cross_sell_for_one_customer(customer_id, company=company)
         # `_score_one_customer_row` / `_blank_customer_row` both hardcode
@@ -1630,7 +1632,7 @@ def _score_one_customer_row(row, cust, as_of_date, company=None):
 
 
 def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
-    """Top-50 invoices for the customer. One SQL query, plain dicts so the
+    """All invoices for the customer, newest first. One SQL query, plain dicts so the
     JSON envelope is straightforward.
     """
     SI = frappe.qb.DocType("Sales Invoice")
@@ -1649,7 +1651,6 @@ def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
         )
         .where((SI.customer == customer_id) & (SI.docstatus == 1) & (SI.is_return == 0))
         .orderby(SI.posting_date, order=frappe.qb.desc)
-        .limit(50)
         .run(as_dict=True)
     )
     for r in rows:
