@@ -1051,7 +1051,13 @@ def analyze_fulfillment(
     ).filter(t("Sales Invoice").is_return == 0)
     # DSO stays tax-inclusive on both sides: outstanding_amount includes tax,
     # so the daily-sales divisor must too.
-    cutoff_90 = (datetime.now() - timedelta(days=90)).date()
+    # Anchor on the last invoice, not the wall clock: with a data lag a
+    # today-90 window holds fewer days of sales than the /90 divisor assumes
+    # and inflates DSO (same pattern as the daily series above).
+    _last = si.aggregate(last=si.posting_date.max()).execute().iloc[0]["last"]
+    import pandas as _pd
+    anchor = datetime.now().date() if _pd.isna(_last) else min(_pd.Timestamp(_last).date(), datetime.now().date())
+    cutoff_90 = anchor - timedelta(days=90)
     receivables_df = si.aggregate(total=si.outstanding_amount.sum()).execute().iloc[0]
     total_receivables = float(receivables_df["total"] or 0)
     last_90_df = (
