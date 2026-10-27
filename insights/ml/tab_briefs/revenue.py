@@ -237,7 +237,7 @@ def lazy_rev_sources(q: dict):
     if not total:
         return brief("none", "No quotations in this period. Lead Source must be set on Quotations before revenue can be attributed to sources.")
     rate, lost = q.get("conversion_rate"), q.get("lost") or 0
-    text = f"{total:,} quotations: {q.get('won') or 0:,} won, {lost:,} lost, {q.get('pending') or 0:,} pending, conversion {_pct(rate or 0)}."
+    text = f"{total:,} quotations: {q.get('won') or 0:,} won, {lost:,} lost, {q.get('pending') or 0:,} open or expired, conversion {_pct(rate or 0)}."
     reasons = q.get("lost_reasons") or []
     if reasons:
         top = max(reasons, key=lambda r: r["count"])

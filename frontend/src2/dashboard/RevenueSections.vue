@@ -1700,8 +1700,8 @@ const scenarioRows = computed(() => {
           @click="drillOpen('Quotations', { metric: 'quotations', bucket: 'all', period: props.dateFilter })" />
         <KpiCard label="Won" :value="num(quotationAnalytics.won as number)" :clickable="true"
           @click="drillOpen('Quotations won', { metric: 'quotations', bucket: 'won', period: props.dateFilter })" />
-        <KpiCard label="Pending" :value="num(quotationAnalytics.pending as number)" :clickable="true"
-          @click="drillOpen('Quotations pending', { metric: 'quotations', bucket: 'pending', period: props.dateFilter })" />
+        <KpiCard label="Open / Expired" :value="num(quotationAnalytics.pending as number)" :clickable="true"
+          @click="drillOpen('Quotations open or expired', { metric: 'quotations', bucket: 'pending', period: props.dateFilter })" />
         <KpiCard label="Lost" :value="num(quotationAnalytics.lost as number)" severity="high" :clickable="true"
           @click="drillOpen('Quotations lost', { metric: 'quotations', bucket: 'lost', period: props.dateFilter })" />
         <KpiCard label="Conversion" :percent="quotationAnalytics.conversion_rate as number" />
