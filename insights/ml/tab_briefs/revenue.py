@@ -202,7 +202,7 @@ def _rev_forecasts(p: dict, cur):
     days = summary.get("days", 30)
     text = f"The {days}-day point forecast of {money(total, cur)} is directional, not a plan number."
     if smape is not None:
-        text += f" sMAPE is {_pct(smape)} on the {sf['metrics'].get('horizon_days', 14)}-day hold-out."
+        text += f" sMAPE is {_pct(smape)} fitting the trend to its own {sf['metrics'].get('n_points', 'daily')} days of history."
     if stale:
         text += f" Training data ends {stale} days before the forecast starts."
     details, actions = [], []

@@ -1024,7 +1024,6 @@ const modelHealth = computed(() => {
     { label: 'Method', value: methodLabel.value },
     { label: 'Training points', value: m.n_points == null ? NO_VALUE : `${num(m.n_points)} daily observations` },
     { label: 'Training window', value: range?.start && range?.end ? `${formatDate(range.start)} to ${formatDate(range.end)}` : NO_VALUE },
-    { label: 'Hold-out horizon', value: m.horizon_days == null ? NO_VALUE : `${m.horizon_days} days` },
     { label: 'sMAPE', value: m.smape == null ? NO_VALUE : pct(m.smape) },
     { label: 'RMSE', value: m.rmse == null ? NO_VALUE : money(m.rmse) },
     { label: 'MAE', value: m.mae == null ? NO_VALUE : money(m.mae) },
