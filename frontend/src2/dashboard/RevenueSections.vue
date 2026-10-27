@@ -40,6 +40,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'drill-down', endpoint: string, title: string, params: DrillDownParams): void
+  (e: 'refresh'): void
 }>()
 
 function drillOpen(title: string, params: DrillDownParams) {
@@ -409,22 +410,23 @@ const marginGroups = computed(() => {
 function trainForecasts(modelType: string) {
   confirmDialog({
     title: 'Train Forecast Model',
-    message: `This will retrain the ${modelType} forecast model on a background worker. It takes several minutes; the dashboard updates once it finishes.`,
+    message: `This recomputes the ${modelType} forecast from the latest invoices, then refreshes the dashboard. It can take a minute.`,
     primaryActionLabel: 'Train Model',
     onSuccess: async () => {
       isTraining.value = modelType
       trainingStatus.value = ''
       try {
-        // The endpoint queues the fit and returns immediately, so report what
-        // the server actually said rather than claiming the model is trained.
+        // The endpoint recomputes inline (no background job), so the
+        // dashboard payload is reloaded once it returns.
         const result = (await apiCall('insights.api.ml.train_forecast_models', {
           model_type: modelType,
         })) as Record<string, unknown>
-        const message = (result?.message as string) || 'Training started in the background'
+        const message = (result?.message as string) || 'Forecast recomputed'
+        emit('refresh')
         trainingStatus.value = message
         trainingOk.value = true
         createToast({
-          title: 'Training Started',
+          title: 'Forecast Recomputed',
           message,
           variant: 'success',
         })

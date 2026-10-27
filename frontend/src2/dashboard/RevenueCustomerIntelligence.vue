@@ -298,6 +298,7 @@ function handleDashboardRedirect(_target: string) {
           :drill-down-endpoint="'insights.api.ml.sales.get_sales_detail'"
           :at-risk-count="atRiskCount"
           @drill-down="drillDown.open"
+          @refresh="loadSales"
         />
         <!-- Warming: the cache is cold and a background job is computing.
              Distinct from error — the data is coming, not broken. -->
