@@ -972,8 +972,6 @@ def _pareto_analysis(df):
     sorted_df["cumulative_percent"] = (sorted_df["cumulative_revenue"] / total_revenue * 100) if total_revenue else 0
     n = len(sorted_df)
     sorted_df["customer_pct"] = [(i + 1) / n * 100 for i in range(n)]
-    top_80 = sorted_df[sorted_df["cumulative_percent"] <= 80]
-    top_80_pct = round((len(top_80) / n * 100) if n else 0, 1)
     n_10 = max(1, int(n * 0.10))
     n_20 = max(1, int(n * 0.20))
     top_10_revenue = float(sorted_df.head(n_10)["historical_clv"].sum())
@@ -982,6 +980,8 @@ def _pareto_analysis(df):
     crossing_mask = sorted_df["cumulative_percent"] >= 80
     threshold_idx = int(crossing_mask.idxmax()) if crossing_mask.any() else n - 1
     threshold_customer_pct = round(float(sorted_df.loc[threshold_idx, "customer_pct"]), 2)
+    # Fewest customers whose revenue reaches 80%: same crossing the chart marks.
+    top_80_pct = round(threshold_customer_pct, 1)
     # Downsample: ≤100 evenly-spaced positions + the threshold crossing
     if n <= 100:
         indices = list(range(n))
