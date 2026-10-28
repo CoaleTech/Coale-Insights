@@ -10,6 +10,10 @@ Apr–Mar), not estimated.
 
 `predicted_12m_clv` was `orders ÷ months between first and last order × 12 × AOV`, floored at one month, so a one-order customer was projected to buy monthly for a year (CS00019: ₹69,000 single order, 480 days dormant, Platinum). It is now `orders ÷ months since first purchase × 12 × AOV` in both the bulk engine and the customer detail (`insights/ml/customer.py`). Cadence-based churn is unchanged. Measured on the 12m window: portfolio predicted 12m CLV ₹412.9M → ₹236.5M (trailing-12m revenue ₹148.6M); customers dormant over 180 days contribute ₹100.0M → ₹15.8M; dormant customers scored Healthy 43 → 0. CLV tiers, the growth/health score and recommended credit limits move with it.
 
+### Fixed — Forecasts tab no longer projects dormant territories
+
+The by-territory / by-product-group projection weighted each group's last three *observed* months, so a territory that stopped selling long ago was forecast forward at its old level (Nepal ₹625,958 and Mansa ₹173,442 a month with no sale in the window) and a sporadic buyer's gap months were skipped. It now weights the last three calendar months of the history, counting a month with no sale as zero, and emits no projection for a group whose recent run-rate is zero (`insights/ml/sales_forecasting.py`). Territory groups on the tab 137 → 132; groups projected with no actual in the window 5 → 0 (₹856,912 a month of phantom forecast removed).
+
 ### Changed — Intelligence tabs: server-built headline per tab, merged and cut tabs
 
 Every non-Overview tab opens with one server-written sentence and a severity (`TabBrief`), built in `insights/ml/tab_briefs/<dashboard>.py` from the payload the dashboard already computed. No new query, scan or endpoint; the refresh cron, `_scoped` keys and 24 h TTL are unchanged. `cached_run` attaches `tab_briefs` to the payload (lazy tabs attach `brief` to their own response). Missing data omits the brief; the client never builds headline text. Run `warm_all` after deploy so cached payloads carry `tab_briefs`.

@@ -482,17 +482,27 @@ def _extend_with_forecast(history: list[dict[str, Any]], alias: str) -> list[dic
         total = month + step
         future_periods.append(f"{year + (total - 1) // 12}-{(total - 1) % 12 + 1:02d}")
 
+    # Last three CALENDAR months of the history, oldest first. A group with no
+    # sale in a month counts as zero there; taking its last three observed
+    # months instead projected long-dormant territories forward as if live.
+    recent_periods = []
+    for back in (2, 1, 0):
+        total = month - back
+        recent_periods.append(f"{year + (total - 1) // 12}-{(total - 1) % 12 + 1:02d}")
+
     projected: list[dict[str, Any]] = []
     for group, rows in by_group.items():
-        rows.sort(key=lambda r: r["period"])
         if len(rows) < _DIM_MIN_MONTHS:
             continue
-        recent = rows[-3:]
+        by_period = {r["period"]: r for r in rows}
+        recent = [by_period.get(p) or {"revenue": 0, "transactions": 0} for p in recent_periods]
         # Weight the most recent month heaviest: 1, 2, 3 over the
         # last three.
-        weights = list(range(1, len(recent) + 1))
+        weights = [1, 2, 3]
         divisor = sum(weights)
         revenue = sum(r["revenue"] * w for r, w in zip(recent, weights, strict=True)) / divisor
+        if revenue <= 0:
+            continue
         transactions = sum(r["transactions"] * w for r, w in zip(recent, weights, strict=True)) / divisor
         for period in future_periods:
             projected.append(
