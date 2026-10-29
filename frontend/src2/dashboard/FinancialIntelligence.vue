@@ -163,6 +163,7 @@
 				-->
 				<div
 					v-else-if="usesStrategic && strategicWarming && !strategicData"
+					role="status"
 					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
 				>
 					<LoadingIndicator class="h-6 w-6 text-ink-gray-5" />

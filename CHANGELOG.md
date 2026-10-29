@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — "Preparing …" screens were not announced to screen readers
+
+`IntelligenceDashboardShell.vue` (every intelligence dashboard) and the Finance Planning "Preparing planning data" panel: a cold date window swaps the page for a "computing in the background" message, with no live region, so a screen-reader user heard nothing change. Both now carry `role="status"` (polite).
+
 ### Fixed — Text KPI values ("Not burning cash") were cut off, and made the Cash page scroll sideways at large text sizes
 
 `KpiCard.vue`: the value always used `truncate`. Money and percent figures keep it (wrapping would break a number mid-digit; the full value is in the tooltip and a screen-reader span), but plain-text values now use `break-words` and wrap onto a second line instead.

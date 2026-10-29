@@ -66,7 +66,7 @@
 		a dead "no data" page.
 	-->
 	<div v-else-if="warming" class="flex flex-1 items-center justify-center p-6">
-		<div class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
+		<div role="status" class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
 			<Loader2 class="mx-auto mb-3 h-8 w-8 text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
 			<p class="font-medium text-ink-gray-8">Preparing {{ subject }}</p>
 			<p class="mt-1 text-sm text-ink-gray-6">
