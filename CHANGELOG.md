@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — 13-week cash forecast now pays overdue payables
+
+`get_ar_collections_by_week` spreads receivables already past due over the first four weeks; `get_ap_payments_by_week` dropped payables past due, so only bills falling due inside the window were paid (₹2.4M of ₹19.07M outstanding) while all ₹19.7M of receivables were collected. It now spreads overdue payables over the first four weeks the same way (`insights/ml/strategic_finance/data.py`). Measured: 13-week AP payments ₹2.4M → ₹19,069,277 (equals AP outstanding); ending cash ₹17.68M → ₹1.01M; minimum balance +₹3.16M → −₹1.01M (week of 26 Oct); weeks below threshold 0 → 1. Scenario analysis and the cash-flow brief read the same weeks and move with it.
+
 ### Fixed — Predicted 12m CLV no longer projects one-off and dormant customers
 
 `predicted_12m_clv` was `orders ÷ months between first and last order × 12 × AOV`, floored at one month, so a one-order customer was projected to buy monthly for a year (CS00019: ₹69,000 single order, 480 days dormant, Platinum). It is now `orders ÷ months since first purchase × 12 × AOV` in both the bulk engine and the customer detail (`insights/ml/customer.py`). Cadence-based churn is unchanged. Measured on the 12m window: portfolio predicted 12m CLV ₹412.9M → ₹236.5M (trailing-12m revenue ₹148.6M); customers dormant over 180 days contribute ₹100.0M → ₹15.8M; dormant customers scored Healthy 43 → 0. CLV tiers, the growth/health score and recommended credit limits move with it.

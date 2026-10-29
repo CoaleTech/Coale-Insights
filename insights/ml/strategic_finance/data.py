@@ -513,6 +513,28 @@ def get_ap_payments_by_week(intelligence, start_date: datetime, end_date: dateti
         weeks[week_key]['amount'] += float(inv.outstanding_amount or 0)
         weeks[week_key]['count'] += 1
         weeks[week_key]['invoices'].append(inv.name)
+    # Overdue payables (due before the window) are still owed: spread them over
+    # the first 4 weeks, the same assumption get_ar_collections_by_week makes for
+    # overdue receivables. Dropping them left the forecast paying only the bills
+    # due inside the window.
+    overdue_rows = (
+        frappe.qb.from_(pi)
+        .select(Coalesce(Sum(pi.outstanding_amount), 0).as_("total"))
+        .where(pi.company == intelligence.company)
+        .where(pi.docstatus == 1)
+        .where(pi.outstanding_amount > 0)
+        .where(pi.due_date < start_date)
+        .run(as_dict=True)
+    )
+    overdue = float(overdue_rows[0].total or 0) if overdue_rows else 0.0
+    if overdue > 0:
+        for week_offset in range(4):
+            week_date = start_date + timedelta(weeks=week_offset)
+            if hasattr(week_date, 'date') and callable(week_date.date):
+                week_date = week_date.date()
+            week_key = str(week_date - timedelta(days=week_date.weekday()))
+            weeks.setdefault(week_key, {'amount': 0, 'count': 0, 'invoices': []})
+            weeks[week_key]['amount'] += overdue / 4
 
     return weeks
 
