@@ -7,7 +7,7 @@
 			<div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6 space-y-4">
 				<div>
 					<SectionHeader
-						:title="`Monthly Net Profit · ${windowLabel}`"
+						:title="windowLabel ? `Monthly Net Profit · ${windowLabel}` : 'Monthly Net Profit'"
 						:hint="heroHint"
 						:level="3"
 					/>
@@ -20,7 +20,7 @@
 					:config="profitChartConfig"
 				/>
 				<div v-else class="h-56 flex items-center justify-center text-ink-gray-6 text-sm">
-					No monthly data available
+					No postings in the selected date window
 				</div>
 
 				<!-- Accessible table for screen readers -->

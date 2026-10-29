@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Overview monthly chart left a dangling "·" on short date windows
+
+With a window that has no postings (e.g. Last 7 Days while the books end mid-month) the card title read "Monthly Net Profit · " and the chart said "No monthly data available" beside a fiscal-YTD hint. The title now drops the empty window label and the empty state reads "No postings in the selected date window". Figures are unchanged.
+
 ### Fixed — "Monthly Collections" did not say it excludes advances
 
 The chart sums Payment Entry allocations to Sales Invoices (recomputed from the Payment Entry references: Sep 26 ₹7,717,374), so customer advances that are not yet applied do not count. Receipts for September total ₹8,407,544, 9% more. The heading now carries the hint "Receipts applied to invoices; advances not included" and the screen-reader caption matches. Figures are unchanged.
