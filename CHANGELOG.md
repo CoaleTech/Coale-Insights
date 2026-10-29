@@ -8,7 +8,7 @@ Apr–Mar), not estimated.
 
 ### Fixed — "Could not load …" error panels were not announced to screen readers
 
-`IntelligenceDashboardShell.vue` (every intelligence dashboard) and the Finance "Planning data could not be loaded" panel replaced the page on failure with no live region. Both now carry `role="alert"`, matching the `role="status"` added to the "Preparing …" panels.
+`IntelligenceDashboardShell.vue` (every intelligence dashboard) and the Finance "Planning data could not be loaded" and "Access restricted" panels replaced the page on failure with no live region. All now carry `role="alert"`, matching the `role="status"` added to the "Preparing …" panels.
 
 ### Fixed — "Preparing …" screens were not announced to screen readers
 

@@ -140,6 +140,7 @@
 				-->
 				<div
 					v-if="usesStrategic && strategicPermissionError"
+					role="alert"
 					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
 				>
 					<Lock class="h-8 w-8 text-ink-gray-5" aria-hidden="true" />
