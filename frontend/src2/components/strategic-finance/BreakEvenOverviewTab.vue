@@ -41,7 +41,7 @@
           <div>
             <p class="text-xs text-ink-gray-6">Break-Even Month</p>
             <p class="text-base font-semibold text-ink-gray-9 mt-0.5">
-              {{ cashData.breakeven_month || 'Not reached' }}
+              {{ cashData.breakeven_month ? formatMonth(cashData.breakeven_month) : 'Not reached' }}
             </p>
           </div>
           <div>
@@ -148,7 +148,7 @@ import { Badge } from 'frappe-ui'
 import { ragSeverity, severityBadge, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
-import { formatCount, formatMoney, NO_VALUE } from '../../utils/format'
+import { formatCount, formatMoney, formatMonth, NO_VALUE } from '../../utils/format'
 
 defineOptions({ name: 'BreakEvenOverviewTab' })
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCount, formatMoney, formatPercent } from './format'
+import { formatCount, formatMoney, formatMonth, formatPercent } from './format'
 
 /**
  * Guards the four bugs that existed across six hand-rolled formatters before
@@ -126,5 +126,17 @@ describe('formatPercent', () => {
 		expect(formatPercent(null)).toBe('-')
 		expect(formatPercent(undefined)).toBe('-')
 		expect(formatPercent(0)).toBe('0.0%')
+	})
+})
+
+describe('formatMonth', () => {
+	it('labels a YYYY-MM key without rolling back a month', () => {
+		expect(formatMonth('2026-04')).toBe('Apr 2026')
+		expect(formatMonth('2026-01')).toBe('Jan 2026')
+	})
+
+	it('shows the placeholder for missing or invalid input', () => {
+		expect(formatMonth(null)).toBe('-')
+		expect(formatMonth('2026-13')).toBe('-')
 	})
 })

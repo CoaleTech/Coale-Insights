@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Break-Even Month showed a raw `2026-04` key
+
+The Break-Even Overview's cash-flow card printed the backend's `YYYY-MM` month key. It now reads "Apr 2026" through a new `formatMonth` in `utils/format.ts`, matching the month labels on the other Finance tabs.
+
 ### Fixed — Finance panel toggles and the AI chat button had no accessible name
 
 The "What-If Scenarios" and "Variance Review" chevron toggles passed `aria-label` to frappe-ui's `Button`, which overwrites it with its own empty `label`-derived value, so the rendered buttons had `aria-label=""` and read as unnamed to screen readers. They now use `label` plus the `#icon` slot (the component's icon-button contract). The floating AI assistant button and the chat panel's close button (every dashboard) gained names, and the floating button reports `aria-expanded`.
