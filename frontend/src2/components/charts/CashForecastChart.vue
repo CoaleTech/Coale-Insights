@@ -87,23 +87,24 @@ const props = withDefaults(defineProps<Props>(), { currency: 'KES' })
 
 const hasData = computed(() => props.base?.length > 0)
 
-// Show every 7th day for cleaner display (weekly)
+// Show every 7th day for cleaner display (weekly), plus the last day: 90 days is
+// not a whole number of weeks, so the sample alone would stop at day 84 and the
+// chart would end short of the "Day 90" tiles and the weekly summary table (W13).
 const displayData = computed(() => {
-  if (!props.base?.length) return []
-  const result = []
-  for (let i = 6; i < props.base.length; i += 7) {
-    result.push({
-      label: props.base[i].date,
-      shortLabel: `W${Math.ceil((i + 1) / 7)}`,
-      base: props.base[i].balance,
-      optimistic: props.optimistic?.[i]?.balance ?? props.base[i].balance,
-      pessimistic: props.pessimistic?.[i]?.balance ?? props.base[i].balance,
-    })
-  }
-  return result
+  const n = props.base?.length ?? 0
+  if (!n) return []
+  const days: number[] = []
+  for (let i = 6; i < n; i += 7) days.push(i)
+  if (days.at(-1) !== n - 1) days.push(n - 1)
+  return days.map(i => ({
+    label: props.base[i].date,
+    shortLabel: `W${Math.ceil((i + 1) / 7)}`,
+    base: props.base[i].balance,
+    optimistic: props.optimistic?.[i]?.balance ?? props.base[i].balance,
+    pessimistic: props.pessimistic?.[i]?.balance ?? props.base[i].balance,
+  }))
 })
 
-// The weekly sample stops at day 84 of 90; the "Day 90" tiles must read the real last day.
 const lastOptimistic = computed(() => props.optimistic?.at(-1)?.balance ?? props.base?.at(-1)?.balance ?? 0)
 const lastBase = computed(() => props.base?.at(-1)?.balance ?? 0)
 const lastPessimistic = computed(() => props.pessimistic?.at(-1)?.balance ?? props.base?.at(-1)?.balance ?? 0)

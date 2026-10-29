@@ -181,8 +181,10 @@ def calculate_executive_summary(intelligence) -> Dict[str, Any]:
         "ytd_ebitda": round(ytd_ebitda, 2),
         "ebitda_margin": round(ebitda_margin, 2) if ebitda_margin is not None else None,
         "ebitda_addbacks": {"interest": ytd_interest_expense, "depreciation": ytd_depreciation},
-        "revenue_growth_yoy": round(revenue_growth, 2) if revenue_growth is not None else None,
-        "revenue_growth": round(revenue_growth, 2) if revenue_growth is not None else None,
+        # 4 dp, not 2: the UI rounds to 1 dp, and -17.7477 -> -17.75 -> "-17.8%"
+        # double-rounded past Period Comparison's -17.7%.
+        "revenue_growth_yoy": round(revenue_growth, 4) if revenue_growth is not None else None,
+        "revenue_growth": round(revenue_growth, 4) if revenue_growth is not None else None,
         "prior_period_revenue": prior_revenue,
         "prior_period_start": prior_fy_start,
         # cash_balance kept for backward compat; now equals liquid_cash (Bank+Cash-FDs)

@@ -6,6 +6,14 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Overview revenue growth no longer disagrees with Period Comparison by 0.1 pt
+
+The executive summary rounded `revenue_growth` to 2 dp before the page rounded it to 1 dp: ₹80,149,403 against ₹97,442,714 is −17.7477%, stored as −17.75 and shown as "−17.8% YoY" on Overview, while Period Comparison, rounding once, said −17.7%. It is now stored at 4 dp (`strategic_finance/summary.py`), so both read −17.7%.
+
+### Fixed — the 90-day cash forecast chart reaches day 90
+
+`CashForecastChart` sampled every 7th day, which for 90 days stops at day 84: the chart ended at W12 (base −₹219,532) while the "Day 90" tiles and the weekly summary table ended at W13 (−₹263,683), and its accessible caption said "over 12 weeks". It now also plots the final day, labelled W13 as in the table.
+
 ### Fixed — "Quarterly Ratio Trends" columns are labelled for the 90 days they cover
 
 `calculate_ratio_trends` builds eight rolling 90-day windows ending today but labelled each with the calendar quarter of its end date, so on 29 Oct 2026 the column "Q3 2026" held 3 May–31 Jul and "Q4 2026" held 1 Aug–29 Oct (it matched the "Last 90 days" cards to the rupee, although October has no postings). On other dates two windows could even share a label (31 Mar: "Q1" twice). Each window also started 90 days before its end, so its first day was also the previous window's last day and was counted twice. Windows now start 89 days before their end (contiguous, no overlap) and the columns are labelled with the date they end on; the section is titled "90-Day Ratio Trends" with a line saying so (`strategic_finance/analysis.py::_rolling_90_day_windows`).
