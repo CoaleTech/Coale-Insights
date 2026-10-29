@@ -235,9 +235,10 @@
           </template>
         </SectionHeader>
         <p class="text-sm text-ink-gray-6 mt-2 mb-4">
-          Based on {{ data?.monte_carlo?.simulations ?? NO_VALUE }} simulations with random revenue and expense variations
-          (revenue volatility {{ formatPercent(data?.monte_carlo?.revenue_volatility) }}, expense volatility
-          {{ formatPercent(data?.monte_carlo?.expense_volatility) }}), estimated from recent monthly history.
+          Based on {{ data?.monte_carlo?.simulations ?? NO_VALUE }} simulations of the year-to-date result, with revenue and
+          expenses varying together as they have month to month (monthly volatility: revenue
+          {{ formatPercent(data?.monte_carlo?.revenue_volatility) }}, expenses
+          {{ formatPercent(data?.monte_carlo?.expense_volatility) }}, from the last 12 complete months).
         </p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <KpiCard

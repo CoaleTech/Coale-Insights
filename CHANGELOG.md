@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Monte Carlo no longer reports a 47% chance of loss on a profitable year
+
+`generate_scenario_analysis` applied the month-to-month coefficient of variation (revenue 26%, expenses 27.4%) to the fiscal-YTD totals, and drew revenue and expenses independently although the 12-month series correlate at 0.988 (COGS follows sales). Net income therefore ranged −₹45.0M to +₹38.4M (5th–95th percentile) on a ₹3.47M profit, with a 47.4% loss probability. The draws are now scaled to the period (1/√months elapsed ≈ 1/√6.96) and taken from a bivariate normal at the measured correlation (`strategic_finance/scenarios.py`). Measured: 5th–95th percentile ₹0.95M–₹4.06M, median ₹2.57M (baseline after tax ₹2.60M), std ₹0.93M, loss probability 0.3%. Break-even, the sensitivity matrix and the monthly volatilities shown are unchanged; the Monte Carlo caption now says what the volatilities are.
+
 ### Fixed — Capital Planning compares year-to-date capex with the same period last year
 
 The Capex card set 1 Apr–29 Oct (₹101,392) against the whole prior financial year (₹841,084) and printed "↓87.9% vs prior year": seven months against twelve. `analyze_capital_planning` now takes the prior figure over the same stretch of the prior year (1 Apr 2025–29 Oct 2025 = ₹537,870, equal to the Fixed Asset ledger debits), so the change reads −81.1%. The card is relabelled "Same Period Last Year" and the brief says "over the same period last year" (`analysis.py`, `CapitalPlanningTab.vue`, `tab_briefs/finance_planning.py`).

@@ -58,6 +58,23 @@ def _period_root_type_breakdown(company: str, start: str, end: str,
 
 
 
+def _simulate_revenue_expenses(base_revenue, base_expenses, rev_volatility, exp_volatility,
+                               rho, period_months, num_simulations):
+    """Draw revenue and expenses for a period of `period_months`.
+
+    The volatilities are month-to-month, while the bases are period totals:
+    independent months make a total's relative spread shrink with 1/sqrt(months).
+    The two series are drawn together at correlation `rho` (COGS follows sales)
+    rather than independently, which overstated the spread of net income many times."""
+    import numpy as np
+    spread = 1 / np.sqrt(period_months)
+    z = np.random.multivariate_normal([0, 0], [[1, rho], [rho, 1]], num_simulations)
+    return (
+        base_revenue * (1 + rev_volatility * spread * z[:, 0]),
+        base_expenses * (1 + exp_volatility * spread * z[:, 1]),
+    )
+
+
 def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     """Generate scenario analysis with sensitivity and Monte Carlo"""
     import numpy as np
@@ -181,10 +198,20 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     else:
         exp_volatility = rev_volatility * 0.7  # fallback when insufficient history
 
-    # Run simulations
+    # Monthly volatilities vs fiscal-YTD totals, and correlated draws: see
+    # `_simulate_revenue_expenses`.
+    period_months = max(((getdate(today) - getdate(fy_start)).days + 1) / 30.4375, 1)
+    rev_by_month = {r.period: float(r.revenue or 0) for r in monthly_revenues or []}
+    exp_by_month = {r.period: float(r.expenses or 0) for r in monthly_expenses or []}
+    shared = sorted(rev_by_month.keys() & exp_by_month.keys())
+    rho = 0.0
+    if len(shared) > 2:
+        rho = float(np.corrcoef([rev_by_month[m] for m in shared], [exp_by_month[m] for m in shared])[0, 1])
+        rho = rho if np.isfinite(rho) else 0.0
     np.random.seed(42)  # For reproducibility
-    simulated_revenues = np.random.normal(base_revenue, base_revenue * rev_volatility, num_simulations)
-    simulated_expenses = np.random.normal(base_expenses, base_expenses * exp_volatility, num_simulations)
+    simulated_revenues, simulated_expenses = _simulate_revenue_expenses(
+        base_revenue, base_expenses, rev_volatility, exp_volatility, rho, period_months, num_simulations
+    )
     simulated_net_income = simulated_revenues - simulated_expenses
     simulated_net_after_tax = np.where(
         simulated_net_income > 0,

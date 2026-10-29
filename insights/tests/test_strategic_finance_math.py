@@ -7,9 +7,11 @@ import unittest
 from datetime import date
 from types import SimpleNamespace
 
+import numpy as np
+
 from insights.ml.strategic_finance.cost_ratios import _get_fixed_cost
 from insights.ml.strategic_finance.forecast import _shift_weeks, apply_scenario
-from insights.ml.strategic_finance.scenarios import build_periods, calc_change
+from insights.ml.strategic_finance.scenarios import _simulate_revenue_expenses, build_periods, calc_change
 from insights.ml.strategic_finance.summary import calculate_health_scores, generate_key_insights
 
 
@@ -68,6 +70,19 @@ class TestStrategicFinanceMath(unittest.TestCase):
         weeks = _weeks([0, 0, 0])
         self.assertEqual(apply_scenario(None, weeks, threshold=500)["weeks_below_threshold"], 3)
         self.assertEqual(apply_scenario(None, weeks)["weeks_below_threshold"], 0)
+
+    def test_monte_carlo_spread_is_for_the_period_and_follows_correlation(self):
+        def draw(rho, months):
+            np.random.seed(1)
+            return _simulate_revenue_expenses(80e6, 76.7e6, 0.26, 0.274, rho, months, 20000)
+
+        revenue, _ = draw(0.0, 7)
+        # monthly CV 26% over 7 months: a total's CV is 26% / sqrt(7), not 26%
+        self.assertAlmostEqual(revenue.std() / 80e6, 0.26 / 7 ** 0.5, delta=0.005)
+        # COGS follows sales: correlated draws leave far less net-income risk than independent ones
+        net_independent = np.subtract(*draw(0.0, 7)).std()
+        net_correlated = np.subtract(*draw(0.99, 7)).std()
+        self.assertLess(net_correlated * 5, net_independent)
 
     def test_unconfigured_fixed_cost_is_none(self):
         self.assertIsNone(_get_fixed_cost("c", "2026-04-01", "2026-10-06", SimpleNamespace(fixed_cost_centers="  ")))
