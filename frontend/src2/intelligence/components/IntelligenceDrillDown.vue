@@ -2,6 +2,7 @@
 import type { DrillDownColumn } from '../composables/useDrillDown'
 import { formatDate, formatPercent } from '../../utils/format'
 import { Lock, Inbox } from 'lucide-vue-next'
+import { watch } from 'vue'
 
 const props = defineProps<{
   show: boolean
@@ -22,6 +23,15 @@ const emit = defineEmits<{
   'close': []
   'retry': []
 }>()
+
+// headless-ui's own restore does not fire here (focus lands on <body> after close), and
+// its focus-trap cleanup runs after `after-leave`, so wait two frames; same race and fix
+// as the drawer in App.vue.
+let opener: HTMLElement | null = null
+watch(() => props.show, (open) => { if (open) opener = document.activeElement as HTMLElement | null })
+function restoreFocus() {
+  requestAnimationFrame(() => requestAnimationFrame(() => opener?.isConnected && opener.focus()))
+}
 
 const pageSize = 50
 
@@ -65,6 +75,7 @@ function erpnextLink(col: DrillDownColumn, row: Record<string, unknown>): string
 <template>
   <Dialog
     :options="{ title, size: '5xl' }"
+    @after-leave="restoreFocus"
     :model-value="show"
     @update:model-value="emit('update:show', $event)"
   >
