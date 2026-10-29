@@ -175,6 +175,7 @@
             />
             <button
               @click="sendMessage"
+              aria-label="Send message"
               :disabled="!inputMessage.trim() || isLoading"
               class="p-2.5 bg-accent text-ink-white rounded-xl hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none"
             >

@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — AI chat send button had no accessible name
+
+An accessible-name scan of all 15 Finance tabs found one unnamed control, the chat panel's icon-only send button (`DashboardChatButton.vue`, shared by every intelligence dashboard). It now has `aria-label="Send message"`.
+
 ### Fixed — Realised Forex table ignored the date filter without saying so
 
 With a custom range of Apr–Jun 2026 the Forex tab still listed Dec 25 and Jan 26. The query is a fixed trailing 12 months (like the other point-in-time tabs). The section header now reads "Realised Forex Gain / Loss · Last 12 Months" and the brief says "over the last 12 months (3 months with entries)" instead of "across 3 months".
