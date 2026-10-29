@@ -605,7 +605,7 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
         last = base.select(Max(t.posting_date)).run()[0][0]
         if not last:
             return 1.0
-        start = getdate(last) - timedelta(days=90)
+        start = getdate(last) - timedelta(days=89)  # BETWEEN is inclusive: 90 days, matching the /90 below
         total = base.select(Coalesce(Sum(t.grand_total), 0)).where(t.posting_date.between(start, last)).run()[0][0]
         return float(total or 0) / 90 or 1.0
 

@@ -6,6 +6,12 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Working Capital DSO/DPO/DIO averaged 91 days of invoices over 90
+
+`analyze_working_capital` (`ml/strategic_finance/analysis.py`) summed invoices with `posting_date BETWEEN last-90d AND last`, which is inclusive at both ends (91 days), then divided by 90. That overstated average daily sales and purchases by about 1.1% and understated DSO, DPO and DIO by the same amount. The window start is now `last - 89 days`. Reconciled against the database: 17 Jun to 14 Sep sales invoices ₹43,864,370 and ledger receivables ₹18,929,784 give DSO 38.8 (before: 37.7, from ₹45,152,699 over 91 days). Live on the Working Capital tab: "DSO 38.8 + DIO 2.2 - DPO 33.3 = 7.7 days" (before 37.7, 2.2, 32.4, 7.5). `test_strategic_finance_math` 13 of 13. The same pass reconciled the Finance KPI strip to the ledger: AR ₹19,714,214 (140), 90+ days ₹1,176,510 (24), AP ₹19,069,276 (320), liquid cash -₹246,351, YTD revenue ₹80,149,403, net profit ₹3,469,659 (matches to the rupee after excluding one entry dated after today). Not changed: the KPI strip DSO (40 days) uses trailing-12-month sales while this tab uses the last 90 days of the ledger, so the two differ by design; the strip does not say which window it uses. The "last 90 days" is anchored on the last posted invoice (14 Sep), not today (29 Oct).
+
+The KPI strip sublabels now say the window: "40 days DSO · 12 mo" and "41 days DPO · 12 mo" (`FinancialIntelligence.vue`), so they are no longer mistaken for the Working Capital tab's 90-day figures. The first, longer wording wrapped to 3 lines and made the AR and AP cards taller than their neighbours; the short one keeps all cards 125 px.
+
 ### Fixed — Finance Overview expense labels were cut off with "…"
 
 The Expense Breakdown rows ("Stock Expenses", "Indirect Expenses", "Direct Expenses", "Freight Expenses") sat in an 80 px label column with `truncate` and no tooltip, so the full name could not be read (`scrollWidth` exceeded `clientWidth` on all four at 390 px; not measured before the change at 1500 px). The column is now 112 px and carries a `title` with the full name; after the change nothing on Overview is clipped at 390 or 1500 px. Same pass scanned all 8 Actuals tabs at 390 px: no tap target under 28 px and no other ellipsis clipping.
