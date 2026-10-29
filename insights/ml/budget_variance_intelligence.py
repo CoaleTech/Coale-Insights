@@ -720,7 +720,10 @@ class BudgetVarianceIntelligence:
             days_total = (self.fy_end_date - self.fy_start_date).days
             expected_completion = (days_elapsed / days_total * 100) if days_total > 0 else 0
 
-            actual_completion = (ytd_actual / ytd_budget * 100) if ytd_budget != 0 else 0
+            # Spend as a share of the *annual* budget, so it is comparable with the
+            # share of the year elapsed (against ytd_budget, on-pace spend read 100%).
+            annual_budget = self._get_ytd_budget_amount(self.fy_end_date)
+            actual_completion = (ytd_actual / annual_budget * 100) if annual_budget != 0 else 0
 
             return {
                 "ytd_budget": ytd_budget,

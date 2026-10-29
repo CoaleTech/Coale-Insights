@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Budget run-rate called on-pace spending a "major deviation"
+
+`_get_ytd_performance` compared the share of the year elapsed (58%) with spend as a share of the *year-to-date* budget (86%), so spending exactly to plan would read 100% against 58% and be flagged `major_deviation`. It now uses spend as a share of the annual budget. Checked with a throwaway submitted Budget (rolled back) on Salary: spend ₹472,091 of a ₹944,182 budget is 50.0% against 58.0% of the year gone, `slight_deviation` (was `significant_deviation`). The field is in the payload only; no screen shows it yet. Not changed: the headline Overall Variance still compares actuals to date with the full-year budget, so a budget that is exactly on pace mid-year reads about −42% and "critical" (see the Budget Variance open item).
+
 ### Fixed — AI assistant error text ended in a double period
 
 When the AI backend returns an error that already ends in a full stop, the chat appended another: "…configure your API key in Insights Settings.. Please try again." `DashboardChatButton.vue` (shared by all intelligence dashboards) now trims trailing periods from the server error before adding its own. Seen on this site, where AI Analytics is not enabled.
