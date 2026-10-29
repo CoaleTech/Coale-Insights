@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Overview "↗ View / Receivables / Payables" links were only 14 px tall
+
+`OverviewTab.vue`: the six drill-down text buttons had no padding, so their hit area was 14 px high (WCAG 2.5.8 asks for 24 px). Added `py-1.5` with a matching negative margin, so the target is 26 px and the layout does not move.
+
 ### Fixed — Cash tab charts showed a bare "↑" on the right-hand axis
 
 `CashFlowTab.vue`: the fixed-deposit and cash in/out charts gave their right (running balance) axis an empty title, so frappe-ui drew an orphan " ↑" with no unit. Both now read "Balance ↑", matching the 13-Week Cash Flow chart.

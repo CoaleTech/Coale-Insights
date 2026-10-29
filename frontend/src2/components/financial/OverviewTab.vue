@@ -90,7 +90,7 @@
 							<p v-if="cashSublabel" class="text-xs text-ink-gray-6 mt-0.5">{{ cashSublabel }}</p>
 						</div>
 						<button
-							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 mt-1"
+							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Cash Accounts', { metric: 'cash_accounts' })"
 						>↗ View</button>
@@ -109,7 +109,7 @@
 							</p>
 						</div>
 						<button
-							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 mt-1"
+							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Outstanding AR', { metric: 'outstanding_ar' })"
 						>↗ View</button>
@@ -130,7 +130,7 @@
 							</p>
 						</div>
 						<button
-							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 mt-1"
+							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, '90+ Days Overdue AR', { metric: 'overdue_ar_90' })"
 						>↗ View</button>
@@ -149,7 +149,7 @@
 							</p>
 						</div>
 						<button
-							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 mt-1"
+							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Outstanding AP', { metric: 'outstanding_ap' })"
 						>↗ View</button>
@@ -197,7 +197,7 @@
 							</span>
 						</span>
 						<button
-							class="text-xs text-ink-gray-6 hover:text-ink-blue-3"
+							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 py-1.5 -my-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Outstanding AR', { metric: 'outstanding_ar' })"
 						>↗ Receivables</button>
@@ -237,7 +237,7 @@
 							</span>
 						</span>
 						<button
-							class="text-xs text-ink-gray-6 hover:text-ink-blue-3"
+							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 py-1.5 -my-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Outstanding AP', { metric: 'outstanding_ap' })"
 						>↗ Payables</button>
