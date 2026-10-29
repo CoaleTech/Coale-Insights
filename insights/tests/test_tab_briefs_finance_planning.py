@@ -75,6 +75,13 @@ class TestBriefs(unittest.TestCase):
         self.p["thirteen_week_forecast"]["summary"]["minimum_balance"] = -5
         self.assertEqual(briefs(self.p)["cashflow13"]["severity"], "high")
 
+    def test_cashflow13_dates_read_like_the_page(self):
+        self.p["thirteen_week_forecast"]["summary"]["minimum_balance_date"] = "2026-10-26"
+        self.p["thirteen_week_forecast"]["payroll_detection"] = {"detected": True, "frequency": "monthly", "typical_amount": 100, "next_date": "2026-10-30"}
+        b = briefs(self.p)["cashflow13"]
+        self.assertIn("(26 Oct 2026)", b["headline"])
+        self.assertIn("next 30 Oct 2026.", next(d["text"] for d in b["details"] if d["label"] == "Payroll"))
+
 
 class TestLazy(unittest.TestCase):
     def test_budget_missing(self):

@@ -31,7 +31,7 @@ class TestBriefs(unittest.TestCase):
         b = self.b["payables"]
         self.assertEqual(b["severity"], "high")
         self.assertIn("6 invoices totalling ₹1,234,428", b["headline"])
-        self.assertIn("PI26271361 (₹247,800) on 2026-10-24", b["headline"])
+        self.assertIn("PI26271361 (₹247,800) on 24 Oct 2026", b["headline"])
         self.p["cash_flow"]["liquid_cash"] = 5_000_000
         self.assertEqual(briefs(self.p)["payables"]["severity"], "medium")
 
@@ -58,7 +58,7 @@ class TestBriefs(unittest.TestCase):
 
     def test_payables_due_date_strips_time_component(self):
         """Ibis returns due_date as a pandas Timestamp with 00:00:00; the
-        brief must emit only the date portion, never "2026-10-24 00:00:00"."""
+        brief must emit only the date portion, never "24 Oct 2026 00:00:00"."""
         import copy
         p2 = copy.deepcopy(self.p)
         # Simulate the Timestamp shape: a string with time appended (same
@@ -67,4 +67,4 @@ class TestBriefs(unittest.TestCase):
             u["due_date"] = str(u["due_date"]) + " 00:00:00"
         headline = briefs(p2)["payables"]["headline"]
         self.assertNotIn("00:00:00", headline)
-        self.assertRegex(headline, r"on \d{4}-\d{2}-\d{2}[^:]")
+        self.assertRegex(headline, r"on \d{2} [A-Z][a-z]{2} \d{4}[^:]")

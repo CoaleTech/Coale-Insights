@@ -6,7 +6,7 @@
 
 import calendar
 
-from . import action, brief, detail, money, plural
+from . import action, brief, day, detail, money, plural
 
 CR_GOOD, CR_WARN = 1.5, 1.0  # current-ratio cut-points
 LOSS_GOOD, LOSS_WARN = 10, 25  # same loss-probability cut-points as ScenarioAnalysisTab
@@ -244,14 +244,14 @@ def _cashflow13(p: dict):
     low = s.get("minimum_balance")
     below = s.get("weeks_below_threshold") or 0
     if low is not None:
-        text += f", with its lowest balance of {money(low, cur)} in week {s.get('minimum_balance_week')} ({s.get('minimum_balance_date')})"
+        text += f", with its lowest balance of {money(low, cur)} in week {s.get('minimum_balance_week')} ({day(s.get('minimum_balance_date'))})"
     sev = "high" if low is not None and low < 0 else "medium" if below else "low"
     details = []
     if low is not None:
-        details.append(detail("13-week low", f"Week {s.get('minimum_balance_week')} ({s.get('minimum_balance_date')}) at {money(low, cur)}; {plural(below, 'week')} below the minimum."))
+        details.append(detail("13-week low", f"Week {s.get('minimum_balance_week')} ({day(s.get('minimum_balance_date'))}) at {money(low, cur)}; {plural(below, 'week')} below the minimum."))
     pay = t.get("payroll_detection") or {}
     if pay.get("detected"):
-        details.append(detail("Payroll", f"{pay.get('frequency', '').capitalize()} payroll of {money(pay.get('typical_amount'), cur)} detected, next {pay.get('next_date')}."))
+        details.append(detail("Payroll", f"{pay.get('frequency', '').capitalize()} payroll of {money(pay.get('typical_amount'), cur)} detected, next {day(pay.get('next_date'))}."))
     actions = []
     if low is not None and low < 0:
         actions.append(action("Cover the 13-week cash gap", f"Week {s.get('minimum_balance_week')} is the lowest at {money(low, cur)}.", impact=money(-low, cur)))

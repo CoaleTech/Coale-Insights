@@ -10,6 +10,7 @@ Each dashboard module exposes ``briefs(payload) -> {tab_id: brief(...)}``.
 from __future__ import annotations
 
 import importlib
+from datetime import datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
@@ -67,6 +68,14 @@ def money(value: Any, currency: str | None) -> str:
 
 def plural(n: int, singular: str, plural_form: str | None = None) -> str:
     return f"{n:,} {singular if n == 1 else plural_form or singular + 's'}"
+
+
+def day(value: Any) -> str:
+    """ISO date (a pandas Timestamp's time part is ignored) as "24 Oct 2026", like the page. Unparseable input passes through."""
+    try:
+        return datetime.strptime(str(value)[:10], "%Y-%m-%d").strftime("%d %b %Y")
+    except ValueError:
+        return str(value)
 
 
 def _safe(fn, payload: dict, label: str) -> Any:

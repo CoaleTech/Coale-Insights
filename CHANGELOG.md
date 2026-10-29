@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance briefs printed ISO dates in prose
+
+The Payables headline ("…the first being PI26271361 … on 2026-10-29"), the 13-Week low-balance line and the payroll "next" date used raw `YYYY-MM-DD` while the rest of the page reads "29 Oct 2026". A shared `day()` in `tab_briefs/__init__.py` formats them (a pandas time part is still stripped; unparseable input passes through). The two Payables tests that pinned the ISO wording were updated.
+
 ### Fixed — Working Capital tab showed DSO/DPO that differ from the Overview without saying why
 
 The Working Capital tab's DSO 37.7 / DPO 32.4 days use ledger balances over the 90 days ending at the last posting, while the Overview and Receivables/Payables cards (DSO 40 / DPO 41) divide open invoices by trailing-12-month sales and purchases. Both are valid but looked like a contradiction. The three day-count cards now state "Ledger balance, last 90 days".
