@@ -10,6 +10,8 @@ Apr–Mar), not estimated.
 
 frappe-ui's `Tabs` and `TabButtons` carry `focus:outline-none` with no replacement; 9 of 35 focusables on the Finance page (8 tabs plus the segmented switch) showed no ring (WCAG 2.4.7). `index.css` now gives `button[role=tab]` and `button[role=radio]` a 2px inset `--ink-gray-9` outline on `:focus-visible` only. Measured after ArrowRight: 2px solid `#F8F8F8` in dark, `#171717` in light.
 
+**Follow-up:** the first version also ringed a tab after a mouse click, because headless-ui re-focuses the clicked tab by script and Chrome counts that as `:focus-visible` (measured on a fresh page: `fv=true` after a real click). `main.ts` now sets `data-input="keyboard"` on `<html>` on keydown and clears it on pointerdown, and the ring is scoped to it. Measured: click → transparent outline, ArrowRight → 2px `#F8F8F8`, click again → transparent.
+
 ### Fixed — two small labels fell below 4.5:1 on tinted tiles in dark theme
 
 The Overview health-score label ("Efficiency" on an amber/green tile) and the shared `TabBrief` "As of …" stamp used `text-ink-gray-6`, which measured 4.20:1 on severity-tinted surfaces in dark theme. Both now use `text-ink-gray-7`. A contrast sweep of 15 Finance tabs in both themes then showed no remaining failures except the known frappe-ui amber/green `Badge` palette and blue-3 links (4.28:1, no darker Espresso shade). The disabled Budget Variance "Export" button is exempt.

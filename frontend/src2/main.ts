@@ -11,6 +11,12 @@ import { createToast } from './helpers/toasts'
 
 setConfig('resourceFetcher', frappeRequest)
 
+// headless-ui re-focuses a tab by script after a click, which Chrome counts as
+// :focus-visible; index.css keys the tab focus ring off this instead.
+const root = document.documentElement
+document.addEventListener('keydown', () => (root.dataset.input = 'keyboard'), true)
+document.addEventListener('pointerdown', () => delete root.dataset.input, true)
+
 // Initialize frappe global object if not exists
 if (!window.frappe) window.frappe = {}
 

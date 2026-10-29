@@ -187,10 +187,12 @@
  * frappe-ui's Tabs and TabButtons ship `focus:outline-none` with no replacement,
  * so keyboard focus on every dashboard's tab strip and Actuals/Planning switch is
  * invisible (WCAG 2.4.7). Inset so `overflow-x-auto` strips don't clip it; the
- * extra `button` keeps specificity above the utility.
+ * extra `button` keeps specificity above the utility. `data-input` is set by
+ * main.ts: headless-ui focuses a clicked tab by script, which Chrome treats as
+ * :focus-visible, so the pseudo-class alone would ring mouse clicks.
  */
-button[role='tab']:focus-visible,
-button[role='radio']:focus-visible {
+[data-input='keyboard'] button[role='tab']:focus-visible,
+[data-input='keyboard'] button[role='radio']:focus-visible {
 	outline: 2px solid var(--ink-gray-9);
 	outline-offset: -2px;
 }
