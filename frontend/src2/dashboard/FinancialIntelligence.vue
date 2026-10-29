@@ -621,7 +621,7 @@ const summary = computed(() => ({
  */
 const cashRunwayLabel = computed(() =>
 	cashFlowData.value.runway_months === null
-		? 'Cash positive'
+		? 'Not burning cash'
 		: sharedCashRunwayLabel(summary.value.cashRunwayMonths),
 )
 

@@ -343,7 +343,7 @@ const freeCashSeverity = computed<Severity>(() => {
 /** Runway is months of cash left at the current burn; the server sends `null`
  * when the company is not burning cash. */
 const runwayLabel = computed(() =>
-	props.data.runway_months === null ? 'Cash positive' : cashRunwayLabel(props.data.runway_months),
+	props.data.runway_months === null ? 'Not burning cash' : cashRunwayLabel(props.data.runway_months),
 )
 
 function runwaySeverity(months: number | null | undefined): Severity {

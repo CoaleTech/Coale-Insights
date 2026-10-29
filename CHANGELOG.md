@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — "Cash positive" runway card sat beside a negative Free Cash
+
+With liquid cash at −₹246,351, the Cash Runway card (Overview and Cash tab) read "Cash positive" because the ledger net movement is +₹86,963/mo. It now reads "Not burning cash", which is what the figure means.
+
 ### Fixed — Cash brief's "Average month" line looked like it did not add up
 
 "Payments in ₹15,083,794, payments out ₹14,675,310; net ₹86,963" read as a subtraction error (the difference is ₹408,484). The in/out figures come from Payment Entries, the net from the cash accounts' ledger (which includes journal-posted sweeps and charges). The line now says "Payment Entries … (journal-posted movements not included)".
