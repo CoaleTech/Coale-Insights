@@ -56,7 +56,7 @@
         />
         <KpiCard
           label="Weeks Below Threshold"
-          :value="data?.summary?.weeks_below_threshold"
+          :value="weeksBelowThreshold"
           :severity="hasThresholdWarning ? 'critical' : 'none'"
         />
       </div>
@@ -460,13 +460,18 @@ watch(
   },
 )
 
+// The server flags weeks against the threshold it was computed with; the input
+// above changes it, so the flags are re-derived here to follow what is typed.
 const displayWeeks = computed(() => {
   if (!props.data?.weeks) return []
-  return props.data.weeks.filter((w) => w.week_number >= 0)
+  return props.data.weeks
+    .filter((w) => w.week_number >= 0)
+    .map((w) => ({ ...w, below_threshold: w.closing_balance < threshold.value }))
 })
 
 const hasVariance = computed(() => props.data?.weeks?.some((w) => w.variance))
-const hasThresholdWarning = computed(() => (props.data?.summary?.weeks_below_threshold || 0) > 0)
+const weeksBelowThreshold = computed(() => displayWeeks.value.filter((w) => w.below_threshold).length)
+const hasThresholdWarning = computed(() => weeksBelowThreshold.value > 0)
 const isMinBalanceCritical = computed(() => {
   const minBalance = props.data?.summary?.minimum_balance || 0
   return minBalance < threshold.value

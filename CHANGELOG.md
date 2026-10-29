@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — 13-week "Weeks Below Threshold" follows the Min Cash Threshold input
+
+Typing a threshold on the 13-Week Cash Flow tab moved the chart line and the Min Balance severity but not the "Weeks Below Threshold" card, the red closing-balance cells or the "Low" badges, which kept the server's flags for the threshold it was computed with (₹0): at ₹5,000,000 every week closes below it (all ≤ ₹1.4M) yet the card still read 1. `displayWeeks` now derives `below_threshold` from the live threshold and the card counts those (`ThirteenWeekCashFlowTab.vue`). The scenario panel's per-scenario counts are still computed server-side at the stored company threshold.
+
 ### Fixed — Refresh waits for the recomputed dashboard instead of looking dead
 
 `cached_run` deliberately keeps serving the cached payload while a background job recomputes, and the page never asked again, so the header Refresh spinner ended in ~150 ms with the old numbers still shown (the new payload only appeared after a manual page reload). The cached payload is now flagged `refreshing` while a compute is in flight (`api/ml/utils.py::_flag_recompute`), `readInsightsEnvelope` decodes it, and both `useIntelligenceDashboard` and the Planning feed in `FinancialIntelligence.vue` keep the Refresh spinner on and re-check every 4 s (without `refresh`, so nothing re-queues) until the flag clears. Measured live on Finance: spinner held ~55 s until the compute finished, then re-enabled. Covers every dashboard on the shared composable. Test: `test_cached_run_refresh_flag`.
