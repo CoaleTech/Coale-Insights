@@ -17,6 +17,8 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import frappe
+from frappe.query_builder.functions import Sum
+from frappe.utils import flt
 from insights.api.ml.utils import cached_run, run
 
 
@@ -188,6 +190,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
 
     if metric == "cash_accounts":
         frappe.has_permission("Account", throw=True)
+        frappe.has_permission("GL Entry", throw=True)
         # Same set _calculate_cash_flow uses: Bank/Cash by account_type, plus
         # Fixed Deposit accounts (no core account_type for FD, name-matched).
         acct_filters = [["is_group", "=", 0]]
@@ -205,12 +208,28 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             start=start, page_length=page_size, order_by="account_name asc",
             ignore_permissions=False,
         )
+        # Same balances as the Cash Position card (all postings, future-dated included).
+        GL = frappe.qb.DocType("GL Entry")
+        names = [r["name"] for r in rows]
+        bal = {}
+        if names:
+            bal = dict(
+                frappe.qb.from_(GL)
+                .select(GL.account, Sum(GL.debit - GL.credit))
+                .where((GL.account.isin(names)) & (GL.is_cancelled == 0))
+                .groupby(GL.account)
+                .run()
+            )
+        for r in rows:
+            r["balance"] = flt(bal.get(r["name"]))
+            r["account_type"] = r["account_type"] or "Fixed Deposit"
         return {
             "columns": [
                 {"label": "Account", "fieldname": "name", "fieldtype": "Link", "options": "Account"},
                 {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
                 {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
                 {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
+                {"label": "Balance", "fieldname": "balance", "fieldtype": "Currency"},
             ],
             "rows": rows,
             "total": frappe.get_list(

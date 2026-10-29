@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance Overview "Cash Position ↗ View" listed accounts with no balances
+
+The drill-down opened on three account names, types and currencies and nothing else, so it could not be checked against the ₹9.6M card, and the Fixed Deposit row had a blank Type. `get_finance_detail("cash_accounts")` now adds a Balance column from GL Entry (same all-postings basis as the card: ₹596,039 cash, ₹9,821,496 fixed deposit, −₹842,390 bank, sum ₹9,575,145) and labels the deposit account "Fixed Deposit". It also requires GL Entry read permission, since it now returns ledger balances.
+
 ### Fixed — Cash tab "Last 30 days" and "Last 3 months" panels covered 59 and 120 days
 
 `_calculate_cash_flow` took both windows from `_months_ago(n)`, which returns the first day of the month: on 29 Oct "LARGE CASH TRANSACTIONS (LAST 30 DAYS)" listed 1–12 Sept receipts and payments (nothing newer than the month's data), and "WHERE CASH CAME FROM / WENT, LAST 3 MONTHS" summed from 1 Jul (Customer receipts ₹37.3M against ₹24.6M over 90 days). Both now use real day windows (`financial_intelligence.py`); the 90-day totals equal a direct Payment Entry sum (₹25,146,453 received, ₹25,327,171 paid).

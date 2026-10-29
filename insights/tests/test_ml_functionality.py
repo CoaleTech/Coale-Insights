@@ -398,6 +398,8 @@ class TestFinancialAPIDrillDown(FrappeTestCase):
 
 
         self.assertEqual(result['rows'][0]['account_type'], 'Cash')
+        self.assertEqual(result['columns'][-1]['fieldname'], 'balance')
+        self.assertEqual(result['rows'][0]['balance'], 0)
         _, kwargs = mock_get_list.call_args_list[0]
         self.assertIn(['is_group', '=', 0], kwargs['filters'])
         self.assertIn(['account_type', 'in', ['Cash', 'Bank']], kwargs['or_filters'])
