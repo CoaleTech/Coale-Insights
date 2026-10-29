@@ -108,6 +108,11 @@ class BudgetVarianceIntelligence:
             self.fy_start_date = frappe.utils.getdate(fy["start_date"])
             self.fy_end_date = frappe.utils.getdate(fy["end_date"])
 
+        # Variance compares actuals to date with the budget to date. Against the
+        # full-year budget a plan that is exactly on pace mid-year reads -40% "critical".
+        today = frappe.utils.getdate()
+        self.budget_end = min(today, self.fy_end_date) if today >= self.fy_start_date else self.fy_end_date
+
         # Budget rows are fetched once per overview call (see _fetch_budget_data)
         self._budget_rows = None
         self._errors: list[str] = []
@@ -684,7 +689,7 @@ class BudgetVarianceIntelligence:
 
         merged_data = []
         for b in budget_data:
-            budget = self._period_budget(b, self.fy_start_date, self.fy_end_date)
+            budget = self._period_budget(b, self.fy_start_date, self.budget_end)
             actual = actual_lookup.get((b["account"], b["cost_center"]), 0.0)
             merged_data.append({
                 "account": b["account"],
@@ -768,7 +773,7 @@ class BudgetVarianceIntelligence:
 
     def _get_department_budget(self, department: str) -> float:
         """Total expense budget for a department's cost center over the fiscal year"""
-        return self._get_department_budget_for_period(department, self.fy_start_date, self.fy_end_date)
+        return self._get_department_budget_for_period(department, self.fy_start_date, self.budget_end)
 
     def _get_department_actual(self, department: str) -> float:
         """Total expense actual for a department's cost center over the fiscal year"""
@@ -840,7 +845,7 @@ class BudgetVarianceIntelligence:
     def _get_account_budget(self, account: str) -> float:
         """Get fiscal-year budget amount for specific account"""
         return sum(
-            self._period_budget(b, self.fy_start_date, self.fy_end_date)
+            self._period_budget(b, self.fy_start_date, self.budget_end)
             for b in self._fetch_budget_data()
             if b["account"] == account
         )
@@ -1401,7 +1406,7 @@ class BudgetVarianceIntelligence:
     def _get_revenue_budget(self) -> float:
         """Get total revenue budget for the fiscal year"""
         return sum(
-            self._period_budget(b, self.fy_start_date, self.fy_end_date)
+            self._period_budget(b, self.fy_start_date, self.budget_end)
             for b in self._fetch_budget_data()
             if b["root_type"] == "Income"
         )

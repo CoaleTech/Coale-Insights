@@ -134,7 +134,7 @@
         <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-ink-gray-6">Budget Utilization</p>
+              <p class="text-sm font-medium text-ink-gray-6">Budget Utilization (to date)</p>
               <p class="text-2xl font-bold mt-1 text-ink-gray-9">
                 {{ formatPercentage(budgetData?.summary?.budget_utilization || 0) }}
               </p>

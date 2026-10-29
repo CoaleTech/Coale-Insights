@@ -293,8 +293,8 @@ def lazy_budget(p: dict):
     sev = "high" if v > BUDGET_HIGH else "medium" if v > BUDGET_MED else "low"
     return brief(
         sev,
-        f"Budget of {money(s['total_budget'], cur)} shows a variance of {money(s.get('total_variance'), cur)} ({_f(s['variance_percentage']):g}%).",
-        [detail("Actual", f"{money(s.get('total_actual'), cur)} spent against {money(s['total_budget'], cur)} budgeted.")] if s.get("total_actual") is not None else None,
+        f"Budget to date of {money(s['total_budget'], cur)} shows a variance of {money(s.get('total_variance'), cur)} ({_f(s['variance_percentage']):g}%).",
+        [detail("Actual", f"{money(s.get('total_actual'), cur)} spent against {money(s['total_budget'], cur)} budgeted to date.")] if s.get("total_actual") is not None else None,
     )
 
 

@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Budget Variance compared spend to date with the full-year budget
+
+Seven months into the year, a budget that was exactly on pace read −42% "critical", raised a "High Budget Variance" alert, graded budget accuracy D and recommended "Improve Budget Planning Process". Checked with a throwaway submitted Budget on Salary (rolled back; budget ₹944,182, actual ₹472,091): the summary, the account and department variances and the revenue budget now use the budget to date (₹545,697, `budget_end` = today clipped to the fiscal year; a future fiscal year keeps the full year). Overall Variance −50.0% "critical" → −13.5% "acceptable"; the alert and the recommendation are gone; accuracy 50% grade D → 86.5% grade A. At fiscal year end nothing changes. The "Budget Utilization" card is now "Budget Utilization (to date)" and the brief says "Budget to date of …". The site has no submitted Budget, so the Budget Variance tab still shows its empty state.
+
 ### Fixed — Budget run-rate called on-pace spending a "major deviation"
 
 `_get_ytd_performance` compared the share of the year elapsed (58%) with spend as a share of the *year-to-date* budget (86%), so spending exactly to plan would read 100% against 58% and be flagged `major_deviation`. It now uses spend as a share of the annual budget. Checked with a throwaway submitted Budget (rolled back) on Salary: spend ₹472,091 of a ₹944,182 budget is 50.0% against 58.0% of the year gone, `slight_deviation` (was `significant_deviation`). The field is in the payload only; no screen shows it yet. Not changed: the headline Overall Variance still compares actuals to date with the full-year budget, so a budget that is exactly on pace mid-year reads about −42% and "critical" (see the Budget Variance open item).
