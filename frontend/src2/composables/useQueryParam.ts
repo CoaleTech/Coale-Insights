@@ -1,4 +1,4 @@
-import { computed, getCurrentInstance, ref, watch } from 'vue'
+import { computed, getCurrentInstance, onActivated, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 /**
@@ -37,6 +37,14 @@ export function useQueryParam(key: string, fallback: string) {
 			if (route.name === owner) state.value = fromUrl()
 		},
 	)
+	// Coming back to a kept-alive page by a bare link (sidebar) leaves its state
+	// ahead of a clean URL: put the state back in the URL; a link that carries
+	// the param wins instead.
+	onActivated(() => {
+		if (route.name !== owner) return
+		if (route.query[key] !== undefined) state.value = fromUrl()
+		else if (state.value !== fallback) router.replace({ query: { ...route.query, [key]: state.value } })
+	})
 
 	return state
 }

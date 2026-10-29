@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — returning to a dashboard by the sidebar left the URL behind its tab
+
+Dashboards are kept alive, so Finance → Tax → Finance showed the Ratios tab under a bare `/financial-intelligence` URL; a reload then jumped to Overview. `useQueryParam` now writes the kept state back into the URL on reactivation, and a link that carries `?tab=` / `?range=` still wins.
+
 ### Fixed — chart legend paged on phones; charts kept screen width when printed
 
 - **Legend:** frappe-ui reserves 25px per side for pager arrows and a 12px item gap, so the three-item Fixed Deposit legend showed "‹ 1/3 ›" in a 260px chart at 390px wide. `IntelligenceChart` now drops that padding (gap 8px); all three items show, and the legend still scrolls if it genuinely overflows.
