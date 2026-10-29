@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — drill-down Prev/Next labels broke onto two lines on phones
+
+My earlier switch of the pager from `← Prev` text to chevron icons put the icon and label inline inside the frappe-ui `Button` default slot, so at 390 px each button wrapped to "‹" over "Prev" (found on the Receivables 90+ days drill-down). The chevrons now go in the button's `prefix`/`suffix` slots with a `label`, which keeps one line and a 44 px touch height; desktop height is unchanged (28 px). The "Showing 1–24 of 24 records" text still wraps to two lines between them at 390 px, which reads fine. The table also scrolls sideways at 390 px (Outstanding column off-screen) with no visual cue; not changed.
+
 ### Fixed — AI chat panel covered the page on phones after every reload
 
 The panel's open state is saved per dashboard and restored on load. At 390 px wide the panel is almost full width, so a user who had once opened it saw the Finance KPIs and brief hidden behind it on each visit (measured: panel open at 390 px with the saved flag set, KPI strip cut off). `DashboardChatButton.vue` now restores the saved state only at 768 px and wider; the button still opens it on demand. Measured after: 390 px panel closed with the flag still `true`, 1500 px panel restored. Same pass: no horizontal overflow on Overview, Receivables, Payables or Forex at 390, 768 and 1024 px; Planning sub-tabs all load with no NaN or em dashes.

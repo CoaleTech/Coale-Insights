@@ -145,9 +145,9 @@ function erpnextLink(col: DrillDownColumn, row: Record<string, unknown>): string
           </div>
 
           <div class="flex flex-shrink-0 items-center justify-between border-t bg-surface-white px-4 py-2 text-sm text-ink-gray-6">
-            <Button variant="subtle" size="sm" :disabled="isPrevDisabled()" @click="emit('prev-page')"><ChevronLeft class="h-4 w-4" aria-hidden="true" /> Prev</Button>
+            <Button variant="subtle" size="sm" label="Prev" :disabled="isPrevDisabled()" @click="emit('prev-page')"><template #prefix><ChevronLeft class="h-4 w-4" aria-hidden="true" /></template></Button>
             <span>Showing {{ rangeStart() }}–{{ rangeEnd() }} of {{ total }} records</span>
-            <Button variant="subtle" size="sm" :disabled="isNextDisabled()" @click="emit('next-page')">Next <ChevronRight class="h-4 w-4" aria-hidden="true" /></Button>
+            <Button variant="subtle" size="sm" label="Next" :disabled="isNextDisabled()" @click="emit('next-page')"><template #suffix><ChevronRight class="h-4 w-4" aria-hidden="true" /></template></Button>
           </div>
         </template>
 
