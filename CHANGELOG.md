@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — The AI assistant panel was invisible to screen readers
+
+`DashboardChatButton.vue` (every intelligence dashboard): the floating panel had no landmark, the message list had no live region so a reply arriving was never announced, and the input was named only by its placeholder. The panel is now `role="region"` "AI assistant", the message list is `role="log"` `aria-live="polite"`, and the textarea has an `aria-label`.
+
 ### Fixed — Every dialog's close "×" button had no accessible name
 
 frappe-ui's `Dialog.vue` renders the close button as an icon-only `Button` and passes it no `label`, so Button's own `aria-label` logic had nothing to use and a screen reader announced "button" (checked on the Finance Overview drill-down dialogs; the same component backs all 63 files that open a Dialog). `App.vue` now sets `aria-label="Close"` on that button as each dialog mounts, matched by its exact position under the headlessui title (`header > div > row > button`), so an unrelated unnamed button in a custom dialog is left alone. This is a stop-gap in the app; the proper fix is upstream in frappe-ui.
