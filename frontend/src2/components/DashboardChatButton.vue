@@ -46,7 +46,7 @@
         </div>
 
         <!-- Session History Dropdown -->
-        <div v-if="showHistory" class="absolute top-14 right-4 w-72 bg-surface-white rounded-lg shadow-xl border border-outline-gray-1 z-10 max-h-64 overflow-y-auto">
+        <div v-if="showHistory" class="absolute top-14 right-4 w-72 max-w-[calc(100%-2rem)] bg-surface-white rounded-lg shadow-xl border border-outline-gray-1 z-10 max-h-64 overflow-y-auto">
           <div class="p-2 border-b border-outline-gray-1 bg-surface-gray-1">
             <span class="text-xs font-medium text-ink-gray-6">Recent Conversations</span>
           </div>

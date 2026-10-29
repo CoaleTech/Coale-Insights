@@ -8,7 +8,7 @@ Apr–Mar), not estimated.
 
 ### Fixed — AI assistant panel was cut off on phones and short screens
 
-The chat panel was a fixed 384px wide and 500px tall, anchored 24px from the right and 88px from the bottom. On a 390px phone its left 18px (the assistant icon in the header) sat off-screen, and on a landscape phone (400px tall) the header went off the top. It is now capped at the viewport minus the margins (`max-w-[calc(100vw-3rem)]`, `max-h-[calc(100vh-7rem)]`). Measured on-screen at 390x800, 320x568, 800x400 and 1500x900. The panel is shared, so every dashboard gets the fix.
+The chat panel was a fixed 384px wide and 500px tall, anchored 24px from the right and 88px from the bottom. On a 390px phone its left 18px (the assistant icon in the header) sat off-screen, and on a landscape phone (400px tall) the header went off the top. It is now capped at the viewport minus the margins (`max-w-[calc(100vw-3rem)]`, `max-h-[calc(100vh-7rem)]`). Measured on-screen at 390x800, 320x568, 800x400 and 1500x900. The Recent Conversations dropdown (288px) was clipped by the panel on a 320px phone (left edge at −9px); it is now capped at the panel width less 2rem (41–279px). The panel is shared, so every dashboard gets the fix.
 
 ### Fixed — 13-Week Cash Flow made the whole page scroll sideways on phones
 
