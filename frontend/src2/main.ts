@@ -16,6 +16,18 @@ setConfig('resourceFetcher', frappeRequest)
 const root = document.documentElement
 document.addEventListener('keydown', () => (root.dataset.input = 'keyboard'), true)
 document.addEventListener('pointerdown', () => delete root.dataset.input, true)
+// Enter on a div/tr row opens a dialog from the keydown handler; the dialog moves
+// focus to its close button before `keypress` fires, so the same keystroke clicked
+// it and shut the dialog at once. Native controls keep their own Enter behaviour.
+document.addEventListener(
+  'keydown',
+  (e) => {
+    const t = e.target as HTMLElement
+    if (e.key === 'Enter' && t.matches?.('[tabindex]:not(button,a,input,select,textarea,summary,[contenteditable])'))
+      e.preventDefault()
+  },
+  true,
+)
 
 // Initialize frappe global object if not exists
 if (!window.frappe) window.frappe = {}

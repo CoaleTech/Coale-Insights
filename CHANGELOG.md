@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — pressing Enter on a drill-down row opened the dialog and closed it again
+
+Rows are `tr`/`div` with `tabindex="0"` and `@keydown.enter` (Receivables, Payables, Cash accounts, Working Capital, Forex, Revenue, Customers, Inventory, Marketing and more). The dialog opened and moved focus to its close button before `keypress` fired, so the same keystroke clicked it: event trace `keydown@TR → dialog=true → keypress@BUTTON → click@BUTTON → dialog=false` (239 ms open). Keyboard users could not open any drill-down with Enter. `main.ts` now calls `preventDefault` on Enter keydown for focusable non-native targets, which suppresses the `keypress`; native buttons, links and inputs are excluded. Measured on Receivables, "R R Adhesive": Enter and Space both leave "R R Adhesive AR" open; Escape closes it. Not changed: focus lands on `<body>` after close instead of returning to the row (cause not investigated).
+
 ### Fixed — keyboard focus was invisible on every tab strip and the Actuals/Planning switch
 
 frappe-ui's `Tabs` and `TabButtons` carry `focus:outline-none` with no replacement; 9 of 35 focusables on the Finance page (8 tabs plus the segmented switch) showed no ring (WCAG 2.4.7). `index.css` now gives `button[role=tab]` and `button[role=radio]` a 2px inset `--ink-gray-9` outline on `:focus-visible` only. Measured after ArrowRight: 2px solid `#F8F8F8` in dark, `#171717` in light.
