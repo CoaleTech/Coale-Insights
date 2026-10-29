@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Break-Even ROCE and cost queries counted the Period Closing Voucher for a past fiscal year
+
+`breakeven_engine.py` summed GL P&L over the chosen fiscal year without excluding the year-end Period Closing Voucher, which moves the whole P&L into equity. For FY 2425 the ROCE query returned EBIT ₹0 (income and expense both closed to zero); it is now −₹674,317, which ties to the ledger (income ₹40,301,187 less expense ₹40,975,504). The cost-centre fixed/variable cost and COGS queries get the same exclusion. The current fiscal year is unchanged (its closing voucher is dated in the prior year).
+
 ### Fixed — AI chat send button had no accessible name
 
 An accessible-name scan of all 15 Finance tabs found one unnamed control, the chat panel's icon-only send button (`DashboardChatButton.vue`, shared by every intelligence dashboard). It now has `aria-label="Send message"`.

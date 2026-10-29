@@ -138,6 +138,7 @@ class BreakevenEngine:
                 .where(GLEntry.posting_date.between(start, self._upto(end)))
                 .where(GLEntry.cost_center.isin(centers))
                 .where(GLEntry.is_cancelled == 0)
+                .where(GLEntry.voucher_type != "Period Closing Voucher")  # year-end P&L-to-equity close is not trading
                 .run(as_dict=True)
             )
             cache[key] = round(float(costs[0].total or 0), 2)
@@ -393,6 +394,7 @@ class BreakevenEngine:
             .where(GLEntry.posting_date.between(start, self._upto(end)))
             .where(Account.account_type == "Cost of Goods Sold")
             .where(GLEntry.is_cancelled == 0)
+            .where(GLEntry.voucher_type != "Period Closing Voucher")
             .run(as_dict=True)
         )[0]
         cogs = cogs_row.cogs or 0
@@ -544,6 +546,7 @@ class BreakevenEngine:
             .where(GLEntry.posting_date.between(start, self._upto(end)))
             .where(Account.root_type == "Income")
             .where(GLEntry.is_cancelled == 0)
+            .where(GLEntry.voucher_type != "Period Closing Voucher")
             .run(as_dict=True)
         )[0].amount or 0
 
@@ -558,6 +561,7 @@ class BreakevenEngine:
             .where(Account.root_type == "Expense")
             .where(Account.account_type.notin(["Tax", "Interest"]))
             .where(GLEntry.is_cancelled == 0)
+            .where(GLEntry.voucher_type != "Period Closing Voucher")
             .run(as_dict=True)
         )[0].amount or 0
 
