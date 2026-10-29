@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — AI chat panel covered the page on phones after every reload
+
+The panel's open state is saved per dashboard and restored on load. At 390 px wide the panel is almost full width, so a user who had once opened it saw the Finance KPIs and brief hidden behind it on each visit (measured: panel open at 390 px with the saved flag set, KPI strip cut off). `DashboardChatButton.vue` now restores the saved state only at 768 px and wider; the button still opens it on demand. Measured after: 390 px panel closed with the flag still `true`, 1500 px panel restored. Same pass: no horizontal overflow on Overview, Receivables, Payables or Forex at 390, 768 and 1024 px; Planning sub-tabs all load with no NaN or em dashes.
+
 ### Fixed — Finance Cost Structure advice text used em dashes
 
 The generated recommendations on the Cost Structure tab (salary, fixed-cost, marketing, training, incentive, rent, electricity cover, and the "Not enough data to assess" line) joined clauses with an em dash, which `PRODUCT.md` bans in user-facing copy. 19 strings in `ml/strategic_finance/cost_ratios.py` now use a colon. Live check: the tab shows 0 em dashes (8 before). `test_strategic_finance_math` 13 of 13. Same smoketest swept all 8 Actuals tabs (0 console errors apart from the known socket.io refusal, 0 NaN or undefined) and confirmed Overview, Receivables and Payables in light theme after last pass's `KpiCard` change.

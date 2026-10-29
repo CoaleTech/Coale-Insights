@@ -292,9 +292,9 @@ const storageKey = computed(() => `insights:chat:${props.dashboardType}:open`)
 
 // Initialize on mount
 onMounted(async () => {
-  // Restore panel state
+  // Restore panel state (not on narrow screens, where the panel covers the page)
   const savedState = localStorage.getItem(storageKey.value)
-  if (savedState === 'true') {
+  if (savedState === 'true' && window.innerWidth >= 768) {
     isOpen.value = true
   }
 
