@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance Overview had no H2, so its outline jumped from H1 to H3
+
+Every other Finance tab opens with an `<h2>` (the brief headline); Overview has no brief, so its first heading under "Finance" was the `<h3>` "Monthly Net Profit" chart title. That title is now the `<h2>`, giving H1 › H2 › H3 × 6. Markup only, no visual change.
+
 ### Fixed — Finance Overview headings: "Key Positions" and "Needs Attention" were one level too deep
 
 They were `<h4>` cards sitting beside the `<h3>` chart card, so the outline read H1 › H3 › H4 › H4 › H3 and screen-reader heading navigation nested the right rail under the chart. Both are now `<h3>`, matching "Needs Attention" on the Revenue and Procurement dashboards. Markup only, no visual change (`level` picks the element, not the size).

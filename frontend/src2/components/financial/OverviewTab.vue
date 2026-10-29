@@ -9,7 +9,7 @@
 					<SectionHeader
 						:title="windowLabel ? `Monthly Net Profit · ${windowLabel}` : 'Monthly Net Profit'"
 						:hint="heroHint"
-						:level="3"
+						:level="2"
 					/>
 				</div>
 
