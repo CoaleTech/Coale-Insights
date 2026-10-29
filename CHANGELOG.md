@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — ROE/ROA/ROCE and turnover ratios are annualised before they meet yearly benchmarks
+
+The Ratios tab divided 90 days of profit or revenue by a balance sheet and graded it against yearly benchmarks (ROA 8%, asset turnover 1.2×, working-capital turnover 4×, ROCE 15%), so a business at benchmark read "warning" by construction. ROE, ROA, ROCE, asset turnover and working-capital turnover now scale the 90-day flow by 365/90, and the cards and metric rows say "annualised" (`strategic_finance/analysis.py`, `FinancialRatiosTab.vue`). Measured, equals SQL: ROA 2.8% → 11.3%, asset turnover 0.62× → 2.51×, ROCE 5.3% → 21.2%, working-capital turnover 1.43× → 5.75×; margins are unchanged. The Break-Even tab's ROCE had the same flaw with fiscal-year-to-date EBIT (212 days against a 15% yearly target): it is now annualised, 20.09% → 34.58% (`breakeven_engine.calculate_roce`, card relabelled "ROCE (annualised)"). ROE and debt-to-equity stay "unavailable" (no Equity or Loan balances in the ledger), as do interest coverage and DSCR (interest was last posted 31 Mar 2026, none in the 90-day window).
+
 ### Fixed — Period Comparison banner no longer calls an empty month "in progress"
 
 With no postings since the last invoice (14 Sep), the Month-over-Month and Quarter-over-Quarter views read "Oct 2026 is still in progress" although 28 days of the month had passed. The banner now says "Oct 2026 has no postings yet" when both revenue and expenses are zero, and keeps "still in progress" for a genuinely open period (`PeriodComparisonTab.vue`). Figures unchanged: YoY ₹80,149,403 vs ₹97,442,714 equals GL income to 29 Oct for both years.

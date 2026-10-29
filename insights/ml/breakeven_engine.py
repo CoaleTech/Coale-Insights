@@ -25,7 +25,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import Case, DocType
 from frappe.query_builder.functions import Coalesce, Count, DateFormat, Sum
-from frappe.utils import flt, nowdate
+from frappe.utils import date_diff, flt, nowdate
 
 from insights.api.ml.permissions import permitted_company
 
@@ -592,7 +592,9 @@ class BreakevenEngine:
         )[0].amount or 0
 
         capital_employed = float(total_assets) - float(current_liabilities)
-        roce = round(ebit / capital_employed, 4) if capital_employed > 0 else None
+        # The target is a yearly rate; EBIT is fiscal-year-to-date, so annualise it.
+        days = max(date_diff(self._upto(end), start) + 1, 1)
+        roce = round(ebit * 365 / days / capital_employed, 4) if capital_employed > 0 else None
 
         return {
             "ebit": round(ebit, 2),

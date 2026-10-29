@@ -16,7 +16,7 @@
         :label="card.name"
         :value="card.value"
         :severity="card.severity"
-        :sublabel="`Last 90 days · Benchmark: ${card.benchmark}`"
+        :sublabel="`Last 90 days${yearlyRatios.has(card.name) ? ', annualised' : ''} · Benchmark: ${card.benchmark}`"
         :loading="!data"
       />
     </div>
@@ -327,9 +327,9 @@ const ratioGroups = computed(() => {
       rows: [
         { name: 'Gross Margin', value: formatPercent(c.gross_margin), description: 'Gross Profit / Revenue' },
         { name: 'Net Profit Margin', value: formatPercent(c.net_margin), description: 'Net Income / Revenue' },
-        { name: 'ROE', value: formatPercent(c.roe), description: 'Net Income / Shareholders Equity' },
-        { name: 'ROA', value: formatPercent(c.roa), description: 'Net Income / Total Assets' },
-        { name: 'ROCE', value: formatPercent(c.roce), description: 'EBIT / (Total Assets - Current Liabilities)' },
+        { name: 'ROE', value: formatPercent(c.roe), description: 'Net Income / Shareholders Equity (annualised)' },
+        { name: 'ROA', value: formatPercent(c.roa), description: 'Net Income / Total Assets (annualised)' },
+        { name: 'ROCE', value: formatPercent(c.roce), description: 'EBIT / (Total Assets - Current Liabilities) (annualised)' },
         { name: 'EBIT', value: formatMoney(c.ebit, props.currency), description: 'Net Income + Interest Expense' },
       ],
     },
@@ -337,11 +337,11 @@ const ratioGroups = computed(() => {
       title: 'Efficiency Ratios',
       icon: Gauge,
       rows: [
-        { name: 'Asset Turnover', value: formatMultiple(c.asset_turnover), description: 'Revenue / Total Assets' },
+        { name: 'Asset Turnover', value: formatMultiple(c.asset_turnover), description: 'Revenue / Total Assets (annualised)' },
         {
           name: 'Working Capital Turnover',
           value: formatMultiple(c.working_capital_turnover),
-          description: 'Revenue / Working Capital',
+          description: 'Revenue / Working Capital (annualised)',
         },
       ],
     },
@@ -358,6 +358,7 @@ const ratioGroups = computed(() => {
 })
 
 const isPercentCard = (name: string) => name.includes('Margin') || name.includes('RO')
+const yearlyRatios = new Set(['ROE', 'ROA', 'ROCE', 'Asset Turnover', 'Working Capital Turnover'])
 const isMultipleCard = (name: string) =>
   name.includes('Turnover') || name.includes('Coverage') || name === 'DSCR'
 const cardFormatter = (name: string) =>

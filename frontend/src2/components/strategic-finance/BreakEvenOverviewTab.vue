@@ -114,7 +114,7 @@
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-5">
           <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
-            <p class="text-xs text-ink-gray-6">ROCE</p>
+            <p class="text-xs text-ink-gray-6">ROCE (annualised)</p>
             <p class="text-2xl font-bold mt-1 text-ink-gray-9">
               {{ percent(data.roce?.roce) }}
             </p>

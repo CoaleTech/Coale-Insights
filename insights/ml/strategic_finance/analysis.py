@@ -689,6 +689,9 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         })
 
     ratio_trends = []
+    # Each window is 90 days of flow over a point-in-time balance; the benchmarks
+    # for ROE/ROA/ROCE/turnover are yearly, so scale those by 365/90.
+    ann = 365 / 90
     # Loan-type liability balance as of the *previous* (older) iteration's
     # quarter-end, which is exactly this quarter's start balance: the 90-day
     # windows built above are contiguous (quarter q's start == quarter q+1's
@@ -750,20 +753,20 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             "period": q["label"],
             "gross_margin": gm["overall_margin"] if gm["total_revenue"] > 0 else None,
             "net_margin": round(net_income / revenue * 100, 1) if revenue > 0 else None,
-            "roe": round(net_income / equity * 100, 1) if equity > 1000 else None,
-            "roa": round(net_income / assets * 100, 1) if assets > 1000 else None,
+            "roe": round(net_income * ann / equity * 100, 1) if equity > 1000 else None,
+            "roa": round(net_income * ann / assets * 100, 1) if assets > 1000 else None,
             "debt_to_equity": round(liabilities / equity, 2) if equity > 1000 else None,
-            "asset_turnover": round(revenue / assets, 2) if assets > 1000 else None,
+            "asset_turnover": round(revenue * ann / assets, 2) if assets > 1000 else None,
             "ebitda": round(ebitda, 2),
             "ebit": round(ebit, 2),
-            "roce": round(ebit / capital_employed * 100, 1) if capital_employed > 1000 else None,
+            "roce": round(ebit * ann / capital_employed * 100, 1) if capital_employed > 1000 else None,
             "ebitda_margin": round(ebitda / revenue * 100, 1) if revenue > 0 else None,
             # Capped like `current_ratio`/`dso`/`ccc` above: a turnover or
             # coverage ratio computed from a denominator just over the 1000
             # epsilon (e.g. working capital of 1,050 against six-figure
             # revenue) explodes into triple digits that are a threshold
             # artifact, not a business signal.
-            "working_capital_turnover": max(-20.0, min(20.0, round(revenue / working_capital, 2))) if working_capital > 1000 else None,
+            "working_capital_turnover": max(-20.0, min(20.0, round(revenue * ann / working_capital, 2))) if working_capital > 1000 else None,
             "interest_coverage": max(-20.0, min(20.0, round(ebit / interest_expense, 2))) if interest_expense > 1000 else None,
             "dscr": max(-10.0, min(10.0, round(ebitda / total_debt_service, 2))) if total_debt_service > 1000 else None,
         })
