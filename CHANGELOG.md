@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Cash brief's "Average month" line looked like it did not add up
+
+"Payments in ₹15,083,794, payments out ₹14,675,310; net ₹86,963" read as a subtraction error (the difference is ₹408,484). The in/out figures come from Payment Entries, the net from the cash accounts' ledger (which includes journal-posted sweeps and charges). The line now says "Payment Entries … (journal-posted movements not included)".
+
 ### Fixed — Period Comparison margin change in bps was computed from rounded margins
 
 The Margin card showed "+170 bps" for 4.33% vs 2.57% (true +176). It subtracted the payload's one-decimal `margin` values, which can be 10 bps off. `PeriodComparisonTab.vue` now derives the bps from net income ÷ revenue.

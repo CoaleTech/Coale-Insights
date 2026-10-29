@@ -46,7 +46,7 @@ def _cashflow(p: dict):
     if c.get("avg_monthly_inflow") is not None and c.get("avg_monthly_outflow") is not None and c.get("net_burn_rate") is not None:
         details.append(detail(
             "Average month",
-            f"Payments in {money(c['avg_monthly_inflow'], cur)}, payments out {money(c['avg_monthly_outflow'], cur)}; "
+            f"Payment Entries in {money(c['avg_monthly_inflow'], cur)}, out {money(c['avg_monthly_outflow'], cur)} (journal-posted movements not included); "
             f"net cash movement on the ledger {money(-_f(c['net_burn_rate']), cur)} (6 complete months).",
         ))
     actions = []
