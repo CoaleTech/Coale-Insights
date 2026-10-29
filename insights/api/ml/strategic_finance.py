@@ -72,7 +72,7 @@ def get_strategic_detail(metric: str, filters: str) -> dict:
             "Sales Invoice",
             filters=db_filters,
             fields=["name", "customer", "posting_date", "grand_total", "outstanding_amount"],
-            start=start, page_length=page_size, order_by="posting_date desc",
+            start=start, page_length=page_size, order_by="posting_date desc, name desc",
             ignore_permissions=False,
         )
         return {
@@ -96,7 +96,7 @@ def get_strategic_detail(metric: str, filters: str) -> dict:
             "Purchase Invoice",
             filters=db_filters,
             fields=["name", "supplier", "posting_date", "grand_total", "outstanding_amount"],
-            start=start, page_length=page_size, order_by="posting_date desc",
+            start=start, page_length=page_size, order_by="posting_date desc, name desc",
             ignore_permissions=False,
         )
         return {

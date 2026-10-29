@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance drill-down paging had no tie-breaker for invoices on the same date
+
+The Revenue and Expense drill-down lists (`get_strategic_detail`) ordered by `posting_date desc` only, so with many invoices on one date MySQL may return a different order per page and repeat or skip rows. All 3,897 sales and 5,600 purchase invoices paged cleanly today, but the order was not guaranteed; it is now `posting_date desc, name desc`.
+
 ### Fixed — Capital Planning brief and category list used different bases without saying so
 
 The brief's "Register" line listed Furniture & Fixtures ₹289,871 and Plant & Machinery ₹42,969 (gross cost), while the "Assets by Category" list below showed ₹260,884 and ₹17,573 (register net value). Both are right; neither said which. The brief now reads "At gross cost: …" and the section header "Assets by Category · Register Net Value".
