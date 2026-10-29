@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Planning expense breakdown is a share of all expenses, not of the top ten
+
+`get_expense_breakdown` (Executive Summary expense chart) took the ten largest accounts and computed every share, and the chart's total, from those ten alone: COGS read 96.5% and the total ₹76.3M against real expenses of ₹76,679,743 (COGS is 96.0%). It now folds everything past the ten into an "Other" row (₹390,772) using signed balances, so the rows sum to the P&L expense total exactly and the shares to 100.0% (`strategic_finance/data.py`). Four accounts carry a net credit; with absolute values they overstated the total by ₹68,837.
+
 ### Fixed — ROE/ROA/ROCE and turnover ratios are annualised before they meet yearly benchmarks
 
 The Ratios tab divided 90 days of profit or revenue by a balance sheet and graded it against yearly benchmarks (ROA 8%, asset turnover 1.2×, working-capital turnover 4×, ROCE 15%), so a business at benchmark read "warning" by construction. ROE, ROA, ROCE, asset turnover and working-capital turnover now scale the 90-day flow by 365/90, and the cards and metric rows say "annualised" (`strategic_finance/analysis.py`, `FinancialRatiosTab.vue`). Measured, equals SQL: ROA 2.8% → 11.3%, asset turnover 0.62× → 2.51×, ROCE 5.3% → 21.2%, working-capital turnover 1.43× → 5.75×; margins are unchanged. The Break-Even tab's ROCE had the same flaw with fiscal-year-to-date EBIT (212 days against a 15% yearly target): it is now annualised, 20.09% → 34.58% (`breakeven_engine.calculate_roce`, card relabelled "ROCE (annualised)"). ROE and debt-to-equity stay "unavailable" (no Equity or Loan balances in the ledger), as do interest coverage and DSCR (interest was last posted 31 Mar 2026, none in the 90-day window).

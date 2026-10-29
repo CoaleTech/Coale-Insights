@@ -295,7 +295,7 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
         frappe.qb.from_(gle)
         .select(
             gle.account.as_("account"),
-            Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"),
+            Coalesce(Sum(gle.debit - gle.credit), 0).as_("amount"),
         )
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
@@ -316,16 +316,20 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
         .where(acc.is_group == 0)
         .where(acc.company == intelligence.company)
         .orderby(Coalesce(gle_period.amount, 0), order=frappe.qb.desc)
-        .limit(50)
         .run(as_dict=True)
     )
 
-    # brittle in MariaDB (`Unknown column ... in 'HAVING'`). Filter in
-    # Python, then take the top 10 -- the legacy semantics.
+    # Zero-balance accounts are dropped in Python (HAVING is brittle in MariaDB).
+    # Everything past the top 10 folds into "Other", so the total and every
+    # share are against all expenses, not just the ten largest.
     expenses = [e for e in raw_expenses if (e.get("amount") or 0) > 0][:10]
 
-    # Calculate total and percentages
-    total = sum(float(e.get('amount') or 0) for e in expenses)
+    # Calculate total and percentages. The total is the signed sum over every
+    # expense account (equals the P&L); a net-credit account reduces "Other".
+    total = sum(float(e.get('amount') or 0) for e in raw_expenses)
+    rest = total - sum(float(e.get('amount') or 0) for e in expenses)
+    if rest > 0:
+        expenses.append({"category": "Other", "amount": rest})
 
     result = []
     for exp in expenses:
