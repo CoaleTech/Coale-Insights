@@ -170,6 +170,20 @@
 }
 
 /**
+ * Same opt-in fix for a whole dashboard. Two small-text ink tokens fall under AA
+ * on a white or tinted card: `ink-gray-5` 4.17:1 and `ink-red-3` 4.42:1 (light),
+ * including frappe-ui's own FormControl label. Step each down a shade. Add
+ * `ink-fix` to a page root once its text has been measured; it is not applied
+ * app-wide. `ink-blue-3` (3.97-4.28:1) has no darker shade in Espresso, so it stays.
+ */
+.ink-fix .text-ink-gray-5 {
+	color: var(--ink-gray-6);
+}
+.ink-fix .text-ink-red-3 {
+	color: var(--text-ink-red-4);
+}
+
+/**
  * Touch target floor on phones.
  *
  * Measured at 375px, the primary controls on every dashboard were 26-31px tall:

@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance small text below WCAG AA contrast (gray-5 and red-3 tokens)
+
+A computed contrast scan of all 15 Finance tabs (text colour against the composited background, 4.5:1 for normal text) found `text-ink-gray-5` at 4.17:1 (light) / 3.98:1 (dark), including frappe-ui's own "Min Cash Threshold" FormControl label, the Cash "Maturity date…" note and the "(2)" count on Capital Planning, plus `text-ink-red-3` at 4.42:1 on the Payables "Payments due within 7 days" line. `index.css` gets an opt-in `.ink-fix` wrapper rule (same pattern as `.list-ink-fix`) that steps both down one shade (gray-6, red-4), and the Finance page root carries it. Re-scan: those items are gone in both themes. Not fixed: `ink-blue-3` action lines and links (3.97–4.28:1) have no darker Espresso shade (`text-ink-blue-4` fails the lint guard), the library's amber/green Badges (2.9–3.7:1), and gray-6 at 4.20:1 on tinted dark cards (the "As of…" line, Efficiency label).
+
 ### Fixed — App shell had no `main` or `nav` landmark, and Finance had no page title
 
 Landmark scan on the Finance page: 0 `<main>`, 0 `<nav>`, so screen-reader landmark navigation had nothing to jump to, and the tab title was the static "Frappe Insights". `App.vue` now wraps the `RouterView` in `<main class="contents">` (layout unchanged: scroll width equals viewport at 1500 and 390 px) and the sidebar link list is `<nav aria-label="Main">`. `FinancialIntelligence.vue` sets `document.title = "Finance | Insights"` on activation (it is kept alive, so setup runs once) and restores the previous title on leave so the other dashboards, which set none, don't inherit it. Other intelligence dashboards still have no title of their own.
