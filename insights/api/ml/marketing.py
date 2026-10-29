@@ -28,7 +28,7 @@ import ibis
 from frappe import _
 
 from insights.api.ml.ibis_source import t
-from insights.api.ml.utils import cached_run, run
+from insights.api.ml.utils import cached_run, canonical_period, parse_detail_filters, run
 from insights.api.response import success
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -354,6 +354,7 @@ def get_marketing_overview(period: str = "YTD") -> Dict[str, Any]:
     # explicitly before reading any CRM data.
     frappe.has_permission("Lead", "read", throw=True)
 
+    period = canonical_period(period)
     start = _period_start(period)
     return cached_run(
         lambda: run(lambda: _compute_marketing_overview(start, period), "Marketing overview"),
@@ -721,8 +722,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_crm_detail(metric: str, filters: str) -> dict:
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
 

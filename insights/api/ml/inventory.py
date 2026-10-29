@@ -22,7 +22,7 @@ import frappe
 from frappe import _
 from frappe.query_builder import functions as qb_functions
 
-from insights.api.ml.utils import cached_run, run
+from insights.api.ml.utils import cached_run, canonical_date_filter, parse_detail_filters, run
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +35,7 @@ def inventory_intelligence(date_filter: str = "12m", refresh: bool = False) -> D
     """Comprehensive inventory intelligence: served from cache, recomputed in
     the background per date_filter."""
     frappe.has_permission("Item", "read", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     return cached_run(
         lambda: run(lambda: _inventory_intelligence(date_filter, refresh), "inventory_intelligence"),
         cache_key=f"insights_ml_inventory_intelligence:{date_filter}",
@@ -243,8 +244,7 @@ def item_breakeven(period: str = "Quarterly", fiscal_year: Optional[str] = None,
 
 @frappe.whitelist()
 def get_inventory_detail(metric: str, filters: str) -> dict:
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")

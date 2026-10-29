@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from insights.api.ml.utils import parse_detail_filters
 from insights.api.response import error, success
 
 # Each department's rollup surfaces a different doctype's data. The
@@ -545,8 +546,7 @@ def get_executive_detail(metric: str, filters: str) -> dict:
     Frappe ValidationError on an unknown metric. Permission is gated
     per metric on the doctype that holds the data.
     """
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")

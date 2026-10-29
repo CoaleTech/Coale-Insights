@@ -24,7 +24,7 @@ import frappe
 from frappe import _
 from frappe.query_builder.functions import Count
 
-from insights.api.ml.utils import cached_run, run
+from insights.api.ml.utils import cached_run, canonical_period, parse_detail_filters, run
 
 _HR_AGGREGATE_ROLES = {"HR Manager", "HR User"}
 
@@ -59,6 +59,7 @@ def get_hr_overview(period: str = "YTD") -> Dict[str, Any]:
     frappe.has_permission("Employee", "read", throw=True)
     frappe.has_permission("Salary Slip", "read", throw=True)
     _require_hr_role()
+    period = canonical_period(period)
 
     def _compute() -> Dict[str, Any]:
         from insights.ml.hr_intelligence import HRIntelligence
@@ -194,8 +195,7 @@ def get_hr_detail(metric: str, filters: str) -> dict:
       employment_type   -- employees filtered by employment_type
       dept_composition  -- employees by department (breakdown click)
     """
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
 

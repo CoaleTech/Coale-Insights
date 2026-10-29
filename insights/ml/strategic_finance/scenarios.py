@@ -327,6 +327,17 @@ def _fy_label(start, end) -> str:
     return f"FY{start.year % 100:02d}-{end.year % 100:02d}" if end.year != start.year else f"FY{start.year}"
 
 
+def _quarter_label(q_start, fy_start) -> str:
+    """'Q2 FY26-27' for a fiscal year that starts on a calendar-quarter boundary
+    (April here); calendar naming only if the year starts mid-quarter, where
+    calendar quarters would not be fiscal quarters."""
+    if fy_start.month % 3 != 1:
+        return f"Q{(q_start.month - 1) // 3 + 1} {q_start.year}"
+    year = q_start.year if q_start.month >= fy_start.month else q_start.year - 1
+    start = fy_start.replace(year=year, day=1)
+    return f"Q{(q_start.month - fy_start.month) % 12 // 3 + 1} {_fy_label(start, add_months(start, 12) - timedelta(days=1))}"
+
+
 def build_periods(today, fy_start, fy_end) -> Dict[str, Dict[str, Any]]:
     """Period windows (date objects) keyed like `period_data`. `partial` marks
     a still-open current period that started <15 days ago. The prior quarter
@@ -341,10 +352,10 @@ def build_periods(today, fy_start, fy_end) -> Dict[str, Dict[str, Any]]:
                           "partial": (today - month_start).days < 15},
         "prior_month": {"start": pm_start, "end": month_start - timedelta(days=1), "label": pm_start.strftime('%b %Y'),
                         "partial": False},
-        "current_quarter": {"start": q_start, "end": today, "label": f"Q{(today.month - 1) // 3 + 1} {today.year}",
+        "current_quarter": {"start": q_start, "end": today, "label": _quarter_label(q_start, fy_start),
                             "partial": (today - q_start).days < 15},
         "prior_quarter": {"start": pq_start, "end": q_start - timedelta(days=1),
-                          "label": f"Q{(pq_start.month - 1) // 3 + 1} {pq_start.year}", "partial": False},
+                          "label": _quarter_label(pq_start, fy_start), "partial": False},
         "current_ytd": {"start": fy_start, "end": today, "label": f"YTD {_fy_label(fy_start, fy_end)}",
                         "partial": False},
         "prior_ytd": {"start": pfy_start, "end": add_months(today, -12), "label": f"YTD {_fy_label(pfy_start, pfy_end)}",

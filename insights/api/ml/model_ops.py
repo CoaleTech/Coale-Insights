@@ -20,6 +20,7 @@ import frappe
 from frappe import _
 from frappe.utils import now
 
+from insights.api.ml.utils import parse_detail_filters
 from insights.api.response import error, success
 from insights.api.serialization import sanitize_for_json
 
@@ -337,8 +338,7 @@ def get_ml_detail(metric: str, filters: str) -> dict:
     columns are the standard Frappe fields every doctype has, since the eleven
     source tables share no domain-specific field in common.
     """
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
 

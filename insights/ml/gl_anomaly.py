@@ -104,7 +104,7 @@ class GLAnomalyDetection:
 
     def _count_entries(self) -> int:
         gle = t("GL Entry")
-        q = gle.filter(gle.is_cancelled == 0)
+        q = gle.filter(gle.is_cancelled == 0, gle.voucher_type != "Period Closing Voucher")
         # The MariaDB date window is computed in SQL so the count is right
         # at the source, not estimated.
         from datetime import datetime, timedelta
@@ -123,7 +123,7 @@ class GLAnomalyDetection:
         materialises the top-N rows.
         """
         gle = t("GL Entry")
-        q = gle.filter(gle.is_cancelled == 0)
+        q = gle.filter(gle.is_cancelled == 0, gle.voucher_type != "Period Closing Voucher")
         from datetime import datetime, timedelta
 
         cutoff = (datetime.now() - timedelta(days=int(self.months_back) * 30)).date()

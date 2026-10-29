@@ -10,7 +10,7 @@ from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
 from insights.api.ml.permissions import authorize_dashboard
-from insights.api.ml.utils import cached_run
+from insights.api.ml.utils import cached_run, parse_detail_filters
 from insights.ml.tab_briefs import attach_lazy
 from insights.ml.tab_briefs.finance_planning import lazy_beoverview, lazy_budget
 
@@ -57,10 +57,7 @@ def get_budget_variance_overview(company: str = None, fiscal_year: str = None) -
 
 @frappe.whitelist()
 def get_strategic_detail(metric: str, filters: str) -> dict:
-    f = frappe.parse_json(filters) or {}
-    if not isinstance(f, dict):
-        frappe.throw(_("filters must be an object"), frappe.ValidationError)
-    page = max(1, frappe.utils.cint(f.pop("page", 1)))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")

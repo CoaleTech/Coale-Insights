@@ -15,7 +15,7 @@ from frappe.query_builder.functions import Coalesce, Count, NullIf, Sum, Trim
 from typing import Any, Dict
 
 from insights.api.response import success, error
-from insights.api.ml.utils import cached_run, run
+from insights.api.ml.utils import cached_run, parse_detail_filters, run
 
 
 # `period` is one of `3m` / `6m` / `12m` / `fy`, or a `custom:<start>:<end>`
@@ -122,8 +122,7 @@ def get_tax_detail(metric: str, filters: str) -> dict:
     dashboard view, optionally filtered to a single HSN code. Built with
     `frappe.qb`; values are bound parameters, not interpolated SQL.
     """
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")

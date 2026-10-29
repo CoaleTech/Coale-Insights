@@ -37,13 +37,13 @@ class TestStrategicFinanceMath(unittest.TestCase):
     def test_prior_quarter_is_full_quarter(self):
         p = build_periods(date(2026, 10, 6), date(2026, 4, 1), date(2027, 3, 31))
         self.assertEqual((p["prior_quarter"]["start"], p["prior_quarter"]["end"]), (date(2026, 7, 1), date(2026, 9, 30)))
-        self.assertEqual(p["prior_quarter"]["label"], "Q3 2026")
+        self.assertEqual(p["prior_quarter"]["label"], "Q2 FY26-27")
         self.assertEqual((p["prior_month"]["start"], p["prior_month"]["end"]), (date(2026, 9, 1), date(2026, 9, 30)))
 
     def test_prior_quarter_year_rollover(self):
         p = build_periods(date(2026, 1, 10), date(2025, 4, 1), date(2026, 3, 31))
         self.assertEqual((p["prior_quarter"]["start"], p["prior_quarter"]["end"]), (date(2025, 10, 1), date(2025, 12, 31)))
-        self.assertEqual(p["prior_quarter"]["label"], "Q4 2025")
+        self.assertEqual(p["prior_quarter"]["label"], "Q3 FY25-26")
 
     def test_fiscal_labels_and_leap_safe_prior_ytd(self):
         p = build_periods(date(2028, 2, 29), date(2027, 4, 1), date(2028, 3, 31))

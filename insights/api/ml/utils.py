@@ -654,6 +654,24 @@ def canonical_date_filter(date_filter: str | None) -> str:
     return "12m"
 
 
+def canonical_period(period: str | None) -> str:
+    """`period` if it is MTD/QTD/YTD/TTM or a valid custom range, else ``"TTM"``
+    (what HR's and Marketing's resolvers fall through to). The `period` twin of
+    `canonical_date_filter`: same reason, it keeps free-form text out of cache keys."""
+    if period in ("MTD", "QTD", "YTD", "TTM") or parse_custom_range(period):
+        return str(period)
+    return "TTM"
+
+
+def parse_detail_filters(filters: str) -> tuple[dict, int]:
+    """Drill-down endpoints' shared input handling: the ``filters`` JSON must be
+    an object; returns ``(filters_without_page, page)`` with ``page`` clamped to >= 1."""
+    f = frappe.parse_json(filters) or {}
+    if not isinstance(f, dict):
+        frappe.throw(_("filters must be an object"), frappe.ValidationError)
+    return f, max(1, frappe.utils.cint(f.pop("page", 1)))
+
+
 def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, datetime | None]:
     """Parse a date filter string into (start_date, end_date).
 

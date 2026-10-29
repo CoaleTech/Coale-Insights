@@ -24,6 +24,8 @@ import frappe
 
 from insights.api.ml.utils import (
     _scoped,
+    parse_detail_filters,
+    canonical_date_filter,
     cached_run,
     enqueue_dashboard_compute,
     is_cached,
@@ -92,6 +94,7 @@ def customer_intelligence(refresh: bool = False,
     caller now gets the same cache-or-`warming` contract.
     """
     frappe.has_permission("Customer", "read", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     from insights.ml.customer import compute_customer_intelligence
     return cached_run(
         lambda: run(lambda: compute_customer_intelligence(date_filter=date_filter, company=company),
@@ -111,6 +114,7 @@ def customer_intelligence_status(date_filter: str = "12m",
     endpoint is for callers that want to ask without fetching it.
     """
     frappe.has_permission("Customer", "read", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     ready = is_cached(f"insights_ml_customer_intelligence:{date_filter}:{company or 'all'}")
     return run(lambda: {"status": "ready" if ready else "warming",
                         "message": ("Customer intelligence is cached and ready"
@@ -282,6 +286,7 @@ def refresh_scores(date_filter: str = "12m", company: Optional[str] = None) -> D
     immediately.
     """
     frappe.has_permission("Customer", "write", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     enqueue_dashboard_compute(
         "insights.api.ml.customer_intelligence",
         {"date_filter": date_filter, "company": company},
@@ -394,8 +399,7 @@ def customer_variance(date_filter: str = "12m",
 def get_customer_detail(metric: str, filters: str) -> dict:
     from frappe import _
 
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
