@@ -13,16 +13,18 @@
       </div>
       <Button
         variant="ghost"
-        aria-label="Toggle variance panel"
+        label="Toggle variance panel"
         :aria-expanded="String(expanded)"
         @click="expanded = !expanded"
       >
-        <ChevronDown
-          :class="[
-            'h-5 w-5 text-ink-gray-5 transition-transform motion-reduce:transition-none',
-            expanded ? 'rotate-180' : '',
-          ]"
-        />
+        <template #icon>
+          <ChevronDown
+            :class="[
+              'h-5 w-5 text-ink-gray-5 transition-transform motion-reduce:transition-none',
+              expanded ? 'rotate-180' : '',
+            ]"
+          />
+        </template>
       </Button>
     </div>
 

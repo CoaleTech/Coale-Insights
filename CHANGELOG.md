@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance panel toggles and the AI chat button had no accessible name
+
+The "What-If Scenarios" and "Variance Review" chevron toggles passed `aria-label` to frappe-ui's `Button`, which overwrites it with its own empty `label`-derived value, so the rendered buttons had `aria-label=""` and read as unnamed to screen readers. They now use `label` plus the `#icon` slot (the component's icon-button contract). The floating AI assistant button and the chat panel's close button (every dashboard) gained names, and the floating button reports `aria-expanded`.
+
 ### Fixed — Finance receivable and payable drill-downs showed party IDs only
 
 Outstanding AR/AP, Overdue 90+ AR/AP and the per-customer/per-supplier lists opened on rows like `SI2627780 · CS00322` with no name, while the card or table row clicked said "R R Adhesive" (procurement and tax drill-downs already show names). Each now has a Name column next to the ID (`get_finance_detail`: `outstanding_ar`, `overdue_ar_90`, `outstanding_ap`, `overdue_ap_90`, `top_customers_ar`, `top_suppliers_ap`). Totals unchanged and tie to SQL: 140 invoices ₹19,714,214 AR, 95 bills ₹1,273,410 AP over 90 days, 24 invoices ₹1,176,510 AR over 90 days.

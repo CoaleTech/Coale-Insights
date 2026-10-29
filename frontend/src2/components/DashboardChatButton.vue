@@ -37,6 +37,7 @@
             </button>
             <button
               @click="isOpen = false"
+              aria-label="Close chat"
               class="p-1.5 hover:bg-white-overlay-200 rounded-lg transition-colors motion-reduce:transition-none"
             >
               <X class="w-4 h-4" />
@@ -190,6 +191,8 @@
     <!-- Floating Button -->
     <button
       @click="toggleChat"
+      :aria-label="isOpen ? 'Close AI assistant' : 'Open AI assistant'"
+      :aria-expanded="isOpen"
       :class="[
         'w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 border-2',
         isOpen 
