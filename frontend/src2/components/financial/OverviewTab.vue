@@ -281,7 +281,7 @@
 							:key="row.category"
 							class="flex items-center gap-3"
 						>
-							<span class="text-xs text-ink-gray-6 w-20 truncate shrink-0">
+							<span class="text-xs text-ink-gray-6 w-28 truncate shrink-0" :title="row.category.replace(/ - JKM$/, '')">
 								{{ row.category.replace(/ - JKM$/, '') }}
 							</span>
 							<div

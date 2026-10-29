@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance Overview expense labels were cut off with "…"
+
+The Expense Breakdown rows ("Stock Expenses", "Indirect Expenses", "Direct Expenses", "Freight Expenses") sat in an 80 px label column with `truncate` and no tooltip, so the full name could not be read (`scrollWidth` exceeded `clientWidth` on all four at 390 px; not measured before the change at 1500 px). The column is now 112 px and carries a `title` with the full name; after the change nothing on Overview is clipped at 390 or 1500 px. Same pass scanned all 8 Actuals tabs at 390 px: no tap target under 28 px and no other ellipsis clipping.
+
 ### Fixed — drill-down Prev/Next labels broke onto two lines on phones
 
 My earlier switch of the pager from `← Prev` text to chevron icons put the icon and label inline inside the frappe-ui `Button` default slot, so at 390 px each button wrapped to "‹" over "Prev" (found on the Receivables 90+ days drill-down). The chevrons now go in the button's `prefix`/`suffix` slots with a `label`, which keeps one line and a 44 px touch height; desktop height is unchanged (28 px). The "Showing 1–24 of 24 records" text still wraps to two lines between them at 390 px, which reads fine. The table also scrolls sideways at 390 px (Outstanding column off-screen) with no visual cue; not changed.
