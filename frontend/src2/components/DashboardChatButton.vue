@@ -14,6 +14,7 @@
         v-if="isOpen"
         role="region"
         aria-label="AI assistant"
+        @keydown.esc="closeChat"
         class="absolute bottom-16 right-0 w-96 max-w-[calc(100vw-3rem)] h-[500px] max-h-[calc(100vh-7rem)] bg-surface-white rounded-xl shadow-2xl border border-outline-gray-1 flex flex-col overflow-hidden"
       >
         <!-- Header -->
@@ -38,7 +39,7 @@
               <History class="w-4 h-4" />
             </button>
             <button
-              @click="isOpen = false"
+              @click="closeChat"
               aria-label="Close chat"
               class="p-1.5 hover:bg-white-overlay-200 rounded-lg transition-colors motion-reduce:transition-none"
             >
@@ -197,6 +198,7 @@
 
     <!-- Floating Button -->
     <button
+      ref="toggleBtn"
       @click="toggleChat"
       :aria-label="isOpen ? 'Close AI assistant' : 'Open AI assistant'"
       :aria-expanded="isOpen"
@@ -264,6 +266,7 @@ const redirectSuggestion = ref<{target: string, reason: string} | null>(null)
 // Refs
 const messagesContainer = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+const toggleBtn = ref<HTMLButtonElement | null>(null)
 
 // Computed
 /**
@@ -310,6 +313,12 @@ watch(isOpen, async (newVal) => {
 function toggleChat() {
   isOpen.value = !isOpen.value
   hasNewMessage.value = false
+}
+
+// The panel unmounts on close, so hand focus back to the toggle instead of dropping it on <body>.
+function closeChat() {
+  isOpen.value = false
+  toggleBtn.value?.focus()
 }
 
 async function loadQuickActions() {

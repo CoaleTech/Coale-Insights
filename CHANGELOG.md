@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — The AI assistant panel ignored Escape and dropped focus when closed
+
+`DashboardChatButton.vue`: Escape did nothing while the panel was open, and closing it (the panel unmounts) left focus on `<body>`, so a keyboard user restarted from the top of the page. Escape and the panel's own Close button now go through `closeChat()`, which closes the panel and returns focus to the floating toggle.
+
 ### Fixed — The AI assistant panel was invisible to screen readers
 
 `DashboardChatButton.vue` (every intelligence dashboard): the floating panel had no landmark, the message list had no live region so a reply arriving was never announced, and the input was named only by its placeholder. The panel is now `role="region"` "AI assistant", the message list is `role="log"` `aria-live="polite"`, and the textarea has an `aria-label`.
