@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Marketing cost ratio ignored "Advertisement" accounts
+
+Cost Structure showed "Marketing Cost % of Revenue 0.0%" while the ledger holds ₹756,964 on `Advertisment Exp` for the fiscal year (0.9% of revenue). The default keywords were `Marketing / Advertising / Promotion / Branding`, and the matching is a case-insensitive substring, so "Advertisement" (and this chart's spelling "Advertisment") matched nothing. The default is now `Advert` in both `cost_ratios.py` and the Insights Settings field, which covers all three spellings. Existing sites keep the value stored in Insights Settings, so this site's setting was updated by hand to the new default. A site with its own list needs "Advert" added to Marketing Account Keywords.
+
 ### Fixed — Ratios clamped by the server showed as exact figures
 
 Working Capital Turnover read "20.00x" in two quarters of the Ratios table. That is the server's ±20 clamp (`analysis.py`, applied when working capital is near zero), not a measured value. Working Capital Turnover and Interest Coverage (clamp ±20) and DSCR (±10) now read ">20.00x", "<-20.00x" and ">10.00x" in the quarterly table, the summary cards and the benchmark list; unclamped values print as before.

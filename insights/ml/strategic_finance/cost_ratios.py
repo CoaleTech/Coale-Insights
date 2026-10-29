@@ -297,7 +297,7 @@ def calculate_cost_structure_ratios(intelligence) -> Dict[str, Any]:
     revenue, gross_profit, net_profit = _revenue_and_profit(company, fy_start, today, intelligence)
 
     salary_kw     = _parse_keywords(getattr(settings, "salary_cost_keywords",     None), ["Salary", "Payroll", "Wages"])
-    marketing_kw  = _parse_keywords(getattr(settings, "marketing_cost_keywords",  None), ["Marketing", "Advertising", "Promotion", "Branding"])
+    marketing_kw  = _parse_keywords(getattr(settings, "marketing_cost_keywords",  None), ["Marketing", "Advert", "Promotion", "Branding"])
     training_kw   = _parse_keywords(getattr(settings, "training_cost_keywords",   None), ["Training", "Development", "Learning"])
     incentive_kw  = _parse_keywords(getattr(settings, "incentive_cost_keywords",  None), ["Incentive", "Bonus", "Commission", "Appraisal", "Increment"])
     rent_kw       = _parse_keywords(getattr(settings, "rent_cost_keywords",       None), ["Rent", "Lease"])
