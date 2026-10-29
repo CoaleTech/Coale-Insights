@@ -641,6 +641,19 @@ def parse_custom_range(period: str | None) -> tuple[datetime, datetime] | None:
     return None if end < start else (start, end)
 
 
+_PRESET_FILTER_RE = re.compile(r"^(all|ytd|\d{1,3}[dmy])$")
+
+
+def canonical_date_filter(date_filter: str | None) -> str:
+    """`date_filter` if it is a preset or a valid custom range, else ``"12m"``
+    (what `parse_date_filter` would use anyway). Endpoints put the value in
+    their cache key, and every distinct key is a background compute that the
+    hourly warm pass then keeps refreshing, so free-form text must not reach it."""
+    if date_filter and (_PRESET_FILTER_RE.match(date_filter) or parse_custom_range(date_filter)):
+        return date_filter
+    return "12m"
+
+
 def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, datetime | None]:
     """Parse a date filter string into (start_date, end_date).
 

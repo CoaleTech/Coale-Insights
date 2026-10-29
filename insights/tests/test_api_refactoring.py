@@ -238,6 +238,15 @@ class TestDateFilterUtilities(FrappeTestCase):
 
         self.assertIsNone(parse_custom_range('custom:2026-02-01:2026-01-01'))
 
+    def test_canonical_date_filter_keeps_valid_and_defaults_the_rest(self):
+        """Free-form text must not become a cache key (each is a warm-pass compute)"""
+        from insights.api.ml.utils import canonical_date_filter
+
+        for ok in ('7d', '24m', '3y', 'ytd', 'all', 'custom:2026-01-01:2026-02-15'):
+            self.assertEqual(canonical_date_filter(ok), ok)
+        for bad in (None, '', 'xyz', '99999d', "'; DROP TABLE x;--", 'custom:2026-02-01:2026-01-01', 'custom:abc:def'):
+            self.assertEqual(canonical_date_filter(bad), '12m')
+
     # ``test_get_date_filter_sql_with_dates/_all_dates/_with_alias`` were
     # removed 2026-08-11. ``get_date_filter_sql`` no longer exists -- see
     # ``TestDataValidation.test_sql_injection_prevention``'s removal note in

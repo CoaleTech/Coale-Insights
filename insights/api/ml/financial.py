@@ -19,7 +19,7 @@ from typing import Any, Dict
 import frappe
 from frappe.query_builder.functions import Sum
 from frappe.utils import flt, nowdate
-from insights.api.ml.utils import cached_run, run
+from insights.api.ml.utils import cached_run, canonical_date_filter, run
 
 
 @frappe.whitelist()
@@ -27,6 +27,7 @@ def financial_intelligence(refresh: bool = False, date_filter: str = "12m") -> D
     """Comprehensive financial intelligence: served from cache, recomputed in
     the background per date_filter."""
     frappe.has_permission("GL Entry", "read", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     from insights.ml.financial_intelligence import FinancialIntelligence
     return cached_run(
         lambda: run(

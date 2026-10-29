@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Any text in `date_filter` became its own cache key and background compute
+
+`financial_intelligence` put the raw `date_filter` in its cache key. `?date_filter=xyz`, `99999d` or `custom:abc:def` each queued a separate two-minute compute (all of them evaluate as the default 12 months), and the hourly warm pass then kept refreshing each one for three days, crowding real dashboards out of its 40-entry batch. The endpoint now passes the value through `canonical_date_filter` (new, in `api/ml/utils.py`): presets (`Nd`/`Nm`/`Ny` up to 3 digits, `ytd`, `all`) and valid custom ranges are kept, anything else becomes `12m`. Checked after restart: three garbage values share one `12m` key. The same pattern exists in `sales`, `procurement` and the other intelligence endpoints; only Finance is changed here.
+
 ### Fixed — A typed end date before the start date silently showed the last 12 months
 
 The date inputs' `min`/`max` stop the picker from choosing an inverted range, but a typed date got through: `custom:2026-09-30:2026-01-01` reached the server, which fell back to the default 12 months while the header still showed the inverted dates. `IntelligenceDateFilter.vue` (shared by all intelligence dashboards) now emits a custom range only when start ≤ end, so the page keeps the last valid range until the dates are corrected.
