@@ -391,8 +391,11 @@ const windowLabel = computed(() => {
 	return `${formatPeriod(first)} – ${formatPeriod(last)}`
 })
 
+// A window longer than a year repeats month names, so keep the year there ("Mar 25").
 const lossMonths = computed(() =>
-	trend.value.filter(m => (m.profit ?? 0) < 0).map(m => formatPeriod(m.period).split(' ')[0]),
+	trend.value
+		.filter(m => (m.profit ?? 0) < 0)
+		.map(m => (trend.value.length > 12 ? formatPeriod(m.period) : formatPeriod(m.period).split(' ')[0])),
 )
 
 const heroHint = computed((): string => {

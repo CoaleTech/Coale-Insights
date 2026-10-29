@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Overview loss-month list was ambiguous on long windows
+
+Under Last 24 Months / All Time the hero hint listed loss months by name only ("Dec, Feb, Mar … Dec, Jan, Mar"), so a month appearing in two years was indistinguishable. Windows longer than 12 months now show "Mar 25"; shorter ones keep the compact month name.
+
 ### Fixed — Finance P&L counted Period Closing Vouchers as trading
 
 Under Last 24 Months / All Time the Overview showed March 2025 revenue of **−₹26.2M**: the year-end Period Closing Voucher (income debited ₹40.3M, expenses credited ₹41.0M) was summed into that month's P&L. Actuals (`_gl_with_account`) now excludes closing vouchers, matching Executive Intelligence and Budget Variance; March 2025 reads ₹14.1M revenue and −₹1.02M profit, which ties to the ledger. The same exclusion was applied to the Planning P&L history scan (`data.py`, balance-sheet columns untouched) and to the Monte Carlo 12-month volatility queries, which would otherwise have swallowed the next closing voucher after 31 Mar 2027. Current-year figures are unchanged.
