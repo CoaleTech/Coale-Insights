@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Cash tab "Last 30 days" and "Last 3 months" panels covered 59 and 120 days
+
+`_calculate_cash_flow` took both windows from `_months_ago(n)`, which returns the first day of the month: on 29 Oct "LARGE CASH TRANSACTIONS (LAST 30 DAYS)" listed 1–12 Sept receipts and payments (nothing newer than the month's data), and "WHERE CASH CAME FROM / WENT, LAST 3 MONTHS" summed from 1 Jul (Customer receipts ₹37.3M against ₹24.6M over 90 days). Both now use real day windows (`financial_intelligence.py`); the 90-day totals equal a direct Payment Entry sum (₹25,146,453 received, ₹25,327,171 paid).
+
 ### Fixed — Overview revenue growth no longer disagrees with Period Comparison by 0.1 pt
 
 The executive summary rounded `revenue_growth` to 2 dp before the page rounded it to 1 dp: ₹80,149,403 against ₹97,442,714 is −17.7477%, stored as −17.75 and shown as "−17.8% YoY" on Overview, while Period Comparison, rounding once, said −17.7%. It is now stored at 4 dp (`strategic_finance/summary.py`), so both read −17.7%.

@@ -434,8 +434,10 @@ class FinancialIntelligence:
         else:
             runway_months = round(liquid_cash / net_burn, 1)
 
-        # Inflow/outflow by source (party_type) for last 3 months — one query.
-        three_months_ago = _months_ago(3)
+        # Inflow/outflow by source (party_type) for the last 90 days — one query.
+        # (`_months_ago(3)` is the 1st of the month: on 29 Oct that is 1 Jul, 120 days,
+        # under a "last 3 months" title.)
+        three_months_ago = _add_days(datetime.now(), -90).isoformat()
         pe_src_rows = self._rows(
             pe
             .filter(
@@ -456,8 +458,8 @@ class FinancialIntelligence:
             for r in pe_src_rows if r.get("payment_type") == "Pay"
         ]
 
-        # Large transactions in last 1 month
-        one_month_ago = _months_ago(1)
+        # Large transactions in the last 30 days (`_months_ago(1)` reached back 59).
+        one_month_ago = _add_days(datetime.now(), -30).isoformat()
         large_tx = (
             pe
             .filter((pe["posting_date"] >= one_month_ago) & (pe["posting_date"] <= today))
