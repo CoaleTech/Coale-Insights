@@ -252,6 +252,8 @@ const currentPeriodData = computed(() => {
   const pct = (v: number | null | undefined) => (isPartial ? null : (v ?? null))
   // Margin is meaningless on zero revenue: show it as absent, not 0.0%.
   const margin = (m: PeriodMetrics) => (m.revenue ? (m.margin ?? null) : null)
+  // bps come from the unrounded margin: the payload's `margin` is rounded to 0.1%, up to 10 bps off.
+  const exactMargin = (m: PeriodMetrics) => ((m.net_income ?? 0) / (m.revenue || 1)) * 100
   const curMargin = margin(current)
   const priorMargin = margin(prior)
   return {
@@ -267,7 +269,7 @@ const currentPeriodData = computed(() => {
     revenue_change: pct(periodData.revenue_change),
     expense_change: pct(periodData.expense_change),
     profit_change: pct(periodData.net_income_change),
-    margin_change: isPartial || curMargin === null || priorMargin === null ? null : curMargin - priorMargin,
+    margin_change: isPartial || curMargin === null || priorMargin === null ? null : exactMargin(current) - exactMargin(prior),
     current_label: current.label || 'Current',
     prior_label: prior.label || 'Prior',
     insights: periodData.insights,

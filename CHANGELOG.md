@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Period Comparison margin change in bps was computed from rounded margins
+
+The Margin card showed "+170 bps" for 4.33% vs 2.57% (true +176). It subtracted the payload's one-decimal `margin` values, which can be 10 bps off. `PeriodComparisonTab.vue` now derives the bps from net income ÷ revenue.
+
 ### Fixed — Finance briefs printed ISO dates in prose
 
 The Payables headline ("…the first being PI26271361 … on 2026-10-29"), the 13-Week low-balance line and the payroll "next" date used raw `YYYY-MM-DD` while the rest of the page reads "29 Oct 2026". A shared `day()` in `tab_briefs/__init__.py` formats them (a pandas time part is still stripped; unparseable input passes through). The two Payables tests that pinned the ISO wording were updated.
