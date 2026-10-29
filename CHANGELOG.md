@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Text KPI values ("Not burning cash") were cut off, and made the Cash page scroll sideways at large text sizes
+
+`KpiCard.vue`: the value always used `truncate`. Money and percent figures keep it (wrapping would break a number mid-digit; the full value is in the tooltip and a screen-reader span), but plain-text values now use `break-words` and wrap onto a second line instead.
+
 ### Fixed — "Create a Budget in ERPNext" link was 16 px tall
 
 `FinancialIntelligence.vue` (Budget Variance empty state): the standalone link is now `inline-block` with `py-1.5 -my-1.5`, giving a 27 px target without moving the layout. It was the last control under 24 px on any of the 15 tabs at 1500, 1024 and 768 px.

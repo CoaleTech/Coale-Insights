@@ -99,7 +99,8 @@
     </span>
     <span
       v-else
-      class="tnum block truncate text-2xl font-semibold leading-tight text-ink-gray-9"
+      class="tnum block text-2xl font-semibold leading-tight text-ink-gray-9"
+      :class="isMoney || isPercent ? 'truncate' : 'break-words'"
       :title="exactValue"
     >
       <!-- Sighted readers get the compact figure that fits; assistive tech gets
