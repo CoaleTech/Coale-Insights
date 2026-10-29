@@ -25,13 +25,14 @@
   caller height under 300px used to leave the chart overflowing its wrapper.
 -->
 <template>
-  <div class="w-full min-h-[300px]" role="img" :aria-label="label ?? summary">
+  <div ref="root" class="w-full min-h-[300px]" role="img" :aria-label="label ?? summary">
     <!-- frappe-ui's ECharts applies `options` only on mount, so a theme switch needs a remount. -->
     <ECharts :key="theme" :options="options" :error="error" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { getInstanceByDom } from 'echarts/core'
 import { ECharts } from 'frappe-ui'
 import useAxisChartOptions from 'frappe-ui/src/components/Charts/axisChartOptions'
 import useDonutChartOptions from 'frappe-ui/src/components/Charts/donutChartOptions'
@@ -39,7 +40,7 @@ import type {
   AxisChartConfig,
   DonutChartConfig,
 } from 'frappe-ui/src/components/Charts/types'
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { usePrefersReducedMotion } from '../../composables/usePrefersReducedMotion'
 import { useTheme } from '../../composables/useTheme'
 import { themeColor } from '../../utils/chartTheme'
@@ -72,7 +73,7 @@ interface Retintable {
  * white `#fff` background on the axis-name label, so in dark mode the grid is
  * near-white and the "↑ INR" label is a white box. Retint from the theme tokens.
  */
-function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | Retintable[]; legend?: { textStyle?: object } }) {
+function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | Retintable[]; legend?: { textStyle?: object; padding?: number[]; itemGap?: number } }) {
   const grid = themeColor('--outline-gray-2')
   const ink = themeColor('--ink-gray-6')
   const surface = themeColor('--surface-white')
@@ -82,7 +83,9 @@ function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | 
     axis.axisLabel = { ...axis.axisLabel, color: ink }
     axis.nameTextStyle = { ...axis.nameTextStyle, color: ink, backgroundColor: surface, borderColor: surface }
   }
-  if (opts.legend) opts.legend.textStyle = { ...opts.legend.textStyle, color: ink }
+  // frappe-ui reserves 25px each side for the pager arrows and a 12px gap, so a
+  // three-item legend paged ("1/3") in a 260px phone chart. Items still scroll if they truly overflow.
+  if (opts.legend) opts.legend = Object.assign(opts.legend, { padding: [0, 0], itemGap: 8, textStyle: { ...opts.legend.textStyle, color: ink } })
 }
 
 const options = computed(() => {
@@ -119,5 +122,23 @@ const summary = computed(() => {
   const names = (c.series ?? []).map((s) => s.name).filter(Boolean).join(', ')
   const kind = props.kind === 'donut' ? 'Donut chart' : 'Chart'
   return `${kind}${names ? `: ${names}` : ''}, ${c.data?.length ?? 0} data points`
+})
+
+// frappe-ui resizes on a debounced ResizeObserver, which has not fired by the
+// time the browser lays out the print page, so printed charts kept their
+// screen width. Resize synchronously on both sides of printing.
+const root = ref<HTMLElement>()
+function resizeAll() {
+  root.value?.querySelectorAll<HTMLElement>('div').forEach((el) => {
+    getInstanceByDom(el)?.resize({ animation: { duration: 0 } })
+  })
+}
+onMounted(() => {
+  window.addEventListener('beforeprint', resizeAll)
+  window.addEventListener('afterprint', resizeAll)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeprint', resizeAll)
+  window.removeEventListener('afterprint', resizeAll)
 })
 </script>

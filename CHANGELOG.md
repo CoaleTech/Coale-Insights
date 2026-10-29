@@ -6,6 +6,11 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — chart legend paged on phones; charts kept screen width when printed
+
+- **Legend:** frappe-ui reserves 25px per side for pager arrows and a 12px item gap, so the three-item Fixed Deposit legend showed "‹ 1/3 ›" in a 260px chart at 390px wide. `IntelligenceChart` now drops that padding (gap 8px); all three items show, and the legend still scrolls if it genuinely overflows.
+- **Print:** frappe-ui resizes on a debounced `ResizeObserver` that has not fired when the browser lays out the print page. `IntelligenceChart` now resizes its chart synchronously on `beforeprint` and `afterprint`. Measured by firing `beforeprint` after narrowing the container: the SVG stayed at 368px until the event, then went to 218px. The real print dialog was not exercised.
+
 ### Fixed — accessibility, page titles and URL state across the intelligence dashboards
 
 - **Page titles:** `router.ts` sets `document.title` to `<dashboard> | Insights` after every navigation (it was the bare app title everywhere).
