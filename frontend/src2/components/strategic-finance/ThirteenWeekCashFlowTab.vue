@@ -19,7 +19,7 @@
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <SectionHeader variant="caption" title="13-Week Rolling Cash Flow Forecast" :level="3"
-            hint="Current week plus the next 13 weeks: projected inflows and outflows by week" />
+            hint="Current week plus the next 12 weeks: projected inflows and outflows by week" />
         </div>
         <div class="flex items-center gap-4">
           <!-- Payroll Detection Badge -->

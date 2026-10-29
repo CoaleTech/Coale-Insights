@@ -257,8 +257,8 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
     )
     opening_balance = current_cash - historical_net_flow
 
-    for week_num in range(14):  # -1 (historical) to 12 (forecast) = 14 weeks total
-        week_start = current_week_start + timedelta(weeks=week_num - 1)
+    for week_num in range(-1, 13):  # -1 = last week (actuals), 0 = current, 1-12 = forecast
+        week_start = current_week_start + timedelta(weeks=week_num)
         week_end = week_start + timedelta(days=6)
         week_key = week_start.strftime('%Y-%m-%d')
 
@@ -306,7 +306,7 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
         net_flow = inflows.get('total', 0) - outflows.get('total', 0)
 
         # Calculate opening balance for this week
-        if week_num == 0:
+        if week_num == -1:
             week_opening = opening_balance
         else:
             week_opening = weeks[-1]['closing_balance'] if weeks else opening_balance
@@ -391,7 +391,8 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
             'net_cash_flow': round(total_inflows - total_outflows, 2),
             'ending_cash': round(ending_cash, 2),
             'minimum_balance': round(min_balance_week['closing_balance'], 2) if min_balance_week else current_cash,
-            'minimum_balance_week': min_balance_week['week_number'] if min_balance_week else 0,
+            # 1-based position in the 13-week window (current week = week 1)
+            'minimum_balance_week': min_balance_week['week_number'] + 1 if min_balance_week else 0,
             'minimum_balance_date': min_balance_week['week_start'] if min_balance_week else str(today),
             'weeks_below_threshold': weeks_below_threshold,
             'avg_weekly_inflow': round(total_inflows / len(future_weeks), 2) if future_weeks else 0,

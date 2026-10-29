@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — 13-week cash flow labelled every week one week late
+
+`generate_thirteen_week_forecast` looped `range(14)` for weeks −1…12 but stored the loop index 0…13 as `week_number`, so `get_week_label` (which expects −1 = last week, 0 = this week) called the week starting 19 Oct "This Week" and the week actually containing today (26 Oct, flagged current) "Next Week"; the tab's `week_number >= 0` filter then also kept last week, showing 14 columns. The loop now runs `range(-1, 13)`, so labels, the current-week highlight and the 13-column table (current week + 12) line up; balances and totals are unchanged. `minimum_balance_week` stays the 1-based position in the window (this week = Week 1), and the header hint now says "next 12 weeks" (`strategic_finance/forecast.py`, `ThirteenWeekCashFlowTab.vue`).
+
 ### Fixed — 13-week "Weeks Below Threshold" follows the Min Cash Threshold input
 
 Typing a threshold on the 13-Week Cash Flow tab moved the chart line and the Min Balance severity but not the "Weeks Below Threshold" card, the red closing-balance cells or the "Low" badges, which kept the server's flags for the threshold it was computed with (₹0): at ₹5,000,000 every week closes below it (all ≤ ₹1.4M) yet the card still read 1. `displayWeeks` now derives `below_threshold` from the live threshold and the card counts those (`ThirteenWeekCashFlowTab.vue`). The scenario panel's per-scenario counts are still computed server-side at the stored company threshold.
