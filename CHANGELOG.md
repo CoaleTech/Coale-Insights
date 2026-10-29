@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — "Quarterly Ratio Trends" columns are labelled for the 90 days they cover
+
+`calculate_ratio_trends` builds eight rolling 90-day windows ending today but labelled each with the calendar quarter of its end date, so on 29 Oct 2026 the column "Q3 2026" held 3 May–31 Jul and "Q4 2026" held 1 Aug–29 Oct (it matched the "Last 90 days" cards to the rupee, although October has no postings). On other dates two windows could even share a label (31 Mar: "Q1" twice). Each window also started 90 days before its end, so its first day was also the previous window's last day and was counted twice. Windows now start 89 days before their end (contiguous, no overlap) and the columns are labelled with the date they end on; the section is titled "90-Day Ratio Trends" with a line saying so (`strategic_finance/analysis.py::_rolling_90_day_windows`).
+
 ### Fixed — Cash burn and runway tie to the ledger, and the Cash tab no longer contradicts itself
 
 `net_burn_rate` was Payment Entry outflow minus inflow, which misses every journal-posted payment: +₹408K/month building, against +₹87K on the ledger over the same six complete months. It is now the ledger's net movement of the cash accounts (bank, cash on hand and deposits, i.e. the accounts behind Total Cash) over those months (`financial_intelligence._calculate_cash_flow`); runway follows it. The Cash tab's runway card read "Cash positive" yet "₹998,499/mo drawing down" on the 90-day filter, because its sub-label averaged whichever months the filter charted, including the part-posted current one. It now shows the server's `net_burn_rate`, so it cannot disagree with the runway and ignores the date filter. The Overview attention item printed `Math.abs(net_burn)` as "Burn ₹408.5K/month" while cash was building; it names a burn only when there is one. The Cash brief's "Average month" net uses the same figure.

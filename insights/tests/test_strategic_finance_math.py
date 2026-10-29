@@ -4,11 +4,13 @@
 """Pure-function tests for strategic finance math (no DB)."""
 
 import unittest
-from datetime import date
+from datetime import date, datetime
+from itertools import pairwise
 from types import SimpleNamespace
 
 import numpy as np
 
+from insights.ml.strategic_finance.analysis import _rolling_90_day_windows
 from insights.ml.strategic_finance.cost_ratios import _get_fixed_cost
 from insights.ml.strategic_finance.forecast import _shift_weeks, apply_scenario
 from insights.ml.strategic_finance.scenarios import _simulate_revenue_expenses, build_periods, calc_change
@@ -83,6 +85,16 @@ class TestStrategicFinanceMath(unittest.TestCase):
         net_independent = np.subtract(*draw(0.0, 7)).std()
         net_correlated = np.subtract(*draw(0.99, 7)).std()
         self.assertLess(net_correlated * 5, net_independent)
+
+    def test_ratio_windows_are_contiguous_and_uniquely_labelled(self):
+        # 31 Mar: calendar-quarter labels would repeat ("Q1" for 31 Mar and 1 Jan)
+        w = _rolling_90_day_windows(datetime(2026, 3, 31))
+        self.assertEqual(w[0]["end"], "2026-03-31")
+        self.assertEqual(len({x["label"] for x in w}), 8)
+        for newer, older in pairwise(w):
+            gap = datetime.fromisoformat(newer["start"]) - datetime.fromisoformat(older["end"])
+            self.assertEqual(gap.days, 1)  # no shared day, no skipped day
+        self.assertEqual((datetime.fromisoformat(w[0]["end"]) - datetime.fromisoformat(w[0]["start"])).days, 89)
 
     def test_unconfigured_fixed_cost_is_none(self):
         self.assertIsNone(_get_fixed_cost("c", "2026-04-01", "2026-10-06", SimpleNamespace(fixed_cost_centers="  ")))

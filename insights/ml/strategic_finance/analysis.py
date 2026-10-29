@@ -675,20 +675,31 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     }
 
 
+def _rolling_90_day_windows(now, count: int = 8) -> list:
+    """`count` contiguous 90-day windows, newest ending `now`, as dicts with
+    start/end (ISO) and a label.
+
+    Windows are inclusive at both ends, so each starts 89 days before its end
+    and a day is never counted in two windows. They are not calendar quarters,
+    so each is labelled by the date it ends on (a quarter label put "Q3 2026" on
+    May-Jul and could repeat for two windows)."""
+    windows = []
+    for q in range(count):
+        end_date = now - timedelta(days=q * 90)
+        start_date = end_date - timedelta(days=89)
+        windows.append({
+            "start": start_date.strftime('%Y-%m-%d'),
+            "end": end_date.strftime('%Y-%m-%d'),
+            "label": end_date.strftime('%d %b %Y'),
+        })
+    return windows
+
+
 def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
     """Calculate financial ratio trends over time"""
     from insights.ml.sales_intelligence import gross_margin_totals
 
-    # Get quarterly data for last 8 quarters
-    quarters = []
-    for q in range(8):
-        end_date = datetime.now() - timedelta(days=q * 90)
-        start_date = end_date - timedelta(days=90)
-        quarters.append({
-            "start": start_date.strftime('%Y-%m-%d'),
-            "end": end_date.strftime('%Y-%m-%d'),
-            "label": f"Q{((end_date.month - 1) // 3) + 1} {end_date.year}"
-        })
+    quarters = _rolling_90_day_windows(datetime.now())
 
     ratio_trends = []
     # Each window is 90 days of flow over a point-in-time balance; the benchmarks

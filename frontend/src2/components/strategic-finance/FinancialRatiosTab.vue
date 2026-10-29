@@ -49,13 +49,16 @@
       </div>
     </div>
 
-    <!-- Quarterly Ratio Trends -->
+    <!-- 90-day ratio trends -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader variant="caption" title="Quarterly Ratio Trends" :level="3">
+      <SectionHeader variant="caption" title="90-Day Ratio Trends" :level="3">
         <template #actions>
           <LineChartIcon class="h-5 w-5 text-ink-gray-5" />
         </template>
       </SectionHeader>
+      <p class="text-sm text-ink-gray-6 mt-2">
+        Each column covers the 90 days ending on the date shown; the last column is the latest 90 days.
+      </p>
       <div v-if="quarterlyTrends.length" class="overflow-x-auto mt-4">
         <table class="min-w-full divide-y divide-outline-gray-1">
           <thead class="bg-surface-gray-1">
