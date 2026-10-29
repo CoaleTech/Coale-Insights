@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Cash burn and runway tie to the ledger, and the Cash tab no longer contradicts itself
+
+`net_burn_rate` was Payment Entry outflow minus inflow, which misses every journal-posted payment: +₹408K/month building, against +₹87K on the ledger over the same six complete months. It is now the ledger's net movement of the cash accounts (bank, cash on hand and deposits, i.e. the accounts behind Total Cash) over those months (`financial_intelligence._calculate_cash_flow`); runway follows it. The Cash tab's runway card read "Cash positive" yet "₹998,499/mo drawing down" on the 90-day filter, because its sub-label averaged whichever months the filter charted, including the part-posted current one. It now shows the server's `net_burn_rate`, so it cannot disagree with the runway and ignores the date filter. The Overview attention item printed `Math.abs(net_burn)` as "Burn ₹408.5K/month" while cash was building; it names a burn only when there is one. The Cash brief's "Average month" net uses the same figure.
+
 ### Fixed — Monte Carlo no longer reports a 47% chance of loss on a profitable year
 
 `generate_scenario_analysis` applied the month-to-month coefficient of variation (revenue 26%, expenses 27.4%) to the fiscal-YTD totals, and drew revenue and expenses independently although the 12-month series correlate at 0.988 (COGS follows sales). Net income therefore ranged −₹45.0M to +₹38.4M (5th–95th percentile) on a ₹3.47M profit, with a 47.4% loss probability. The draws are now scaled to the period (1/√months elapsed ≈ 1/√6.96) and taken from a bivariate normal at the measured correlation (`strategic_finance/scenarios.py`). Measured: 5th–95th percentile ₹0.95M–₹4.06M, median ₹2.57M (baseline after tax ₹2.60M), std ₹0.93M, loss probability 0.3%. Break-even, the sensitivity matrix and the monthly volatilities shown are unchanged; the Monte Carlo caption now says what the volatilities are.

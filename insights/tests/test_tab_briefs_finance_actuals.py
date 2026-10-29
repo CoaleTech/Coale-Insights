@@ -18,6 +18,8 @@ class TestBriefs(unittest.TestCase):
         self.assertIn("Liquid cash is -₹246,351 with ₹9,821,496 held in fixed deposits", b["headline"])
         self.assertIn("fell in 2 of the last 6 complete months", b["headline"])
         self.assertIn("Aug 2026 (-₹2,494,406)", b["headline"])
+        # net comes from the ledger (net_burn_rate), not payments in minus payments out
+        self.assertIn("net cash movement on the ledger ₹86,963", b["details"][1]["text"])
 
     def test_receivables_severity_follows_dso_cutpoints(self):
         self.assertEqual(self.b["receivables"]["severity"], "medium")

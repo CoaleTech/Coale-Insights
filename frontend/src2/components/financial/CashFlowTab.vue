@@ -353,13 +353,12 @@ function runwaySeverity(months: number | null | undefined): Severity {
 	return months < 6 ? 'medium' : 'low'
 }
 
-/** Average net movement from the GL series, which reconciles to the balances
- * above -- unlike the Payment Entry averages, which miss journal postings. */
+/** Average monthly net cash movement over the last 6 complete months, from the
+ * same figure the runway is computed from (the server's `net_burn_rate`). */
 const burnLabel = computed(() => {
-	if (!movement.value.length) return undefined
-	const avg = movement.value.reduce((sum, m) => sum + m.net, 0) / movement.value.length
-	const direction = avg >= 0 ? 'building' : 'drawing down'
-	return `${formatCurrency(Math.abs(avg), props.currency)}/mo ${direction}`
+	const burn = props.data.net_burn_rate
+	if (burn == null) return undefined
+	return `${formatCurrency(Math.abs(burn), props.currency)}/mo ${burn <= 0 ? 'building' : 'drawing down'}`
 })
 
 const fdSubtitle = computed(() => {

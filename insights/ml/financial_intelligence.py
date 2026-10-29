@@ -413,7 +413,16 @@ class FinancialIntelligence:
 
         avg_outflow = _avg6(cash_outflows)
         avg_inflow = _avg6(cash_inflows)
-        net_burn = avg_outflow - avg_inflow
+        # Burn is the ledger's net movement of the cash accounts over the same
+        # months, so it ties to the balances. Payment Entries miss every
+        # journal-posted payment, and their in-minus-out read +408K/month here
+        # while the cash accounts moved +87K.
+        gl_net = self._rows(
+            self._cash_accounts(joined)
+            .filter((joined["posting_date"] >= six_months_ago) & (joined["posting_date"] < this_month + "-01"))
+            .aggregate(net=(joined["debit"] - joined["credit"]).sum())
+        )
+        net_burn = -float((gl_net[0]["net"] if gl_net else 0) or 0) / 6
         # Runway uses liquid_cash (spendable without breaking FDs). No net burn
         # -> None (cash positive, matches the Cash Flow tab). Burning with a
         # negative liquid balance means overdrawn: 0 months.

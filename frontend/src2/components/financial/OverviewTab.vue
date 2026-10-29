@@ -514,8 +514,8 @@ const attentionItems = computed((): AttentionItem[] => {
 		const fdPart   = (fd != null && fd > 0)
 			? ` FDs ${formatMoney(fd, props.currency, { compact: true })} buffer but not immediately liquid.`
 			: ''
-		const burnPart = burn != null
-			? ` Burn ${formatMoney(Math.abs(burn), props.currency, { compact: true })}/month.`
+		const burnPart = burn != null && burn > 0
+			? ` Burn ${formatMoney(burn, props.currency, { compact: true })}/month.`
 			: ''
 		items.push({
 			title: 'Critical Cash Runway',

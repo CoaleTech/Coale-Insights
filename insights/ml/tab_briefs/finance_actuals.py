@@ -43,11 +43,11 @@ def _cashflow(p: dict):
         "Balances",
         f"Bank {money(c.get('bank_balance'), cur)}, cash on hand {money(c.get('cash_on_hand'), cur)}, fixed deposits {money(c.get('fd_balance'), cur)}.",
     )]
-    if c.get("avg_monthly_inflow") is not None and c.get("avg_monthly_outflow") is not None:
-        net = _f(c["avg_monthly_inflow"]) - _f(c["avg_monthly_outflow"])
+    if c.get("avg_monthly_inflow") is not None and c.get("avg_monthly_outflow") is not None and c.get("net_burn_rate") is not None:
         details.append(detail(
             "Average month",
-            f"Inflow {money(c['avg_monthly_inflow'], cur)}, outflow {money(c['avg_monthly_outflow'], cur)}, net {money(net, cur)}.",
+            f"Payments in {money(c['avg_monthly_inflow'], cur)}, payments out {money(c['avg_monthly_outflow'], cur)}; "
+            f"net cash movement on the ledger {money(-_f(c['net_burn_rate']), cur)} (6 complete months).",
         ))
     actions = []
     if liquid < 0:
