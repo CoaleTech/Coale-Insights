@@ -117,7 +117,11 @@ class FinancialIntelligence:
         acc = t("Account")
         joined = gle.join(acc, gle["account"] == acc["name"])
         joined = company_filter(joined, company or self.company)
-        joined = joined.filter(joined["is_cancelled"] == 0)
+        # Period Closing Vouchers move P&L into equity on the last day of a year; they are
+        # bookkeeping, not trading, and would show as negative revenue in that month.
+        joined = joined.filter(
+            (joined["is_cancelled"] == 0) & (joined["voucher_type"] != "Period Closing Voucher")
+        )
         return joined
 
     def _scalar(self, expr, default: float = 0.0) -> float:

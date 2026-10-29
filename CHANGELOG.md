@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance P&L counted Period Closing Vouchers as trading
+
+Under Last 24 Months / All Time the Overview showed March 2025 revenue of **−₹26.2M**: the year-end Period Closing Voucher (income debited ₹40.3M, expenses credited ₹41.0M) was summed into that month's P&L. Actuals (`_gl_with_account`) now excludes closing vouchers, matching Executive Intelligence and Budget Variance; March 2025 reads ₹14.1M revenue and −₹1.02M profit, which ties to the ledger. The same exclusion was applied to the Planning P&L history scan (`data.py`, balance-sheet columns untouched) and to the Monte Carlo 12-month volatility queries, which would otherwise have swallowed the next closing voucher after 31 Mar 2027. Current-year figures are unchanged.
+
 ### Fixed — Break-Even Month showed a raw `2026-04` key
 
 The Break-Even Overview's cash-flow card printed the backend's `YYYY-MM` month key. It now reads "Apr 2026" through a new `formatMonth` in `utils/format.ts`, matching the month labels on the other Finance tabs.

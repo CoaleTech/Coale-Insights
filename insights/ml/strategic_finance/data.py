@@ -170,6 +170,9 @@ def _gl_daily_cache(intelligence) -> list:
     gle = DocType("GL Entry")
     acc = DocType("Account")
     today = datetime.now().strftime('%Y-%m-%d')
+    # Period Closing Vouchers shift P&L into equity on a year's last day: not trading,
+    # so kept out of the P&L columns (they still count in the cumulative balance columns).
+    trading = gle.voucher_type != "Period Closing Voucher"
 
     rows = (
         frappe.qb.from_(gle)
@@ -178,14 +181,14 @@ def _gl_daily_cache(intelligence) -> list:
         .select(
             gle.posting_date,
             # ── P&L (period sums) ──────────────────────────────────────────
-            Sum(Case().when(acc.root_type == "Income",
+            Sum(Case().when((acc.root_type == "Income") & trading,
                             gle.credit - gle.debit).else_(0)).as_("income"),
-            Sum(Case().when(acc.root_type == "Expense",
+            Sum(Case().when((acc.root_type == "Expense") & trading,
                             gle.debit - gle.credit).else_(0)).as_("expense"),
-            Sum(Case().when(acc.account_type == "Depreciation",
+            Sum(Case().when((acc.account_type == "Depreciation") & trading,
                             gle.debit - gle.credit).else_(0)).as_("dep"),
             Sum(Case().when(
-                (acc.root_type == "Expense") & acc.name.like("%Interest%"),
+                (acc.root_type == "Expense") & acc.name.like("%Interest%") & trading,
                 gle.debit - gle.credit,
             ).else_(0)).as_("interest"),
             # ── Balance sheet (cumulative) ─────────────────────────────────
