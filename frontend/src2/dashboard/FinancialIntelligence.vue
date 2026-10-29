@@ -148,6 +148,7 @@
 				</div>
 				<div
 					v-else-if="usesStrategic && strategicError"
+					role="alert"
 					class="flex flex-col items-center justify-center gap-3 py-16 text-center"
 				>
 					<AlertTriangle class="h-8 w-8 text-warn-fill" aria-hidden="true" />

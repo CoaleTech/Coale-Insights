@@ -34,7 +34,7 @@
 	</div>
 
 	<div v-else-if="error" class="flex flex-1 items-center justify-center p-6">
-		<div class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
+		<div role="alert" class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
 			<TriangleAlert class="mx-auto mb-3 h-8 w-8 text-neg" aria-hidden="true" />
 			<p class="font-medium text-ink-gray-8">Could not load {{ subject }}</p>
 			<p class="mt-1 text-sm text-ink-gray-6">{{ error }}</p>
