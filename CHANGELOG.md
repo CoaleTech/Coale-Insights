@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Working Capital tab showed DSO/DPO that differ from the Overview without saying why
+
+The Working Capital tab's DSO 37.7 / DPO 32.4 days use ledger balances over the 90 days ending at the last posting, while the Overview and Receivables/Payables cards (DSO 40 / DPO 41) divide open invoices by trailing-12-month sales and purchases. Both are valid but looked like a contradiction. The three day-count cards now state "Ledger balance, last 90 days".
+
 ### Fixed — Monte Carlo profit was after tax but labelled plain "Net Profit"
 
 The simulation reports after-tax profit (the tab's median ₹2.57M is the YTD ₹3.47M less the configured tax), yet the cards, KPI strip and brief called it "Net Profit" next to the pre-tax Overview and sensitivity-matrix figures, so the numbers looked inconsistent. Labels now say "after tax" and the tab states the basis. The "Value at Risk (5%)" tile, which is the 5th-percentile profit (still a profit, not a loss amount), is now "Downside Case (5th percentile)".

@@ -12,18 +12,21 @@
         label="Days Sales Outstanding"
         :value="data?.dso == null ? NO_VALUE : `${days(data.dso)} days`"
         :severity="dsoSeverity"
+        sublabel="Ledger balance, last 90 days"
         :loading="!data"
       />
       <KpiCard
         label="Days Inventory Outstanding"
         :value="data?.dio == null ? NO_VALUE : `${days(data.dio)} days`"
         :severity="dioSeverity"
+        sublabel="Ledger balance, last 90 days"
         :loading="!data"
       />
       <KpiCard
         label="Days Payables Outstanding"
         :value="data?.dpo == null ? NO_VALUE : `${days(data.dpo)} days`"
         :severity="dpoSeverity"
+        sublabel="Ledger balance, last 90 days"
         :loading="!data"
       />
       <KpiCard
