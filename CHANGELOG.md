@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — AI assistant error text ended in a double period
+
+When the AI backend returns an error that already ends in a full stop, the chat appended another: "…configure your API key in Insights Settings.. Please try again." `DashboardChatButton.vue` (shared by all intelligence dashboards) now trims trailing periods from the server error before adding its own. Seen on this site, where AI Analytics is not enabled.
+
 ### Fixed — Any text in `date_filter` became its own cache key and background compute
 
 `financial_intelligence` put the raw `date_filter` in its cache key. `?date_filter=xyz`, `99999d` or `custom:abc:def` each queued a separate two-minute compute (all of them evaluate as the default 12 months), and the hourly warm pass then kept refreshing each one for three days, crowding real dashboards out of its 40-entry batch. The endpoint now passes the value through `canonical_date_filter` (new, in `api/ml/utils.py`): presets (`Nd`/`Nm`/`Ny` up to 3 digits, `ytd`, `all`) and valid custom ranges are kept, anything else becomes `12m`. Checked after restart: three garbage values share one `12m` key. The same pattern exists in `sales`, `procurement` and the other intelligence endpoints; only Finance is changed here.

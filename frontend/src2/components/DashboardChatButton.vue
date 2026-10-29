@@ -550,7 +550,7 @@ async function sendMessage() {
       // Add error message
       messages.value.push({
         role: 'assistant',
-        content: `Sorry, I encountered an error: ${response?.error || 'Unknown error'}. Please try again.`,
+        content: `Sorry, I encountered an error: ${(response?.error || 'Unknown error').replace(/\.+$/, '')}. Please try again.`,
         timestamp: new Date().toISOString()
       })
     }
