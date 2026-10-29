@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — 13-Week Cash Flow made the whole page scroll sideways on phones
+
+At 390px the page was 544px wide. The chart's screen-reader table (`table.sr-only`) keeps `display: table`, which ignores the 1px width, so its long caption and four columns (496px) sat absolutely positioned against the page and widened it although they are clipped. A global `table.sr-only { position: fixed }` takes it out of the scrollable overflow; it applies to every screen-reader table on every dashboard. Verified at 390px on all 15 Finance tabs: no horizontal overflow.
+
 ### Fixed — Overview monthly chart left a dangling "·" on short date windows
 
 With a window that has no postings (e.g. Last 7 Days while the books end mid-month) the card title read "Monthly Net Profit · " and the chart said "No monthly data available" beside a fiscal-YTD hint. The title now drops the empty window label and the empty state reads "No postings in the selected date window". A single-month window (Last 30 Days) read "Sep 26 – Sep 26" and now reads "Sep 26". Figures are unchanged.

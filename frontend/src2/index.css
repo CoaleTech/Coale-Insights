@@ -247,6 +247,16 @@
 }
 
 /*
+ * A `table.sr-only` keeps `display: table`, which ignores the 1px width, so a
+ * wide one (the 13-week chart's caption and 4 columns, 496px) sat absolutely
+ * positioned against the page and widened it to 544px on a 390px phone even
+ * though it is clipped. `fixed` takes it out of the scrollable overflow.
+ */
+table.sr-only {
+	position: fixed;
+}
+
+/*
  * `body` shipped with no `color`, so anything without an explicit `text-ink-*`
  * class inherited the UA default -- pure black. In light mode that passes
  * unnoticed; under `data-theme="dark"` it measures 1.1:1 on the dark surface,
