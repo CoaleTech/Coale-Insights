@@ -73,10 +73,10 @@
 
 		<!-- Collections -->
 		<div v-if="data.collection_trend?.length" class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader variant="caption" title="Monthly Collections" :level="3" />
+			<SectionHeader variant="caption" title="Monthly Collections" hint="Receipts applied to invoices; advances not included" :level="3" />
 			<IntelligenceChart class="mt-4 h-80" :config="collectionTrendConfig" />
 			<table class="sr-only">
-				<caption>Receipts collected per month</caption>
+				<caption>Receipts applied to invoices per month</caption>
 				<thead>
 					<tr>
 						<th scope="col">Month</th>

@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — "Monthly Collections" did not say it excludes advances
+
+The chart sums Payment Entry allocations to Sales Invoices (recomputed from the Payment Entry references: Sep 26 ₹7,717,374), so customer advances that are not yet applied do not count. Receipts for September total ₹8,407,544, 9% more. The heading now carries the hint "Receipts applied to invoices; advances not included" and the screen-reader caption matches. Figures are unchanged.
+
 ### Fixed — Marketing cost ratio ignored "Advertisement" accounts
 
 Cost Structure showed "Marketing Cost % of Revenue 0.0%" while the ledger holds ₹756,964 on `Advertisment Exp` for the fiscal year (0.9% of revenue). The default keywords were `Marketing / Advertising / Promotion / Branding`, and the matching is a case-insensitive substring, so "Advertisement" (and this chart's spelling "Advertisment") matched nothing. The default is now `Advert` in both `cost_ratios.py` and the Insights Settings field, which covers all three spellings. Existing sites keep the value stored in Insights Settings, so this site's setting was updated by hand to the new default. A site with its own list needs "Advert" added to Marketing Account Keywords.
