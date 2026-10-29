@@ -48,7 +48,7 @@
 
     <!-- Assets by Category -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader variant="caption" title="Assets by Category" :level="3">
+      <SectionHeader variant="caption" title="Assets by Category · Register Net Value" :level="3">
         <template #actions>
           <PieChartIcon class="h-5 w-5 text-ink-gray-5" />
         </template>

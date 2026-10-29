@@ -83,7 +83,7 @@ def _capital(p: dict):
         details.append(detail("Capex", text_c + "."))
     cats = c.get("category_summary") or []
     if cats:
-        details.append(detail("Register", "; ".join(f"{x['category']} {money(x['gross_value'], cur)} ({plural(x['asset_count'], 'asset')})" for x in cats) + "."))
+        details.append(detail("Register", "At gross cost: " + "; ".join(f"{x['category']} {money(x['gross_value'], cur)} ({plural(x['asset_count'], 'asset')})" for x in cats) + "."))
     actions = []
     if reg is not None and gross - _f(reg) > 0.5:
         actions.append(action("Reconcile the asset register to the ledger", "The register lists fewer assets than the ledger carries.", impact=money(gross - _f(reg), cur)))

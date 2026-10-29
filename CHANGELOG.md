@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Capital Planning brief and category list used different bases without saying so
+
+The brief's "Register" line listed Furniture & Fixtures ₹289,871 and Plant & Machinery ₹42,969 (gross cost), while the "Assets by Category" list below showed ₹260,884 and ₹17,573 (register net value). Both are right; neither said which. The brief now reads "At gross cost: …" and the section header "Assets by Category · Register Net Value".
+
 ### Fixed — Break-Even ROCE and cost queries counted the Period Closing Voucher for a past fiscal year
 
 `breakeven_engine.py` summed GL P&L over the chosen fiscal year without excluding the year-end Period Closing Voucher, which moves the whole P&L into equity. For FY 2425 the ROCE query returned EBIT ₹0 (income and expense both closed to zero); it is now −₹674,317, which ties to the ledger (income ₹40,301,187 less expense ₹40,975,504). The cost-centre fixed/variable cost and COGS queries get the same exclusion. The current fiscal year is unchanged (its closing voucher is dated in the prior year).
