@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — AI assistant panel was cut off on phones and short screens
+
+The chat panel was a fixed 384px wide and 500px tall, anchored 24px from the right and 88px from the bottom. On a 390px phone its left 18px (the assistant icon in the header) sat off-screen, and on a landscape phone (400px tall) the header went off the top. It is now capped at the viewport minus the margins (`max-w-[calc(100vw-3rem)]`, `max-h-[calc(100vh-7rem)]`). Measured on-screen at 390x800, 320x568, 800x400 and 1500x900. The panel is shared, so every dashboard gets the fix.
+
 ### Fixed — 13-Week Cash Flow made the whole page scroll sideways on phones
 
 At 390px the page was 544px wide. The chart's screen-reader table (`table.sr-only`) keeps `display: table`, which ignores the 1px width, so its long caption and four columns (496px) sat absolutely positioned against the page and widened it although they are clipped. A global `table.sr-only { position: fixed }` takes it out of the scrollable overflow; it applies to every screen-reader table on every dashboard. Verified at 390px on all 15 Finance tabs: no horizontal overflow.

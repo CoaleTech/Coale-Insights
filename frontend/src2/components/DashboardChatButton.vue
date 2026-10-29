@@ -12,7 +12,7 @@
     >
       <div
         v-if="isOpen"
-        class="absolute bottom-16 right-0 w-96 h-[500px] bg-surface-white rounded-xl shadow-2xl border border-outline-gray-1 flex flex-col overflow-hidden"
+        class="absolute bottom-16 right-0 w-96 max-w-[calc(100vw-3rem)] h-[500px] max-h-[calc(100vh-7rem)] bg-surface-white rounded-xl shadow-2xl border border-outline-gray-1 flex flex-col overflow-hidden"
       >
         <!-- Header -->
         <div class="flex items-center justify-between px-4 py-3 bg-accent text-ink-white">
