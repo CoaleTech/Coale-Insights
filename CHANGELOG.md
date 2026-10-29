@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Period Comparison banner no longer calls an empty month "in progress"
+
+With no postings since the last invoice (14 Sep), the Month-over-Month and Quarter-over-Quarter views read "Oct 2026 is still in progress" although 28 days of the month had passed. The banner now says "Oct 2026 has no postings yet" when both revenue and expenses are zero, and keeps "still in progress" for a genuinely open period (`PeriodComparisonTab.vue`). Figures unchanged: YoY ₹80,149,403 vs ₹97,442,714 equals GL income to 29 Oct for both years.
+
 ### Fixed — Planning working-capital DSO/DPO/DIO window anchors on the last invoice
 
 `analyze_working_capital` averaged sales and purchases over the 90 calendar days ending today. With the ledger 45 days behind the calendar (last invoice 14 Sep, today 29 Oct) only about half that window held documents, so the daily average halved and DSO/DPO doubled. The 90 days now end at the last posted Sales / Purchase Invoice, the same anchor the Revenue DSO uses (`insights/ml/strategic_finance/analysis.py`). Measured: DSO 72.3 → 37.7, DPO 63.6 → 32.4, DIO 4.3 → 2.2, cash conversion cycle 13.0 → 7.5 days; Actuals' trailing-12-month DSO is 39.6. Matches SQL exactly.

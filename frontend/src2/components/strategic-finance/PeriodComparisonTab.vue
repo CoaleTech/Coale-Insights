@@ -15,7 +15,7 @@
     <!-- Partial period: the current month/quarter is still open, so changes are withheld -->
     <div v-if="currentPeriodData?.is_partial" class="flex items-center gap-2 text-sm text-ink-gray-6">
       <Badge label="Partial period" variant="subtle" theme="orange" size="sm" />
-      <span>{{ currentPeriodData.current_label }} is still in progress; changes vs {{ currentPeriodData.prior_label }} are not shown.</span>
+      <span>{{ currentPeriodData.current_label }} {{ currentPeriodData.current_revenue || currentPeriodData.current_expenses ? 'is still in progress' : 'has no postings yet' }}; changes vs {{ currentPeriodData.prior_label }} are not shown.</span>
     </div>
 
     <!-- Comparison Summary Cards -->
