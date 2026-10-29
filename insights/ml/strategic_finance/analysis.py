@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, TYPE_CHECKING
 
 from frappe.query_builder import Case, DocType
-from frappe.query_builder.functions import Abs, Coalesce, DateFormat, Sum
+from frappe.query_builder.functions import Abs, Coalesce, DateFormat, Max, Sum
 
 if TYPE_CHECKING:
     import numpy as np
@@ -587,29 +587,28 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     quick_ratio   = min(round((cash + receivables) / total_current_liabilities, 2), 10.0) if total_current_liabilities > 1000 else None
 
     # ── DSO / DPO / DIO (Sales Invoice + Purchase Invoice — unchanged) ────
-    ninety_days_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
     today_bound = datetime.now().strftime('%Y-%m-%d')
-    si = DocType("Sales Invoice")
-    avg_daily_revenue_rows = (
-        frappe.qb.from_(si)
-        .select((Coalesce(Sum(si.grand_total), 0) / 90).as_("daily_avg"))
-        .where(si.company == intelligence.company)
-        .where(si.docstatus == 1)
-        .where(si.posting_date.between(ninety_days_ago, today_bound))
-        .run(as_dict=True)
-    )
-    avg_daily_revenue = float(avg_daily_revenue_rows[0].daily_avg or 1) if avg_daily_revenue_rows else 1.0
 
-    pi = DocType("Purchase Invoice")
-    avg_daily_cogs_rows = (
-        frappe.qb.from_(pi)
-        .select((Coalesce(Sum(pi.grand_total), 0) / 90).as_("daily_avg"))
-        .where(pi.company == intelligence.company)
-        .where(pi.docstatus == 1)
-        .where(pi.posting_date.between(ninety_days_ago, today_bound))
-        .run(as_dict=True)
-    )
-    avg_daily_cogs = float(avg_daily_cogs_rows[0].daily_avg or 1) if avg_daily_cogs_rows else 1.0
+    def _daily_avg(doctype: str) -> float:
+        # 90 days ending at the LAST posted document, not at today: when the
+        # ledger runs behind the calendar, a window anchored on today counts
+        # empty days and inflates DSO/DPO (45 live days / 90 halved the average).
+        t = DocType(doctype)
+        base = (
+            frappe.qb.from_(t)
+            .where(t.company == intelligence.company)
+            .where(t.docstatus == 1)
+            .where(t.posting_date <= today_bound)
+        )
+        last = base.select(Max(t.posting_date)).run()[0][0]
+        if not last:
+            return 1.0
+        start = getdate(last) - timedelta(days=90)
+        total = base.select(Coalesce(Sum(t.grand_total), 0)).where(t.posting_date.between(start, last)).run()[0][0]
+        return float(total or 0) / 90 or 1.0
+
+    avg_daily_revenue = _daily_avg("Sales Invoice")
+    avg_daily_cogs = _daily_avg("Purchase Invoice")
 
     dso = min(receivables / float(avg_daily_revenue), 365) if avg_daily_revenue > 0 else 0
     dpo = min(abs(float(current_liabilities)) / float(avg_daily_cogs), 365) if avg_daily_cogs > 0 else 0

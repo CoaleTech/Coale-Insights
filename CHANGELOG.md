@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Planning working-capital DSO/DPO/DIO window anchors on the last invoice
+
+`analyze_working_capital` averaged sales and purchases over the 90 calendar days ending today. With the ledger 45 days behind the calendar (last invoice 14 Sep, today 29 Oct) only about half that window held documents, so the daily average halved and DSO/DPO doubled. The 90 days now end at the last posted Sales / Purchase Invoice, the same anchor the Revenue DSO uses (`insights/ml/strategic_finance/analysis.py`). Measured: DSO 72.3 → 37.7, DPO 63.6 → 32.4, DIO 4.3 → 2.2, cash conversion cycle 13.0 → 7.5 days; Actuals' trailing-12-month DSO is 39.6. Matches SQL exactly.
+
 ### Fixed — 13-week cash forecast now pays overdue payables
 
 `get_ar_collections_by_week` spreads receivables already past due over the first four weeks; `get_ap_payments_by_week` dropped payables past due, so only bills falling due inside the window were paid (₹2.4M of ₹19.07M outstanding) while all ₹19.7M of receivables were collected. It now spreads overdue payables over the first four weeks the same way (`insights/ml/strategic_finance/data.py`). Measured: 13-week AP payments ₹2.4M → ₹19,069,277 (equals AP outstanding); ending cash ₹17.68M → ₹1.01M; minimum balance +₹3.16M → −₹1.01M (week of 26 Oct); weeks below threshold 0 → 1. Scenario analysis and the cash-flow brief read the same weeks and move with it.
