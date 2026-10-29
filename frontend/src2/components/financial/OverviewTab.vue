@@ -93,7 +93,7 @@
 							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Cash Accounts', { metric: 'cash_accounts' })"
-						>↗ View</button>
+						>View →</button>
 					</div>
 
 					<!-- Outstanding AR -->
@@ -112,7 +112,7 @@
 							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Outstanding AR', { metric: 'outstanding_ar' })"
-						>↗ View</button>
+						>View →</button>
 					</div>
 
 					<!-- 90+ Overdue AR -->
@@ -133,7 +133,7 @@
 							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, '90+ Days Overdue AR', { metric: 'overdue_ar_90' })"
-						>↗ View</button>
+						>View →</button>
 					</div>
 
 					<!-- Outstanding AP -->
@@ -152,7 +152,7 @@
 							class="text-xs text-ink-gray-6 hover:text-ink-blue-3 shrink-0 py-1.5 -mt-0.5 -mb-1.5"
 							type="button"
 							@click="drillDown.open(finEndpoint, 'Outstanding AP', { metric: 'outstanding_ap' })"
-						>↗ View</button>
+						>View →</button>
 					</div>
 				</div>
 
@@ -169,9 +169,7 @@
 					>
 						<div class="flex items-center justify-between gap-2">
 							<p class="text-sm font-semibold text-ink-gray-9 leading-snug">{{ item.title }}</p>
-							<span class="text-xs font-medium px-1.5 py-0.5 rounded shrink-0" :class="item.badgeClass">
-								{{ item.badge }}
-							</span>
+							<Badge v-bind="severityBadge(item.severity)" :label="item.badge" size="sm" class="shrink-0" />
 						</div>
 						<p class="text-xs text-ink-gray-6 leading-relaxed">{{ item.description }}</p>
 						<p v-if="item.action" class="text-xs text-ink-blue-3">→ {{ item.action }}</p>
@@ -326,11 +324,13 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { Badge } from 'frappe-ui'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import { signedPalette } from '../../utils/chartTheme'
 import { formatMoney, NO_VALUE } from '../../utils/format'
+import { severityBadge } from '../../utils/status'
 import { formatPeriod } from './format'
 import type { OverviewData, CashFlowData, ReceivablesData, PayablesData, AgingBucket } from './types'
 import type { ExecutiveSummaryData } from '../strategic-finance/types'
@@ -360,7 +360,7 @@ function toAgingSegments(buckets: AgingBucket[]): Array<{ bucket: string; pct: n
 interface AttentionItem {
 	title: string
 	badge: string
-	badgeClass: string
+	severity: string
 	description: string
 	action?: string
 }
@@ -492,7 +492,7 @@ const healthScoreItems = computed(() => {
 	if (!hs) return []
 	function cls(score: number): { bgClass: string; textClass: string } {
 		if (score >= 60) return { bgClass: 'bg-surface-green-2', textClass: 'text-ink-green-3' }
-		if (score >= 40) return { bgClass: 'bg-surface-amber-2', textClass: 'text-ink-amber-3' }
+		if (score >= 40) return { bgClass: 'bg-surface-amber-2', textClass: 'text-warn' }
 		return { bgClass: 'bg-surface-red-2', textClass: 'text-ink-red-4' }
 	}
 	return [
@@ -522,7 +522,7 @@ const attentionItems = computed((): AttentionItem[] => {
 			: ''
 		items.push({
 			title: 'Critical Cash Runway',
-			badge: 'High', badgeClass: 'bg-surface-red-2 text-ink-red-4',
+			badge: 'High', severity: 'high',
 			description: `Liquid cash ${formatMoney(liq, props.currency, { compact: true })}.${fdPart}${burnPart}`,
 			action: 'Accelerate collections; review FD drawdown',
 			_order: 0,
@@ -530,7 +530,7 @@ const attentionItems = computed((): AttentionItem[] => {
 	} else if (cf.runway_months != null && cf.runway_months < 3 && cf.runway_months > 0) {
 		items.push({
 			title: 'Low Cash Runway',
-			badge: 'High', badgeClass: 'bg-surface-red-2 text-ink-red-4',
+			badge: 'High', severity: 'high',
 			description: `Only ${cf.runway_months.toFixed(1)} months of liquid runway.`,
 			action: 'Review cash forecast tab',
 			_order: 0,
@@ -547,10 +547,10 @@ const attentionItems = computed((): AttentionItem[] => {
 			parts.push(`${formatMoney(ytd, props.currency, { compact: true })} vs ${formatMoney(prior, props.currency, { compact: true })} prior period.`)
 		const lastMonth = trend.value[trend.value.length - 1]
 		if (lastMonth)
-			parts.push(`${formatPeriod(lastMonth.period)} ${formatMoney(lastMonth.revenue, props.currency, { compact: true })} — lowest in 12 months.`)
+			parts.push(`${formatPeriod(lastMonth.period)} ${formatMoney(lastMonth.revenue, props.currency, { compact: true })}: lowest in 12 months.`)
 		items.push({
 			title: `Revenue ${growth > 0 ? '+' : ''}${growth.toFixed(1)}% YoY`,
-			badge: 'High', badgeClass: 'bg-surface-red-2 text-ink-red-4',
+			badge: 'High', severity: 'high',
 			description: parts.join(' '),
 			action: 'Root cause analysis; recovery plan',
 			_order: 1,
@@ -562,7 +562,7 @@ const attentionItems = computed((): AttentionItem[] => {
 	if (ar3160 != null && ar3160.amount > 0) {
 		items.push({
 			title: `AR 31–60d ${formatMoney(ar3160.amount, props.currency, { compact: true })}`,
-			badge: 'Medium', badgeClass: 'bg-surface-amber-2 text-ink-amber-3',
+			badge: 'Medium', severity: 'medium',
 			description: `${ar3160.count} invoice${ar3160.count !== 1 ? 's' : ''} in 31–60 day bucket.`,
 			action: 'Priority chase; Receivables tab',
 			_order: 2,
@@ -579,7 +579,7 @@ const attentionItems = computed((): AttentionItem[] => {
 		const nm = props.data.net_margin
 		items.push({
 			title: `Gross Margin ${gm.toFixed(1)}%`,
-			badge: 'Monitor', badgeClass: 'bg-surface-gray-2 text-ink-gray-6',
+			badge: 'Monitor', severity: 'none',
 			description: `${expNote}Thin buffer above EBITDA of ${nm != null ? nm.toFixed(1) : '–'}%.`,
 			action: 'Cost Structure tab',
 			_order: 3,

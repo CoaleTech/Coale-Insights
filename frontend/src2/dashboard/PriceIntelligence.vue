@@ -83,7 +83,7 @@
 
 				<!-- 1. Margin by item -->
 				<section>
-					<h2 class="text-lg font-semibold text-ink-gray-8 mb-3">Margin by item</h2>
+					<SectionHeader variant="caption" title="Margin by item" :level="3" class="mb-3" />
 					<p v-if="!marginRows.length" class="text-sm text-ink-gray-6">
 						No invoiced sales in this window.
 					</p>
@@ -108,19 +108,19 @@
 								<td class="py-2 pr-4 text-ink-gray-8">
 									{{ row.item_name || row.item_code }}
 								</td>
-								<td class="py-2 pr-4 text-ink-gray-7">{{ row.item_group || '—' }}</td>
+								<td class="py-2 pr-4 text-ink-gray-7">{{ row.item_group || NO_VALUE }}</td>
 								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.revenue) }}</td>
 								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ count(row.qty) }}</td>
 								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.avg_rate) }}</td>
 								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">
-									{{ row.valuation_rate == null ? '—' : money(row.valuation_rate) }}
+									{{ row.valuation_rate == null ? NO_VALUE : money(row.valuation_rate) }}
 								</td>
 								<!-- Sign carries the meaning, colour only reinforces it. -->
 								<td
 									class="py-2 text-right tabular-nums"
 									:class="marginClass(row.margin_pct)"
 								>
-									{{ row.margin_pct == null ? '—' : percent(row.margin_pct) }}
+									{{ row.margin_pct == null ? NO_VALUE : percent(row.margin_pct) }}
 								</td>
 							</tr>
 						</tbody>
@@ -129,7 +129,7 @@
 
 				<!-- 2. Discount pressure -->
 				<section>
-					<h2 class="text-lg font-semibold text-ink-gray-8 mb-3">Discount pressure</h2>
+					<SectionHeader variant="caption" title="Discount pressure" :level="3" class="mb-3" />
 					<p v-if="!discountRows.length" class="text-sm text-ink-gray-6">
 						No line sold below its list price in this window.
 					</p>
@@ -165,7 +165,7 @@
 
 				<!-- 3. Floor breaches -->
 				<section>
-					<h2 class="text-lg font-semibold text-ink-gray-8 mb-3">Quotations under approved floor</h2>
+					<SectionHeader variant="caption" title="Quotations under approved floor" :level="3" class="mb-3" />
 					<p v-if="floorSection.status !== 'available'" class="text-sm text-ink-gray-6">
 						{{ floorSection.message }}
 					</p>
@@ -190,7 +190,7 @@
 								class="border-b border-outline-gray-1"
 							>
 								<td class="py-2 pr-4 text-ink-gray-8">{{ row.quotation }}</td>
-								<td class="py-2 pr-4 text-ink-gray-7">{{ row.customer_name || '—' }}</td>
+								<td class="py-2 pr-4 text-ink-gray-7">{{ row.customer_name || NO_VALUE }}</td>
 								<td class="py-2 pr-4 text-ink-gray-7">{{ row.item_code }}</td>
 								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.rate) }}</td>
 								<td class="py-2 pr-4 text-right tabular-nums text-ink-gray-7">{{ money(row.floor_price) }}</td>
@@ -204,7 +204,7 @@
 
 				<!-- 4. Approval queue -->
 				<section>
-					<h2 class="text-lg font-semibold text-ink-gray-8 mb-3">Pricing approval queue</h2>
+					<SectionHeader variant="caption" title="Pricing approval queue" :level="3" class="mb-3" />
 					<p v-if="queueSection.status !== 'available'" class="text-sm text-ink-gray-6">
 						{{ queueSection.message }}
 					</p>
@@ -234,8 +234,9 @@ import { computed } from 'vue'
 import { RefreshCcw } from 'lucide-vue-next'
 import IntelligenceDashboardShell from '../intelligence/components/IntelligenceDashboardShell.vue'
 import KpiCard from '../intelligence/components/KpiCard.vue'
+import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import { useIntelligenceDashboard } from '../intelligence/composables/useIntelligenceDashboard'
-import { formatCount, formatDateTime, formatMoney, formatPercent } from '../utils/format'
+import { formatCount, formatDateTime, formatMoney, formatPercent, NO_VALUE } from '../utils/format'
 
 /** Per-item realised margin row. */
 interface MarginRow {

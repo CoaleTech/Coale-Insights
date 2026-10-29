@@ -572,7 +572,7 @@ onMounted(() => {
                 class="mt-4 flex flex-col items-center justify-center py-14 rounded-lg bg-surface-gray-1 text-center gap-2"
               >
                 <p class="text-sm font-medium text-ink-gray-7">No production data recorded this period</p>
-                <p class="text-sm text-ink-gray-6">Work Orders not yet logged — chart populates when production begins</p>
+                <p class="text-sm text-ink-gray-6">Work Orders not yet logged; chart populates when production begins</p>
                 <p class="text-xs text-ink-gray-5 mt-2">
                   Tracks: Work Order completions · produced vs planned quantities · monthly trend
                 </p>

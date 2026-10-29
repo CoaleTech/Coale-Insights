@@ -420,8 +420,8 @@ function handleDashboardRedirect(target: string) {
               <div class="mt-auto pt-3 border-t border-outline-gray-1">
                 <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-1.5">ERPNext sources</p>
                 <ul class="text-xs text-ink-gray-6 space-y-1 list-disc list-inside">
-                  <li>Purchase Invoice items — Fuel, Grid, Renewable item groups</li>
-                  <li>Stock Entry records — waste and material transfers</li>
+                  <li>Purchase Invoice items: Fuel, Grid, Renewable item groups</li>
+                  <li>Stock Entry records: waste and material transfers</li>
                 </ul>
               </div>
             </div>
@@ -439,7 +439,7 @@ function handleDashboardRedirect(target: string) {
               <div class="mt-auto pt-3 border-t border-outline-gray-1">
                 <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-1.5">ERPNext sources</p>
                 <ul class="text-xs text-ink-gray-6 space-y-1 list-disc list-inside">
-                  <li>Employee records — gender and designation fields</li>
+                  <li>Employee records: gender and designation fields</li>
                   <li>HR Incident / Accident logs</li>
                   <li>Payroll and Leave Allocation data</li>
                 </ul>
@@ -459,7 +459,7 @@ function handleDashboardRedirect(target: string) {
               <div class="mt-auto pt-3 border-t border-outline-gray-1">
                 <p class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-1.5">ERPNext sources</p>
                 <ul class="text-xs text-ink-gray-6 space-y-1 list-disc list-inside">
-                  <li>Supplier records — country, type, and group</li>
+                  <li>Supplier records: country, type, and group</li>
                   <li>Compliance and audit log entries</li>
                 </ul>
               </div>

@@ -1212,7 +1212,7 @@ const lastMonthDipNote = computed(() => {
   const last = data[data.length - 1]
   if (last.Spend < avg * 0.7) {
     const dip = Math.round((1 - last.Spend / avg) * 100)
-    return `${last.period} ${formatCurrency(last.Spend)} — ${dip}% below ${formatCurrency(avg)} full-month average. Verify if reporting lag.`
+    return `${last.period} ${formatCurrency(last.Spend)}, ${dip}% below ${formatCurrency(avg)} full-month average. Verify if reporting lag.`
   }
   return null
 })
@@ -1236,7 +1236,7 @@ const verdictMessage = computed(() => {
   let msg = `Spend ${spendStr}${growthStr} across ${formatCount(spendData.value.invoice_count)} invoices from ${formatCount(spendData.value.supplier_count)} suppliers.`
   const onTime = supplierData.value.avg_on_time_rate
   if (onTime != null && onTime < RATE_THRESHOLDS.good) {
-    msg += ` On-time delivery ${formatPercent(onTime)} — below ${RATE_THRESHOLDS.good}% target.`
+    msg += ` On-time delivery ${formatPercent(onTime)}, below ${RATE_THRESHOLDS.good}% target.`
   }
   return msg
 })
@@ -1265,7 +1265,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
     items.push({
       severity: 'critical',
       label: 'Action Required',
-      body: `${formatCount(pendingCount)} pending POs — ${formatCurrency(purchaseData.value.pending_value)} open value`,
+      body: `${formatCount(pendingCount)} pending POs, ${formatCurrency(purchaseData.value.pending_value)} open value`,
       actionLabel: 'View pending POs',
       onClick: () => drillDown.open(PROC_ENDPOINT, 'Pending Purchase Orders', { metric: 'pending_pos' }),
     })
@@ -1277,7 +1277,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
     items.push({
       severity: onTime < RATE_THRESHOLDS.warn ? 'high' : 'medium',
       label: 'Warning',
-      body: `On-time delivery ${formatPercent(onTime)} — ${gap} pp below ${RATE_THRESHOLDS.good}% target`,
+      body: `On-time delivery ${formatPercent(onTime)}, ${gap} pp below ${RATE_THRESHOLDS.good}% target`,
       actionLabel: 'Supplier performance',
       onClick: () => { tabIndex.value = tabs.findIndex(t => t.value === 'suppliers') },
     })
@@ -1288,7 +1288,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
     items.push({
       severity: 'medium',
       label: 'Supply Risk',
-      body: `${formatCount(ssCount)} single-sourced items — ${formatCurrency(riskData.value.single_source_value)} at sole-supplier risk`,
+      body: `${formatCount(ssCount)} single-sourced items, ${formatCurrency(riskData.value.single_source_value)} at sole-supplier risk`,
       actionLabel: 'Risk analysis',
       onClick: () => { tabIndex.value = RISKS_TAB_INDEX },
     })
@@ -1299,7 +1299,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
     items.push({
       severity: 'none',
       label: 'Monitor',
-      body: `${supplierLabel(topSup)} ${formatPercent(topSup.pct_of_total)} concentration — ${formatCurrency(topSup.spend)} across ${formatCount(topSup.invoice_count)} invoices`,
+      body: `${supplierLabel(topSup)} ${formatPercent(topSup.pct_of_total)} concentration, ${formatCurrency(topSup.spend)} across ${formatCount(topSup.invoice_count)} invoices`,
       actionLabel: 'View invoices',
       onClick: () => openSupplierInvoices(topSup),
     })
@@ -1314,7 +1314,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
       items.push({
         severity: 'none',
         label: 'Investigate',
-        body: `${last.period} spend ${formatCurrency(last.Spend)} — ${dipPct}% below ${formatCurrency(avg)} monthly average`,
+        body: `${last.period} spend ${formatCurrency(last.Spend)}, ${dipPct}% below ${formatCurrency(avg)} monthly average`,
       })
     }
   }
@@ -1326,7 +1326,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
     items.push({
       severity: 'none',
       label: 'Data Quality',
-      body: `${formatCurrency(uncatRow.spend)} uncategorised (${pct}% of spend) — items assigned to root item group`,
+      body: `${formatCurrency(uncatRow.spend)} uncategorised (${pct}% of spend), items assigned to root item group`,
     })
   }
   return items

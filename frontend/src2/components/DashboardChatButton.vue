@@ -15,7 +15,7 @@
         role="region"
         aria-label="AI assistant"
         @keydown.esc="closeChat"
-        class="absolute bottom-16 right-0 w-96 max-w-[calc(100vw-3rem)] h-[500px] max-h-[calc(100vh-7rem)] bg-surface-white rounded-xl shadow-2xl border border-outline-gray-1 flex flex-col overflow-hidden"
+        class="absolute bottom-16 right-0 w-96 max-w-[calc(100vw-3rem)] h-[500px] max-h-[calc(100vh-7rem)] bg-surface-white rounded-xl shadow-lg border border-outline-gray-1 flex flex-col overflow-hidden"
       >
         <!-- Header -->
         <div class="flex items-center justify-between px-4 py-3 bg-accent text-ink-white">
@@ -106,29 +106,37 @@
           <template v-for="(message, index) in messages" :key="index">
             <!-- User Message -->
             <div v-if="message.role === 'user'" class="flex justify-end">
-              <div class="max-w-[80%] bg-accent text-ink-white rounded-2xl rounded-br-md px-4 py-2">
+              <div class="max-w-[80%] bg-accent text-ink-white rounded-lg rounded-br-sm px-4 py-2">
                 <p class="text-sm whitespace-pre-wrap">{{ message.content }}</p>
               </div>
             </div>
 
-            <!-- Assistant Message -->
+            <!-- Assistant / Error Message -->
             <div v-else class="flex justify-start">
-              <div class="max-w-[85%] bg-surface-gray-2 rounded-2xl rounded-bl-md px-4 py-2">
-                <div class="prose prose-sm max-w-none text-ink-gray-8" v-html="renderMarkdown(message.content)"></div>
-                <div v-if="message.metadata?.model_used" class="mt-2 pt-2 border-t border-outline-gray-1">
-                  <span class="text-xs text-ink-gray-6">{{ formatModelName(message.metadata.model_used) }}</span>
-                </div>
+              <div
+                class="max-w-[85%] rounded-lg rounded-bl-sm px-4 py-2"
+                :class="message.role === 'error'
+                  ? 'border border-outline-red-1 bg-surface-red-1'
+                  : 'bg-surface-gray-2'"
+              >
+                <p v-if="message.role === 'error'" class="text-sm text-neg">{{ message.content }}</p>
+                <template v-else>
+                  <div class="prose prose-sm max-w-none text-ink-gray-8" v-html="renderMarkdown(message.content)"></div>
+                  <div v-if="message.metadata?.model_used" class="mt-2 pt-2 border-t border-outline-gray-1">
+                    <span class="text-xs text-ink-gray-6">{{ formatModelName(message.metadata.model_used) }}</span>
+                  </div>
+                </template>
               </div>
             </div>
           </template>
 
           <!-- Typing Indicator -->
           <div v-if="isLoading" class="flex justify-start">
-            <div class="bg-surface-gray-2 rounded-2xl rounded-bl-md px-4 py-3">
+            <div class="bg-surface-gray-2 rounded-lg rounded-bl-sm px-4 py-3">
               <div class="flex items-center gap-1">
-                <span class="w-2 h-2 bg-muted-fill rounded-full animate-bounce motion-reduce:animate-none" style="animation-delay: 0ms"></span>
-                <span class="w-2 h-2 bg-muted-fill rounded-full animate-bounce motion-reduce:animate-none" style="animation-delay: 150ms"></span>
-                <span class="w-2 h-2 bg-muted-fill rounded-full animate-bounce motion-reduce:animate-none" style="animation-delay: 300ms"></span>
+                <span class="w-2 h-2 bg-muted-fill rounded-full animate-pulse motion-reduce:animate-none" style="animation-delay: 0ms"></span>
+                <span class="w-2 h-2 bg-muted-fill rounded-full animate-pulse motion-reduce:animate-none" style="animation-delay: 150ms"></span>
+                <span class="w-2 h-2 bg-muted-fill rounded-full animate-pulse motion-reduce:animate-none" style="animation-delay: 300ms"></span>
               </div>
             </div>
           </div>
@@ -177,7 +185,7 @@
               placeholder="Ask about your data..."
               aria-label="Ask about your data"
               rows="1"
-              class="flex-1 resize-none rounded-xl border border-outline-gray-1 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent max-h-32"
+              class="flex-1 resize-none rounded-lg border border-outline-gray-1 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent max-h-32"
               :disabled="isLoading"
             />
             <button
@@ -566,8 +574,8 @@ async function sendMessage() {
     }
   } catch (e: any) {
     messages.value.push({
-      role: 'assistant',
-      content: `Sorry, I couldn't process your request. ${e.message || 'Please try again.'}`,
+      role: 'error',
+      content: 'Could not send. Check your connection and try again.',
       timestamp: new Date().toISOString()
     })
   } finally {

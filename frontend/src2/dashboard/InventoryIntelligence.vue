@@ -555,14 +555,14 @@ function handleDashboardRedirect(target: string) {
       @retry="retry"
     >
     <!-- Main Content -->
-    <div class="flex-1 overflow-auto p-6">
+    <div class="flex-1 overflow-auto">
       <!-- Tabs -->
       <div class="mx-6">
         <Tabs v-model="tabIndex" :tabs="tabDefs" />
       </div>
 
       <!-- Tab Content -->
-      <div class="flex-1 p-6">
+      <div class="flex-1 p-6 overflow-auto">
           <!-- Stock Overview Tab — Variant C: Hero + Attention Rail -->
           <div v-if="activeTab === 'overview'">
             <div class="grid lg:grid-cols-3 gap-5">
@@ -573,7 +573,7 @@ function handleDashboardRedirect(target: string) {
                 <!-- Hero panel: stock-by-group horizontal bar chart -->
                 <div class="bg-surface-white border border-outline-gray-1 rounded-lg overflow-hidden">
                   <div class="px-5 pt-5 pb-3">
-                    <p class="text-sm font-semibold text-ink-gray-9">Stock Value by Item Group — On-Hand Inventory</p>
+                    <SectionHeader variant="caption" title="Stock Value by Item Group" hint="On-Hand Inventory" :level="3" />
                     <div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-gray-6">
                       <span>{{ heroInStockCount }} items in-stock · {{ money(asNumber(stockOverview.total_value)) }} · {{ baseCurrency ?? NO_VALUE }}</span>
                       <span v-if="heroOosText" class="text-ink-red-4">{{ heroOosText }}</span>
@@ -682,9 +682,8 @@ function handleDashboardRedirect(target: string) {
 
               <!-- Right 1/3: Attention rail (ranked by consequence) -->
               <div class="bg-surface-white border border-outline-gray-1 rounded-lg overflow-hidden flex flex-col">
-                <div class="px-4 py-3 border-b border-outline-gray-1 flex items-baseline gap-2">
-                  <span class="text-sm font-semibold text-ink-gray-9">Needs Attention</span>
-                  <span class="text-xs text-ink-gray-6">ranked by consequence</span>
+                <div class="px-4 py-3 border-b border-outline-gray-1">
+                  <SectionHeader variant="caption" title="Needs Attention" hint="ranked by consequence" :level="3" />
                 </div>
 
                 <!-- 1. Out of stock -->

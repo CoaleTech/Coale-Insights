@@ -28,7 +28,7 @@
       </div>
 
       <!-- 90-Day Cash Forecast Chart -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="90-Day Cash Flow Forecast" :level="3" />
         <div v-if="data.base_forecast?.length" class="h-56 sm:h-72 lg:h-80 mt-4">
           <CashForecastChart
@@ -46,7 +46,7 @@
       <!-- Forecast Scenarios (identity labels, not status colors) -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Optimistic -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center gap-2 mb-4">
             <TrendingUp class="h-5 w-5 text-ink-gray-5" />
             <h4 class="font-semibold text-ink-gray-9">Optimistic Scenario</h4>
@@ -71,7 +71,7 @@
         </div>
 
         <!-- Base Case -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center gap-2 mb-4">
             <Target class="h-5 w-5 text-ink-gray-5" />
             <h4 class="font-semibold text-ink-gray-9">Base Case</h4>
@@ -102,7 +102,7 @@
         </div>
 
         <!-- Pessimistic -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center gap-2 mb-4">
             <TrendingDown class="h-5 w-5 text-ink-gray-5" />
             <h4 class="font-semibold text-ink-gray-9">Pessimistic Scenario</h4>
@@ -131,7 +131,7 @@
       </div>
 
       <!-- Weekly Cash Summary -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Weekly Cash Summary" :level="3" />
         <div v-if="data.weekly_summary?.length" class="overflow-x-auto mt-4">
           <table class="min-w-full divide-y divide-outline-gray-1">

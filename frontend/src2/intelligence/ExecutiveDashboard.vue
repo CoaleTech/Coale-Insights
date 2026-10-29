@@ -368,7 +368,7 @@
             class="mt-2 p-3 bg-surface-gray-1 border border-outline-gray-1 rounded-lg"
           >
             <p class="text-xs text-ink-gray-6">
-              ⚠ Manufacturing: no workstation or work-order records found — KPIs not applicable.
+              ⚠ Manufacturing: no workstation or work-order records found; KPIs not applicable.
             </p>
           </div>
 

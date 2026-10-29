@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DrillDownColumn } from '../composables/useDrillDown'
 import { formatDate, formatPercent } from '../../utils/format'
-import { Lock, Inbox } from 'lucide-vue-next'
+import { Lock, Inbox, ChevronLeft, ChevronRight } from 'lucide-vue-next'
 import { watch } from 'vue'
 
 const props = defineProps<{
@@ -145,9 +145,9 @@ function erpnextLink(col: DrillDownColumn, row: Record<string, unknown>): string
           </div>
 
           <div class="flex flex-shrink-0 items-center justify-between border-t bg-surface-white px-4 py-2 text-sm text-ink-gray-6">
-            <Button variant="subtle" size="sm" :disabled="isPrevDisabled()" @click="emit('prev-page')">← Prev</Button>
+            <Button variant="subtle" size="sm" :disabled="isPrevDisabled()" @click="emit('prev-page')"><ChevronLeft class="h-4 w-4" aria-hidden="true" /> Prev</Button>
             <span>Showing {{ rangeStart() }}–{{ rangeEnd() }} of {{ total }} records</span>
-            <Button variant="subtle" size="sm" :disabled="isNextDisabled()" @click="emit('next-page')">Next →</Button>
+            <Button variant="subtle" size="sm" :disabled="isNextDisabled()" @click="emit('next-page')">Next <ChevronRight class="h-4 w-4" aria-hidden="true" /></Button>
           </div>
         </template>
 

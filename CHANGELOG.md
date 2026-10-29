@@ -6,6 +6,18 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Changed — frontend aligned to one component vocabulary (impeccable critique)
+
+Five read-only critiques (Nielsen 10 heuristics, AI-slop check) plus the `impeccable` detector scored the screens 23 to 26 of 40; the detector found only `animate-bounce` (chat typing dots, now `animate-pulse`). Aligned in this pass:
+
+- **Finance:** `shadow-sm` removed from 8 tab files so cards are border-only. Receivables and Payables summary tiles are now `KpiCard` (90+ days tile stays clickable and keyboard-operable: Enter opens "Overdue 90+ Days AR"). Overview attention items use `Badge`. Budget Variance lost its duplicate heading. "↗ View" is now "View →". Forex tiles stay hand-rolled because they colour the value by sign, which `KpiCard` does not do.
+- **Commercial:** Tax KPI ribbon now shows on every tab. Inventory double padding fixed. Pricing section headings use `SectionHeader` and `NO_VALUE`. Customer detail KpiCards use `variant="tile"` and the page gets `ink-fix`.
+- **Operations:** Global Search rewritten from a 470-line BEM stylesheet to Espresso utilities and shared `Badge`/`SectionHeader`; the frappe-ui `Card` (hard-coded `bg-white`) rendered white boxes with unreadable text in dark theme, so it is replaced by themed divs, also in Executive Reports. Board Presentations disables PowerPoint, PDF and HTML export ("Coming soon") because only JSON works, and lists key insights as a ranked list.
+- **Shared and builder:** `text-ink-amber-3` (3.16:1) is now `text-warn` in the stat strip and Finance overview. Chat panel and bubbles lose `rounded-2xl`/`shadow-2xl`; a network failure now shows an error bubble. ML panel gradient is flat. Sparkline fade uses the canvas token. Drill-down Prev/Next use chevrons. AI Insights uses lucide icons instead of emoji, `FormControl` for input and complexity, and AI Settings uses `FormControl` selects. Empty Dashboards list has a "Go to Workbooks" button.
+- Em dashes removed from user-facing copy in Revenue, Procurement, HR, ESG, Executive, Manufacturing and AI Settings.
+
+Not changed (needs a decision or backend work): Risk period selector, Forex `KpiCard` tiles, metric glossary tooltips. Verified live in dark theme on Finance (Overview, Receivables, Payables), Inventory, Tax, Search, AI Insights, AI Settings, Dashboards list and Board Presentations. Lint 0, vue-tsc 248 (baseline), vitest 195 of 195, build clean.
+
 ### Fixed — pressing Enter on a drill-down row opened the dialog and closed it again
 
 Rows are `tr`/`div` with `tabindex="0"` and `@keydown.enter` (Receivables, Payables, Cash accounts, Working Capital, Forex, Revenue, Customers, Inventory, Marketing and more). The dialog opened and moved focus to its close button before `keypress` fired, so the same keystroke clicked it: event trace `keydown@TR → dialog=true → keypress@BUTTON → click@BUTTON → dialog=false` (239 ms open). Keyboard users could not open any drill-down with Enter. `main.ts` now calls `preventDefault` on Enter keydown for focusable non-native targets, which suppresses the `keypress`; native buttons, links and inputs are excluded. Measured on Receivables, "R R Adhesive": Enter and Space both leave "R R Adhesive AR" open; Escape closes it. Not changed: focus lands on `<body>` after close instead of returning to the row (cause not investigated).

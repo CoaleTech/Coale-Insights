@@ -931,9 +931,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
 
       <!-- Hero Pareto panel -->
       <div class="p-5 rounded-lg border border-outline-gray-1 bg-accent-soft">
-        <div class="inline-flex items-center h-5 px-2.5 rounded text-xs font-semibold bg-accent text-white mb-3">
-          Key finding
-        </div>
+        <Badge theme="blue" variant="subtle" label="Key finding" size="sm" class="mb-3" />
         <h3 class="text-sm font-semibold text-ink-gray-9 leading-snug mb-1">
           {{ formatPercent(paretoAnalysis.top_80_percent_customers as number) }} of customers
           account for 80% of revenue.

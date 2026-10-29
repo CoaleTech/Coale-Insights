@@ -28,7 +28,7 @@
 
     <!-- Status Cards -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-      <Card class="p-4">
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-4">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-medium text-ink-gray-7">Daily Reports</h3>
@@ -37,9 +37,9 @@
           </div>
           <Calendar class="w-8 h-8 text-ink-gray-5" />
         </div>
-      </Card>
+      </div>
 
-      <Card class="p-4">
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-4">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-medium text-ink-gray-7">Weekly Reports</h3>
@@ -48,9 +48,9 @@
           </div>
           <TrendingUp class="w-8 h-8 text-ink-gray-5" />
         </div>
-      </Card>
+      </div>
 
-      <Card class="p-4">
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-4">
         <div class="flex items-center justify-between">
           <div>
             <h3 class="text-sm font-medium text-ink-gray-7">Monthly Reports</h3>
@@ -59,11 +59,11 @@
           </div>
           <BarChart3 class="w-8 h-8 text-ink-gray-5" />
         </div>
-      </Card>
+      </div>
     </div>
 
     <!-- Scheduling Status -->
-    <Card class="mb-6">
+    <div class="mb-6 rounded-lg border border-outline-gray-1 bg-surface-white">
       <div class="p-4 border-b border-outline-gray-1">
         <h3 class="text-lg font-medium text-ink-gray-9 flex items-center">
           <Clock class="w-5 h-5 mr-2 text-ink-gray-5" />
@@ -114,10 +114,10 @@
           Loading scheduling status...
         </div>
       </div>
-    </Card>
+    </div>
 
     <!-- Recent Reports Table -->
-    <Card>
+    <div class="rounded-lg border border-outline-gray-1 bg-surface-white">
       <div class="p-4 border-b border-outline-gray-1">
         <h3 class="text-lg font-medium text-ink-gray-9 flex items-center">
           <FileText class="w-5 h-5 mr-2 text-ink-gray-5" />
@@ -198,7 +198,7 @@
           </table>
         </div>
       </div>
-    </Card>
+    </div>
 
     <!-- Generate Report Modal -->
     <Dialog
@@ -298,7 +298,7 @@ import {
   Calendar, TrendingUp, BarChart3, Clock, RefreshCw, Plus, FileText,
   Eye, Download, Mail, FileX
 } from 'lucide-vue-next'
-import { Button, Card, Dialog, Badge, Select, LoadingIndicator } from 'frappe-ui'
+import { Button, Dialog, Badge, Select, LoadingIndicator } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
 import { createToast } from '../helpers/toasts'
 import { formatMoney, formatPercent, formatCount } from '../utils/format'

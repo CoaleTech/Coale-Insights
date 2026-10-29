@@ -491,7 +491,7 @@ const attentionItems = computed<AttentionItem[]>(() => {
       badge: 'CRITICAL',
       category: 'RETENTION',
       title: `Address ${formatPercent(att.attrition_rate_pct)} Attrition Rate`,
-      description: `${exits} exit${exits !== 1 ? 's' : ''}${invol ? ` (${invol} involuntary)` : ''} — above industry average. Risk score ${risk.risk_score ?? 0}/100; predicted ${formatPercent(risk.predicted_attrition_rate)} next period.`,
+      description: `${exits} exit${exits !== 1 ? 's' : ''}${invol ? ` (${invol} involuntary)` : ''}, above industry average. Risk score ${risk.risk_score ?? 0}/100; predicted ${formatPercent(risk.predicted_attrition_rate)} next period.`,
       actions: ['Conduct exit interviews immediately', 'Implement retention bonuses', 'Employee satisfaction survey', 'Review management practices'],
     })
   }
@@ -649,14 +649,13 @@ function handleChatNavigation(path: string) {
 
             <!-- Hero: headcount waterfall chart (2/3 width) -->
             <div class="lg:col-span-2 bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Headcount flow — Trailing 12 months" :level="3" />
+              <SectionHeader title="Headcount Flow: Trailing 12 Months" :level="3" />
               <p v-if="hasData" class="mt-1 text-sm text-ink-gray-6">
-                {{ data?.headcount_metrics?.exits ?? 0 }} exits equal {{ data?.headcount_metrics?.new_hires ?? 0 }} new hires
-                — {{ (data?.headcount_metrics?.net_growth ?? 0) === 0
-                    ? 'the entire workforce turned over in one year, with zero net growth'
-                    : 'workforce changed significantly this period' }}.
+                {{ data?.headcount_metrics?.exits ?? 0 }} exits equal {{ data?.headcount_metrics?.new_hires ?? 0 }} new hires.
+                {{ (data?.headcount_metrics?.net_growth ?? 0) === 0
+                    ? 'The entire workforce turned over in one year, with zero net growth.'
+                    : 'Workforce changed significantly this period.' }}
               </p>
-
               <template v-if="hasData">
                 <!-- Value labels above bars -->
                 <div class="mt-6 flex gap-3" aria-hidden="true">
@@ -771,7 +770,7 @@ function handleChatNavigation(path: string) {
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
               <p class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wide mb-3">
                 Needs Attention
-                <span class="font-normal normal-case text-ink-gray-6"> — ranked by consequence</span>
+                <span class="font-normal normal-case text-ink-gray-6">(ranked by consequence)</span>
               </p>
               <div v-if="hasData" class="space-y-4">
                 <div

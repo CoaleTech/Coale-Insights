@@ -58,7 +58,7 @@
       <!-- Revenue and Profit Trends -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Monthly Performance Trend -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <SectionHeader variant="caption" title="Monthly Performance Trend" :level="3" />
           <div v-if="data?.monthly_trends?.length" class="space-y-4 mt-4">
             <IntelligenceChart class="h-48 sm:h-56 lg:h-72 mt-2" :config="trendConfig" />
@@ -133,7 +133,7 @@
         </div>
 
         <!-- Expense Breakdown -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <SectionHeader variant="caption" title="Expense Breakdown" :level="3" />
           <!-- Auto height: the ranked list grows with the category count and
                balances against the taller Monthly trend card beside it. -->
@@ -147,7 +147,7 @@
       </div>
 
       <!-- Financial Health Scorecard -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Financial Health Scorecard" :level="3" />
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mt-4">
           <!-- Liquidity -->
@@ -252,7 +252,7 @@
       </div>
 
       <!-- Key Insights -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Key Executive Insights" :level="3" />
         <div v-if="data?.key_insights?.length" class="space-y-3 mt-4">
           <div

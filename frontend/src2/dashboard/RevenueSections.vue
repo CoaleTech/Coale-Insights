@@ -249,7 +249,7 @@ const attentionItems = computed((): AttentionItem[] => {
         severity: 'medium',
         metric: `${formatPeriod(softest.period)} revenue: ${money(softest.revenue)}`,
         why: `Softest complete month in the window.${sfFullRev}`,
-        drill: { title: `Invoices — ${formatPeriod(softest.period)}`, params: { metric: 'invoices_by_period', period: softest.period } },
+        drill: { title: `Invoices: ${formatPeriod(softest.period)}`, params: { metric: 'invoices_by_period', period: softest.period } },
       })
     }
   }
@@ -261,7 +261,7 @@ const attentionItems = computed((): AttentionItem[] => {
     items.push({
       severity: 'medium',
       metric: `Forecast reliability: ${rel.level}`,
-      why: `${rel.label} ${rel.value.toFixed(1)}%${stale > 0 ? ` — model is ${stale} days stale` : ''}. Retrain to improve accuracy.`,
+      why: `${rel.label} ${rel.value.toFixed(1)}%${stale > 0 ? `, model ${stale} days stale` : ''}. Retrain to improve accuracy.`,
     })
   }
 
@@ -1436,24 +1436,24 @@ const scenarioRows = computed(() => {
       <!-- Protect / Fix leaderboards -->
       <div class="space-y-6">
         <div>
-          <SectionHeader variant="caption" title="Protect — Highest Margin"
+          <SectionHeader variant="caption" title="Protect: Highest Margin"
             hint="Top sellers by margin; guard their pricing and supply" :level="3" />
           <div class="mt-2 space-y-2">
             <div v-for="item in (margins.top_margin_items as Record<string, unknown>[])?.slice(0, 8)" :key="item.item_code as string"
               class="flex justify-between items-center gap-2 text-sm bg-surface-gray-1 rounded p-2">
-              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }} — {{ item.item_name }}</span>
+              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }}: {{ item.item_name }}</span>
               <span class="tnum text-ink-gray-6 shrink-0">{{ money(item.revenue as number) }}</span>
               <span class="font-bold text-ink-gray-9 tnum shrink-0 w-14 text-right">{{ pct(item.margin_pct as number) }}</span>
             </div>
           </div>
         </div>
         <div>
-          <SectionHeader variant="caption" title="Fix — Lowest Margin"
+          <SectionHeader variant="caption" title="Fix: Lowest Margin"
             hint="Sellers dragging the blended margin down" :level="3" />
           <div class="mt-2 space-y-2">
             <div v-for="item in (margins.low_margin_items as Record<string, unknown>[])?.slice(0, 8)" :key="item.item_code as string"
               class="flex justify-between items-center gap-2 text-sm bg-surface-gray-1 rounded p-2">
-              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }} — {{ item.item_name }}</span>
+              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }}: {{ item.item_name }}</span>
               <span class="tnum text-ink-gray-6 shrink-0">{{ money(item.revenue as number) }}</span>
               <Badge v-bind="severityBadge(scoreSeverity(item.margin_pct as number, { good: 30, warn: 15 }))" :label="pct(item.margin_pct as number)" size="sm" class="shrink-0" />
             </div>
@@ -1507,7 +1507,7 @@ const scenarioRows = computed(() => {
     <div class="mb-6 bg-surface-white rounded-lg border border-outline-gray-1 p-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <SectionHeader variant="caption" title="Revenue Trend & Projection"
-          hint="Monthly revenue — the solid line is actual, the dashed line is the model’s projection" :level="3">
+          hint="Monthly revenue: the solid line is actual, the dashed line is the model's projection" :level="3">
           <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <Button variant="subtle" theme="gray" :loading="isTraining === 'sales'" :disabled="!!isTraining" @click="trainForecasts('sales')">

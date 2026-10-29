@@ -83,7 +83,7 @@
       </div>
 
       <!-- Chart -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Cash Flow Visualization" :level="4" />
         <div v-if="chartData" class="mt-4">
           <ThirteenWeekChart :data="chartData" :threshold="threshold" />
@@ -95,16 +95,16 @@
 
       <!-- Scenario Analysis and Variance Review Panels -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-surface-white rounded-lg p-5 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-5 border border-outline-gray-1">
           <CashFlowScenarioPanel :scenarios="scenariosProp" />
         </div>
-        <div class="bg-surface-white rounded-lg p-5 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-5 border border-outline-gray-1">
           <CashFlowVariancePanel :variance="varianceProp" />
         </div>
       </div>
 
       <!-- Weekly Table -->
-      <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
+      <div class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
         <div class="p-4 border-b border-outline-gray-1">
           <SectionHeader variant="caption" title="Weekly Cash Flow Detail" :level="4" />
         </div>

@@ -71,7 +71,7 @@
 		</div>
 
 		<!-- Fixed deposits -->
-		<div v-if="fd" class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+		<div v-if="fd" class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<SectionHeader
 					variant="caption"
@@ -160,7 +160,7 @@
 
 		<!-- Movement and accounts -->
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Cash in vs out"
 					hint="All ledger movement on cash, bank and deposit accounts" :level="3" />
 				<IntelligenceChart v-if="movementConfig" class="mt-4 h-48 sm:h-56 lg:h-64" :config="movementConfig" />
@@ -188,7 +188,7 @@
 				</table>
 			</div>
 
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Where it is held" :level="3" />
 				<div class="mt-4 max-h-72 space-y-2 overflow-auto">
 					<div v-for="acc in data.cash_accounts" :key="acc.account"
@@ -225,14 +225,14 @@
 			that held the answer.
 		-->
 		<div v-if="sources.length || uses.length" class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Where cash came from"
 					hint="Receipts by party type, last 3 months" :level="3" />
 				<WaterfallRows v-if="sources.length" class="mt-4" :rows="sources" :currency="currency"
 					:scale-max="flowScaleMax" />
 				<div v-else class="py-4 text-center text-sm text-ink-gray-6">No receipts in this window</div>
 			</div>
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Where cash went"
 					hint="Payments by party type, last 3 months" :level="3" />
 				<WaterfallRows v-if="uses.length" class="mt-4" :rows="uses" :currency="currency"
@@ -242,7 +242,7 @@
 		</div>
 
 		<!-- Large Transactions -->
-		<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+		<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 			<SectionHeader variant="caption" title="Large Cash Transactions (Last 30 Days)" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table v-if="data.large_transactions?.length" class="min-w-full">

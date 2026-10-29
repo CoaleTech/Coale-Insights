@@ -1,20 +1,12 @@
 <template>
   <div class="budget-variance-tab">
 
-    <!-- Controls Bar -->
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h2 class="text-lg font-semibold text-ink-gray-9">Budget Variance Analysis</h2>
-        <p class="text-sm text-ink-gray-6 mt-0.5">
-          Budget variance analysis and forecasting insights
-        </p>
-      </div>
-      <div class="flex items-center space-x-3">
-        <Button @click="exportReport" variant="subtle" theme="gray" size="sm" :disabled="!hasData || data?.has_budget === false || !!error || isPermissionError">
-          <template #prefix><Download class="w-4 h-4" /></template>
-          Export
-        </Button>
-      </div>
+    <!-- Export button — heading removed; TabBrief above provides context -->
+    <div class="flex justify-end mb-6">
+      <Button @click="exportReport" variant="subtle" theme="gray" size="sm" :disabled="!hasData || data?.has_budget === false || !!error || isPermissionError">
+        <template #prefix><Download class="w-4 h-4" /></template>
+        Export
+      </Button>
     </div>
 
     <!-- Loading State: skeleton cards rather than page-blocking spinner -->

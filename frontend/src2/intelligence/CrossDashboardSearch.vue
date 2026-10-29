@@ -1,471 +1,385 @@
 <template>
-  <div class="cross-dashboard-search">
-    <!-- Search Header -->
-    <div class="search-header">
-      <div class="search-title">
-        <Search class="title-icon" />
-        <h2>Global Intelligence Search</h2>
+  <div class="ink-fix flex h-full flex-col overflow-hidden">
+    <!-- Header -->
+    <header class="flex flex-shrink-0 flex-col items-start gap-3 border-b border-outline-gray-1 bg-surface-white px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
+      <div class="flex items-center gap-2">
+        <Search class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+        <div>
+          <h1 class="text-xl font-semibold text-ink-gray-9">Global Intelligence Search</h1>
+          <p class="mt-0.5 text-sm text-ink-gray-6">Search across all business intelligence dashboards</p>
+        </div>
       </div>
-      <p class="search-subtitle">
-        Search across all your business intelligence dashboards and data
-      </p>
-    </div>
+    </header>
 
-    <!-- Main Search Interface -->
-    <div class="search-interface">
-      <!-- Search Input with Suggestions -->
-      <div class="search-input-container">
-        <div class="search-input-wrapper" :class="{ 'focused': searchFocused }">
-          <Search class="search-icon" />
-          <input
-            ref="searchInput"
-            v-model="searchQuery"
-            type="text"
-            placeholder="Search across all dashboards... (e.g., 'budget variance alerts', 'employee metrics', 'sales trends')"
-            class="search-input"
-            @focus="searchFocused = true"
-            @blur="handleSearchBlur"
-            @input="handleSearchInput"
-            @keydown.enter="performSearch"
-            @keydown.down="navigateSuggestions(1)"
-            @keydown.up="navigateSuggestions(-1)"
-            @keydown.escape="clearSuggestions"
-          />
-          <div class="search-actions">
-            <Button
-              v-if="searchQuery"
-              variant="ghost"
-              size="sm"
-              :icon="X"
-              label="Clear search"
-              @click="clearSearch"
+    <!-- Scrollable content area -->
+    <div class="flex-1 overflow-auto px-6 py-5 space-y-5">
+
+      <!-- Search Interface -->
+      <div class="space-y-4">
+        <!-- Search Input -->
+        <div class="relative">
+          <div
+            class="relative flex items-center bg-surface-white border rounded-lg shadow-sm transition-all duration-200 motion-reduce:transition-none"
+            :class="searchFocused ? 'border-outline-gray-3 ring-1 ring-outline-gray-3' : 'border-outline-gray-2'"
+          >
+            <Search class="absolute left-3 w-5 h-5 text-ink-gray-5" aria-hidden="true" />
+            <input
+              ref="searchInput"
+              v-model="searchQuery"
+              type="text"
+              placeholder="Search across all dashboards... (e.g., 'budget variance alerts', 'employee metrics', 'sales trends')"
+              class="flex-1 pl-10 pr-32 py-3 border-0 rounded-lg bg-transparent focus:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 text-ink-gray-8 placeholder-ink-gray-5 text-sm sm:text-base"
+              @focus="searchFocused = true"
+              @blur="handleSearchBlur"
+              @input="handleSearchInput"
+              @keydown.enter="performSearch"
+              @keydown.down="navigateSuggestions(1)"
+              @keydown.up="navigateSuggestions(-1)"
+              @keydown.escape="clearSuggestions"
             />
-            <Button
-              variant="solid"
-              size="sm"
-              @click="performSearch"
-              :loading="isSearching"
+            <div class="absolute right-2 flex items-center space-x-2">
+              <Button v-if="searchQuery" variant="ghost" size="sm" :icon="X" label="Clear search" @click="clearSearch" />
+              <Button variant="solid" size="sm" :loading="isSearching" @click="performSearch">Search</Button>
+            </div>
+          </div>
+
+          <!-- Suggestions Dropdown -->
+          <div
+            v-show="showSuggestions && suggestions.length > 0"
+            class="absolute top-full mt-1 w-full bg-surface-white border border-outline-gray-1 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto"
+          >
+            <div
+              v-for="(suggestion, index) in suggestions"
+              :key="index"
+              role="option"
+              :aria-selected="activeSuggestionIndex === index"
+              tabindex="0"
+              class="px-4 py-3 cursor-pointer transition-colors duration-150 motion-reduce:transition-none"
+              :class="activeSuggestionIndex === index ? 'bg-surface-gray-2' : 'hover:bg-surface-gray-1'"
+              @click="selectSuggestion(suggestion)"
+              @mouseenter="activeSuggestionIndex = index"
+              @keydown.enter="selectSuggestion(suggestion)"
+              @keydown.space.prevent="selectSuggestion(suggestion)"
             >
-              Search
+              <div class="flex items-center justify-between">
+                <span class="text-ink-gray-8 text-sm">{{ suggestion.text }}</span>
+                <Badge :theme="getSuggestionTheme(suggestion.type)" :label="getSuggestionLabel(suggestion.type)" size="sm" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Search Filters -->
+        <div v-show="showAdvancedFilters" class="bg-surface-gray-1 rounded-lg p-4 space-y-4">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="space-y-1">
+              <label class="text-sm font-medium text-ink-gray-7" for="filter-dashboard">Dashboard</label>
+              <Select id="filter-dashboard" v-model="searchFilters.dashboard" :options="dashboardOptions" class="text-sm" />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm font-medium text-ink-gray-7" for="filter-time">Time Period</label>
+              <Select id="filter-time" v-model="searchFilters.time_period" :options="timePeriodOptions" class="text-sm" />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm font-medium text-ink-gray-7" for="filter-category">Category</label>
+              <Select id="filter-category" v-model="searchFilters.category" :options="categoryOptions" class="text-sm" />
+            </div>
+            <div class="space-y-1">
+              <label class="text-sm font-medium text-ink-gray-7" for="filter-priority">Priority</label>
+              <Select id="filter-priority" v-model="searchFilters.priority" :options="priorityOptions" class="text-sm" />
+            </div>
+          </div>
+          <div class="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" @click="clearFilters">Clear Filters</Button>
+            <Button variant="solid" theme="gray" size="sm" @click="applyFilters">Apply Filters</Button>
+          </div>
+        </div>
+
+        <!-- Controls Row -->
+        <div class="flex items-center flex-wrap gap-2">
+          <Button variant="ghost" size="sm" @click="toggleAdvancedFilters">
+            <template #prefix><Filter class="w-4 h-4" /></template>
+            {{ showAdvancedFilters ? 'Hide' : 'Show' }} Filters
+          </Button>
+          <Button variant="ghost" size="sm" @click="showSearchHistory = !showSearchHistory">
+            <template #prefix><Clock class="w-4 h-4" /></template>
+            Search History
+          </Button>
+          <Button variant="ghost" size="sm" @click="showSearchHelp = true">
+            <template #prefix><HelpCircle class="w-4 h-4" /></template>
+            Help
+          </Button>
+        </div>
+      </div>
+
+      <!-- Search Results -->
+      <div v-if="hasSearched" class="space-y-6">
+
+        <!-- 1. Loading -->
+        <div v-if="isSearching" class="space-y-3">
+          <SkeletonBlock class="h-6 w-48 rounded" />
+          <SkeletonBlock class="h-24 w-full rounded-lg" />
+          <SkeletonBlock class="h-24 w-full rounded-lg" />
+          <SkeletonBlock class="h-24 w-full rounded-lg" />
+        </div>
+
+        <!-- 2. Error -->
+        <div v-else-if="searchError" class="rounded-lg border border-outline-gray-1 bg-surface-white p-4 space-y-3">
+          <p class="text-sm text-ink-gray-7">{{ searchError }}</p>
+          <Button variant="subtle" size="sm" @click="performSearch">Try Again</Button>
+        </div>
+
+        <!-- 3. Results -->
+        <template v-else>
+          <!-- Results Header -->
+          <div class="flex items-center justify-between">
+            <div>
+              <p class="text-xl font-semibold text-ink-gray-9">
+                Search Results
+                <span v-if="searchResults?.total_results" class="text-base font-normal text-ink-gray-6">
+                  ({{ searchResults.total_results }} found)
+                </span>
+              </p>
+              <p v-if="lastSearchQuery" class="text-sm text-ink-gray-6">Results for: "{{ lastSearchQuery }}"</p>
+            </div>
+            <Button variant="ghost" size="sm" @click="exportSearchResults">
+              <template #prefix><Download class="w-4 h-4" /></template>
+              Export
             </Button>
           </div>
-        </div>
 
-        <!-- Search Suggestions Dropdown -->
-        <div
-          v-show="showSuggestions && suggestions.length > 0"
-          class="suggestions-dropdown"
-        >
-          <div
-            v-for="(suggestion, index) in suggestions"
-            :key="index"
-            role="option"
-            :aria-selected="activeSuggestionIndex === index"
-            tabindex="0"
-            :class="[
-              'suggestion-item',
-              { 'active': activeSuggestionIndex === index }
-            ]"
-            @click="selectSuggestion(suggestion)"
-            @mouseenter="activeSuggestionIndex = index"
-            @keydown.enter="selectSuggestion(suggestion)"
-            @keydown.space.prevent="selectSuggestion(suggestion)"
-          >
-            <div class="suggestion-content">
-              <div class="suggestion-text">{{ suggestion.text }}</div>
-              <div class="suggestion-meta">
-                <Badge :variant="getSuggestionVariant(suggestion.type)" size="sm">
-                  {{ getSuggestionLabel(suggestion.type) }}
-                </Badge>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Search Filters -->
-      <div v-show="showAdvancedFilters" class="search-filters">
-        <div class="filters-grid">
-          <div class="filter-group">
-            <label class="filter-label" for="filter-dashboard">Dashboard</label>
-            <Select id="filter-dashboard" v-model="searchFilters.dashboard" :options="dashboardOptions" class="text-sm" />
-          </div>
-          <div class="filter-group">
-            <label class="filter-label" for="filter-time">Time Period</label>
-            <Select id="filter-time" v-model="searchFilters.time_period" :options="timePeriodOptions" class="text-sm" />
-          </div>
-          <div class="filter-group">
-            <label class="filter-label" for="filter-category">Category</label>
-            <Select id="filter-category" v-model="searchFilters.category" :options="categoryOptions" class="text-sm" />
-          </div>
-          <div class="filter-group">
-            <label class="filter-label" for="filter-priority">Priority</label>
-            <Select id="filter-priority" v-model="searchFilters.priority" :options="priorityOptions" class="text-sm" />
-          </div>
-        </div>
-        <div class="filter-actions">
-          <Button variant="ghost" size="sm" @click="clearFilters">Clear Filters</Button>
-          <Button variant="solid" theme="gray" size="sm" @click="applyFilters">Apply Filters</Button>
-        </div>
-      </div>
-
-      <!-- Quick Filters Toggle -->
-      <div class="search-controls">
-        <Button
-          variant="ghost"
-          size="sm"
-          @click="toggleAdvancedFilters"
-        >
-          <template #prefix><Filter class="w-4 h-4" /></template>
-          {{ showAdvancedFilters ? 'Hide' : 'Show' }} Filters
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          @click="showSearchHistory = !showSearchHistory"
-        >
-          <template #prefix><Clock class="w-4 h-4" /></template>
-          Search History
-        </Button>
-
-        <Button
-          variant="ghost"
-          size="sm"
-          @click="showSearchHelp = true"
-        >
-          <template #prefix><HelpCircle class="w-4 h-4" /></template>
-          Help
-        </Button>
-      </div>
-    </div>
-
-    <!-- Search Results -->
-    <div v-if="hasSearched" class="search-results">
-
-      <!-- 1. Loading -->
-      <div v-if="isSearching" class="space-y-3">
-        <SkeletonBlock class="h-6 w-48 rounded" />
-        <SkeletonBlock class="h-24 w-full rounded-lg" />
-        <SkeletonBlock class="h-24 w-full rounded-lg" />
-        <SkeletonBlock class="h-24 w-full rounded-lg" />
-      </div>
-
-      <!-- 2. Error -->
-      <div v-else-if="searchError" class="rounded-lg border border-outline-gray-1 bg-surface-white p-4 space-y-3">
-        <p class="text-sm text-ink-gray-7">{{ searchError }}</p>
-        <Button variant="subtle" size="sm" @click="performSearch">Try Again</Button>
-      </div>
-
-      <!-- 3. Results (only when not loading/error) -->
-      <template v-else>
-      <!-- Results Header -->
-      <div class="results-header">
-        <div class="results-info">
-          <h3 class="results-title">
-            Search Results
-            <span v-if="searchResults?.total_results" class="results-count">
-              ({{ searchResults.total_results }} found)
-            </span>
-          </h3>
-          <p v-if="lastSearchQuery" class="results-query">
-            Results for: "{{ lastSearchQuery }}"
-          </p>
-        </div>
-
-        <div class="results-controls">
-          <Button
-            variant="ghost"
-            size="sm"
-            @click="exportSearchResults"
-          >
-            <template #prefix><Download class="w-4 h-4" /></template>
-            Export
-          </Button>
-        </div>
-      </div>
-
-      <!-- Search Summary -->
-      <div v-if="searchResults?.summary" class="search-summary">
-        <Card class="summary-card">
-          <div class="summary-content">
-            <div class="summary-stats">
-              <div class="stat-item">
-                <Database class="stat-icon" />
-                <div class="stat-details">
-                  <span class="stat-value">{{ searchResults.summary.domains_searched }}</span>
-                  <span class="stat-label">Dashboards Searched</span>
-                </div>
-              </div>
-              
-              <div class="stat-item">
-                <Tag class="stat-icon" />
-                <div class="stat-details">
-                  <span class="stat-value">{{ searchResults.summary.categories_found }}</span>
-                  <span class="stat-label">Categories Found</span>
-                </div>
-              </div>
-              
-              <div class="stat-item">
-                <Zap class="stat-icon" />
-                <div class="stat-details">
-                  <span class="stat-value">{{ searchResults.summary.search_quality }}</span>
-                  <span class="stat-label">Search Quality</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Agent Response -->
-            <div v-if="agentResponse" class="agent-response">
-              <div class="agent-header">
-                <Bot class="w-4 h-4" />
-                <span class="agent-label">Search Assistant</span>
-              </div>
-              <p class="agent-message">{{ agentResponse }}</p>
-            </div>
-          </div>
-        </Card>
-      </div>
-
-      <!-- No Results -->
-      <div v-if="searchResults?.total_results === 0" class="no-results">
-        <div class="no-results-content">
-          <SearchX class="no-results-icon" />
-          <h3 class="no-results-title">No Results Found</h3>
-          <p class="no-results-message">
-            We couldn't find any results matching your search criteria.
-          </p>
-          
-          <!-- Search Suggestions -->
-          <div v-if="searchResults?.suggestions?.length" class="search-suggestions">
-            <h4 class="suggestions-title">Try these suggestions:</h4>
-            <div class="suggestions-list">
-              <Button
-                v-for="suggestion in searchResults.suggestions"
-                :key="suggestion"
-                variant="ghost"
-                size="sm"
-                @click="searchQuery = suggestion; performSearch()"
-              >
-                {{ suggestion }}
-              </Button>
-            </div>
-          </div>
-
-          <!-- Navigation Recommendations -->
-          <div v-if="navigationRecommendations" class="navigation-recommendations">
-            <h4 class="recommendations-title">{{ navigationRecommendations.message }}</h4>
-            <div class="recommendations-list">
-              <Card
-                v-for="rec in navigationRecommendations.suggestions"
-                :key="rec.dashboard_name"
-                class="recommendation-card"
-                @click="navigateToDashboard(rec.url)"
-              >
-                <div class="recommendation-content">
-                  <ArrowRight class="recommendation-icon" />
-                  <div class="recommendation-details">
-                    <span class="recommendation-name">{{ rec.dashboard_name }}</span>
-                    <span class="recommendation-reason">{{ rec.reason }}</span>
-                  </div>
-                </div>
-              </Card>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Results Categories View -->
-      <div v-else class="results-content">
-        <!-- Category Tabs -->
-        <div class="category-tabs">
-          <Tabs v-model="activeResultViewIndex" :tabs="resultTabItems" />
-        </div>
-
-        <!-- Results List -->
-        <div class="results-list">
-          <div
-            v-for="result in filteredResults"
-            :key="result.id"
-            role="button"
-            tabindex="0"
-            class="result-item"
-            @click="navigateToResult(result)"
-            @keydown.enter="navigateToResult(result)"
-          >
-            <Card class="result-card">
-              <div class="result-content">
-                <!-- Result Header -->
-                <div class="result-header">
-                  <div class="result-title-section">
-                    <h4 class="result-title">{{ result.title }}</h4>
-                    <div class="result-meta">
-                      <Badge :variant="getCategoryVariant(result.category)" size="sm">
-                        {{ getCategoryLabel(result.category) }}
-                      </Badge>
-                      <Badge variant="outline" size="sm">
-                        {{ getDomainLabel(result.metadata?.domain || '') }}
-                      </Badge>
-                      <span class="result-score">
-                        {{ Math.round((result.relevance_score || 0) * 100) }}% match
-                      </span>
+          <!-- Search Summary -->
+          <div v-if="searchResults?.summary">
+            <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-4">
+              <div class="space-y-4">
+                <div class="flex items-center flex-wrap gap-x-6 gap-y-3">
+                  <div class="flex items-center gap-2">
+                    <Database class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                    <div class="flex flex-col">
+                      <span class="text-lg font-semibold text-ink-gray-9">{{ searchResults.summary.domains_searched }}</span>
+                      <span class="text-xs text-ink-gray-6 uppercase tracking-wide">Dashboards Searched</span>
                     </div>
                   </div>
-                  
-                  <div class="result-actions">
-                    <Button variant="ghost" size="sm" :icon="Star" label="Save to favorites" @click.stop="saveToFavorites(result)" />
-                    <Button variant="ghost" size="sm" :icon="ArrowRight" label="Go to result" @click="navigateToResult(result)" />
+                  <div class="flex items-center gap-2">
+                    <Tag class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                    <div class="flex flex-col">
+                      <span class="text-lg font-semibold text-ink-gray-9">{{ searchResults.summary.categories_found }}</span>
+                      <span class="text-xs text-ink-gray-6 uppercase tracking-wide">Categories Found</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <Zap class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                    <div class="flex flex-col">
+                      <span class="text-lg font-semibold text-ink-gray-9">{{ searchResults.summary.search_quality }}</span>
+                      <span class="text-xs text-ink-gray-6 uppercase tracking-wide">Search Quality</span>
+                    </div>
                   </div>
                 </div>
-
-                <!-- Result Preview -->
-                <div class="result-preview">
-                  <p class="preview-text">{{ result.preview }}</p>
-                </div>
-
-                <!-- Result Footer -->
-                <div class="result-footer">
-                  <div class="result-path">
-                    <Folder class="w-3 h-3" />
-                    <span class="path-text">{{ result.source_path }}</span>
+                <div v-if="agentResponse" class="flex flex-col gap-1">
+                  <div class="flex items-center gap-2">
+                    <Bot class="w-4 h-4 text-ink-gray-6" aria-hidden="true" />
+                    <span class="text-sm font-medium text-ink-gray-7">Search Assistant</span>
                   </div>
-                  
-                  <div v-if="result.metadata?.last_updated" class="result-timestamp">
-                    <Clock class="w-3 h-3" />
-                    <span class="timestamp-text">
-                      Updated {{ formatDateTime(result.metadata.last_updated) }}
-                    </span>
+                  <p class="text-ink-gray-7 text-sm leading-relaxed">{{ agentResponse }}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- No Results -->
+          <div v-if="searchResults?.total_results === 0" class="text-center py-12">
+            <div class="space-y-6">
+              <SearchX class="w-12 h-12 text-ink-gray-5 mx-auto" aria-hidden="true" />
+              <p class="text-lg font-semibold text-ink-gray-9">No Results Found</p>
+              <p class="text-ink-gray-6">We couldn't find any results matching your search criteria.</p>
+              <div v-if="searchResults?.suggestions?.length" class="space-y-3">
+                <p class="text-sm font-medium text-ink-gray-7">Try these suggestions:</p>
+                <div class="flex flex-wrap gap-2 justify-center">
+                  <Button
+                    v-for="suggestion in searchResults.suggestions"
+                    :key="suggestion"
+                    variant="ghost"
+                    size="sm"
+                    @click="searchQuery = suggestion; performSearch()"
+                  >{{ suggestion }}</Button>
+                </div>
+              </div>
+              <div v-if="navigationRecommendations" class="space-y-3 text-left max-w-sm mx-auto">
+                <p class="text-sm font-medium text-ink-gray-7">{{ navigationRecommendations.message }}</p>
+                <div class="space-y-2">
+                  <div
+                    v-for="rec in navigationRecommendations.suggestions"
+                    :key="rec.dashboard_name"
+                    class="rounded-lg border border-outline-gray-1 bg-surface-white p-3 hover:bg-surface-gray-1 cursor-pointer transition-colors duration-150 motion-reduce:transition-none"
+                    @click="navigateToDashboard(rec.url)"
+                  >
+                    <div class="flex items-center gap-3">
+                      <ArrowRight class="w-4 h-4 text-ink-gray-6 flex-shrink-0" aria-hidden="true" />
+                      <div class="flex flex-col">
+                        <span class="text-sm font-medium text-ink-gray-9">{{ rec.dashboard_name }}</span>
+                        <span class="text-xs text-ink-gray-6">{{ rec.reason }}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-            </Card>
-          </div>
-        </div>
-
-        <!--
-          Pagination is not implemented: `loadMoreResults` is an empty function,
-          so this button did nothing when clicked. Hidden rather than deleted so
-          the affordance returns with the implementation, but a dead control must
-          not ship. Restore by flipping this to `v-if="hasMoreResults"` once
-          `loadMoreResults` actually pages.
-        -->
-        <div v-if="false" class="load-more-section">
-          <Button variant="outline" @click="loadMoreResults">
-            Load More Results
-          </Button>
-        </div>
-      </div>
-      </template>
-    </div>
-
-    <!-- Cross-Dashboard Navigation Panel -->
-    <div v-if="navigationSuggestions?.related_dashboards?.length" class="navigation-panel">
-      <h3 class="navigation-title">Explore Related Dashboards</h3>
-      <div class="navigation-grid">
-        <Card
-          v-for="dashboard in navigationSuggestions.related_dashboards"
-          :key="dashboard.id"
-          role="button"
-          tabindex="0"
-          class="dashboard-card"
-          @click="navigateToDashboard(dashboard.url, dashboard.id)"
-          @keydown.enter="navigateToDashboard(dashboard.url, dashboard.id)"
-        >
-          <div class="dashboard-content">
-            <div class="dashboard-header">
-              <component :is="getDashboardIcon(dashboard.id)" class="dashboard-icon" aria-hidden="true" />
-              <span class="dashboard-name">{{ dashboard.name }}</span>
             </div>
-            <div class="dashboard-relevance">
+          </div>
+
+          <!-- Results List -->
+          <div v-else class="space-y-4">
+            <Tabs v-model="activeResultViewIndex" :tabs="resultTabItems" />
+            <div class="space-y-3">
               <div
-                class="relevance-bar"
-                role="img"
-                :aria-label="dashboard.name + ': ' + Math.round(dashboard.relevance * 100) + '% relevant'"
+                v-for="result in filteredResults"
+                :key="result.id"
+                role="button"
+                tabindex="0"
+                class="cursor-pointer"
+                @click="navigateToResult(result)"
+                @keydown.enter="navigateToResult(result)"
               >
-                <div
-                  class="relevance-fill"
-                  :style="{ width: `${dashboard.relevance * 100}%` }"
-                ></div>
+                <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-4 hover:bg-surface-gray-1 transition-all duration-150 motion-reduce:transition-none">
+                  <div class="space-y-3">
+                    <div class="flex items-start justify-between gap-3">
+                      <div class="flex-1 min-w-0 space-y-2">
+                        <h4 class="text-base font-medium text-ink-gray-9 leading-tight">{{ result.title }}</h4>
+                        <div class="flex items-center flex-wrap gap-2">
+                          <Badge :theme="getCategoryTheme(result.category)" :label="getCategoryLabel(result.category)" size="sm" />
+                          <Badge :label="getDomainLabel(result.metadata?.domain || '')" size="sm" />
+                          <span class="text-xs text-ink-gray-6">{{ Math.round((result.relevance_score || 0) * 100) }}% match</span>
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-1 flex-shrink-0">
+                        <Button variant="ghost" size="sm" :icon="Star" label="Save to favorites" @click.stop="saveToFavorites(result)" />
+                        <Button variant="ghost" size="sm" :icon="ArrowRight" label="Go to result" @click="navigateToResult(result)" />
+                      </div>
+                    </div>
+                    <p class="text-ink-gray-6 text-sm leading-relaxed">{{ result.preview }}</p>
+                    <div class="flex items-center justify-between text-xs text-ink-gray-6">
+                      <div class="flex items-center gap-1">
+                        <Folder class="w-3 h-3" aria-hidden="true" />
+                        <span class="truncate max-w-xs">{{ result.source_path }}</span>
+                      </div>
+                      <div v-if="result.metadata?.last_updated" class="flex items-center gap-1">
+                        <Clock class="w-3 h-3" aria-hidden="true" />
+                        <span>Updated {{ formatDateTime(result.metadata.last_updated) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-              <span class="relevance-text">
-                {{ Math.round(dashboard.relevance * 100) }}% relevant
-              </span>
+            </div>
+            <!-- Load more hidden until pagination is implemented -->
+            <div v-if="false" class="text-center py-4">
+              <Button variant="outline" @click="loadMoreResults">Load More Results</Button>
             </div>
           </div>
-        </Card>
+        </template>
       </div>
+
+      <!-- Cross-Dashboard Navigation Panel -->
+      <div v-if="navigationSuggestions?.related_dashboards?.length" class="space-y-4">
+        <SectionHeader variant="caption" title="Explore Related Dashboards" />
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div
+            v-for="dashboard in navigationSuggestions.related_dashboards"
+            :key="dashboard.id"
+            role="button"
+            tabindex="0"
+            class="rounded-lg border border-outline-gray-1 bg-surface-white p-4 hover:bg-surface-gray-1 cursor-pointer transition-all duration-150 motion-reduce:transition-none"
+            @click="navigateToDashboard(dashboard.url, dashboard.id)"
+            @keydown.enter="navigateToDashboard(dashboard.url, dashboard.id)"
+          >
+            <div class="space-y-3">
+              <div class="flex items-center gap-2">
+                <component :is="getDashboardIcon(dashboard.id)" class="w-5 h-5 text-ink-gray-6" aria-hidden="true" />
+                <span class="text-sm font-medium text-ink-gray-9">{{ dashboard.name }}</span>
+              </div>
+              <div class="space-y-1">
+                <div
+                  class="w-full h-1.5 bg-surface-gray-2 rounded-full overflow-hidden"
+                  role="img"
+                  :aria-label="`${dashboard.name}: ${Math.round(dashboard.relevance * 100)}% relevant`"
+                >
+                  <div
+                    class="h-full bg-surface-gray-4 transition-all duration-300 motion-reduce:transition-none"
+                    :style="{ width: `${dashboard.relevance * 100}%` }"
+                  ></div>
+                </div>
+                <span class="text-xs text-ink-gray-6">{{ Math.round(dashboard.relevance * 100) }}% relevant</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
 
-    <!-- Search History Sidebar -->
-    <div v-show="showSearchHistory" class="search-history-sidebar">
-      <Card class="history-card">
-        <div class="history-header">
-          <h3 class="history-title">
-            <Clock class="w-4 h-4" />
+    <!-- Search History Sidebar (fixed overlay) -->
+    <div
+      v-show="showSearchHistory"
+      class="fixed right-0 top-0 h-full w-80 bg-surface-white shadow-lg z-50 p-4 overflow-y-auto sm:w-80 w-full"
+    >
+      <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-4">
+        <div class="flex items-center justify-between mb-4">
+          <p class="flex items-center gap-2 text-base font-semibold text-ink-gray-9">
+            <Clock class="w-4 h-4" aria-hidden="true" />
             Search History
-          </h3>
+          </p>
           <Button variant="ghost" size="sm" :icon="X" label="Close search history" @click="showSearchHistory = false" />
         </div>
-        
-        <div class="history-content">
+        <div class="space-y-2">
           <div
             v-for="item in searchHistory"
             :key="item.timestamp"
             role="button"
             tabindex="0"
-            class="history-item"
+            class="p-3 bg-surface-gray-1 rounded-lg cursor-pointer hover:bg-surface-gray-2 transition-colors duration-150 motion-reduce:transition-none"
             @click="searchQuery = item.query; performSearch()"
             @keydown.enter="searchQuery = item.query; performSearch()"
           >
-            <div class="history-query">{{ item.query }}</div>
-            <div class="history-meta">
-              <span class="history-results">{{ item.results_count }} results</span>
-              <span class="history-time">{{ formatDateTime(item.timestamp) }}</span>
+            <div class="text-sm font-medium text-ink-gray-9">{{ item.query }}</div>
+            <div class="flex items-center justify-between text-xs text-ink-gray-6 mt-1">
+              <span>{{ item.results_count }} results</span>
+              <span>{{ formatDateTime(item.timestamp) }}</span>
             </div>
           </div>
         </div>
-      </Card>
+      </div>
     </div>
 
     <!-- Search Help Modal -->
     <Dialog v-model="showSearchHelp" :options="{ title: 'Search Help' }">
       <template #body-content>
-      <div class="help-content">
-        <div v-if="searchHelpContent" class="help-sections">
-          <div class="help-section">
-            <h4 class="help-section-title">What I Can Do</h4>
-            <ul class="help-list">
-              <li v-for="capability in searchHelpContent.capabilities" :key="capability">
-                {{ capability }}
-              </li>
-            </ul>
-          </div>
-
-          <div class="help-section">
-            <h4 class="help-section-title">Sample Queries</h4>
-            <div class="sample-queries">
-              <Button
-                v-for="query in searchHelpContent.sample_queries"
-                :key="query"
-                variant="ghost"
-                size="sm"
-                @click="searchQuery = query; showSearchHelp = false; performSearch()"
-              >
-                {{ query }}
-              </Button>
+        <div class="space-y-6">
+          <div v-if="searchHelpContent" class="space-y-6">
+            <div class="space-y-3">
+              <p class="text-sm font-semibold text-ink-gray-9">What I Can Do</p>
+              <ul class="space-y-2 text-sm text-ink-gray-6 list-disc list-inside">
+                <li v-for="capability in searchHelpContent.capabilities" :key="capability">{{ capability }}</li>
+              </ul>
+            </div>
+            <div class="space-y-3">
+              <p class="text-sm font-semibold text-ink-gray-9">Sample Queries</p>
+              <div class="flex flex-wrap gap-2">
+                <Button
+                  v-for="query in searchHelpContent.sample_queries"
+                  :key="query"
+                  variant="ghost"
+                  size="sm"
+                  @click="searchQuery = query; showSearchHelp = false; performSearch()"
+                >{{ query }}</Button>
+              </div>
+            </div>
+            <div class="space-y-3">
+              <p class="text-sm font-semibold text-ink-gray-9">Search Tips</p>
+              <ul class="space-y-2 text-sm text-ink-gray-6 list-disc list-inside">
+                <li v-for="tip in searchHelpContent.tips" :key="tip">{{ tip }}</li>
+              </ul>
             </div>
           </div>
-
-          <div class="help-section">
-            <h4 class="help-section-title">Search Tips</h4>
-            <ul class="help-list">
-              <li v-for="tip in searchHelpContent.tips" :key="tip">
-                {{ tip }}
-              </li>
-            </ul>
-          </div>
         </div>
-      </div>
       </template>
     </Dialog>
   </div>
@@ -502,11 +416,12 @@ import {
   Lightbulb,
   FileText
 } from 'lucide-vue-next'
-import { Button, Card, Badge, Dialog, Select, Tabs } from 'frappe-ui'
+import { Button, Badge, Dialog, Select, Tabs } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
 import { DASHBOARD_ICONS, SEARCH_DASHBOARD_OPTIONS } from '../helpers/dashboards'
 import { formatDateTime } from '../utils/format'
 import SkeletonBlock from './components/SkeletonBlock.vue'
+import SectionHeader from './components/SectionHeader.vue'
 
 const router = useRouter()
 
@@ -868,6 +783,17 @@ const getDomainLabel = (domainId) => {
 
 const getDashboardIcon = (dashboardId) => DASHBOARD_ICONS[dashboardId] || BarChart3
 
+// Badge theme helpers — returns a valid frappe-ui Badge `theme` value.
+const getSuggestionTheme = (type) => {
+  const themes = { query_completion: 'blue', context_suggestion: 'gray', popular_search: 'green' }
+  return themes[type] || 'gray'
+}
+
+const getCategoryTheme = (category) => {
+  const themes = { alerts: 'red', recommendations: 'blue', metrics: 'gray', trends: 'gray', summary: 'gray', departmental: 'gray' }
+  return themes[category] || 'gray'
+}
+
 
 const searchInput = ref(null)
 
@@ -894,475 +820,3 @@ watch(() => router.currentRoute.value.query.search, (newSearch) => {
   }
 })
 </script>
-
-<style scoped>
-.cross-dashboard-search {
-  @apply flex flex-col space-y-6 p-6 max-w-7xl mx-auto;
-}
-
-.search-header {
-  @apply text-center space-y-2;
-}
-
-.search-title {
-  @apply flex items-center justify-center space-x-2;
-}
-
-.title-icon {
-  @apply w-6 h-6 text-ink-gray-6;
-}
-
-.search-title h2 {
-  @apply text-2xl font-semibold text-ink-gray-9;
-}
-
-.search-subtitle {
-  @apply text-ink-gray-6 text-sm;
-}
-
-.search-interface {
-  @apply space-y-4;
-}
-
-.search-input-container {
-  @apply relative;
-}
-
-.search-input-wrapper {
-  @apply relative flex items-center bg-surface-white border border-outline-gray-2 rounded-lg shadow-sm transition-all duration-200 motion-reduce:transition-none;
-}
-
-.search-input-wrapper.focused {
-  @apply border-outline-gray-3 ring-1 ring-outline-gray-3;
-}
-
-.search-icon {
-  @apply absolute left-3 w-5 h-5 text-ink-gray-5;
-}
-
-.search-input {
-  @apply flex-1 pl-10 pr-32 py-3 border-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 text-ink-gray-8 placeholder-ink-gray-5;
-}
-
-.search-actions {
-  @apply absolute right-2 flex items-center space-x-2;
-}
-
-.suggestions-dropdown {
-  @apply absolute top-full mt-1 w-full bg-surface-white border border-outline-gray-1 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto;
-}
-
-.suggestion-item {
-  @apply px-4 py-3 hover:bg-surface-gray-1 cursor-pointer transition-colors duration-150 motion-reduce:transition-none;
-}
-
-.suggestion-item.active {
-  @apply bg-surface-gray-2;
-}
-
-.suggestion-content {
-  @apply flex items-center justify-between;
-}
-
-.suggestion-text {
-  @apply text-ink-gray-8 text-sm;
-}
-
-.suggestion-meta {
-  @apply flex items-center space-x-2;
-}
-
-.search-filters {
-  @apply bg-surface-gray-1 rounded-lg p-4 space-y-4;
-}
-
-.filters-grid {
-  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4;
-}
-
-.filter-group {
-  @apply space-y-1;
-}
-
-.filter-label {
-  @apply text-sm font-medium text-ink-gray-7;
-}
-
-.filter-actions {
-  @apply flex items-center justify-end space-x-2;
-}
-
-.search-controls {
-  @apply flex items-center space-x-3;
-}
-
-.search-results {
-  @apply space-y-6;
-}
-
-.results-header {
-  @apply flex items-center justify-between;
-}
-
-.results-title {
-  @apply text-xl font-semibold text-ink-gray-9;
-}
-
-.results-count {
-  @apply text-ink-gray-6 text-base font-normal;
-}
-
-.results-query {
-  @apply text-ink-gray-6 text-sm;
-}
-
-.search-summary {
-  @apply w-full;
-}
-
-.summary-card {
-  @apply p-4;
-}
-
-.summary-content {
-  @apply space-y-4;
-}
-
-.summary-stats {
-  @apply flex items-center space-x-6;
-}
-
-.stat-item {
-  @apply flex items-center space-x-2;
-}
-
-.stat-icon {
-  @apply w-5 h-5 text-ink-gray-6;
-}
-
-.stat-details {
-  @apply flex flex-col;
-}
-
-.stat-value {
-  @apply text-lg font-semibold text-ink-gray-9;
-}
-
-.stat-label {
-  @apply text-xs text-ink-gray-6 uppercase tracking-wide;
-}
-
-.agent-response {
-  @apply space-y-2;
-}
-
-.agent-header {
-  @apply flex items-center space-x-2;
-}
-
-.agent-label {
-  @apply text-sm font-medium text-ink-gray-7;
-}
-
-.agent-message {
-  @apply text-ink-gray-7 text-sm leading-relaxed;
-}
-
-.no-results {
-  @apply text-center py-12;
-}
-
-.no-results-content {
-  @apply space-y-6;
-}
-
-.no-results-icon {
-  @apply w-12 h-12 text-ink-gray-5 mx-auto;
-}
-
-.no-results-title {
-  @apply text-lg font-semibold text-ink-gray-9;
-}
-
-.no-results-message {
-  @apply text-ink-gray-6;
-}
-
-.search-suggestions {
-  @apply space-y-3;
-}
-
-.suggestions-title {
-  @apply text-sm font-medium text-ink-gray-7;
-}
-
-.suggestions-list {
-  @apply flex flex-wrap gap-2;
-}
-
-.navigation-recommendations {
-  @apply space-y-3;
-}
-
-.recommendations-title {
-  @apply text-sm font-medium text-ink-gray-7;
-}
-
-.recommendations-list {
-  @apply space-y-2;
-}
-
-.recommendation-card {
-  @apply p-3 hover:bg-surface-gray-1 cursor-pointer transition-colors duration-150 motion-reduce:transition-none;
-}
-
-.recommendation-content {
-  @apply flex items-center space-x-3;
-}
-
-.recommendation-icon {
-  @apply w-4 h-4 text-ink-gray-6;
-}
-
-.recommendation-details {
-  @apply flex flex-col;
-}
-
-.recommendation-name {
-  @apply text-sm font-medium text-ink-gray-9;
-}
-
-.recommendation-reason {
-  @apply text-xs text-ink-gray-6;
-}
-
-.results-content {
-  @apply space-y-4;
-}
-
-.category-tabs {
-  @apply flex items-center space-x-2 overflow-x-auto pb-2;
-}
-
-.results-list {
-  @apply space-y-3;
-}
-
-.result-item {
-  @apply cursor-pointer;
-}
-
-.result-card {
-  @apply p-4 hover:bg-surface-gray-1 transition-all duration-150 motion-reduce:transition-none;
-}
-
-.result-content {
-  @apply space-y-3;
-}
-
-.result-header {
-  @apply flex items-start justify-between;
-}
-
-.result-title-section {
-  @apply flex-1 space-y-2;
-}
-
-.result-title {
-  @apply text-lg font-medium text-ink-gray-9 leading-tight;
-}
-
-.result-meta {
-  @apply flex items-center space-x-2 flex-wrap;
-}
-
-.result-score {
-  @apply text-xs text-ink-gray-6;
-}
-
-.result-actions {
-  @apply flex items-center space-x-1 flex-shrink-0;
-}
-
-.result-preview {
-  @apply mt-2;
-}
-
-.preview-text {
-  @apply text-ink-gray-6 text-sm leading-relaxed;
-}
-
-.result-footer {
-  @apply flex items-center justify-between text-xs text-ink-gray-6;
-}
-
-.result-path {
-  @apply flex items-center space-x-1;
-}
-
-.path-text {
-  @apply truncate max-w-xs;
-}
-
-.result-timestamp {
-  @apply flex items-center space-x-1;
-}
-
-.load-more-section {
-  @apply text-center py-4;
-}
-
-.navigation-panel {
-  @apply space-y-4;
-}
-
-.navigation-title {
-  @apply text-lg font-semibold text-ink-gray-9;
-}
-
-.navigation-grid {
-  @apply grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4;
-}
-
-.dashboard-card {
-  @apply p-4 hover:bg-surface-gray-1 cursor-pointer transition-all duration-150 motion-reduce:transition-none;
-}
-
-.dashboard-content {
-  @apply space-y-3;
-}
-
-.dashboard-header {
-  @apply flex items-center space-x-2;
-}
-
-.dashboard-icon {
-  @apply w-5 h-5 text-ink-gray-6;
-}
-
-.dashboard-name {
-  @apply text-sm font-medium text-ink-gray-9;
-}
-
-.dashboard-relevance {
-  @apply space-y-1;
-}
-
-.relevance-bar {
-  @apply w-full h-1.5 bg-surface-gray-2 rounded-full overflow-hidden;
-}
-
-.relevance-fill {
-  @apply h-full bg-surface-gray-4 transition-all duration-300 motion-reduce:transition-none;
-}
-
-.relevance-text {
-  @apply text-xs text-ink-gray-6;
-}
-
-.search-history-sidebar {
-  @apply fixed right-0 top-0 h-full w-80 bg-surface-white shadow-lg z-50 p-4 overflow-y-auto;
-}
-
-.history-card {
-  @apply p-4;
-}
-
-.history-header {
-  @apply flex items-center justify-between mb-4;
-}
-
-.history-title {
-  @apply flex items-center space-x-2 text-lg font-semibold text-ink-gray-9;
-}
-
-.history-content {
-  @apply space-y-2;
-}
-
-.history-item {
-  @apply p-3 bg-surface-gray-1 rounded-lg cursor-pointer hover:bg-surface-gray-2 transition-colors duration-150 motion-reduce:transition-none;
-}
-
-.history-query {
-  @apply text-sm font-medium text-ink-gray-9;
-}
-
-.history-meta {
-  @apply flex items-center justify-between text-xs text-ink-gray-6 mt-1;
-}
-
-.help-content {
-  @apply space-y-6;
-}
-
-.help-sections {
-  @apply space-y-6;
-}
-
-.help-section {
-  @apply space-y-3;
-}
-
-.help-section-title {
-  @apply text-sm font-semibold text-ink-gray-9;
-}
-
-.help-list {
-  @apply space-y-2 text-sm text-ink-gray-6;
-}
-
-.help-list li {
-  @apply flex items-start space-x-2;
-}
-
-.help-list li::before {
-  content: "•";
-  @apply text-ink-gray-6 font-bold flex-shrink-0;
-}
-
-.sample-queries {
-  @apply flex flex-wrap gap-2;
-}
-
-/* Responsive adjustments */
-@media (max-width: 768px) {
-  .cross-dashboard-search {
-    @apply p-4 space-y-4;
-  }
-
-  .search-input {
-    @apply pr-20 text-sm;
-  }
-
-  .summary-stats {
-    @apply flex-col space-x-0 space-y-4;
-  }
-
-  /* space-x-3 sets margin-left on every child but the first, which misaligns
-     the moment the row wraps, so cancel it in favour of gap. */
-  .search-controls {
-    @apply flex-wrap gap-2 space-x-0;
-  }
-
-  .category-tabs {
-    @apply space-x-1;
-  }
-
-  .result-header {
-    @apply flex-col space-y-2;
-  }
-
-  .result-actions {
-    @apply self-end;
-  }
-
-  .navigation-grid {
-    @apply grid-cols-1;
-  }
-
-  .search-history-sidebar {
-    @apply w-full;
-  }
-}
-</style>

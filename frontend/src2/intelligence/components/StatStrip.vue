@@ -42,7 +42,7 @@ const { isPhone } = useBreakpoint()
 const TONE = {
   none: 'text-ink-gray-9',
   neg: 'text-ink-red-4',
-  warn: 'text-ink-amber-3',
+  warn: 'text-warn',
   pos: 'text-ink-green-3',
 } as const
 

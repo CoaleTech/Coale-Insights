@@ -252,7 +252,7 @@ function formatNumber(value: number, type: string = 'number'): string {
 		<!-- ML Predictions Panel -->
 		<div 
 			v-if="showMLPanel && mlPredictions?.available" 
-			class="absolute right-0 top-0 z-10 h-full w-96 overflow-y-auto border-l bg-gradient-to-b from-surface-violet-1 to-surface-white p-4 shadow-lg"
+		class="absolute right-0 top-0 z-10 h-full w-96 overflow-y-auto border-l bg-surface-gray-1 p-4 shadow-lg"
 		>
 			<div class="flex items-center justify-between mb-4">
 				<h3 class="text-lg font-semibold flex items-center gap-2">

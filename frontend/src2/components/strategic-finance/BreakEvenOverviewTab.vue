@@ -35,7 +35,7 @@
       </div>
 
       <!-- Cash Flow Break-Even Banner -->
-      <div v-if="cashData" class="bg-surface-white rounded-lg p-5 shadow-sm border border-outline-gray-1">
+      <div v-if="cashData" class="bg-surface-white rounded-lg p-5 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Cash Flow Break-Even" :level="3" />
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
           <div>
@@ -66,7 +66,7 @@
       </div>
 
       <!-- Employee Break-Even -->
-      <div v-if="departments.length" class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
+      <div v-if="departments.length" class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
         <div class="px-5 py-4 border-b border-outline-gray-1">
           <SectionHeader variant="caption" title="Employee Break-Even by Department" :level="3" />
         </div>
@@ -108,7 +108,7 @@
       </div>
 
       <!-- Capital Efficiency -->
-      <div v-if="data.roce || data.irr" class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
+      <div v-if="data.roce || data.irr" class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
         <div class="px-5 py-4 border-b border-outline-gray-1">
           <SectionHeader variant="caption" title="Capital Efficiency" :level="3" />
         </div>
