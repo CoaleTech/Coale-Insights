@@ -124,7 +124,7 @@ import {
 	TransitionChild,
 	TransitionRoot,
 } from '@headlessui/vue'
-import { computed, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, ref, watch, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import { Toaster } from 'vue-sonner'
 import AppSidebar from './components/AppSidebar.vue'
@@ -195,6 +195,26 @@ watch(isBelowDesktop, (below) => {
 const isGuestView = computed(() => route.meta.isGuestView || !session.isLoggedIn)
 waitUntil(() => session.isLoggedIn).then(() => {
 	telemetry.init()
+})
+
+// frappe-ui's Dialog renders its close "×" as an icon-only Button but passes it no
+// `label`, so every dialog's close button was announced as just "button". Name it
+// as the dialog mounts: header > flex row > [title wrapper, button].
+// ponytail: DOM patch until frappe-ui labels it; breaks silently if Dialog.vue's markup changes.
+onMounted(() => {
+	let queued = false
+	new MutationObserver(() => {
+		if (queued) return
+		queued = true
+		requestAnimationFrame(() => {
+			queued = false
+			document.querySelectorAll('[id^="headlessui-dialog-title"]').forEach((title) => {
+				const close = title.parentElement?.parentElement?.lastElementChild
+				if (close?.tagName === 'BUTTON' && !close.hasAttribute('aria-label') && !close.textContent?.trim())
+					close.setAttribute('aria-label', 'Close')
+			})
+		})
+	}).observe(document.body, { childList: true, subtree: true })
 })
 
 attachRealtimeListener('insights_notification', (data: any) => {
