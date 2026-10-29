@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — "Toggle scenarios panel" button was squeezed to 20px on phones
+
+In the 13-Week Cash Flow what-if header the chevron button shared a row with the title, the type filter and itself, and flex shrank it to 20px wide (below the 24px minimum touch target). It no longer shrinks (`shrink-0`): 28px wide at 320, 390 and 1500px, no page overflow. A scan of every interactive element on all 15 Finance tabs at 390px found no other target under 24px except the inline "Create a Budget in ERPNext" text link, which is exempt.
+
 ### Fixed — AI assistant panel was cut off on phones and short screens
 
 The chat panel was a fixed 384px wide and 500px tall, anchored 24px from the right and 88px from the bottom. On a 390px phone its left 18px (the assistant icon in the header) sat off-screen, and on a landscape phone (400px tall) the header went off the top. It is now capped at the viewport minus the margins (`max-w-[calc(100vw-3rem)]`, `max-h-[calc(100vh-7rem)]`). Measured on-screen at 390x800, 320x568, 800x400 and 1500x900. The Recent Conversations dropdown (288px) was clipped by the panel on a 320px phone (left edge at −9px); it is now capped at the panel width less 2rem (41–279px). The panel is shared, so every dashboard gets the fix.

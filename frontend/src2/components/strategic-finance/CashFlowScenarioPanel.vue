@@ -19,6 +19,7 @@
         />
         <Button
           variant="ghost"
+          class="shrink-0"
           label="Toggle scenarios panel"
           :aria-expanded="String(expanded)"
           @click="expanded = !expanded"
