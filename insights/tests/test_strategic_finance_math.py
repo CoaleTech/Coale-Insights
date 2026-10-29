@@ -107,3 +107,15 @@ class TestStrategicFinanceMath(unittest.TestCase):
         insights = generate_key_insights(None, 0, 0, net_margin=None, revenue_growth=None,
                                          cash_runway_months=None, debt_to_equity=None, roe=None, health_scores=hs)
         self.assertEqual(insights, [])
+
+    def test_drill_down_rejects_non_object_filters(self):
+        # A bare list/string used to die on `f.pop` with an AttributeError; it must be a clean validation error.
+        import frappe
+
+        from insights.api.ml.financial import get_finance_detail
+        from insights.api.ml.strategic_finance import get_strategic_detail
+
+        for fn in (get_finance_detail, get_strategic_detail):
+            for bad in ("[1]", '"x"', "5"):
+                with self.assertRaises(frappe.ValidationError):
+                    fn("outstanding_ar", bad)

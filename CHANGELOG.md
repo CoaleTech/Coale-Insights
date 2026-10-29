@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance drill-down endpoints crashed on a bad `page` or non-object `filters`
+
+`get_finance_detail` and `get_strategic_detail` did `int(f.pop("page", 1))`, so `{"page": "abc"}` raised a ValueError, `{"page": 0}` or a negative page produced a negative SQL offset, and a `filters` value that is a JSON list or string raised an AttributeError. The dashboard never sends these, but the endpoints are whitelisted. `page` now goes through `cint` and is clamped to 1 or more; a non-object `filters` gets a clean "filters must be an object" validation error. Checked against the live data: pages 0, −3, "abc" and null return page 1 (first row SI2627780 for outstanding AR); page 2 returns the next 50. New test `test_drill_down_rejects_non_object_filters` (13 of 13 pass).
+
 ### Fixed — AI assistant loaded its session twice on every page load
 
 When the panel was left open, restoring that state fired the open-watcher (which loads the latest session and the session list) and `onMounted` then loaded the session again, so `get_recent_session` and `list_sessions` each ran twice per page load on every dashboard. `onMounted` now only loads the quick actions. Measured on Finance: 1 call each with the panel open (session and messages restored), none with it closed.

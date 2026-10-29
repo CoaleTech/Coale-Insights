@@ -58,7 +58,9 @@ def get_budget_variance_overview(company: str = None, fiscal_year: str = None) -
 @frappe.whitelist()
 def get_strategic_detail(metric: str, filters: str) -> dict:
     f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    if not isinstance(f, dict):
+        frappe.throw(_("filters must be an object"), frappe.ValidationError)
+    page = max(1, frappe.utils.cint(f.pop("page", 1)))
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")

@@ -110,7 +110,9 @@ def get_forex_exposure() -> Dict[str, Any]:
 def get_finance_detail(metric: str, filters: str) -> dict:
     from frappe import _
     f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    if not isinstance(f, dict):
+        frappe.throw(_("filters must be an object"), frappe.ValidationError)
+    page = max(1, frappe.utils.cint(f.pop("page", 1)))
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
