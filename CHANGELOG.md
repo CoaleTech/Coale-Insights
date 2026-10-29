@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Printing or saving a dashboard as PDF dropped most of the page
+
+The app shell is `h-screen overflow-hidden` with an inner scroll area, so a print or Save-as-PDF captured only the first screen: on Finance → Receivables the PDF stopped after the aging chart (no "Monthly Collections", no "Top Overdue Customers") and the floating AI assistant panel printed on top of the text. The shell now lays out as a normal flowing page in print (`print:block print:h-auto print:overflow-visible` in `App.vue`), and the sidebar, the mobile top bar and the assistant button/panel are hidden (`print:hidden`). Receivables now prints all sections over 3 pages, Overview over 3. Not fixed: charts keep the width they had on screen, so the right-hand 30–40px of a wide chart can be clipped in the PDF; that needs a re-render on `beforeprint` and is listed as an open item.
+
 ### Fixed — "Toggle scenarios panel" button was squeezed to 20px on phones
 
 In the 13-Week Cash Flow what-if header the chevron button shared a row with the title, the type filter and itself, and flex shrank it to 20px wide (below the 24px minimum touch target). It no longer shrinks (`shrink-0`): 28px wide at 320, 390 and 1500px, no page overflow. A scan of every interactive element on all 15 Finance tabs at 390px found no other target under 24px except the inline "Create a Budget in ERPNext" text link, which is exempt.

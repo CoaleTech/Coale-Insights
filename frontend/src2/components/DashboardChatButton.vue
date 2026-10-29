@@ -1,6 +1,6 @@
 <!-- Floating Chat Button -->
 <template>
-  <div class="fixed bottom-6 right-6 z-50">
+  <div class="fixed bottom-6 right-6 z-50 print:hidden">
     <!-- Chat Panel (Expanded) -->
     <transition
       enter-active-class="transition ease-out duration-200 motion-reduce:transition-none"

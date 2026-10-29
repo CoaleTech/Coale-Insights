@@ -1,5 +1,5 @@
 <template>
-	<div class="flex h-screen w-screen overflow-hidden bg-canvas text-base antialiased">
+	<div class="flex h-screen w-screen overflow-hidden bg-canvas text-base antialiased print:block print:h-auto print:w-auto print:overflow-visible">
 		<!--
 			Desktop: the sidebar is a static column. Below 1024px it would leave
 			under 560px of content, which is where the KPI grid and tab strips were
@@ -7,7 +7,7 @@
 		-->
 		<div
 			v-if="!hideSidebar"
-			class="hidden h-full border-r border-outline-gray-1 bg-surface-white lg:block"
+			class="hidden h-full border-r border-outline-gray-1 bg-surface-white lg:block print:hidden"
 		>
 			<AppSidebar />
 		</div>
@@ -58,7 +58,7 @@
 			</HDialog>
 		</TransitionRoot>
 
-		<div class="flex h-full flex-1 flex-col overflow-auto">
+		<div class="flex h-full flex-1 flex-col overflow-auto print:block print:h-auto print:overflow-visible">
 			<!--
 				Sticky, because the dashboard's own header scrolls away and navigation
 				has to stay reachable. Deliberately carries no page title: every
@@ -67,7 +67,7 @@
 			-->
 			<div
 				v-if="!hideSidebar"
-				class="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1 border-b border-outline-gray-1 bg-surface-white px-2 lg:hidden"
+				class="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1 border-b border-outline-gray-1 bg-surface-white px-2 lg:hidden print:hidden"
 			>
 				<button
 					ref="drawerTrigger"
