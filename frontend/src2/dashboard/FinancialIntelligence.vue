@@ -293,7 +293,7 @@
 				<div v-if="activeTab === 'budget'">
 					<TabBrief class="mb-6" :brief="budgetBrief">
 						<template v-if="budgetData?.has_budget === false" #default>
-							<a href="/app/budget/new" class="text-ink-blue-3 underline">Create a Budget in ERPNext</a>
+							<a href="/app/budget/new" class="inline-block py-1 -my-1 text-ink-blue-3 underline">Create a Budget in ERPNext</a>
 						</template>
 					</TabBrief>
 					<BudgetVarianceTab

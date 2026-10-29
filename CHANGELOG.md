@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — "Create a Budget in ERPNext" link was 16 px tall
+
+`FinancialIntelligence.vue` (Budget Variance empty state): the standalone link is now `inline-block` with `py-1 -my-1`, giving a 24 px target without moving the layout. It was the last control under 24 px on any of the 15 tabs at 1500, 1024 and 768 px.
+
 ### Fixed — Overview "↗ View / Receivables / Payables" links were only 14 px tall
 
 `OverviewTab.vue`: the six drill-down text buttons had no padding, so their hit area was 14 px high (WCAG 2.5.8 asks for 24 px). Added `py-1.5` with a matching negative margin, so the target is 26 px and the layout does not move.
