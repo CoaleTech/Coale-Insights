@@ -280,14 +280,9 @@ onMounted(async () => {
   if (savedState === 'true') {
     isOpen.value = true
   }
-  
-  // Load quick actions
+
+  // Restoring `isOpen` above fires the watcher below, which loads the session.
   await loadQuickActions()
-  
-  // Auto-load recent session when panel opens
-  if (isOpen.value) {
-    await loadRecentSession()
-  }
 })
 
 // Watch for panel open/close

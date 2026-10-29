@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — AI assistant loaded its session twice on every page load
+
+When the panel was left open, restoring that state fired the open-watcher (which loads the latest session and the session list) and `onMounted` then loaded the session again, so `get_recent_session` and `list_sessions` each ran twice per page load on every dashboard. `onMounted` now only loads the quick actions. Measured on Finance: 1 call each with the panel open (session and messages restored), none with it closed.
+
 ### Fixed — Printing or saving a dashboard as PDF dropped most of the page
 
 The app shell is `h-screen overflow-hidden` with an inner scroll area, so a print or Save-as-PDF captured only the first screen: on Finance → Receivables the PDF stopped after the aging chart (no "Monthly Collections", no "Top Overdue Customers") and the floating AI assistant panel printed on top of the text. The shell now lays out as a normal flowing page in print (`print:block print:h-auto print:overflow-visible` in `App.vue`), and the sidebar, the mobile top bar and the assistant button/panel are hidden (`print:hidden`). Receivables now prints all sections over 3 pages, Overview over 3. Not fixed: charts keep the width they had on screen, so the right-hand 30–40px of a wide chart can be clipped in the PDF; that needs a re-render on `beforeprint` and is listed as an open item.
