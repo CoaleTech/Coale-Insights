@@ -122,7 +122,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "due_date", "grand_total", "outstanding_amount", "currency"],
+            fields=["name", "customer", "customer_name", "posting_date", "due_date", "grand_total", "outstanding_amount", "currency"],
             start=start, page_length=page_size, order_by="outstanding_amount desc",
             ignore_permissions=False,
         )
@@ -130,6 +130,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
@@ -148,7 +149,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "due_date", "grand_total", "outstanding_amount"],
+            fields=["name", "customer", "customer_name", "posting_date", "due_date", "grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by="due_date asc",
             ignore_permissions=False,
         )
@@ -156,6 +157,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
@@ -172,7 +174,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Purchase Invoice",
             filters=db_filters,
-            fields=["name", "supplier", "posting_date", "due_date", "grand_total", "outstanding_amount"],
+            fields=["name", "supplier", "supplier_name", "posting_date", "due_date", "grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by="outstanding_amount desc",
             ignore_permissions=False,
         )
@@ -180,6 +182,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": "Bill", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Invoice"},
                 {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"},
+                {"label": "Name", "fieldname": "supplier_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
@@ -323,7 +326,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             doctype,
             filters=db_filters,
-            fields=["name", party_field, "posting_date", "due_date", "grand_total", "outstanding_amount"],
+            fields=["name", party_field, f"{party_field}_name", "posting_date", "due_date", "grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by=order_by,
             ignore_permissions=False,
         )
@@ -331,6 +334,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": _("Invoice") if is_ar else _("Bill"), "fieldname": "name", "fieldtype": "Link", "options": doctype},
                 {"label": _(party_field.title()), "fieldname": party_field, "fieldtype": "Link", "options": party_field.title()},
+                {"label": _("Name"), "fieldname": f"{party_field}_name", "fieldtype": "Data"},
                 {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": _("Due Date"), "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": _("Total"), "fieldname": "grand_total", "fieldtype": "Currency"},

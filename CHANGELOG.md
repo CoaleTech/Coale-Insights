@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance receivable and payable drill-downs showed party IDs only
+
+Outstanding AR/AP, Overdue 90+ AR/AP and the per-customer/per-supplier lists opened on rows like `SI2627780 · CS00322` with no name, while the card or table row clicked said "R R Adhesive" (procurement and tax drill-downs already show names). Each now has a Name column next to the ID (`get_finance_detail`: `outstanding_ar`, `overdue_ar_90`, `outstanding_ap`, `overdue_ap_90`, `top_customers_ar`, `top_suppliers_ap`). Totals unchanged and tie to SQL: 140 invoices ₹19,714,214 AR, 95 bills ₹1,273,410 AP over 90 days, 24 invoices ₹1,176,510 AR over 90 days.
+
 ### Fixed — Working Capital and Cash tab drill-downs listed the wrong accounts
 
 "Total Current Assets" on Working Capital opened a list of Creditors and Salary payable accounts (liabilities) without the Fixed Deposit account (₹9.8M of the cash) and without any balance. It is now "Working Capital Accounts": every Cash, Bank, Fixed Deposit, Receivable, Payable and Stock account with its ledger balance as of today (assets sum to ₹29,654,008, payables to −₹15,316,482, matching the card), and "Total Current Liabilities" opens it too. Clicking one account under "Where it is held" on the Cash tab opened the full three-account list; it now shows only that account.
