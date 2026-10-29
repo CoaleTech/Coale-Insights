@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Working Capital and Cash tab drill-downs listed the wrong accounts
+
+"Total Current Assets" on Working Capital opened a list of Creditors and Salary payable accounts (liabilities) without the Fixed Deposit account (₹9.8M of the cash) and without any balance. It is now "Working Capital Accounts": every Cash, Bank, Fixed Deposit, Receivable, Payable and Stock account with its ledger balance as of today (assets sum to ₹29,654,008, payables to −₹15,316,482, matching the card), and "Total Current Liabilities" opens it too. Clicking one account under "Where it is held" on the Cash tab opened the full three-account list; it now shows only that account.
+
 ### Fixed — Finance Overview "Cash Position ↗ View" listed accounts with no balances
 
 The drill-down opened on three account names, types and currencies and nothing else, so it could not be checked against the ₹9.6M card, and the Fixed Deposit row had a blank Type. `get_finance_detail("cash_accounts")` now adds a Balance column from GL Entry (same all-postings basis as the card: ₹596,039 cash, ₹9,821,496 fixed deposit, −₹842,390 bank, sum ₹9,575,145) and labels the deposit account "Fixed Deposit". It also requires GL Entry read permission, since it now returns ledger balances.

@@ -195,9 +195,9 @@
 						 class="flex cursor-pointer items-center justify-between rounded bg-surface-gray-1 p-2 transition-colors hover:bg-surface-gray-2 motion-reduce:transition-none"
 						 role="button"
 						 tabindex="0"
-						 @click="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })"
-						 @keydown.enter="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })"
-						 @keydown.space.prevent="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })">
+						 @click="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts', account: acc.account })"
+						 @keydown.enter="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts', account: acc.account })"
+						 @keydown.space.prevent="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts', account: acc.account })">
 						<div class="min-w-0">
 							<div class="truncate text-sm font-medium text-ink-gray-9">{{ acc.account_name }}</div>
 							<div class="text-xs text-ink-gray-6">

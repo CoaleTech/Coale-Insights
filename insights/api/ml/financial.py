@@ -18,7 +18,7 @@ from typing import Any, Dict
 
 import frappe
 from frappe.query_builder.functions import Sum
-from frappe.utils import flt
+from frappe.utils import flt, nowdate
 from insights.api.ml.utils import cached_run, run
 
 
@@ -188,16 +188,21 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "total": frappe.db.count("Purchase Invoice", filters=db_filters),
         }
 
-    if metric == "cash_accounts":
+    if metric in ("cash_accounts", "working_capital_components"):
         frappe.has_permission("Account", throw=True)
         frappe.has_permission("GL Entry", throw=True)
-        # Same set _calculate_cash_flow uses: Bank/Cash by account_type, plus
-        # Fixed Deposit accounts (no core account_type for FD, name-matched).
+        # cash_accounts = what _calculate_cash_flow counts: Bank/Cash by account_type plus
+        # Fixed Deposit accounts (no core account_type for FD, name-matched). Working
+        # capital adds the Receivable/Payable/Stock accounts its figures are built from.
+        # Its card is as of today; the Cash Position card includes future-dated postings.
+        is_wc = metric == "working_capital_components"
         acct_filters = [["is_group", "=", 0]]
         if company:
             acct_filters.append(["company", "=", company])
+        if f.get("account"):  # one row clicked on the Cash tab
+            acct_filters.append(["name", "=", f["account"]])
         acct_or_filters = [
-            ["account_type", "in", ["Cash", "Bank"]],
+            ["account_type", "in", ["Cash", "Bank", "Receivable", "Payable", "Stock"] if is_wc else ["Cash", "Bank"]],
             ["account_name", "like", "fixed deposit%"],
         ]
         rows = frappe.get_list(
@@ -208,18 +213,18 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             start=start, page_length=page_size, order_by="account_name asc",
             ignore_permissions=False,
         )
-        # Same balances as the Cash Position card (all postings, future-dated included).
         GL = frappe.qb.DocType("GL Entry")
         names = [r["name"] for r in rows]
         bal = {}
         if names:
-            bal = dict(
+            q = (
                 frappe.qb.from_(GL)
                 .select(GL.account, Sum(GL.debit - GL.credit))
                 .where((GL.account.isin(names)) & (GL.is_cancelled == 0))
-                .groupby(GL.account)
-                .run()
             )
+            if is_wc:
+                q = q.where(GL.posting_date <= nowdate())
+            bal = dict(q.groupby(GL.account).run())
         for r in rows:
             r["balance"] = flt(bal.get(r["name"]))
             r["account_type"] = r["account_type"] or "Fixed Deposit"
@@ -229,43 +234,13 @@ def get_finance_detail(metric: str, filters: str) -> dict:
                 {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
                 {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
                 {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
-                {"label": "Balance", "fieldname": "balance", "fieldtype": "Currency"},
+                {"label": "Balance (Dr − Cr)" if is_wc else "Balance", "fieldname": "balance", "fieldtype": "Currency"},
             ],
             "rows": rows,
             "total": frappe.get_list(
                 "Account", filters=acct_filters, or_filters=acct_or_filters,
                 fields=[{"COUNT": "name", "as": "c"}],
             )[0].c,
-        }
-
-    if metric == "working_capital_components":
-        frappe.has_permission("Account", throw=True)
-        # The accounts the working-capital figures are built from. No or_filters
-        # here, unlike cash_accounts above: one `in` clause is a plain filter, so
-        # `frappe.db.count` can express the total and there is no need to pluck
-        # every matching name to length it.
-        db_filters = {
-            "is_group": 0,
-            "account_type": ("in", ["Receivable", "Payable", "Stock", "Bank", "Cash"]),
-        }
-        if company:
-            db_filters["company"] = company
-        rows = frappe.get_list(
-            "Account",
-            filters=db_filters,
-            fields=["name", "account_name", "account_type", "account_currency"],
-            start=start, page_length=page_size, order_by="account_name asc",
-            ignore_permissions=False,
-        )
-        return {
-            "columns": [
-                {"label": "Account", "fieldname": "name", "fieldtype": "Link", "options": "Account"},
-                {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
-                {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
-                {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
-            ],
-            "rows": rows,
-            "total": frappe.db.count("Account", filters=db_filters),
         }
 
     if metric == "cost_structure_accounts":

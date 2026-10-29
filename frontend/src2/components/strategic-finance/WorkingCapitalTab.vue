@@ -137,9 +137,9 @@
           <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2 cursor-pointer hover:bg-surface-gray-2 transition-colors"
             :tabindex="0"
             role="button"
-            @click="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })"
-            @keydown.enter="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })"
-            @keydown.space.prevent="drillDown.open(finEndpoint, 'Current Assets', { metric: 'working_capital_components' })">
+            @click="drillDown.open(finEndpoint, 'Working Capital Accounts', { metric: 'working_capital_components' })"
+            @keydown.enter="drillDown.open(finEndpoint, 'Working Capital Accounts', { metric: 'working_capital_components' })"
+            @keydown.space.prevent="drillDown.open(finEndpoint, 'Working Capital Accounts', { metric: 'working_capital_components' })">
             <span class="text-sm font-bold text-ink-gray-9">Total Current Assets</span>
             <span class="text-sm font-bold text-ink-gray-9">{{ formatCurrency(data?.total_current_assets) }}</span>
           </div>
@@ -154,7 +154,12 @@
           </template>
         </SectionHeader>
         <div class="space-y-4 mt-4">
-          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2">
+          <div class="flex justify-between items-center p-3 bg-surface-gray-1 rounded-lg border border-outline-gray-2 cursor-pointer hover:bg-surface-gray-2 transition-colors"
+            :tabindex="0"
+            role="button"
+            @click="drillDown.open(finEndpoint, 'Working Capital Accounts', { metric: 'working_capital_components' })"
+            @keydown.enter="drillDown.open(finEndpoint, 'Working Capital Accounts', { metric: 'working_capital_components' })"
+            @keydown.space.prevent="drillDown.open(finEndpoint, 'Working Capital Accounts', { metric: 'working_capital_components' })">
             <span class="text-sm font-bold text-ink-gray-9">Total Current Liabilities</span>
             <span class="text-sm font-bold text-ink-gray-9">
               {{ formatCurrency(data?.total_current_liabilities) }}
