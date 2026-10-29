@@ -238,11 +238,12 @@
           Based on {{ data?.monte_carlo?.simulations ?? NO_VALUE }} simulations of the year-to-date result, with revenue and
           expenses varying together as they have month to month (monthly volatility: revenue
           {{ formatPercent(data?.monte_carlo?.revenue_volatility) }}, expenses
-          {{ formatPercent(data?.monte_carlo?.expense_volatility) }}, from the last 12 complete months).
+          {{ formatPercent(data?.monte_carlo?.expense_volatility) }}, from the last 12 complete months). Profit figures
+          below are after tax; the sensitivity matrix and the Overview show profit before tax.
         </p>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
           <KpiCard
-            label="Mean Net Profit"
+            label="Mean Net Profit (after tax)"
             :amount="data?.monte_carlo?.mean"
             :currency="getCurrency()"
             variant="tile"
@@ -254,7 +255,7 @@
             variant="tile"
           />
           <KpiCard
-            label="Median Net Profit"
+            label="Median Net Profit (after tax)"
             :amount="data?.monte_carlo?.percentiles?.p50"
             :currency="getCurrency()"
             variant="tile"
@@ -336,12 +337,12 @@
           <div class="p-4 rounded-lg border border-outline-gray-1 bg-surface-gray-1">
             <div class="flex items-center gap-2 mb-2">
               <Shield class="h-5 w-5 text-ink-gray-5" />
-              <span class="font-semibold text-ink-gray-9">Value at Risk (5%)</span>
+              <span class="font-semibold text-ink-gray-9">Downside Case (5th percentile)</span>
             </div>
             <p class="text-3xl font-bold text-ink-gray-9">
               {{ formatCurrency(data?.monte_carlo?.percentiles?.p5 || 0) }}
             </p>
-            <p class="text-sm text-ink-gray-6 mt-2">Worst expected outcome at 95% confidence</p>
+            <p class="text-sm text-ink-gray-6 mt-2">After-tax profit that 95% of simulated outcomes beat</p>
           </div>
 
           <!-- Probability of beating the baseline -->
@@ -353,7 +354,7 @@
             <p class="text-3xl font-bold text-ink-gray-9">
               {{ formatPercent(data?.monte_carlo?.probability_exceed_base) }}
             </p>
-            <p class="text-sm text-ink-gray-6 mt-2">Probability of exceeding baseline net profit</p>
+            <p class="text-sm text-ink-gray-6 mt-2">Probability of exceeding the baseline net profit after tax</p>
           </div>
         </div>
       </div>
@@ -451,7 +452,7 @@ const scenarioStrip = computed<StatItem[]>(() => {
     { label: 'Loss Probability', percent: mc?.probability_of_loss ?? null, sublabel: mc?.simulations == null ? undefined : `${mc.simulations.toLocaleString()} simulations` },
     { label: 'Safety Margin', percent: be?.margin_of_safety ?? null, sublabel: 'Revenue above break-even' },
     { label: 'Break-Even Revenue', amount: be?.revenue ?? null, sublabel: be?.fixed_cost_basis === 'assumed_40pct' ? 'Assumes 40% of expenses are fixed' : undefined },
-    { label: 'Median Net Profit', amount: mc?.percentiles?.p50 ?? null, sublabel: 'Monte Carlo P50' },
+    { label: 'Median Net Profit', amount: mc?.percentiles?.p50 ?? null, sublabel: 'Monte Carlo P50, after tax' },
   ]
 })
 

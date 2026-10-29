@@ -108,7 +108,7 @@ def _scenarios(p: dict):
     pc = mc.get("percentiles") or {}
     details = []
     if pc.get("p5") is not None and pc.get("p50") is not None and pc.get("p95") is not None:
-        details.append(detail("Outcome range", f"Net income runs from {money(pc['p5'], cur)} (5th percentile) through {money(pc['p50'], cur)} (median) to {money(pc['p95'], cur)} (95th percentile)."))
+        details.append(detail("Outcome range", f"After-tax net income runs from {money(pc['p5'], cur)} (5th percentile) through {money(pc['p50'], cur)} (median) to {money(pc['p95'], cur)} (95th percentile)."))
     if mc.get("revenue_volatility") is not None:
         details.append(detail("Volatility", f"Revenue {mc['revenue_volatility']:g}%, expenses {mc.get('expense_volatility'):g}%."))
     actions = []

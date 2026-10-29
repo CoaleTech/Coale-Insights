@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Monte Carlo profit was after tax but labelled plain "Net Profit"
+
+The simulation reports after-tax profit (the tab's median ₹2.57M is the YTD ₹3.47M less the configured tax), yet the cards, KPI strip and brief called it "Net Profit" next to the pre-tax Overview and sensitivity-matrix figures, so the numbers looked inconsistent. Labels now say "after tax" and the tab states the basis. The "Value at Risk (5%)" tile, which is the 5th-percentile profit (still a profit, not a loss amount), is now "Downside Case (5th percentile)".
+
 ### Fixed — Cash Forecast runway read "0 days" / "-" for opposite situations
 
 The forecast returns runway `0` when cash is already at or below zero and `None` when it stays positive for all 90 days. The Cash Forecast tile showed "0 days" for the first and "-" for the second; the brief printed "runs out of cash in 0 days" and turned a `None` pessimistic runway into "0 days" too. Now: "Already ≤ 0" and "90+ days" on the tile, and "is already at or below zero" / "stays positive for 90 days" in the brief (shown whenever either scenario is affected).
