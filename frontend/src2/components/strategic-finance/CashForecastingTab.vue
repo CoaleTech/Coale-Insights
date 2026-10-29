@@ -238,8 +238,9 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
 
 const formatCompact = (value: number | null | undefined) => formatCount(value, { compact: true })
 
+// null = the balance stays positive for the whole 90-day forecast; 0 = already at or below zero.
 const runwayLabel = (days: number | null | undefined) => {
-  if (days === null || days === undefined) return NO_VALUE
-  return days >= 90 ? '90+ days' : `${days} ${days === 1 ? 'day' : 'days'}`
+  if (days === null || days === undefined) return '90+ days'
+  return days === 0 ? 'Already ≤ 0' : `${days} ${days === 1 ? 'day' : 'days'}`
 }
 </script>

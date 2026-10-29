@@ -59,6 +59,15 @@ class TestBriefs(unittest.TestCase):
         self.p["cash_forecast"]["end_of_period"]["base"] = 10
         self.assertEqual(briefs(self.p)["cashforecast"]["severity"], "medium")
 
+    def test_cashforecast_runway_wording(self):
+        def runway(base, pess):
+            self.p["cash_forecast"].update(base_runway_days=base, pessimistic_runway_days=pess)
+            return next(d["text"] for d in briefs(self.p)["cashforecast"]["details"] if d["label"] == "Runway")
+
+        self.assertEqual(runway(0, 0), "Base case is already at or below zero; pessimistic case is already at or below zero.")
+        self.assertEqual(runway(None, 12), "Base case stays positive for 90 days; pessimistic case runs out in 12 days.")
+        self.assertEqual(runway(40, None), "Base case runs out in 40 days; pessimistic case stays positive for 90 days.")
+
     def test_cashflow13_reads_the_weekly_model(self):
         b = self.b["cashflow13"]
         self.assertIn("opens at ₹683,637 and ends at ₹16,588,177", b["headline"])

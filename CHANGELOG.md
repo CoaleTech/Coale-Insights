@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Cash Forecast runway read "0 days" / "-" for opposite situations
+
+The forecast returns runway `0` when cash is already at or below zero and `None` when it stays positive for all 90 days. The Cash Forecast tile showed "0 days" for the first and "-" for the second; the brief printed "runs out of cash in 0 days" and turned a `None` pessimistic runway into "0 days" too. Now: "Already ≤ 0" and "90+ days" on the tile, and "is already at or below zero" / "stays positive for 90 days" in the brief (shown whenever either scenario is affected).
+
 ### Fixed — Overview loss-month list was ambiguous on long windows
 
 Under Last 24 Months / All Time the hero hint listed loss months by name only ("Dec, Feb, Mar … Dec, Jan, Mar"), so a month appearing in two years was indistinguishable. Windows longer than 12 months now show "Mar 25"; shorter ones keep the compact month name.

@@ -213,8 +213,13 @@ def _cashforecast(p: dict):
     )
     sev = "high" if end < 0 else "medium" if pess is not None and pess < 0 else "low"
     details = [detail("90-day scenarios", f"Base {money(end, cur)}, optimistic {money(eop.get('optimistic'), cur)}, pessimistic {money(pess, cur)}.")]
-    if f.get("base_runway_days") is not None:
-        details.append(detail("Runway", f"Base case runs out of cash in {plural(f['base_runway_days'], 'day')}; pessimistic in {plural(f.get('pessimistic_runway_days') or 0, 'day')}."))
+    base_d, pess_d = f.get("base_runway_days"), f.get("pessimistic_runway_days")
+    if base_d is not None or pess_d is not None:
+        # None = balance stays positive for the whole forecast; 0 = already at or below zero.
+        def _runway(d):
+            return "stays positive for 90 days" if d is None else "is already at or below zero" if d == 0 else f"runs out in {plural(d, 'day')}"
+
+        details.append(detail("Runway", f"Base case {_runway(base_d)}; pessimistic case {_runway(pess_d)}."))
     ending = ((p.get("thirteen_week_forecast") or {}).get("summary") or {}).get("ending_cash")
     if ending is not None:
         details.append(detail("13-week model", f"Ends at {money(ending, cur)}, built from open invoices by due date rather than a trend; see the 13-Week Cash Flow tab."))
