@@ -77,7 +77,7 @@ def _capital(p: dict):
     if c.get("ytd_capex") is not None:
         text_c = f"Capex this year is {money(c['ytd_capex'], cur)}"
         if c.get("prior_year_capex") is not None:
-            text_c += f" against {money(c['prior_year_capex'], cur)} the year before"
+            text_c += f" against {money(c['prior_year_capex'], cur)} over the same period last year"
             if c.get("capex_change_pct") is not None:
                 text_c += f" ({c['capex_change_pct']:g}%)"
         details.append(detail("Capex", text_c + "."))

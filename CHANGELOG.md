@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Capital Planning compares year-to-date capex with the same period last year
+
+The Capex card set 1 Apr–29 Oct (₹101,392) against the whole prior financial year (₹841,084) and printed "↓87.9% vs prior year": seven months against twelve. `analyze_capital_planning` now takes the prior figure over the same stretch of the prior year (1 Apr 2025–29 Oct 2025 = ₹537,870, equal to the Fixed Asset ledger debits), so the change reads −81.1%. The card is relabelled "Same Period Last Year" and the brief says "over the same period last year" (`analysis.py`, `CapitalPlanningTab.vue`, `tab_briefs/finance_planning.py`).
+
 ### Fixed — 13-week cash flow labelled every week one week late
 
 `generate_thirteen_week_forecast` looped `range(14)` for weeks −1…12 but stored the loop index 0…13 as `week_number`, so `get_week_label` (which expects −1 = last week, 0 = this week) called the week starting 19 Oct "This Week" and the week actually containing today (26 Oct, flagged current) "Next Week"; the tab's `week_number >= 0` filter then also kept last week, showing 14 columns. The loop now runs `range(-1, 13)`, so labels, the current-week highlight and the 13-column table (current week + 12) line up; balances and totals are unchanged. `minimum_balance_week` stays the 1-based position in the window (this week = Week 1), and the header hint now says "next 12 weeks" (`strategic_finance/forecast.py`, `ThirteenWeekCashFlowTab.vue`).

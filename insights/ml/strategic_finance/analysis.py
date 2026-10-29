@@ -471,15 +471,17 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     )
     ytd_capex = float(ytd_capex_rows[0].amount or 0) if ytd_capex_rows else 0.0
 
-    # Prior year CAPEX for comparison
+    # Prior year CAPEX for comparison: the same stretch of the prior year, since
+    # this year's figure is year-to-date (7 months against 12 read as a -88% drop).
     prior_fy_start = add_months(fy_start, -12)
+    prior_end = add_months(today_str, -12)
     prior_capex_rows = (
         frappe.qb.from_(Asset)
         .select(Coalesce(Sum(Asset.net_purchase_amount), 0).as_("amount"))
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.purchase_date >= prior_fy_start)
-        .where(Asset.purchase_date < fy_start)
+        .where(Asset.purchase_date <= prior_end)
         .run(as_dict=True)
     )
     prior_capex = float(prior_capex_rows[0].amount or 0) if prior_capex_rows else 0.0
@@ -502,7 +504,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
             Coalesce(Sum(Case().when(fa, net_dr).else_(0)), 0).as_("gross"),
             Coalesce(Sum(Case().when(ad, -net_dr).else_(0)), 0).as_("accdep"),
             Coalesce(Sum(Case().when(fa & (gle.posting_date >= fy_start), gle.debit).else_(0)), 0).as_("ytd"),
-            Coalesce(Sum(Case().when(fa & (gle.posting_date >= prior_fy_start) & (gle.posting_date < fy_start), gle.debit).else_(0)), 0).as_("prior"),
+            Coalesce(Sum(Case().when(fa & (gle.posting_date >= prior_fy_start) & (gle.posting_date <= prior_end), gle.debit).else_(0)), 0).as_("prior"),
         )
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)

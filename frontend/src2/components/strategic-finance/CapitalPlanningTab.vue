@@ -34,11 +34,11 @@
         :amount="data?.ytd_capex"
         :currency="currency"
         :delta="capexDelta"
-        sublabel="vs prior year"
+        sublabel="vs same period last year"
         :loading="!data"
       />
       <KpiCard
-        label="Prior Year CAPEX"
+        label="Same Period Last Year"
         :amount="data?.prior_year_capex"
         :currency="currency"
         :loading="!data"
