@@ -131,7 +131,7 @@ def _forex(p: dict):
     cur = p.get("base_currency")
     trend = fx.get("realized_forex_trend") or []
     realised = sum(_f(r.get("forex_gain")) - _f(r.get("forex_loss")) for r in trend)
-    tail = f" Realised forex nets {money(realised, cur)} across {plural(len(trend), 'month')} with entries." if trend else ""
+    tail = f" Realised forex nets {money(realised, cur)} over the last 12 months ({plural(len(trend), 'month')} with entries)." if trend else ""
     rows = fx.get("exposure_summary") or []
     if not rows:
         return brief(

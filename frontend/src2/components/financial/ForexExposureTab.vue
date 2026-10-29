@@ -141,7 +141,7 @@
 
 		<!-- Realised forex gain / loss, from settled foreign currency entries -->
 		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader variant="caption" title="Realised Forex Gain / Loss" :level="3" />
+			<SectionHeader variant="caption" title="Realised Forex Gain / Loss · Last 12 Months" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full" v-if="data.realized_forex_trend?.length">
 					<thead>

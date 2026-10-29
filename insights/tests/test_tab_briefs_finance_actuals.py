@@ -46,7 +46,7 @@ class TestBriefs(unittest.TestCase):
         b = self.b["forex"]
         self.assertEqual(b["severity"], "none")
         self.assertIn("No foreign currency exposure", b["headline"])
-        self.assertIn("Realised forex nets ₹22,873 across 3 months", b["headline"])
+        self.assertIn("Realised forex nets ₹22,873 over the last 12 months (3 months with entries)", b["headline"])
 
     def test_forex_flags_at_risk_foreign_invoices(self):
         self.p["forex"]["exposure_summary"] = [{"currency": "USD"}]

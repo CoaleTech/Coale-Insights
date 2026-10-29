@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Realised Forex table ignored the date filter without saying so
+
+With a custom range of Apr–Jun 2026 the Forex tab still listed Dec 25 and Jan 26. The query is a fixed trailing 12 months (like the other point-in-time tabs). The section header now reads "Realised Forex Gain / Loss · Last 12 Months" and the brief says "over the last 12 months (3 months with entries)" instead of "across 3 months".
+
 ### Fixed — Overview profit chart subtitle mixed two scopes without saying so
 
 Under "Monthly Net Profit · Oct 25 – Sep 26" the subtitle read "YTD ₹3.5M profit on ₹80.1M revenue · 3 loss months: Dec, Jan, Mar". The first figure is fiscal year to date; the loss months come from the 12 bars. It now reads "Fiscal YTD …" and "… loss months in the chart: …".
