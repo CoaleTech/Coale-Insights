@@ -26,7 +26,7 @@
       </div>
     </dl>
     <div v-if="$slots.default" class="text-sm text-ink-gray-7"><slot /></div>
-    <p v-if="asOfText" class="tnum text-xs text-ink-gray-6">As of {{ asOfText }}</p>
+    <p v-if="asOfText" class="tnum text-xs text-ink-gray-7">As of {{ asOfText }}</p>
   </section>
 </template>
 

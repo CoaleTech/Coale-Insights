@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — two small labels fell below 4.5:1 on tinted tiles in dark theme
+
+The Overview health-score label ("Efficiency" on an amber/green tile) and the shared `TabBrief` "As of …" stamp used `text-ink-gray-6`, which measured 4.20:1 on severity-tinted surfaces in dark theme. Both now use `text-ink-gray-7`. A contrast sweep of 15 Finance tabs in both themes then showed no remaining failures except the known frappe-ui amber/green `Badge` palette and blue-3 links (4.28:1, no darker Espresso shade). The disabled Budget Variance "Export" button is exempt.
+
 ### Fixed — returning to a dashboard by the sidebar left the URL behind its tab
 
 Dashboards are kept alive, so Finance → Tax → Finance showed the Ratios tab under a bare `/financial-intelligence` URL; a reload then jumped to Overview. `useQueryParam` now writes the kept state back into the URL on reactivation, and a link that carries `?tab=` / `?range=` still wins.

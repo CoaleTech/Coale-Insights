@@ -314,7 +314,7 @@
 							:class="score.bgClass"
 						>
 							<p class="text-xl font-bold text-ink-gray-9">{{ score.value }}</p>
-							<p class="text-xs text-ink-gray-6 mt-0.5">{{ score.label }}</p>
+							<p class="text-xs text-ink-gray-7 mt-0.5">{{ score.label }}</p>
 							<p class="text-xs font-medium mt-0.5" :class="score.textClass">{{ score.status }}</p>
 						</div>
 					</div>
