@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Overview profit chart subtitle mixed two scopes without saying so
+
+Under "Monthly Net Profit · Oct 25 – Sep 26" the subtitle read "YTD ₹3.5M profit on ₹80.1M revenue · 3 loss months: Dec, Jan, Mar". The first figure is fiscal year to date; the loss months come from the 12 bars. It now reads "Fiscal YTD …" and "… loss months in the chart: …".
+
 ### Fixed — "Cash positive" runway card sat beside a negative Free Cash
 
 With liquid cash at −₹246,351, the Cash Runway card (Overview and Cash tab) read "Cash positive" because the ledger net movement is +₹86,963/mo. It now reads "Not burning cash", which is what the figure means.

@@ -404,11 +404,11 @@ const heroHint = computed((): string => {
 	const profit = props.data.ytd_profit
 	const margin = props.data.net_margin
 	if (rev != null && profit != null)
-		parts.push(`YTD ${formatMoney(profit, props.currency, { compact: true })} profit on ${formatMoney(rev, props.currency, { compact: true })} revenue`)
+		parts.push(`Fiscal YTD ${formatMoney(profit, props.currency, { compact: true })} profit on ${formatMoney(rev, props.currency, { compact: true })} revenue`)
 	if (margin != null)
 		parts.push(`${margin.toFixed(1)}% margin`)
 	if (lossMonths.value.length)
-		parts.push(`${lossMonths.value.length} loss month${lossMonths.value.length > 1 ? 's' : ''}: ${lossMonths.value.join(', ')}`)
+		parts.push(`${lossMonths.value.length} loss month${lossMonths.value.length > 1 ? 's' : ''} in the chart: ${lossMonths.value.join(', ')}`)
 	return parts.join(' · ')
 })
 
