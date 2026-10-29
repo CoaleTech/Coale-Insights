@@ -422,7 +422,7 @@ const depositConfig = computed(() => {
 		xAxis: { key: 'period', type: 'category' as const },
 		yAxis: { title: props.currency, yMin: 0 },
 		// A line axis that does not start at zero overstates every swing on it.
-		y2Axis: { title: '', yMin: 0 },
+		y2Axis: { title: 'Balance', yMin: 0 },
 		series: [
 			{ name: 'Placed', type: 'bar' as const, color: themeColor('--app-pos-fill'), axis: 'y' as const },
 			{ name: 'Released', type: 'bar' as const, color: themeColor('--app-neg-fill'), axis: 'y' as const },
@@ -450,7 +450,7 @@ const movementConfig = computed(() => {
 		})),
 		xAxis: { key: 'period', type: 'category' as const },
 		yAxis: { title: props.currency, yMin: 0 },
-		y2Axis: { title: '', yMin: 0 },
+		y2Axis: { title: 'Balance', yMin: 0 },
 		series: [
 			{ name: 'In', type: 'bar' as const, color: themeColor('--app-pos-fill'), axis: 'y' as const },
 			{ name: 'Out', type: 'bar' as const, color: themeColor('--app-neg-fill'), axis: 'y' as const },

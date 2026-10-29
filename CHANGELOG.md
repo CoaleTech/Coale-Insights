@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Cash tab charts showed a bare "↑" on the right-hand axis
+
+`CashFlowTab.vue`: the fixed-deposit and cash in/out charts gave their right (running balance) axis an empty title, so frappe-ui drew an orphan " ↑" with no unit. Both now read "Balance ↑", matching the 13-Week Cash Flow chart.
+
 ### Fixed — The AI assistant panel ignored Escape and dropped focus when closed
 
 `DashboardChatButton.vue`: Escape did nothing while the panel was open, and closing it (the panel unmounts) left focus on `<body>`, so a keyboard user restarted from the top of the page. Escape and the panel's own Close button now go through `closeChat()`, which closes the panel and returns focus to the floating toggle.
