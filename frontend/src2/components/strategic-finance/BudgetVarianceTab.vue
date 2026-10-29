@@ -10,7 +10,7 @@
         </p>
       </div>
       <div class="flex items-center space-x-3">
-        <Button @click="exportReport" variant="subtle" theme="gray" size="sm">
+        <Button @click="exportReport" variant="subtle" theme="gray" size="sm" :disabled="!hasData || data?.has_budget === false || !!error || isPermissionError">
           <template #prefix><Download class="w-4 h-4" /></template>
           Export
         </Button>

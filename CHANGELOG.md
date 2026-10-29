@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Budget Variance "Export" downloaded an empty report when there was no Budget
+
+With no submitted Budget (as on this site), Export still saved `budget_variance_report_<date>.json` holding only a timestamp, an empty summary and empty lists. The button is now disabled whenever the tab shows an empty, error or permission state; with a Budget it exports as before. Checked in the browser by capturing the blob Export builds.
+
 ### Fixed — Budget Variance compared spend to date with the full-year budget
 
 Seven months into the year, a budget that was exactly on pace read −42% "critical", raised a "High Budget Variance" alert, graded budget accuracy D and recommended "Improve Budget Planning Process". Checked with a throwaway submitted Budget on Salary (rolled back; budget ₹944,182, actual ₹472,091): the summary, the account and department variances and the revenue budget now use the budget to date (₹545,697, `budget_end` = today clipped to the fiscal year; a future fiscal year keeps the full year). Overall Variance −50.0% "critical" → −13.5% "acceptable"; the alert and the recommendation are gone; accuracy 50% grade D → 86.5% grade A. At fiscal year end nothing changes. The "Budget Utilization" card is now "Budget Utilization (to date)" and the brief says "Budget to date of …". The site has no submitted Budget, so the Budget Variance tab still shows its empty state.
