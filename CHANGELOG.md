@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Refresh waits for the recomputed dashboard instead of looking dead
+
+`cached_run` deliberately keeps serving the cached payload while a background job recomputes, and the page never asked again, so the header Refresh spinner ended in ~150 ms with the old numbers still shown (the new payload only appeared after a manual page reload). The cached payload is now flagged `refreshing` while a compute is in flight (`api/ml/utils.py::_flag_recompute`), `readInsightsEnvelope` decodes it, and both `useIntelligenceDashboard` and the Planning feed in `FinancialIntelligence.vue` keep the Refresh spinner on and re-check every 4 s (without `refresh`, so nothing re-queues) until the flag clears. Measured live on Finance: spinner held ~55 s until the compute finished, then re-enabled. Covers every dashboard on the shared composable. Test: `test_cached_run_refresh_flag`.
+
 ### Fixed — Planning expense breakdown is a share of all expenses, not of the top ten
 
 `get_expense_breakdown` (Executive Summary expense chart) took the ten largest accounts and computed every share, and the chart's total, from those ten alone: COGS read 96.5% and the total ₹76.3M against real expenses of ₹76,679,743 (COGS is 96.0%). It now folds everything past the ten into an "Other" row (₹390,772) using signed balances, so the rows sum to the P&L expense total exactly and the shares to 100.0% (`strategic_finance/data.py`). Four accounts carry a net credit; with absolute values they overstated the total by ₹68,837.

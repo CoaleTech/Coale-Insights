@@ -648,6 +648,8 @@ const cashKpiSublabel = computed(() => {
 // not a failure and must not be rendered as one.
 const WARMING_POLL_MS = 4000
 let strategicPollTimer: ReturnType<typeof setTimeout> | null = null
+// A Refresh was answered with the cached payload while a newer one computes.
+let strategicWantsFresh = false
 const strategicLoading = ref(false)
 const strategicWarming = ref(false)
 const strategicData = ref<Record<string, unknown> | null>(null)
@@ -664,9 +666,10 @@ const strategicResource = createResource({
 	url: 'insights.api.ml.strategic_finance_intelligence',
 	auto: false,
 	onSuccess(response: FrappeResponse) {
-		const { data, error: err, warming } = readInsightsEnvelope(response)
+		const { data, error: err, warming, refreshing: stale } = readInsightsEnvelope(response)
 		strategicWarming.value = warming
 		if (err) {
+			strategicWantsFresh = false
 			strategicError.value = err
 			strategicLoading.value = false
 			return
@@ -681,8 +684,14 @@ const strategicResource = createResource({
 		strategicData.value = (data as Record<string, unknown> | null) ?? null
 		strategicError.value = null
 		strategicLoading.value = false
+		// Plain re-check (no `refresh`, which would re-queue) until the new payload lands.
+		strategicWantsFresh = strategicWantsFresh && Boolean(stale)
+		if (strategicWantsFresh) {
+			strategicPollTimer = setTimeout(() => ignoreRejection(strategicResource.submit({ refresh: false })), WARMING_POLL_MS)
+		}
 	},
 	onError(err: unknown) {
+		strategicWantsFresh = false
 		console.error('Strategic Finance Intelligence error:', err)
 		const decoded = readFrappeError(err, 'Planning data could not be loaded')
 		strategicWarming.value = false
@@ -703,6 +712,7 @@ const fetchStrategicData = (refresh = false) => {
 	}
 	strategicLoading.value = true
 	strategicPermissionError.value = false
+	if (refresh) strategicWantsFresh = true
 	ignoreRejection(strategicResource.submit({ refresh }))
 }
 

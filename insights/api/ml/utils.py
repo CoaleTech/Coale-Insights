@@ -268,7 +268,7 @@ def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = CACHE_TTL) -> 
     # at, and -- because every poll would carry `refresh` again -- would never
     # stop asking for a fresh compute.
     if cached is not None and not _refresh_requested():
-        return cached
+        return _flag_recompute(cached, key)
 
     if _refresh_requested():
         # Someone who can see the error and asks anyway gets a fresh retry
@@ -277,8 +277,17 @@ def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = CACHE_TTL) -> 
 
     failure = _ensure_compute(key)
     if cached is not None:
-        return cached
+        return _flag_recompute(cached, key)
     return error(failure) if failure else {"status": "warming"}
+
+
+def _flag_recompute(cached: dict, key: str) -> dict:
+    """Mark a cached payload `refreshing` while a newer one is being computed, so a
+    Refresh click can wait for it instead of leaving the old numbers on screen."""
+    attempt = frappe.cache.hget(_ATTEMPT_KEY, key)
+    if isinstance(cached, dict) and isinstance(attempt, dict) and _attempt_in_flight(attempt):
+        return {**cached, "refreshing": True}
+    return cached
 
 
 def is_cached(cache_key: str) -> bool:
