@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Ratios clamped by the server showed as exact figures
+
+Working Capital Turnover read "20.00x" in two quarters of the Ratios table. That is the server's ±20 clamp (`analysis.py`, applied when working capital is near zero), not a measured value. Working Capital Turnover and Interest Coverage (clamp ±20) and DSCR (±10) now read ">20.00x", "<-20.00x" and ">10.00x" in the quarterly table, the summary cards and the benchmark list; unclamped values print as before.
+
 ### Fixed — Budget Variance "Export" downloaded an empty report when there was no Budget
 
 With no submitted Budget (as on this site), Export still saved `budget_variance_report_<date>.json` holding only a timestamp, an empty summary and empty lists. The button is now disabled whenever the tab shows an empty, error or permission state; with a Budget it exports as before. Checked in the browser by capturing the blob Export builds.

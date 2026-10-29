@@ -153,7 +153,7 @@
                 :key="'wt-' + quarter.period"
                 class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
               >
-                {{ formatMultiple(quarter.working_capital_turnover) }}
+                {{ formatMultiple(quarter.working_capital_turnover, 20) }}
               </td>
             </tr>
             <tr class="hover:bg-surface-gray-1">
@@ -204,7 +204,7 @@
                 :key="'ic-' + quarter.period"
                 class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
               >
-                {{ formatMultiple(quarter.interest_coverage) }}
+                {{ formatMultiple(quarter.interest_coverage, 20) }}
               </td>
             </tr>
           </tbody>
@@ -284,9 +284,12 @@ const formatRatio = (value: number | null | undefined) => {
 }
 
 /** Ratio with an 'x' multiple suffix (e.g. "2.4x"), omitted -- not appended
- * to the "-" placeholder -- when the server sent no meaningful value. */
-const formatMultiple = (value: number | null | undefined) => {
+ * to the "-" placeholder -- when the server sent no meaningful value. `cap` is the
+ * server's clamp for the ratio (analysis.py): a value at the clamp is "more than"
+ * that, not the real figure, so it reads ">20.00x" rather than "20.00x". */
+const formatMultiple = (value: number | null | undefined, cap = Infinity) => {
   if (value === null || value === undefined) return NO_VALUE
+  if (Math.abs(value) >= cap) return `${value > 0 ? '>' : '<-'}${cap.toFixed(2)}x`
   return `${value.toFixed(2)}x`
 }
 
@@ -343,7 +346,7 @@ const ratioGroups = computed(() => {
         { name: 'Asset Turnover', value: formatMultiple(c.asset_turnover), description: 'Revenue / Total Assets (annualised)' },
         {
           name: 'Working Capital Turnover',
-          value: formatMultiple(c.working_capital_turnover),
+          value: formatMultiple(c.working_capital_turnover, 20),
           description: 'Revenue / Working Capital (annualised)',
         },
       ],
@@ -353,8 +356,8 @@ const ratioGroups = computed(() => {
       icon: ShieldCheck,
       rows: [
         { name: 'Debt to Equity', value: formatRatio(c.debt_to_equity), description: 'Total Debt / Shareholders Equity' },
-        { name: 'Interest Coverage', value: formatMultiple(c.interest_coverage), description: 'EBIT / Interest Expense' },
-        { name: 'DSCR', value: formatMultiple(c.dscr), description: 'EBITDA / (Interest + Principal Repaid)' },
+        { name: 'Interest Coverage', value: formatMultiple(c.interest_coverage, 20), description: 'EBIT / Interest Expense' },
+        { name: 'DSCR', value: formatMultiple(c.dscr, 10), description: 'EBITDA / (Interest + Principal Repaid)' },
       ],
     },
   ]
@@ -365,7 +368,11 @@ const yearlyRatios = new Set(['ROE', 'ROA', 'ROCE', 'Asset Turnover', 'Working C
 const isMultipleCard = (name: string) =>
   name.includes('Turnover') || name.includes('Coverage') || name === 'DSCR'
 const cardFormatter = (name: string) =>
-  isPercentCard(name) ? formatPercent : isMultipleCard(name) ? formatMultiple : formatRatio
+  isPercentCard(name)
+    ? formatPercent
+    : isMultipleCard(name)
+      ? (v: number | null | undefined) => formatMultiple(v, name === 'DSCR' ? 10 : name === 'Asset Turnover' ? Infinity : 20)
+      : formatRatio
 
 const ratioCards = computed(() => {
   if (!props.data?.ratio_cards) return []
