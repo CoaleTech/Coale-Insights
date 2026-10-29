@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance Overview headings: "Key Positions" and "Needs Attention" were one level too deep
+
+They were `<h4>` cards sitting beside the `<h3>` chart card, so the outline read H1 › H3 › H4 › H4 › H3 and screen-reader heading navigation nested the right rail under the chart. Both are now `<h3>`, matching "Needs Attention" on the Revenue and Procurement dashboards. Markup only, no visual change (`level` picks the element, not the size).
+
 ### Fixed — Finance drill-down endpoints crashed on a bad `page` or non-object `filters`
 
 `get_finance_detail` and `get_strategic_detail` did `int(f.pop("page", 1))`, so `{"page": "abc"}` raised a ValueError, `{"page": 0}` or a negative page produced a negative SQL offset, and a `filters` value that is a JSON list or string raised an AttributeError. The dashboard never sends these, but the endpoints are whitelisted. `page` now goes through `cint` and is clamped to 1 or more; a non-object `filters` gets a clean "filters must be an object" validation error. Checked against the live data: pages 0, −3, "abc" and null return page 1 (first row SI2627780 for outstanding AR); page 2 returns the next 50. New test `test_drill_down_rejects_non_object_filters` (13 of 13 pass).

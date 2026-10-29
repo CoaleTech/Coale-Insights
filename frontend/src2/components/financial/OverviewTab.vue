@@ -78,7 +78,7 @@
 
 				<!-- KEY POSITIONS -->
 				<div class="bg-surface-white rounded-lg border border-outline-gray-1 p-5 space-y-3">
-					<SectionHeader variant="caption" title="Key Positions" :level="4" />
+					<SectionHeader variant="caption" title="Key Positions" :level="3" />
 
 					<!-- Cash -->
 					<div class="flex items-start justify-between gap-2 py-2 border-b border-outline-gray-1">
@@ -161,7 +161,7 @@
 					v-if="attentionItems.length"
 					class="bg-surface-white rounded-lg border border-outline-gray-1 p-5 space-y-4"
 				>
-					<SectionHeader variant="caption" title="Needs Attention" :level="4" />
+					<SectionHeader variant="caption" title="Needs Attention" :level="3" />
 					<div
 						v-for="item in attentionItems"
 						:key="item.title"
