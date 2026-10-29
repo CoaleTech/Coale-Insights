@@ -45,8 +45,10 @@ watch(
 	},
 )
 
+// ISO dates compare lexicographically; an inverted range would otherwise reach
+// the server, which silently falls back to the default 12 months.
 watch([customStart, customEnd], ([start, end]) => {
-	if (customMode.value && start && end) {
+	if (customMode.value && start && end && start <= end) {
 		emit('update:modelValue', encodeCustomRange({ start, end }))
 	}
 })
