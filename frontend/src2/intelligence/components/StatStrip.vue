@@ -17,7 +17,7 @@
         <span aria-hidden="true">{{ display(item) }}</span>
         <span class="sr-only">{{ exact(item) }}</span>
       </dd>
-      <dd v-if="item.sublabel" class="truncate text-xs text-ink-gray-6">{{ item.sublabel }}</dd>
+      <dd v-if="item.sublabel" class="break-words text-xs text-ink-gray-6">{{ item.sublabel }}</dd>
     </div>
   </dl>
 </template>

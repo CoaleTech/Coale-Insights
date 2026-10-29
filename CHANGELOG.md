@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Stat strip sublabels were cut off with an ellipsis at larger text sizes
+
+At 200% text size the Scenario Analysis stat "Break-Even Revenue" showed "Assumes 40% of expenses ar…" (205 px of text in 173 px) with no tooltip, hiding the warning that the fixed-cost split is an assumption. `StatStrip.vue` sublabels now wrap (`break-words`), as `KpiCard` sublabels already do. The value line stays truncated by design (compact figure plus a full `sr-only` and `title` value). At 24 px and 32 px root font size no page-level horizontal scroll appears on any of the 15 tabs except a 16 px overflow on Cash at 32 px, where the text value "Not burning cash" in a Cash Runway card is truncated.
+
 ### Fixed — Finance small text below WCAG AA contrast (gray-5 and red-3 tokens)
 
 A computed contrast scan of all 15 Finance tabs (text colour against the composited background, 4.5:1 for normal text) found `text-ink-gray-5` at 4.17:1 (light) / 3.98:1 (dark), including frappe-ui's own "Min Cash Threshold" FormControl label, the Cash "Maturity date…" note and the "(2)" count on Capital Planning, plus `text-ink-red-3` at 4.42:1 on the Payables "Payments due within 7 days" line. `index.css` gets an opt-in `.ink-fix` wrapper rule (same pattern as `.list-ink-fix`) that steps both down one shade (gray-6, red-4), and the Finance page root carries it. Re-scan: those items are gone in both themes. Not fixed: `ink-blue-3` action lines and links (3.97–4.28:1) have no darker Espresso shade (`text-ink-blue-4` fails the lint guard), the library's amber/green Badges (2.9–3.7:1), and gray-6 at 4.20:1 on tinted dark cards (the "As of…" line, Efficiency label).
