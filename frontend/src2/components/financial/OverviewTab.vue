@@ -388,7 +388,7 @@ const windowLabel = computed(() => {
 	if (!trend.value.length) return ''
 	const first = trend.value[0].period
 	const last  = trend.value[trend.value.length - 1].period
-	return `${formatPeriod(first)} – ${formatPeriod(last)}`
+	return first === last ? formatPeriod(first) : `${formatPeriod(first)} – ${formatPeriod(last)}`
 })
 
 // A window longer than a year repeats month names, so keep the year there ("Mar 25").

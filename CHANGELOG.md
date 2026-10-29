@@ -8,7 +8,7 @@ Apr–Mar), not estimated.
 
 ### Fixed — Overview monthly chart left a dangling "·" on short date windows
 
-With a window that has no postings (e.g. Last 7 Days while the books end mid-month) the card title read "Monthly Net Profit · " and the chart said "No monthly data available" beside a fiscal-YTD hint. The title now drops the empty window label and the empty state reads "No postings in the selected date window". Figures are unchanged.
+With a window that has no postings (e.g. Last 7 Days while the books end mid-month) the card title read "Monthly Net Profit · " and the chart said "No monthly data available" beside a fiscal-YTD hint. The title now drops the empty window label and the empty state reads "No postings in the selected date window". A single-month window (Last 30 Days) read "Sep 26 – Sep 26" and now reads "Sep 26". Figures are unchanged.
 
 ### Fixed — "Monthly Collections" did not say it excludes advances
 
