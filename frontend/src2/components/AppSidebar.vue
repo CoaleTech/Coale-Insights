@@ -5,7 +5,7 @@
 	>
 		<div class="flex flex-col overflow-hidden">
 			<UserDropdown class="p-2" :isCollapsed="collapsed" />
-			<div class="flex flex-col overflow-y-auto">
+			<nav aria-label="Main" class="flex flex-col overflow-y-auto">
 				<template v-for="group in navGroups" :key="group.label">
 					<div
 						v-if="!collapsed"
@@ -24,7 +24,7 @@
 						/>
 					</template>
 				</template>
-			</div>
+			</nav>
 		</div>
 		<div>
 			<TrialBanner v-if="is_fc_site" :is-sidebar-collapsed="collapsed" />

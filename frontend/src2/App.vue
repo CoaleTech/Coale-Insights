@@ -91,13 +91,16 @@
 				<span class="text-sm font-medium text-ink-gray-8">Insights</span>
 			</div>
 
-			<RouterView v-slot="{ Component }">
-				<Suspense>
-					<KeepAlive :include="cachedViews">
-						<component :is="Component" />
-					</KeepAlive>
-				</Suspense>
-			</RouterView>
+			<!-- `contents` keeps the page's own flex sizing; this only adds the landmark. -->
+			<main class="contents">
+				<RouterView v-slot="{ Component }">
+					<Suspense>
+						<KeepAlive :include="cachedViews">
+							<component :is="Component" />
+						</KeepAlive>
+					</Suspense>
+				</RouterView>
+			</main>
 		</div>
 
 		<template>

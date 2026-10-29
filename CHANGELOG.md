@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — App shell had no `main` or `nav` landmark, and Finance had no page title
+
+Landmark scan on the Finance page: 0 `<main>`, 0 `<nav>`, so screen-reader landmark navigation had nothing to jump to, and the tab title was the static "Frappe Insights". `App.vue` now wraps the `RouterView` in `<main class="contents">` (layout unchanged: scroll width equals viewport at 1500 and 390 px) and the sidebar link list is `<nav aria-label="Main">`. `FinancialIntelligence.vue` sets `document.title = "Finance | Insights"` on activation (it is kept alive, so setup runs once) and restores the previous title on leave so the other dashboards, which set none, don't inherit it. Other intelligence dashboards still have no title of their own.
+
 ### Fixed — Finance Overview had no H2, so its outline jumped from H1 to H3
 
 Every other Finance tab opens with an `<h2>` (the brief headline); Overview has no brief, so its first heading under "Finance" was the `<h3>` "Monthly Net Profit" chart title. That title is now the `<h2>`, giving H1 › H2 › H3 × 6. Markup only, no visual change.
