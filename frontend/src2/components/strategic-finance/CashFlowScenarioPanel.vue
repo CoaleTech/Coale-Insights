@@ -167,11 +167,10 @@
           </h5>
           <Button
             variant="ghost"
-            aria-label="Close scenario detail"
+            :icon="X"
+            label="Close scenario detail"
             @click="selectedScenario = null"
-          >
-            <X class="h-4 w-4 text-ink-gray-5" />
-          </Button>
+          />
         </div>
 
         <!-- Comparison Bars -->

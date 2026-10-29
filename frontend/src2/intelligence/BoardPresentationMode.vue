@@ -103,26 +103,23 @@
               @click="previousSlide"
               variant="ghost"
               class="text-ink-white hover:bg-surface-gray-6"
-              aria-label="Previous slide"
-            >
-              <ChevronLeft class="w-5 h-5" />
-            </Button>
+              :icon="ChevronLeft"
+              label="Previous slide"
+            />
             <Button
               @click="nextSlide"
               variant="ghost"
               class="text-ink-white hover:bg-surface-gray-6"
-              aria-label="Next slide"
-            >
-              <ChevronRight class="w-5 h-5" />
-            </Button>
+              :icon="ChevronRight"
+              label="Next slide"
+            />
             <Button
               @click="exitFullscreen"
               variant="ghost"
               class="text-ink-white hover:bg-surface-gray-6"
-              aria-label="Exit fullscreen"
-            >
-              <X class="w-5 h-5" />
-            </Button>
+              :icon="X"
+              label="Exit fullscreen"
+            />
           </div>
         </div>
       </div>

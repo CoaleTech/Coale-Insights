@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, RouteLocation } from 'vue-router'
 import session from './session.ts'
+import { INTELLIGENCE_DASHBOARDS } from './helpers/dashboards'
 
 const routes = [
 	{
@@ -269,6 +270,15 @@ router.beforeEach(async (to, _, next) => {
 	}
 
 	to.path === '/login' ? next('/') : next()
+})
+
+// Intelligence dashboards are KeepAlive'd, so a title set in `setup` would run
+// once and later views would inherit it. Setting it per navigation from the
+// registry covers every dashboard in one place. Views that set their own title
+// do so in `setup`/`onMounted`, which runs after this hook and overrides it.
+router.afterEach((to) => {
+	const dashboard = INTELLIGENCE_DASHBOARDS.find((d) => d.route === to.name)
+	document.title = dashboard ? `${dashboard.label} | Insights` : 'Insights'
 })
 
 const _fetch = window.fetch

@@ -170,30 +170,27 @@
                     <Button
                       variant="ghost"
                       size="sm"
-                      aria-label="Preview report"
+                      :icon="Eye"
+                      label="Preview report"
                       @click="previewReport(report)"
                       :loading="loadingPreview === report.id"
-                    >
-                      <Eye class="w-4 h-4" />
-                    </Button>
+                    />
                     <Button
                       variant="ghost"
                       size="sm"
-                      aria-label="Download report"
+                      :icon="Download"
+                      label="Download report"
                       @click="downloadReport(report)"
                       :loading="loadingDownload === report.id"
-                    >
-                      <Download class="w-4 h-4" />
-                    </Button>
+                    />
                     <Button
                       variant="ghost"
                       size="sm"
-                      aria-label="Send report by email"
+                      :icon="Mail"
+                      label="Send report by email"
                       @click="sendReportEmail(report)"
                       :loading="loadingSend === report.id"
-                    >
-                      <Mail class="w-4 h-4" />
-                    </Button>
+                    />
                   </div>
                 </td>
               </tr>

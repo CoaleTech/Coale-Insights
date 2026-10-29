@@ -241,11 +241,10 @@ watch(customerId, () => {
         <Button
           variant="ghost"
           theme="gray"
-          aria-label="Back to customer intelligence"
+          :icon="ArrowLeft"
+          label="Back to customer intelligence"
           @click="goBack"
-        >
-          <ArrowLeft class="w-4 h-4" />
-        </Button>
+        />
         <div>
           <div class="flex items-center gap-3">
             <h1 class="text-xl font-semibold text-ink-gray-9">

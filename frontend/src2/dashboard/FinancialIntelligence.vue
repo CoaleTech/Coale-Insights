@@ -359,9 +359,10 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'FinancialIntelligence' })
-import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch, provide } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, provide } from 'vue'
 import { Button, Tabs, TabButtons, createResource, LoadingIndicator } from 'frappe-ui'
 import { useRouter } from 'vue-router'
+import { useQueryParam } from '../composables/useQueryParam'
 import { AlertTriangle, Lock } from 'lucide-vue-next'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
 import { scoreSeverity } from '../utils/status'
@@ -522,7 +523,7 @@ const usesStrategic = computed(
 		(activeGroup.value === 'planning' && !['budget', 'beOverview'].includes(activeTab.value)),
 )
 
-const dateFilter = ref('12m')
+const dateFilter = useQueryParam('range', '12m')
 const baseCurrency = ref('')
 provide('currency', baseCurrency)
 
@@ -764,17 +765,6 @@ const refreshData = () => {
 onMounted(() => {
 	fetchStrategicData(false)
 })
-// KeepAlive: setup runs once, so set the title on every (re)activation and
-// hand it back on leave; the other dashboards don't set one and would inherit it.
-let previousTitle = ''
-onActivated(() => {
-	previousTitle = document.title
-	document.title = 'Finance | Insights'
-})
-onDeactivated(() => {
-	document.title = previousTitle
-})
-
 /** A warming poll outlives the view otherwise, refetching for a dashboard
  * nobody is looking at. */
 onBeforeUnmount(() => {

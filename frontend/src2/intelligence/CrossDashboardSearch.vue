@@ -36,10 +36,10 @@
               v-if="searchQuery"
               variant="ghost"
               size="sm"
+              :icon="X"
+              label="Clear search"
               @click="clearSearch"
-            >
-              <X class="w-4 h-4" />
-            </Button>
+            />
             <Button
               variant="solid"
               size="sm"
@@ -313,12 +313,8 @@
                   </div>
                   
                   <div class="result-actions">
-                    <Button variant="ghost" size="sm" aria-label="Save to favorites" @click.stop="saveToFavorites(result)">
-                      <Star class="w-4 h-4" aria-hidden="true" />
-                    </Button>
-                    <Button variant="ghost" size="sm" aria-label="Go to result" @click="navigateToResult(result)">
-                      <ArrowRight class="w-4 h-4" aria-hidden="true" />
-                    </Button>
+                    <Button variant="ghost" size="sm" :icon="Star" label="Save to favorites" @click.stop="saveToFavorites(result)" />
+                    <Button variant="ghost" size="sm" :icon="ArrowRight" label="Go to result" @click="navigateToResult(result)" />
                   </div>
                 </div>
 
@@ -408,9 +404,7 @@
             <Clock class="w-4 h-4" />
             Search History
           </h3>
-          <Button variant="ghost" size="sm" aria-label="Close search history" @click="showSearchHistory = false">
-            <X class="w-4 h-4" aria-hidden="true" />
-          </Button>
+          <Button variant="ghost" size="sm" :icon="X" label="Close search history" @click="showSearchHistory = false" />
         </div>
         
         <div class="history-content">

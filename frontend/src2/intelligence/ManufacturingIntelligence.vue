@@ -452,7 +452,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <header class="bg-surface-white border-b px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>

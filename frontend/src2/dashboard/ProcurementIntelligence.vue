@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -841,6 +841,7 @@ import { ref, computed } from 'vue'
 import { Button, Badge, Tabs } from 'frappe-ui'
 import { RefreshCcw } from 'lucide-vue-next'
 import { useRouter } from 'vue-router'
+import { useQueryIndex, useQueryParam } from '../composables/useQueryParam'
 import {
   scoreSeverity, severityBadge, severityFill, severityAria, severityTint,
   deltaInk, deltaGlyph, prioritySeverity, type Severity,
@@ -1009,9 +1010,10 @@ const router = useRouter()
 const PROC_ENDPOINT = 'insights.api.ml.procurement.get_procurement_detail'
 const drillDown = useDrillDown()
 
-const dateFilter = ref('12m')
+const dateFilter = useQueryParam('range', '12m')
 
-const tabIndex = ref(0)
+const tabIds = ['spend', 'suppliers', 'analytics', 'pricing', 'risks', 'forecasts']
+const tabIndex = useQueryIndex('tab', tabIds)
 
 const tabs = [
   { label: 'Spend Overview', value: 'spend' },

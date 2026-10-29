@@ -16,7 +16,7 @@
     * campaign-level reporting, with a single Campaign record in existence
 -->
 <template>
-  <div class="flex h-full flex-col overflow-hidden">
+  <div class="ink-fix flex h-full flex-col overflow-hidden">
     <!-- Header -->
     <header
       class="flex flex-shrink-0 flex-col items-start gap-3 border-b border-outline-gray-1 bg-surface-white px-6 py-4 sm:flex-row sm:items-center sm:justify-between"

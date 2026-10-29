@@ -10,6 +10,7 @@ import {
 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useQueryIndex, useQueryParam } from '../composables/useQueryParam'
 import { createToast } from '../helpers/toasts'
 import {
   scoreSeverity, severityBadge, severityFill, severityAria,
@@ -34,7 +35,7 @@ const router = useRouter()
 const INV_ENDPOINT = 'insights.api.ml.inventory.get_inventory_detail'
 const drillDown = useDrillDown()
 
-const dateFilter = ref('12m')
+const dateFilter = useQueryParam('range', '12m')
 const lastUpdated = ref('')
 
 // Training state
@@ -43,7 +44,8 @@ const trainingStatus = ref('')
 const trainingSuccess = ref(false)
 
 // Tab management
-const tabIndex = ref(0)
+const tabIds = ['overview', 'turnover', 'abc-xyz', 'itemwise-be', 'aging', 'warehouses', 'procurement']
+const tabIndex = useQueryIndex('tab', tabIds)
 
 const tabDefs = [
   { label: 'Stock Overview' },
@@ -55,7 +57,6 @@ const tabDefs = [
   { label: 'Procurement' },
 ]
 
-const tabIds = ['overview', 'turnover', 'abc-xyz', 'itemwise-be', 'aging', 'warehouses', 'procurement']
 const activeTab = computed(() => tabIds[tabIndex.value] ?? 'overview')
 
 const tabBriefs = computed(() => inventoryData.value?.tab_briefs ?? {})
@@ -498,7 +499,7 @@ function handleDashboardRedirect(target: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between px-6 py-4 bg-surface-white border-b border-outline-gray-1">
       <div>

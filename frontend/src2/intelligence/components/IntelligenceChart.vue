@@ -25,7 +25,7 @@
   caller height under 300px used to leave the chart overflowing its wrapper.
 -->
 <template>
-  <div class="w-full min-h-[300px]">
+  <div class="w-full min-h-[300px]" role="img" :aria-label="label ?? summary">
     <!-- frappe-ui's ECharts applies `options` only on mount, so a theme switch needs a remount. -->
     <ECharts :key="theme" :options="options" :error="error" />
   </div>
@@ -51,6 +51,8 @@ const props = withDefaults(
     config: AxisChartConfig | DonutChartConfig
     /** Drop the chart's own legend (the caller renders an accessible one). */
     hideLegend?: boolean
+    /** Accessible name. Defaults to the series names and point count. */
+    label?: string
   }>(),
   { kind: 'axis' },
 )
@@ -109,5 +111,13 @@ const options = computed(() => {
     error.value = e instanceof Error ? e.message : 'Could not render this chart'
     return {}
   }
+})
+
+// Canvas charts expose nothing to assistive tech, so name them from the config.
+const summary = computed(() => {
+  const c = props.config as { data?: unknown[]; series?: { name?: string }[] }
+  const names = (c.series ?? []).map((s) => s.name).filter(Boolean).join(', ')
+  const kind = props.kind === 'donut' ? 'Donut chart' : 'Chart'
+  return `${kind}${names ? `: ${names}` : ''}, ${c.data?.length ?? 0} data points`
 })
 </script>

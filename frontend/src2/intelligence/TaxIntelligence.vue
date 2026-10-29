@@ -7,6 +7,7 @@ import {
 } from 'lucide-vue-next'
 import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useQueryIndex, useQueryParam } from '../composables/useQueryParam'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import { severityBadge, severityFill, scoreSeverity, deltaInk, prioritySeverity, readinessLabel, type Severity } from '../utils/status'
 import { asNumber, formatCount, formatDate, formatMoney, formatPercent as sharedPercent, NO_VALUE } from '../utils/format'
@@ -160,8 +161,8 @@ const router = useRouter()
 const drillDown = useDrillDown()
 const TAX_ENDPOINT = 'insights.api.ml.tax.get_tax_detail'
 
-const activeTabIndex = ref(0)
-const dateFilter = ref('fy')
+const activeTabIndex = useQueryIndex('tab', ['overview', 'gst', 'compliance', 'tds', 'planning', 'legal', 'customs', 'actions'])
+const dateFilter = useQueryParam('range', 'fy')
 
 const dateRangeOptions = [
   { value: '3m', label: 'Last 3 Months' },
@@ -1192,7 +1193,7 @@ const actionsStrip = computed<StatItem[]>(() => [
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between px-6 py-4 bg-surface-white border-b border-outline-gray-1">
       <div>

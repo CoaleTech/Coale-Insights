@@ -13,6 +13,7 @@ defineOptions({ name: 'RevenueCustomerIntelligence' })
 import { Button, Tabs, TabButtons } from 'frappe-ui'
 import { computed, ref } from 'vue'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
+import { useQueryParam } from '../composables/useQueryParam'
 import { useRouter } from 'vue-router'
 import { AlertTriangle, RefreshCcw, Loader2 } from 'lucide-vue-next'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
@@ -40,7 +41,7 @@ const drillDown = useDrillDown()
 // and an `allSettled` driver -- ~90 lines reproducing per-instance what
 // `useIntelligenceDashboard` already provides, and still missing the 503
 // backpressure retry it has.
-const dateFilter = ref('12m')
+const dateFilter = useQueryParam('range', '12m')
 const dateParams = computed(() => ({ date_filter: dateFilter.value }))
 
 const sales = useIntelligenceDashboard<Record<string, unknown>>({
@@ -198,7 +199,7 @@ function handleDashboardRedirect(_target: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between px-6 py-4 bg-surface-white border-b border-outline-gray-1">
       <div>

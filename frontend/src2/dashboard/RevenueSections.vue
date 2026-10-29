@@ -385,7 +385,7 @@ const marginTrendConfig = computed(() => {
     title: '',
     xAxis: { key: 'period', type: 'category' as const },
     yAxis: { title: '', yMin: 0 },
-    y2Axis: { title: '', yMin: 0 },
+    y2Axis: { title: 'Margin %', yMin: 0 },
     series: [
       { name: 'Net Sales', type: 'bar' as const, color: palette[0], axis: 'y' as const },
       { name: 'Margin %', type: 'line' as const, color: palette[1], axis: 'y2' as const, showDataPoints: true },

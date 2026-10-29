@@ -6,6 +6,29 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — accessibility, page titles and URL state across the intelligence dashboards
+
+- **Page titles:** `router.ts` sets `document.title` to `<dashboard> | Insights` after every navigation (it was the bare app title everywhere).
+- **Charts:** `IntelligenceChart` carries `role="img"` and an `aria-label` (optional `label` prop, else "Chart: <series>, N data points").
+- **Icon-only buttons:** frappe-ui's `Button` overwrites a passed `aria-label` with its `label`, so the search, scenario, customer-detail, board-presentation and executive-report icon buttons announced nothing. They now use `:icon` + `label`.
+- **Date filter:** an end date before the start date now shows "End date must be on or after the start date." (`role="alert"`).
+- **Revenue chart:** the right axis is titled "Margin %".
+- **Contrast:** the `ink-fix` class (one shade darker for `text-ink-gray-5` / `text-ink-red-3`) is on every intelligence dashboard root, not just Finance.
+- **URL state:** the active tab (`?tab=`) and date range (`?range=`) are mirrored to the URL on Finance (both groups), Revenue & Customers, Procurement, Inventory and Tax, so reload, shared links and Back/Forward restore them. Unknown ids fall back to the first tab. New `composables/useQueryParam.ts`; HR, Marketing, Risk, Executive, Manufacturing and ESG keep local state.
+
+### Fixed — Period Comparison named quarters by calendar year
+
+"Q3 2026" for a company on an April–March fiscal year is Q2 FY26-27. `scenarios._quarter_label` now emits "Q2 FY26-27" (calendar fallback when no fiscal year is configured).
+
+### Fixed — API endpoints trusted raw date, period and filter arguments
+
+- Customer, sales, procurement and inventory endpoints now pass dates through `canonical_date_filter`; HR and Marketing pass `period` through the new `canonical_period` (anything unrecognised becomes `TTM` and shares its cache entry).
+- All 14 drill-down endpoints parse `filters` and `page` through one `parse_detail_filters` (non-object `filters` is a `ValidationError`, `page` is clamped to ≥ 1) instead of per-endpoint copies.
+
+### Fixed — GL anomaly scan counted Period Closing Vouchers
+
+`gl_anomaly._count_entries` and `_rank_entries` now exclude `voucher_type = "Period Closing Voucher"`, whose year-end transfers were ranked as anomalies.
+
 ### Fixed — "Could not load …" error panels were not announced to screen readers
 
 `IntelligenceDashboardShell.vue` (every intelligence dashboard) and the Finance "Planning data could not be loaded" and "Access restricted" panels replaced the page on failure with no live region. All now carry `role="alert"`, matching the `role="status"` added to the "Preparing …" panels.

@@ -1,4 +1,5 @@
-import { computed, ref, type ComputedRef, type Ref, type WritableComputedRef } from 'vue'
+import { computed, ref, watch, type ComputedRef, type Ref, type WritableComputedRef } from 'vue'
+import { useQueryParam } from './useQueryParam'
 
 /**
  * Two-level tab navigation: a group control over a strip scoped to that group.
@@ -62,6 +63,25 @@ export function useGroupedTabs<G extends string, T extends GroupedTab<G>>(
 	})
 
 	const activeTab = computed(() => groupTabs.value[activeTabIndex.value] ?? groupTabs.value[0] ?? tabs[0])
+
+	// Selected tab lives in `?tab=<id>`; the group and per-group index follow it.
+	const tabParam = useQueryParam('tab', tabs[0].id)
+	watch(
+		tabParam,
+		(id) => {
+			const t = tabs.find((x) => x.id === id)
+			if (!t) return
+			activeGroup.value = t.group
+			indexByGroup.value[t.group] = tabs.filter((x) => x.group === t.group).indexOf(t)
+		},
+		{ immediate: true },
+	)
+	watch(
+		() => activeTab.value.id,
+		(id) => {
+			tabParam.value = id
+		},
+	)
 
 	return { activeGroup, groupTabs, tabItems, activeTabIndex, activeTab }
 }
