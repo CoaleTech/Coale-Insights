@@ -8,7 +8,7 @@ Apr–Mar), not estimated.
 
 ### Fixed — "Create a Budget in ERPNext" link was 16 px tall
 
-`FinancialIntelligence.vue` (Budget Variance empty state): the standalone link is now `inline-block` with `py-1 -my-1`, giving a 24 px target without moving the layout. It was the last control under 24 px on any of the 15 tabs at 1500, 1024 and 768 px.
+`FinancialIntelligence.vue` (Budget Variance empty state): the standalone link is now `inline-block` with `py-1.5 -my-1.5`, giving a 27 px target without moving the layout. It was the last control under 24 px on any of the 15 tabs at 1500, 1024 and 768 px.
 
 ### Fixed — Overview "↗ View / Receivables / Payables" links were only 14 px tall
 
