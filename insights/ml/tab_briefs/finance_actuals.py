@@ -85,7 +85,7 @@ def _receivables(p: dict):
         top = late[:3]
         actions.append(action(
             "Collect from the largest overdue customers",
-            ", ".join(f"{c['customer_name']} ({money(c['total_outstanding'], cur)}, {plural(c['max_overdue_days'], 'day')} late)" for c in top) + ".",
+            ", ".join(f"{c['customer_name']} ({money(c['total_outstanding'], cur)}, oldest invoice {plural(c['max_overdue_days'], 'day')} late)" for c in top) + ".",
             impact=money(sum(_f(c["total_outstanding"]) for c in top), cur),
         ))
     return brief(sev, text, details, actions)

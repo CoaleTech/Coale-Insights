@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Receivables "Days Overdue" per customer was the oldest invoice, but read as the whole balance's lateness
+
+The Top Overdue Customers table and the "Collect from the largest overdue customers" action showed R R Adhesive as ₹2,792,767 and 90 days late. 90 is the age of its oldest overdue invoice (`max_overdue_days`); the four invoices average 51 days past due and the balance is 38 days late weighted by amount. The column is now "Oldest Overdue" and the action reads "oldest invoice 90 days late" (`ReceivablesTab.vue`, `tab_briefs/finance_actuals.py`). Aging buckets, overdue average (72.2 days), invoice age (89.8 days), top-10 overdue balances and the 12 monthly collections were all recomputed from Sales Invoices and Payment Entry allocations and match to the rupee.
+
 ### Fixed — Fixed-deposit Placed and Released tiles did not say they cover 12 months, and their badge missed the overdrawn note
 
 On the Cash tab, Principal on Deposit (₹9,821,496) is the all-time ledger balance, while Placed (₹63,563,630) and Released (₹59,439,820) cover the last 12 months from the first of the month (`window_months`, both recomputed from the ledger from 1 Nov 2025 and matching to the rupee). Placed minus Released is ₹4.12M against a ₹9.82M balance, which looked like a break and is the deposits opened before the window. The tiles now read "Placed · 12 mo" and "Released · 12 mo", and the section badge reads "102.6% of cash, bank overdrawn" like the tile above it (`CashFlowTab.vue`). The Cash tab's brief figures were also recomputed from the ledger and match exactly: Payment Entries in ₹15,083,794 and out ₹14,675,310 a month, net ledger movement ₹86,963 a month over the six complete months.
