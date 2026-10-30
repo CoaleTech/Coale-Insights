@@ -213,6 +213,7 @@
             v-if="monthlyVarianceChart"
             class="h-48"
             :config="monthlyVarianceChart"
+            :value-format="(v) => formatMoney(v, currency)"
           />
           <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
             <div class="text-center">

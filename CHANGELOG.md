@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance chart tooltips printed raw numbers; the Cash Forecast chart announced Kenyan shillings
+
+Hovering a Finance chart showed the bare number: "Base: -3,165,903.2" on Cash Forecast, "Loss: -159,069.06" on Monthly Net Profit, no currency and with paise, while the axis, tiles and tables beside it read ₹ and whole rupees. `IntelligenceChart` takes a new `valueFormat` prop; frappe-ui's tooltip formatter is re-run with the values already formatted (its zero filter and descending sort are repeated, since they need numbers), and every money chart on Overview, Cash, Receivables, Payables, Working Capital, Cost Structure, Executive Summary, Cash Forecast, 13-Week Cash Flow and Budget Variance passes the shared `formatMoney`. The Cash Forecast chart had a second fault: `currency` defaulted to `'KES'` and was never passed, so its screen-reader table read "KES 1,933,931" on this INR site, and its "Day 90" tiles and the 13-week tiles dropped the currency symbol ("-3.8M"). They now use the company currency like the rest. Charts that are not money (the Current Ratio line, the Risk, People and Marketing charts) keep frappe-ui's tooltip.
+
 ### Fixed — Finance Ratios: ROE and Debt/Equity showed a bare dash with no reason
 
 Smoke pass over every Finance tab, Actuals and Planning, at 1500 px: no `NaN`, `undefined` or `null` text and no console errors; Overview figures match the ledger (net profit ₹3,469,659, cash ₹9,575,145, AR ₹19,714,214, AP ₹19,069,276) and the All Time chart's nine loss months match the monthly ledger totals. The one gap: ROE and Debt/Equity read "-" because no equity is recorded (partner capital sits under Liabilities), but the card's sublabel still said "Last 90 days, annualised · Benchmark: 15.0%", as if a figure were missing for no reason. An unavailable ratio card now says why: "No equity recorded" for ROE and Debt/Equity, "No data in the last 90 days" for the others.

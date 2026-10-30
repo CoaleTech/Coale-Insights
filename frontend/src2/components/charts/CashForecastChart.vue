@@ -2,7 +2,7 @@
   <div class="w-full h-full">
     <div v-if="hasData" class="space-y-2">
       <!-- frappe-ui AxisChart: three area series, one per scenario -->
-      <IntelligenceChart class="h-48 sm:h-56 lg:h-64" :config="axisConfig" hide-legend />
+      <IntelligenceChart class="h-48 sm:h-56 lg:h-64" :config="axisConfig" :value-format="formatCurrency" hide-legend />
 
       <!-- Accessible text equivalent for screen readers (canvas is invisible to AT) -->
       <table class="sr-only">
@@ -69,6 +69,8 @@ import IntelligenceChart from '../../intelligence/components/IntelligenceChart.v
 
 import { computed } from 'vue'
 import { themeColor } from '../../utils/chartTheme'
+import { useCurrency } from '../../composables/useCurrency'
+import { formatMoney } from '../../utils/format'
 
 interface ForecastPoint {
   date: string
@@ -80,10 +82,13 @@ interface Props {
   base: ForecastPoint[]
   optimistic: ForecastPoint[]
   pessimistic: ForecastPoint[]
-  currency?: string
 }
 
-const props = withDefaults(defineProps<Props>(), { currency: 'KES' })
+const props = defineProps<Props>()
+
+// Company currency from the server. This chart used to default to 'KES' (en-KE), so the
+// screen-reader table announced Kenyan shillings on an INR site.
+const currency = useCurrency('')
 
 const hasData = computed(() => props.base?.length > 0)
 
@@ -150,19 +155,6 @@ const axisConfig = computed(() => ({
   ],
 }))
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: props.currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-
-const formatCompact = (value: number) => {
-  const absValue = Math.abs(value)
-  const sign = value < 0 ? '-' : ''
-  if (absValue >= 1_000_000) return `${sign}${(absValue / 1_000_000).toFixed(1)}M`
-  if (absValue >= 1_000) return `${sign}${(absValue / 1_000).toFixed(0)}K`
-  return sign + absValue.toFixed(0)
-}
+const formatCurrency = (value: number | null | undefined) => formatMoney(value, currency.value)
+const formatCompact = (value: number) => formatMoney(value, currency.value, { compact: true })
 </script>

@@ -2,7 +2,7 @@
   <div class="w-full h-full">
     <div v-if="hasData" class="space-y-4">
       <!-- frappe-ui AxisChart: inflow/outflow bars on primary axis, balance + threshold on y2 -->
-      <IntelligenceChart class="h-52 sm:h-64 lg:h-72" :config="axisConfig" hide-legend />
+      <IntelligenceChart class="h-52 sm:h-64 lg:h-72" :config="axisConfig" :value-format="formatCurrency" hide-legend />
 
       <!-- Accessible text equivalent for screen readers (canvas is invisible to AT) -->
       <table class="sr-only">
@@ -77,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { formatMoney, NO_VALUE } from '../../utils/format'
+import { formatMoney } from '../../utils/format'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
 
 import { computed } from 'vue'
@@ -231,14 +231,7 @@ const axisConfig = computed(() => {
   }
 })
 
-const formatCompact = (value: number | null | undefined) => {
-  if (value === null || value === undefined) return NO_VALUE
-  const absValue = Math.abs(value)
-  const sign = value < 0 ? '-' : ''
-  if (absValue >= 1000000) return `${sign}${(absValue / 1000000).toFixed(1)}M`
-  if (absValue >= 1000) return `${sign}${(absValue / 1000).toFixed(0)}K`
-  return `${sign}${absValue.toFixed(0)}`
-}
+const formatCompact = (value: number | null | undefined) => formatMoney(value, currency.value, { compact: true })
 
 const formatCurrency = (value: number | null | undefined) => formatMoney(value, currency.value)
 </script>

@@ -61,7 +61,7 @@
         <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <SectionHeader variant="caption" title="Monthly Performance Trend" :level="3" />
           <div v-if="data?.monthly_trends?.length" class="space-y-4 mt-4">
-            <IntelligenceChart class="h-48 sm:h-56 lg:h-72 mt-2" :config="trendConfig" />
+            <IntelligenceChart class="h-48 sm:h-56 lg:h-72 mt-2" :config="trendConfig" :value-format="(v) => formatMoney(v, getCurrency())" />
 
             <!-- Performance summary table -->
             <div class="overflow-x-auto mt-4">

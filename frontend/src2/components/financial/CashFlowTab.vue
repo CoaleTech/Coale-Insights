@@ -108,7 +108,7 @@
 					<p class="text-xs font-medium uppercase tracking-wide text-ink-gray-6">
 						Principal and movement, last {{ fd.window_months ?? 12 }} months
 					</p>
-					<IntelligenceChart v-if="depositConfig" class="mt-3 h-48 sm:h-56 lg:h-64" :config="depositConfig" />
+					<IntelligenceChart v-if="depositConfig" class="mt-3 h-48 sm:h-56 lg:h-64" :config="depositConfig" :value-format="(v) => formatCurrency(v, currency)" />
 					<div v-else class="flex h-48 items-center justify-center text-sm text-ink-gray-6">
 						No deposit movement in this window
 					</div>
@@ -163,7 +163,7 @@
 			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Cash in vs out"
 					hint="All ledger movement on cash, bank and deposit accounts" :level="3" />
-				<IntelligenceChart v-if="movementConfig" class="mt-4 h-48 sm:h-56 lg:h-64" :config="movementConfig" />
+				<IntelligenceChart v-if="movementConfig" class="mt-4 h-48 sm:h-56 lg:h-64" :config="movementConfig" :value-format="(v) => formatCurrency(v, currency)" />
 				<div v-else class="flex h-48 items-center justify-center text-sm text-ink-gray-6">
 					No cash movement data available
 				</div>

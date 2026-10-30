@@ -109,7 +109,7 @@
         />
         <template v-if="forecast?.status === 'success'">
           <div class="mt-4 h-80">
-            <IntelligenceChart v-if="forecastChartConfig" :config="forecastChartConfig" />
+            <IntelligenceChart v-if="forecastChartConfig" :config="forecastChartConfig" :value-format="(v) => formatMoney(v, currency)" />
           </div>
           <div v-if="forecast.forecast?.length" class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
             <KpiCard

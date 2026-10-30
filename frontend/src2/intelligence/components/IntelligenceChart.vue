@@ -54,6 +54,11 @@ const props = withDefaults(
     hideLegend?: boolean
     /** Accessible name. Defaults to the series names and point count. */
     label?: string
+    /**
+     * Format for tooltip values. frappe-ui prints the raw number
+     * ("-2,535,356.05"), so a money chart passes `formatMoney` to match its axis and tiles.
+     */
+    valueFormat?: (value: number) => string
   }>(),
   { kind: 'axis' },
 )
@@ -88,6 +93,35 @@ function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | 
   if (opts.legend) opts.legend = Object.assign(opts.legend, { padding: [0, 0], itemGap: 8, textStyle: { ...opts.legend.textStyle, color: ink } })
 }
 
+/**
+ * Re-runs frappe-ui's tooltip formatter with the values already formatted: its
+ * `isNaN(y) ? y : formatValue(y)` leaves a string alone. The zero filter and
+ * descending sort are frappe-ui's own, repeated here because they need numbers; a
+ * missing value (a Loss series in a profit month) is dropped too, not printed as "-".
+ */
+type TipRow = { value: [unknown, number] }
+function formatTooltipValues(
+  base: { tooltip?: { formatter?: (p: unknown) => string } },
+  format: (value: number) => string,
+  swapXY: boolean,
+) {
+  const inner = base.tooltip?.formatter
+  if (!inner) return
+  const at = swapXY ? 0 : 1
+  base.tooltip!.formatter = (params: unknown) => {
+    if (!Array.isArray(params)) return inner(params)
+    const rows = (params as TipRow[])
+      .filter((p) => p.value?.[at] != null && p.value[at] !== 0)
+      .sort((a, b) => (b.value?.[at] as number) - (a.value?.[at] as number))
+      .map((p) => {
+        const value = [...p.value] as unknown[]
+        value[at] = format(value[at] as number)
+        return { ...p, value }
+      })
+    return inner(rows)
+  }
+}
+
 const options = computed(() => {
   try {
     error.value = ''
@@ -102,6 +136,9 @@ const options = computed(() => {
     }
     // Reading `theme` re-runs this computed on a light/dark switch.
     if (props.kind !== 'donut' && theme.value) retint(base as Parameters<typeof retint>[0])
+    if (props.kind !== 'donut' && props.valueFormat) {
+      formatTooltipValues(base as Parameters<typeof formatTooltipValues>[0], props.valueFormat, !!(props.config as AxisChartConfig).swapXY)
+    }
     if (!reduceMotion.value) return base
     // Drop the entrance and update tweens; the chart still renders in full.
     return {

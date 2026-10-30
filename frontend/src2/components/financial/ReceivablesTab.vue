@@ -37,7 +37,7 @@
 		<!-- Aging Analysis -->
 		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Accounts Receivable Aging" :level="3" />
-			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-80" :config="arAgingConfig" />
+			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-80" :config="arAgingConfig" :value-format="(v) => formatCurrency(v, currency)" />
 			<table v-if="data.aging_buckets?.length" class="mt-4 w-full text-sm">
 				<caption class="sr-only">Accounts receivable by aging bucket</caption>
 				<thead>
@@ -70,7 +70,7 @@
 		<!-- Collections -->
 		<div v-if="data.collection_trend?.length" class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Monthly Collections" hint="Receipts applied to invoices; advances not included" :level="3" />
-			<IntelligenceChart class="mt-4 h-80" :config="collectionTrendConfig" />
+			<IntelligenceChart class="mt-4 h-80" :config="collectionTrendConfig" :value-format="(v) => formatCurrency(v, currency)" />
 			<table class="sr-only">
 				<caption>Receipts applied to invoices per month</caption>
 				<thead>

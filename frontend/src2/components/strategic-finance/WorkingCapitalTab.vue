@@ -196,7 +196,7 @@
     <div v-if="allMonths.length" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
         <SectionHeader variant="caption" title="Working Capital: 12-Month Trend" :level="3" />
-        <IntelligenceChart class="mt-4 h-80" :config="wcChartConfig" />
+        <IntelligenceChart class="mt-4 h-80" :config="wcChartConfig" :value-format="formatCurrency" />
         <p v-if="wcSummary" class="mt-3 text-xs text-ink-gray-6">{{ wcSummary }}</p>
       </div>
       <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">

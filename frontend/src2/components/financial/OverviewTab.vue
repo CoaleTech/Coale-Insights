@@ -18,6 +18,7 @@
 					v-if="trend.length"
 					class="h-80"
 					:config="profitChartConfig"
+					:value-format="(v) => formatMoney(v, props.currency)"
 				/>
 				<div v-else class="h-56 flex items-center justify-center text-ink-gray-6 text-sm">
 					No postings in the selected date window
