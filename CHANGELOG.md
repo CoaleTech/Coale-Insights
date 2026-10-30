@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — ROE, Debt to Equity, Interest Coverage and DSCR showed a bare dash on the Ratios tab
+
+Those four ratios are null when there is nothing to divide by, and the tab said nothing about why. On this site the ledger has no Equity-type account with a balance: the three partner accounts (₹4.75M, ₹4.44M and ₹2.28M credit) are classed as Liabilities, so equity is zero and ROE and Debt to Equity cannot be computed. The null rows now read "No Equity-type balance in the ledger; partner capital may sit under Liabilities" (ROE, Debt to Equity), "No interest expense in this period" (Interest Coverage) and "No interest or loan repayment in this period" (DSCR) in place of the formula line. Values and the backend are unchanged (`FinancialRatiosTab.vue`). Reclassifying the partner accounts under Equity is a chart-of-accounts decision for the accountant, not something the dashboard should guess.
+
 ### Fixed — Ratios tab working-capital turnover used a different cash figure than the Working Capital tab
 
 `calculate_ratio_trends` built working capital from raw ledger cash, so the latest window's Working Capital Turnover read 5.64x (₹14,337,526 of working capital) while the Working Capital tab, built on book cash with post-dated payments already out, showed ₹14,214,393. The ₹123,133 gap is the future-dated payment disclosure. The latest window now uses the same `get_cash_total`, giving 5.69x (₹19.95M × 365/90 ÷ ₹14,214,393). Older windows keep ledger cash, since the post-dated split only exists for today. Net margin 5.4%, ROA 13.2%, ROCE 24.7%, asset turnover 2.46x and EBIT ₹1,068,319 were recomputed from the ledger and match.

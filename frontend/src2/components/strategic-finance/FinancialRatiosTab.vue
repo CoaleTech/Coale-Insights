@@ -313,6 +313,8 @@ function ratioTrendInk(value: number | null | undefined, benchmark: number): str
   return value >= benchmark ? 'text-ink-gray-9 font-medium' : 'text-ink-red-4'
 }
 
+// Null when the ledger has no Equity-type balance to divide by (partner capital held under Liabilities).
+const noEquity = 'No Equity-type balance in the ledger; partner capital may sit under Liabilities'
 // The server sends no per-ratio trend, so none is shown; the quarterly table
 // below carries the history.
 const ratioGroups = computed(() => {
@@ -333,7 +335,7 @@ const ratioGroups = computed(() => {
       rows: [
         { name: 'Gross Margin', value: formatPercent(c.gross_margin), description: 'Gross Profit / Revenue' },
         { name: 'Net Profit Margin', value: formatPercent(c.net_margin), description: 'Net Income / Revenue' },
-        { name: 'ROE', value: formatPercent(c.roe), description: 'Net Income / Shareholders Equity (annualised)' },
+        { name: 'ROE', value: formatPercent(c.roe), description: c.roe == null ? noEquity : 'Net Income / Shareholders Equity (annualised)' },
         { name: 'ROA', value: formatPercent(c.roa), description: 'Net Income / Total Assets (annualised)' },
         { name: 'ROCE', value: formatPercent(c.roce), description: 'EBIT / (Total Assets - Current Liabilities) (annualised)' },
         { name: 'EBIT', value: formatMoney(c.ebit, props.currency), description: 'Net Income + Interest Expense' },
@@ -355,9 +357,9 @@ const ratioGroups = computed(() => {
       title: 'Debt & Coverage Ratios',
       icon: ShieldCheck,
       rows: [
-        { name: 'Debt to Equity', value: formatRatio(c.debt_to_equity), description: 'Total Debt / Shareholders Equity' },
-        { name: 'Interest Coverage', value: formatMultiple(c.interest_coverage, 20), description: 'EBIT / Interest Expense' },
-        { name: 'DSCR', value: formatMultiple(c.dscr, 10), description: 'EBITDA / (Interest + Principal Repaid)' },
+        { name: 'Debt to Equity', value: formatRatio(c.debt_to_equity), description: c.debt_to_equity == null ? noEquity : 'Total Debt / Shareholders Equity' },
+        { name: 'Interest Coverage', value: formatMultiple(c.interest_coverage, 20), description: c.interest_coverage == null ? 'No interest expense in this period' : 'EBIT / Interest Expense' },
+        { name: 'DSCR', value: formatMultiple(c.dscr, 10), description: c.dscr == null ? 'No interest or loan repayment in this period' : 'EBITDA / (Interest + Principal Repaid)' },
       ],
     },
   ]
