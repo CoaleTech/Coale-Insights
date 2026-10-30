@@ -378,6 +378,27 @@ class HRIntelligence:
         }
         return self._corpora_cache
 
+    def _headcount_bounds(self) -> tuple[int, int]:
+        """Employees on the books the day before the period starts and on its last day.
+
+        Counted from joining/relieving dates. Reversing the net change from
+        today's headcount is wrong: hires who already left or went inactive
+        are in `new_hires` but not in today's headcount, so the start came out
+        too low. Inactive employees have no leaving date, so they are in
+        neither count.
+        """
+
+        def on(day) -> int:
+            e = t("Employee")
+            f = e.filter(
+                (e["status"] != "Inactive")
+                & (e["date_of_joining"] <= str(day))
+                & (e["relieving_date"].isnull() | (e["relieving_date"] > str(day)))
+            )
+            return int(_scalar(f.aggregate(n=f.count())))
+
+        return on(getdate(self.from_date) - timedelta(days=1)), on(self.to_date)
+
     # ------------------------------------------------------------------ headcount
     def _analyze_headcount(self) -> Dict[str, Any]:
         c = self._compressed_corpora()
@@ -410,6 +431,7 @@ class HRIntelligence:
             "growth_rate_pct": round(growth_rate, 2),
             "turnover_rate_pct": round(turnover_rate, 2),
             "hire_rate_pct": round(hire_rate, 2),
+            "opening_headcount": self._headcount_bounds()[0],
             "largest_department": largest_dept.get("department") or "N/A",
             "smallest_department": smallest_dept.get("department") or "N/A",
             "department_count": len(dept),
@@ -425,26 +447,7 @@ class HRIntelligence:
 
         # Industry-standard formula: exits / average headcount over the
         # period, where average headcount = (start + end) / 2.
-        # Both are counted from joining/relieving dates. Reversing the net
-        # change from today's headcount is wrong: hires who already left or
-        # went inactive are in `new_hires` but not in today's headcount, so the
-        # start came out too low and the rate too high. Inactive employees have
-        # no leaving date, so they are in neither count.
-        #
-        # Previously this divided by a count of every Employee record ever
-        # created on the site (any status, no date bound at all) -- a
-        # denominator that only grows as terminated employees accumulate.
-        def _headcount_on(day) -> int:
-            e = t("Employee")
-            f = e.filter(
-                (e["status"] != "Inactive")
-                & (e["date_of_joining"] <= str(day))
-                & (e["relieving_date"].isnull() | (e["relieving_date"] > str(day)))
-            )
-            return int(_scalar(f.aggregate(n=f.count())))
-
-        end_headcount = _headcount_on(self.to_date)
-        start_headcount = _headcount_on(getdate(self.from_date) - timedelta(days=1))
+        start_headcount, end_headcount = self._headcount_bounds()
         avg_headcount = (start_headcount + end_headcount) / 2
         attrition_rate = (total_exits / avg_headcount * 100) if avg_headcount > 0 else 0
 

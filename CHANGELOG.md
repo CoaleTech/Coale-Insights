@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — People headcount waterfall opened at the wrong headcount and made a false claim about turnover
+
+The Headcount Flow chart read Opening 11, Exits −7, New Hires +7, Closing 11 and said "The entire workforce turned over in one year, with zero net growth". The opening was today's headcount minus the net change, so it counted a hire who has since left and one now Inactive. The server now returns `opening_headcount`, counted from joining and relieving dates (`_headcount_bounds` in `hr_intelligence.py`, shared with the attrition rate), and the chart reads Opening 12, Exits −7, New Hires +6, Closing 11, which adds up. The sentence now states the numbers ("Headcount went from 12 to 11: 7 exits and 7 new hires. 1 of the hires is Inactive and not counted.") instead of claiming the workforce turned over, which was false: 7 left out of 12. The title also said "Trailing 12 Months" whichever period was selected; it now uses the selected period's label (`HRIntelligence.vue`). Checked live on Trailing 12 Months and at 390 px (no overflow); the title with another period selected I did not check in the browser.
+
 ### Fixed — Attrition rate (Executive and People) used a start headcount that counted hires who had already left
 
 Year-to-date attrition read 33.3% (3 exits over an average headcount of 9). The start headcount was derived by reversing the period's net change from today's headcount, but the 7 hires in the window include one who joined on 8 Jun and left on 18 Jul and one who is now Inactive. Neither is in today's 11, so the start came out as 7 instead of the real 8. Start and end headcount are now counted from joining and relieving dates (`_analyze_attrition` in `hr_intelligence.py`), giving 3 exits over an average of 9.5, or 31.6%. Inactive employees have no leaving date, so they are in neither count. This also fixes past or custom periods, where the end headcount used to be today's snapshot. Recomputed from the Employee table and matching: 11 active, 3 exits in the window (14 May, 15 Jul, 18 Jul), 8 employed on 31 Mar.

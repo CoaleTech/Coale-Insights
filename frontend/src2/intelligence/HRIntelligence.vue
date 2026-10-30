@@ -36,6 +36,8 @@ interface HeadcountMetrics {
   growth_rate_pct?: number
   turnover_rate_pct?: number
   hire_rate_pct?: number
+  /** Employees on the books the day before the period starts, counted from joining/relieving dates. */
+  opening_headcount?: number
   largest_department?: string
   smallest_department?: string
   department_count?: number
@@ -425,11 +427,20 @@ function payEquitySeverity(status: string | undefined): Severity {
 
 const attendanceMetrics = computed(() => data.value?.attendance_metrics ?? ({} as AttendanceMetrics))
 
-/** Opening headcount = closing (current active) minus net change. */
+/** Opening headcount as counted by the server (falls back to closing minus net change). */
 const openingHeadcount = computed(() => {
   const hc = data.value?.headcount_metrics ?? ({} as HeadcountMetrics)
-  return (hc.total_employees ?? 0) - ((hc.new_hires ?? 0) - (hc.exits ?? 0))
+  return hc.opening_headcount ?? (hc.total_employees ?? 0) - ((hc.new_hires ?? 0) - (hc.exits ?? 0))
 })
+
+/** Hires that reach the closing count. A hire who is now Inactive has no leaving date, so is in neither bar. */
+const hiresCounted = computed(() => {
+  const hc = data.value?.headcount_metrics ?? ({} as HeadcountMetrics)
+  return (hc.total_employees ?? 0) - openingHeadcount.value + (hc.exits ?? 0)
+})
+const hiresInactive = computed(() => (data.value?.headcount_metrics?.new_hires ?? 0) - hiresCounted.value)
+
+const flowPeriodLabel = computed(() => FISCAL_PERIOD_RANGES.find(o => o.value === period.value)?.label ?? 'Selected Period')
 
 /** Tallest bar in the waterfall (Opening or Closing). */
 const peakHc = computed(() =>
@@ -649,19 +660,17 @@ function handleChatNavigation(path: string) {
 
             <!-- Hero: headcount waterfall chart (2/3 width) -->
             <div class="lg:col-span-2 bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader title="Headcount Flow: Trailing 12 Months" :level="3" />
+              <SectionHeader :title="`Headcount Flow: ${flowPeriodLabel}`" :level="3" />
               <p v-if="hasData" class="mt-1 text-sm text-ink-gray-6">
-                {{ data?.headcount_metrics?.exits ?? 0 }} exits equal {{ data?.headcount_metrics?.new_hires ?? 0 }} new hires.
-                {{ (data?.headcount_metrics?.net_growth ?? 0) === 0
-                    ? 'The entire workforce turned over in one year, with zero net growth.'
-                    : 'Workforce changed significantly this period.' }}
+                Headcount went from {{ openingHeadcount }} to {{ data?.headcount_metrics?.total_employees ?? 0 }}: {{ data?.headcount_metrics?.exits ?? 0 }} exits and {{ data?.headcount_metrics?.new_hires ?? 0 }} new hires.
+                <template v-if="hiresInactive > 0">{{ hiresInactive }} of the hires {{ hiresInactive === 1 ? 'is' : 'are' }} Inactive and not counted.</template>
               </p>
               <template v-if="hasData">
                 <!-- Value labels above bars -->
                 <div class="mt-6 flex gap-3" aria-hidden="true">
                   <div class="flex-1 text-center text-sm font-bold text-ink-gray-7">{{ openingHeadcount }}</div>
                   <div class="flex-1 text-center text-sm font-bold text-ink-red-4">−{{ data?.headcount_metrics?.exits ?? 0 }}</div>
-                  <div class="flex-1 text-center text-sm font-bold" :style="{color: 'var(--app-pos)'}">+{{ data?.headcount_metrics?.new_hires ?? 0 }}</div>
+                  <div class="flex-1 text-center text-sm font-bold" :style="{color: 'var(--app-pos)'}">+{{ hiresCounted }}</div>
                   <div class="flex-1 text-center text-sm font-bold text-ink-gray-7">{{ data?.headcount_metrics?.total_employees ?? 0 }}</div>
                 </div>
 
@@ -669,7 +678,7 @@ function handleChatNavigation(path: string) {
                 <div
                   class="relative mt-1 h-40"
                   role="img"
-                  :aria-label="`Headcount waterfall: opening ${openingHeadcount}, exits -${data?.headcount_metrics?.exits ?? 0}, new hires +${data?.headcount_metrics?.new_hires ?? 0}, closing ${data?.headcount_metrics?.total_employees ?? 0}`"
+                  :aria-label="`Headcount waterfall: opening ${openingHeadcount}, exits -${data?.headcount_metrics?.exits ?? 0}, new hires +${hiresCounted}, closing ${data?.headcount_metrics?.total_employees ?? 0}`"
                 >
                   <!-- Floor annotation: dashed line at the minimum headcount level -->
                   <div
@@ -707,7 +716,7 @@ function handleChatNavigation(path: string) {
                         class="absolute inset-x-0 rounded-t"
                         :style="{
                           bottom: hcPct(floorHc) + '%',
-                          height: hcPct(data?.headcount_metrics?.new_hires ?? 0) + '%',
+                          height: hcPct(hiresCounted) + '%',
                           backgroundColor: 'var(--app-pos-fill)'
                         }"
                       ></div>
