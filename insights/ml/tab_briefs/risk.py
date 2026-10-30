@@ -267,8 +267,8 @@ def _ledger(p: dict):
         return None
     rows = a.get("anomalies") or []
     if not rows:
-        return brief("none", "No ledger scan has been run. The scan ranks the last 12 months of ledger entries on request from this tab.")
-    text = f"{plural(len(rows), 'ledger anomaly', 'ledger anomalies')} detected by the model."
+        return brief("none", "The daily revenue and expense scan flagged nothing in the last 7 days of invoices. Run the ledger scan on this tab to rank the last 12 months of ledger entries.")
+    text = f"{plural(len(rows), 'unusual day', 'unusual days')} flagged by the daily revenue and expense scan."
     top = sorted(rows, key=lambda r: -_ORDER.index(_sev(r.get("severity"))))[:TOP_N]
     details = [detail(str(r.get("type") or "anomaly").replace("_", " ").capitalize(), f"{r.get('description')}.") for r in top]
     return brief(_sev(*[r.get("severity") for r in rows]), text, details, [action("Run the ledger scan", "The scan ranks the last 12 months of ledger entries on request and is not part of the cached figures.")])

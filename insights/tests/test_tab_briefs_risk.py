@@ -78,5 +78,5 @@ class TestBriefs(unittest.TestCase):
         p["predictive_analytics"]["anomalies"] = [{"severity": "high", "type": "round_amount", "description": "Invoice X is a round 1,000,000", "date": "2026-10-01"}]
         b = briefs(p)["ledger"]
         self.assertEqual(b["severity"], "high")
-        self.assertEqual(b["headline"], "1 ledger anomaly detected by the model.")
+        self.assertEqual(b["headline"], "1 unusual day flagged by the daily revenue and expense scan.")
         self.assertEqual(b["details"][0]["label"], "Round amount")
