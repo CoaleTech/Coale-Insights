@@ -685,10 +685,10 @@ def analyze_by_dimensions(
     date_filter: str = "12m",
     company: str | None = None,
 ) -> dict[str, Any]:
-    """Revenue by customer_group, territory, and product_group."""
+    """Revenue (net of Sales Return credit notes) by customer_group, territory, and product_group."""
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    )
     start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
@@ -708,8 +708,8 @@ def analyze_by_dimensions(
         si.group_by(si.customer_group.fill_null("Uncategorized").name("customer_group"))
         .aggregate(
             revenue=si.base_net_total.sum(),
-            transactions=si.count(),
-            unique_customers=si.customer.nunique(),
+            transactions=si.count(where=si.is_return == 0),
+            unique_customers=si.customer.nunique(where=si.is_return == 0),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
@@ -718,8 +718,8 @@ def analyze_by_dimensions(
         si.group_by(si.territory.fill_null("Unassigned").name("territory"))
         .aggregate(
             revenue=si.base_net_total.sum(),
-            transactions=si.count(),
-            unique_customers=si.customer.nunique(),
+            transactions=si.count(where=si.is_return == 0),
+            unique_customers=si.customer.nunique(where=si.is_return == 0),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
@@ -767,7 +767,7 @@ def analyze_by_dimensions(
         .aggregate(
             revenue=sii.base_net_amount.sum(),
             qty_sold=sii.qty.sum(),
-            transactions=si.name.nunique(),
+            transactions=si.name.nunique(where=si.is_return == 0),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
