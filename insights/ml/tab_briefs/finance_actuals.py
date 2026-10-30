@@ -78,7 +78,7 @@ def _receivables(p: dict):
         sev = "low" if dso <= DSO_GOOD else "medium" if dso <= DSO_WARN else "high"
     details = [detail("Aging", "; ".join(f"{b['bucket']} {money(b['amount'], cur)} ({plural(b.get('count') or 0, 'invoice')})" for b in r.get("aging_buckets") or []) + ".")]
     if dso is not None:
-        details.append(detail("Collection speed", f"DSO is {dso:g} days" + (f" and overdue invoices average {r['avg_overdue_days']:g} days late." if r.get("avg_overdue_days") is not None else ".")))
+        details.append(detail("Collection speed", f"DSO is {dso:g} days on 12 months of sales" + (f" and overdue invoices average {r['avg_overdue_days']:g} days late." if r.get("avg_overdue_days") is not None else ".")))
     late = sorted(r.get("overdue_customers") or [], key=lambda c: -_f(c.get("total_outstanding")))
     actions = []
     if late:
@@ -100,7 +100,7 @@ def _payables(p: dict):
     liquid = (p.get("cash_flow") or {}).get("liquid_cash")
     details = []
     if pay.get("current_dpo") is not None:
-        details.append(detail("Payment speed", f"DPO is {pay['current_dpo']:g} days; open invoices average {pay.get('avg_open_payable_age_days')} days old."))
+        details.append(detail("Payment speed", f"DPO is {pay['current_dpo']:g} days on 12 months of purchases; open invoices average {pay.get('avg_open_payable_age_days')} days old."))
     sched = pay.get("payment_schedule") or []
     if sched:
         details.append(detail("Schedule", "; ".join(f"{x['period']} {money(x['amount'], cur)} ({plural(x['count'], 'invoice')})" for x in sched) + "."))

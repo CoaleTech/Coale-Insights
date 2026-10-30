@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Receivables and Payables briefs gave DSO and DPO without their window
+
+"DSO is 39.6 days" (Receivables) and "DPO is 40.8 days" (Payables) now read "on 12 months of sales" and "on 12 months of purchases" (`tab_briefs/finance_actuals.py`). Both are trailing-12-month figures (`financial_intelligence.py`: AR or AP over 12 months of grand totals × 366), while the Working Capital tab's cycle uses 90 days, so 39.6 against 38.8 is two windows, not a mismatch. Values are unchanged.
+
 ### Fixed — Working Capital cycle line did not say which window it used
 
 The brief's "Cycle: DSO 38.8 + DIO 2.6 - DPO 33.3 = 8.2 days." sat under a KPI strip that says "40 days DSO · 12 mo", so the two DSO figures looked like a disagreement. The line now ends "on 90 days of invoiced sales, purchases and cost of goods sold to the last posting" (`tab_briefs/finance_planning.py`). Values are unchanged.
