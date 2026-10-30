@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Cost Structure waterfall labelled a reconciling step as "Expenses below gross profit"
+
+Gross profit (₹6,260,526) is priced from invoice item cost, matching ERPNext's Gross Profit report; net profit (₹3,469,659) comes from the ledger. The waterfall's last step is their difference, ₹2,790,866, labelled as expenses. The ledger's non-COGS expenses for the year are ₹3,031,086, and booked cost of goods sold is ₹73,648,657 against ₹73,888,877 of invoice cost, so the step was ₹240,220 lighter than real expenses. It is now "Expenses and cost variance" and the section hint says why (`CostStructureTab.vue`). Everything else on the tab was recomputed and matches: revenue ₹80,149,403 and net profit to the rupee, Gross/Net Profit to Salary 13.26x and 7.35x, Marketing 0.9%, Rent 0.3%, Incentives incl. commission 0.1%, and the expense forecast trend of -₹1,658,289 a month from the last six months of ledger expenses.
+
 ### Fixed — Receivables "Days Overdue" per customer was the oldest invoice, but read as the whole balance's lateness
 
 The Top Overdue Customers table and the "Collect from the largest overdue customers" action showed R R Adhesive as ₹2,792,767 and 90 days late. 90 is the age of its oldest overdue invoice (`max_overdue_days`); the four invoices average 51 days past due and the balance is 38 days late weighted by amount. The column is now "Oldest Overdue" and the action reads "oldest invoice 90 days late" (`ReceivablesTab.vue`, `tab_briefs/finance_actuals.py`). Aging buckets, overdue average (72.2 days), invoice age (89.8 days), top-10 overdue balances and the 12 monthly collections were all recomputed from Sales Invoices and Payment Entry allocations and match to the rupee.

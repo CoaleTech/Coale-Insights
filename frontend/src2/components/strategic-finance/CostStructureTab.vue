@@ -42,7 +42,7 @@
         <SectionHeader
           variant="caption"
           title="Revenue to Profit Waterfall"
-          hint="Revenue less cost of sales is gross profit; less the remaining expenses is net profit"
+          hint="Gross profit is revenue less invoice item cost; net profit comes from the ledger. The last step is the difference, so it also nets any gap between invoice cost and booked cost of goods sold"
           :level="3"
         />
         <div class="mt-4 space-y-3">
@@ -218,7 +218,7 @@ const waterfall = computed(() => {
     row('Revenue', rev, 'bg-muted-fill'),
     row('Cost of sales', rev - gp, 'bg-warn-fill', '-'),
     row('Gross profit', gp, gp >= 0 ? 'bg-pos-fill' : 'bg-neg-fill'),
-    row('Expenses below gross profit', gp - np, 'bg-warn-fill', '-'),
+    row('Expenses and cost variance', gp - np, 'bg-warn-fill', '-'),
     row('Net profit', np, np >= 0 ? 'bg-pos-fill' : 'bg-neg-fill'),
   ]
 })
