@@ -78,7 +78,7 @@ interface Retintable {
  * white `#fff` background on the axis-name label, so in dark mode the grid is
  * near-white and the "↑ INR" label is a white box. Retint from the theme tokens.
  */
-function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | Retintable[]; legend?: { textStyle?: object; padding?: number[]; itemGap?: number } }) {
+function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | Retintable[]; legend?: { textStyle?: object; padding?: number[]; itemGap?: number }; tooltip?: object }) {
   const grid = themeColor('--outline-gray-2')
   const ink = themeColor('--ink-gray-6')
   const surface = themeColor('--surface-white')
@@ -91,6 +91,8 @@ function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | 
   // frappe-ui reserves 25px each side for the pager arrows and a 12px gap, so a
   // three-item legend paged ("1/3") in a 260px phone chart. Items still scroll if they truly overflow.
   if (opts.legend) opts.legend = Object.assign(opts.legend, { padding: [0, 0], itemGap: 8, textStyle: { ...opts.legend.textStyle, color: ink } })
+  // The tooltip card is ECharts' white with grey text in either theme: a bright box on a dark page.
+  if (opts.tooltip) Object.assign(opts.tooltip, { backgroundColor: surface, borderColor: grid, textStyle: { color: themeColor('--ink-gray-8') } })
 }
 
 /**

@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — chart tooltips were a white card on a dark page
+
+The same dark-theme pass over the other eight Finance tabs (Capital Planning, Scenario Analysis, Period Comparison, Budget Variance, Break-Even, Payables, Working Capital, Forex) found no bright surface and no text under 4.5:1; the one low reading was the disabled Export button on Budget Variance (2.9:1, no budget on this site, disabled controls are exempt). Hovering any axis chart, though, showed ECharts' default tooltip: a white card with grey text (rgb 102 on 255), the one part of the chart `retint` in `IntelligenceChart` had not covered. It now takes the surface, outline and ink tokens like the grid and legend. The pie and donut charts have their own tooltip and are unchanged.
+
 ### Fixed — AI assistant input was a white box in dark mode, with near-invisible typing
 
 Dark-theme scan of seven Finance tabs (a surface lighter than 70% luminance over 3,000 px², and text under 4.5:1 against its background): the only bright surface on any of them was the Ask-about-your-data field of the Financial AI Assistant, which has no background class and so took the browser's white while its text took the light dark-theme ink (rgb 212 on rgb 255, about 1.5:1). The same component is on every dashboard. It now takes `bg-surface-white` and `text-ink-gray-9` like the buttons around it. No text on those seven tabs measured under 4.5:1 (0 of 143 to 316 text nodes per tab).
