@@ -16,7 +16,9 @@
         :label="card.name"
         :value="card.value"
         :severity="card.severity"
-        :sublabel="`Last 90 days${yearlyRatios.has(card.name) ? ', annualised' : ''} · Benchmark: ${card.benchmark}`"
+        :sublabel="card.status === 'unavailable'
+          ? (card.name === 'ROE' || card.name === 'Debt/Equity' ? 'No equity recorded' : 'No data in the last 90 days')
+          : `Last 90 days${yearlyRatios.has(card.name) ? ', annualised' : ''} · Benchmark: ${card.benchmark}`"
         :loading="!data"
       />
     </div>
