@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Scenario Analysis compared an after-tax best/worst case with a pre-tax base case, both labelled "Net Income"
+
+On the Scenario Analysis tab the Best Case (P95, ₹4,052,291) and Worst Case (P5, ₹958,377) are percentiles of simulated net income after tax, while the Base Case "Net Income" ₹3,469,659 is before tax (its after-tax figure, ₹2,602,245, sits two lines lower). Read side by side the base case looked inside the range for the wrong reason. The two percentile cards now say "Net After Tax" (`ScenarioAnalysisTab.vue`). Recomputed from the ledger and matching: the sensitivity matrix (0%/0% ₹3,469,659, revenue -10% ₹-4,545,281, expenses +10% ₹-4,198,315), break-even ₹72,004,164 and 10.2% margin of safety on the 40% fixed-cost assumption, 42.6% contribution margin, and the Period Comparison year-over-year figures (revenue ₹80,149,403 against ₹97,727,489, expenses ₹76,679,743 against ₹95,223,355). That revenue gap reads -18% only because ledger data stops about 14 Sep: to the same day last year it is ₹81,090,809, -1.2%.
+
 ### Fixed — 13-week cash forecast took one employee's salary as the monthly payroll
 
 The 13-Week tab said "Monthly payroll of ₹16,500 detected". Payroll here is posted as one Journal Entry per employee on the last day of the month (6 to 8 entries, ₹2K to ₹21K each), and `detect_payroll_pattern` took the median of those single entries. The real run is about ₹98K a month (31 Aug: 6 entries, ₹95,925), so the forecast understated payroll roughly six-fold. Same-day entries are now summed into one run before the pattern is detected (`_payroll_runs` in `strategic_finance/analysis.py`); the tab now reads ₹98,411 a month. Also recomputed from the ledger and matching: the Cash Forecast average daily flow of -₹19,200 (-₹1,727,999 over 90 days of Cash and Bank accounts) and its AR/AP split (₹18.64M overdue plus ₹1.07M due inside the window).

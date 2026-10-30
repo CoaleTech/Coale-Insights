@@ -108,7 +108,7 @@
             </div>
             <div class="space-y-2 text-sm">
               <div class="flex justify-between">
-                <span class="text-ink-gray-6">Net Income</span>
+                <span class="text-ink-gray-6">Net After Tax</span>
                 <span class="font-bold text-ink-gray-9">
                   {{ formatCurrency(data?.monte_carlo?.percentiles?.p95 || 0) }}
                 </span>
@@ -168,7 +168,7 @@
             </div>
             <div class="space-y-2 text-sm">
               <div class="flex justify-between">
-                <span class="text-ink-gray-6">Net Income</span>
+                <span class="text-ink-gray-6">Net After Tax</span>
                 <span class="font-bold text-ink-gray-9">
                   {{ formatCurrency(data?.monte_carlo?.percentiles?.p5 || 0) }}
                 </span>
