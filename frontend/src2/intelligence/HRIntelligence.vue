@@ -892,9 +892,9 @@ function handleChatNavigation(path: string) {
                 >
                   <p class="text-ink-gray-9">
                     <span class="text-xl font-bold">{{ data?.workforce_composition?.diversity_score }}</span>
-                    <span class="text-xs text-ink-gray-6 ml-1">{{ data?.workforce_composition?.composition_balance }}</span>
+                    <span class="text-xs text-ink-gray-7 ml-1">{{ data?.workforce_composition?.composition_balance }}</span>
                   </p>
-                  <p class="text-xs text-ink-gray-6">Diversity score</p>
+                  <p class="text-xs text-ink-gray-7">Diversity score</p>
                 </div>
               </div>
             </div>

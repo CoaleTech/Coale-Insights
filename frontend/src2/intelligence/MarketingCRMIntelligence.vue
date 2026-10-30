@@ -90,10 +90,10 @@
                             class="h-full rounded flex items-center overflow-hidden"
                             :style="{ width: funnelBarWidth(stage.count) + '%', background: 'var(--app-accent)' }"
                           >
-                            <span class="tnum pl-2.5 text-sm font-semibold text-white leading-none flex-shrink-0">
+                            <span class="tnum pl-2.5 text-sm font-semibold text-ink-white leading-none flex-shrink-0">
                               {{ formatNumber(stage.count) }}
                             </span>
-                            <span v-if="stage.doc_count != null" class="ml-1.5 text-xs text-white opacity-80 truncate leading-none">
+                            <span v-if="stage.doc_count != null" class="ml-1.5 text-xs text-ink-white truncate leading-none">
                               · {{ formatNumber(stage.doc_count) }} docs · {{ stage.value != null ? formatMoney(stage.value, currency, { compact: true }) : '' }}
                             </span>
                           </div>
@@ -107,8 +107,8 @@
                           >
                             <div
                               v-if="orderedZonePct > 0"
-                              class="flex items-center justify-center overflow-hidden text-ink-white text-xs font-medium leading-none"
-                              :style="{ width: orderedZonePct + '%', minWidth: '2rem', flexShrink: 0, background: 'var(--app-warn-fill)' }"
+                              class="flex items-center justify-center overflow-hidden text-xs font-medium leading-none"
+                              :style="{ width: orderedZonePct + '%', minWidth: '3.5rem', flexShrink: 0, background: 'var(--app-warn-fill)', color: 'var(--app-on-warn-fill)' }"
                             >
                               <span class="tnum truncate px-1">{{ formatMoney(kpis.won_value, currency, { compact: true }) }}</span>
                             </div>

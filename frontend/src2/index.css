@@ -53,6 +53,7 @@
 	   makes a chart readable. Never use them for text. */
 	--app-pos-fill: #278f5e; /* green-600 */
 	--app-warn-fill: #db7706; /* amber-600 */
+	--app-on-warn-fill: #1c1917; /* text ON the amber fill: 5.7:1 on amber-600, 8.6:1 on amber-500; white is 3.2:1 on amber-600 */
 	--app-neg-fill: #cc2929; /* red-600 */
 	--app-info-fill: #0070cc; /* = accent, one blue everywhere */
 	--app-muted-fill: #7c7c7c; /* gray-600 — gray-400/500 both fail 3:1 here */
