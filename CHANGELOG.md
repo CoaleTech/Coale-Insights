@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Fixed-deposit Implied Yield read 0.3% because it annualised a year-end interest lump from a part-year
+
+The Cash tab's Implied Yield divided fiscal-year-to-date interest (₹16,646, April to August) by the 12-month average deposit balance and scaled it to a year. This ledger books most deposit interest in one entry at year end (₹267,249 in Mar 2026), so the part-year figure read 0.3% and the tile told the reader to check interest posting. Interest and balance now cover the same 12-month window (₹290,525 booked since Nov 2025), so it reads 3.3%, and the sub-label says "interest booked · 12 mo" instead of "annualised" (`financial_intelligence.py`, `CashFlowTab.vue`). Recomputed from the ledger and matching: Interest Booked ₹16,646 for FY 2627 (112 entries, last 31 Aug 2026) and Interest Accrued ₹0 (the accrual account nets to zero).
+
 ### Fixed — Break-even coverage ratios were rounded to two decimals before they became percentages
 
 On Break-Even Overview the Cash Coverage read 102.0% while the ledger gives 101.8% (₹90,502,764 received against ₹88,942,733 paid). `breakeven_engine.py` rounded every coverage ratio to 2 decimals (1.02), so each percentage was off by up to half a point and a ratio just under or over 1.0 or 1.2 could land in the wrong RAG band. All seven coverage ratios now keep 4 decimals. Cash Coverage now reads 101.8%. Recomputed from the ledger and matching: total cash in and out and the break-even revenue basis (₹80,057,566 is invoice net revenue after credit notes; the ledger income total is ₹91,837 higher because it includes non-invoice income).

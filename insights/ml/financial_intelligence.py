@@ -663,14 +663,15 @@ class FinancialIntelligence:
             r["closing"] = round(running, 2)
             running -= r["net"]
 
-        interest = self._deposit_interest()
+        interest = self._deposit_interest(months)
         avg_balance = (
             sum(r["closing"] for r in series) / len(series) if series else balance
         )
+        # Interest and balance cover the same window: this ledger books most
+        # interest in one lump at year end, so a fiscal-year-to-date figure
+        # annualised over the average balance reads ~0.3% instead of ~3%.
         yield_pct = (
-            round(interest["booked_fy"] / avg_balance * (12 / interest["months_elapsed"]) * 100, 2)
-            if avg_balance > 0
-            else None
+            round(interest["booked_window"] / avg_balance * 100, 2) if avg_balance > 0 else None
         )
         return {
             "balance": round(balance, 2),
@@ -701,7 +702,7 @@ class FinancialIntelligence:
             "yield_pct": yield_pct,
         }
 
-    def _deposit_interest(self) -> dict[str, Any]:
+    def _deposit_interest(self, months: int = 12) -> dict[str, Any]:
         """Deposit interest booked this fiscal year, and the accrual balance.
 
         Matched on account name (interest + deposit/FD) because the chart of
@@ -727,13 +728,19 @@ class FinancialIntelligence:
             .filter(joined["root_type"] == "Asset")
             .aggregate(v=(joined["debit"] - joined["credit"]).sum())
         )
-        start = datetime.strptime(fy["start_date"], "%Y-%m-%d").date()
-        elapsed = max((datetime.now().date() - start).days / 30.44, 1.0)
+        booked_window = self._scalar(
+            interest
+            .filter(
+                (joined["root_type"] == "Income")
+                & (joined["posting_date"] >= _months_ago(months - 1))
+            )
+            .aggregate(v=(joined["credit"] - joined["debit"]).sum())
+        )
         return {
             "booked_fy": round(booked, 2),
+            "booked_window": round(booked_window, 2),
             "accrued": round(accrued, 2),
             "fiscal_year": fy["name"],
-            "months_elapsed": round(elapsed, 2),
         }
 
     # ------------------------------------------------------------------ receivables

@@ -407,7 +407,7 @@ const yieldSeverity = computed<Severity>(() => {
 const yieldNote = computed(() => {
 	const y = fd.value?.yield_pct
 	if (y == null) return 'no interest booked'
-	return y < 3 ? 'check interest posting' : 'annualised'
+	return y < 3 ? 'check interest posting' : `interest booked · ${fd.value?.window_months ?? 12} mo`
 })
 
 const depositConfig = computed(() => {
