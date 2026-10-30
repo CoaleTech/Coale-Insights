@@ -451,7 +451,9 @@ const netMarginLabel = computed((): string | undefined =>
 )
 const ebitdaMarginLabel = computed((): string | undefined => {
 	const m = props.data.ebitda_margin
-	return m != null ? `${m.toFixed(1)}% margin` : undefined
+	if (m == null) return undefined
+	const a = props.data.ebitda_addbacks
+	return `${m.toFixed(1)}% margin${a && !a.interest && !a.depreciation ? ', no interest or depreciation' : ''}`
 })
 
 // ── Cash position display ────────────────────────────────────────────────────

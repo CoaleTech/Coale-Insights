@@ -324,6 +324,7 @@ class FinancialIntelligence:
             "gross_margin": None,
             "ytd_ebitda": round(ytd_ebitda, 2),
             "ebitda_margin": ebitda_margin,
+            "ebitda_addbacks": {"interest": ytd_interest_expense, "depreciation": ytd_depreciation},
             "net_margin": net_margin,
             "monthly_trend": monthly_trend,
             "revenue_breakdown": rev_rows,

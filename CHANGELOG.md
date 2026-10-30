@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Finance EBITDA tiles matched Net Profit to the rupee with no explanation
+
+The KPI strip and the Overview tab both showed EBITDA ₹3,469,659 beside Net Profit ₹3,469,659. That is correct: the ledger has no interest, depreciation or amortisation posting this fiscal year (the only tax account, GST Expense, is ₹0), so there is nothing to add back. It still reads as a bug, and the Executive Summary tab already said so. The overview payload now carries `ebitda_addbacks` (`financial_intelligence.py`), the strip reads "margin, same as net profit" and the Overview tile "4.3% margin, no interest or depreciation" (`FinancialIntelligence.vue`, `OverviewTab.vue`); once an add-back is posted the wording drops away. Checked at 390, 1100 and 1500 px with no clipping.
+
 ### Fixed — Cost Structure waterfall labelled a reconciling step as "Expenses below gross profit"
 
 Gross profit (₹6,260,526) is priced from invoice item cost, matching ERPNext's Gross Profit report; net profit (₹3,469,659) comes from the ledger. The waterfall's last step is their difference, ₹2,790,866, labelled as expenses. The ledger's non-COGS expenses for the year are ₹3,031,086, and booked cost of goods sold is ₹73,648,657 against ₹73,888,877 of invoice cost, so the step was ₹240,220 lighter than real expenses. It is now "Expenses and cost variance" and the section hint says why (`CostStructureTab.vue`). Everything else on the tab was recomputed and matches: revenue ₹80,149,403 and net profit to the rupee, Gross/Net Profit to Salary 13.26x and 7.35x, Marketing 0.9%, Rent 0.3%, Incentives incl. commission 0.1%, and the expense forecast trend of -₹1,658,289 a month from the last six months of ledger expenses.

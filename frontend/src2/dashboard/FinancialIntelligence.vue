@@ -62,7 +62,7 @@
 					:currency="baseCurrency"
 					:delta="summary.ebitdaMargin ?? undefined"
 					:delta-higher-is-better="true"
-					sublabel="margin"
+					:sublabel="summary.ebitdaIsNetProfit ? 'margin, same as net profit' : 'margin'"
 					:loading="refreshing"
 					:error="error ?? undefined"
 				/>
@@ -609,6 +609,10 @@ const summary = computed(() => ({
 	profitMargin: (overviewData.value.net_margin as number) || 0,
 	ebitda: (overviewData.value.ytd_ebitda as number) || 0,
 	ebitdaMargin: (overviewData.value.ebitda_margin as number | null | undefined) ?? undefined,
+	// No interest or depreciation posted this FY: EBITDA is net profit, which reads as a bug unless said.
+	ebitdaIsNetProfit: ((a) => !!a && !a.interest && !a.depreciation)(
+		overviewData.value.ebitda_addbacks as { interest?: number; depreciation?: number } | undefined,
+	),
 	cashPosition: (cashFlowData.value.total_cash as number) || 0,
 	cashRunwayMonths: cashFlowData.value.runway_months as number | undefined,
 	outstandingAR: (receivablesData.value.total_outstanding as number) || 0,

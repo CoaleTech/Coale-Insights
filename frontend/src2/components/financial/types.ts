@@ -27,6 +27,7 @@ export interface OverviewData {
 	ytd_profit?: number
 	ytd_ebitda?: number | null
 	ebitda_margin?: number | null
+	ebitda_addbacks?: { interest?: number; depreciation?: number }
 	net_margin?: number
 	monthly_trend?: MonthlyTrendRow[]
 	expense_breakdown?: ExpenseRow[]
