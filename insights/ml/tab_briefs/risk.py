@@ -125,7 +125,7 @@ def _cashflow(p: dict):
     text = f"Cash position is {money(cash, cur)}."
     if len(trend) > 1:
         first, last = trend[0], trend[-1]
-        text += f" Average overdue days went from {first['avg_days_overdue']:g} in {_month(first['period'])} to {last['avg_days_overdue']:g} in {_month(last['period'])}."
+        text += f" Invoices raised in {_month(first['period'])} ran {first['avg_days_overdue']:g} days late on average, those raised in {_month(last['period'])} {last['avg_days_overdue']:g}."
     if c.get("top_customer_share") is not None:
         text += f" The top customer is {c['top_customer_share']:g}% of revenue."
 
@@ -135,7 +135,7 @@ def _cashflow(p: dict):
     exp = [e for e in c.get("exposure_trend") or [] if e.get("receivables") is not None and e.get("payables") is not None]
     if exp:
         e = exp[-1]
-        details.append(detail("Exposure", f"In {_month(e['period'])} receivables were {money(e['receivables'], cur)} against payables of {money(e['payables'], cur)}."))
+        details.append(detail("Exposure", f"Ledger balances in {_month(e['period'])}: receivables {money(e['receivables'], cur)} against payables of {money(e['payables'], cur)}."))
     conc = (c.get("customer_concentration") or [])[:TOP_N]
     if conc:
         share = sum(_f(r.get("revenue_share")) for r in conc)
@@ -247,7 +247,8 @@ def _predictive(p: dict):
     details, actions = [], []
     perf = (a.get("cash_flow_forecast") or {}).get("model_performance") or {}
     if perf.get("method"):
-        details.append(detail("Forecast model", f"{perf['method']} over {len(fc)} days" + (f"; the last week's net cash pace is {perf['trend']} against the 30-day pace." if perf.get("trend") else ".")))
+        pace = float(perf["trend"].rstrip("%")) if perf.get("trend") else None
+        details.append(detail("Forecast model", f"{perf['method']} over {len(fc)} days" + (f"; the last week's net cash flow runs {abs(pace):g}% {'above' if pace >= 0 else 'below'} the 30-day pace." if pace is not None else ".")))
     for w in warnings:
         details.append(detail(w.get("title") or "Warning", f"{w.get('description')} ({w.get('timeframe')})."))
         actions.append(action(w.get("title") or "Act on the warning", f"{w.get('description')} ({w.get('timeframe')}).", impact=money(abs(w["amount"]), cur) if w.get("amount") is not None else None))

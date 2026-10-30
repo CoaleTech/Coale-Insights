@@ -6,6 +6,15 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Risk dashboard: four figures that read like other figures but were not
+
+Recomputed from the invoice and stock tables and matching: overdue receivables ₹18,641,511 (135 of 140 invoices), overdue payables ₹17,651,731 (303 of 320 bills), every aging bucket and bill count, amount-weighted average days overdue 50.4 (AR) and 42.7 (AP), the 1,278 customers and 986 suppliers, and the overall score 48.5 from its four weighted components. Four things were misleading:
+
+- The Cash Flow tab's "Avg Days Overdue 20.6" sat next to the Credit tab's "50.4 days overdue". They are different measures: the Cash Flow one averages days late over invoices *raised* in that month, paid or open. The tile is now "Avg Days Late" with "invoices raised 2026-09" under it, the chart hint says "by month raised", and the Cash Flow brief reads "Invoices raised in Nov 2025 ran 11.4 days late on average, those raised in Sep 2026 20.6".
+- The Cash Flow brief said "In Oct 2026 receivables were ₹18.9M against payables of ₹15.3M" while the Credit and Payables tabs say ₹19.7M and ₹19.1M. The first pair are ledger balances, the second open invoices. The brief now says "Ledger balances in Oct 2026".
+- The header said "64 stock items" with 576 in the Item master. It counts items with stock activity (the Inventory dashboard's definition), so it now reads "64 active stock items".
+- The Predictive brief said "the last week's net cash pace is -163.4% against the 30-day pace", which reads as a rate. It now says "runs 163.4% below the 30-day pace" (`tab_briefs/risk.py`, with a test for the above and below wording).
+
 ### Fixed — Marketing "concentrated in one channel" alert divided by the top 12 sources, not all leads
 
 The alert read "IndiaMart accounts for 71% of all leads". The source panel is capped at the 12 largest of 23 sources, and the share was taken over those 12, so it overstated by the leads in the other 11. IndiaMart has 2,651 of 3,763 leads, or 70.4%. The alert now divides by the total lead count and reads 70% (`_generate_marketing_alerts` in `api/ml/marketing.py`); the test now asserts the percentage. Recomputed from the Lead and Quotation tables and matching: 3,763 leads (798 in the last 12 months), 661 unqualified (Inquiry 609, Open 44, Interested 8), 8.8% lead conversion (332), the funnel stages (3,102 reached Opportunity, 2,553 quoted), 4,175 quotation documents worth ₹634.8M, and period ordered ₹8.2M, expired ₹50.2M and lost ₹26.8M. Test module `test_marketing_analytics` cannot start here (Fiscal Year overlap in the test setup), so I ran the alert function directly instead.

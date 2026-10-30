@@ -290,7 +290,7 @@ const cashflowStrip = computed<StatItem[]>(() => {
   return [
     { label: 'Cash Position', amount: c.current_cash_position ?? null, tone: (c.current_cash_position ?? 0) < 0 ? 'neg' : undefined },
     { label: 'Working Capital Ratio', value: c.working_capital_ratio ?? null, unit: '×', sublabel: `${formatMoney(c.current_working_capital, baseCurrency.value)} working capital` },
-    { label: 'Avg Days Overdue', value: dso?.avg_days_overdue ?? null, unit: ' days', sublabel: dso?.period },
+    { label: 'Avg Days Late', value: dso?.avg_days_overdue ?? null, unit: ' days', sublabel: dso?.period ? `invoices raised ${dso.period}` : undefined },
     { label: 'Top Customer Share', percent: c.top_customer_share ?? null },
   ]
 })
@@ -773,7 +773,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         <p v-if="hasData" class="text-sm text-ink-gray-6 mt-1">
           Across {{ formatCount(overviewData.total_customers) }} customers &middot;
           {{ formatCount(overviewData.total_suppliers) }} suppliers &middot;
-          {{ formatCount(overviewData.total_items) }} stock items
+          {{ formatCount(overviewData.total_items) }} active stock items
         </p>
         <p v-if="lastUpdated" class="text-sm text-ink-gray-6">
           Updated: {{ formatDateTime(lastUpdated) }}
@@ -1231,7 +1231,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <!-- Overdue Days Trend -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Overdue Days Trend" hint="Average days overdue, by month" :level="3" />
+            <SectionHeader variant="caption" title="Overdue Days Trend" hint="Average days late per invoice, by month raised" :level="3" />
             <div class="mt-4">
               <IntelligenceChart
                 v-if="cashflowData.overdue_days_trend?.length"

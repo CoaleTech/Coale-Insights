@@ -16,8 +16,16 @@ class TestBriefs(unittest.TestCase):
         self.assertEqual(b["severity"], "high")  # overview.risk_components.cashflow_risk = High
         self.assertEqual(
             b["headline"],
-            "Cash position is -₹246,351. Average overdue days went from 351.6 in Oct 2025 to 36.1 in Sep 2026. The top customer is 12.47% of revenue.",
+            "Cash position is -₹246,351. Invoices raised in Oct 2025 ran 351.6 days late on average, those raised in Sep 2026 36.1. The top customer is 12.47% of revenue.",
         )
+
+    def test_forecast_pace_reads_as_above_or_below(self):
+        # The model reports the last week's pace as a signed % of the 30-day pace; "-73.9%" alone reads as a rate.
+        for sign, word in (("-73.9%", "73.9% below"), ("12.5%", "12.5% above")):
+            p = load("risk")
+            p["predictive_analytics"]["cash_flow_forecast"]["model_performance"]["trend"] = sign
+            text = next(d["text"] for d in briefs(p)["predictive"]["details"] if d["label"] == "Forecast model")
+            self.assertIn(f"runs {word} the 30-day pace", text)
 
     def test_operational_takes_the_worst_category(self):
         b = self.b["operational"]
