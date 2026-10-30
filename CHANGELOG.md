@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Cash tab fixed-deposit tile read "102.6% of total cash" with no explanation
+
+Fixed deposits ₹9,821,496 against total cash ₹9,575,145 is correct, because the bank account is overdrawn by ₹842,390, but a share above 100% reads as a bug. When the share exceeds 100% the tile now says "102.6% of total cash: bank is overdrawn" (`CashFlowTab.vue`); at or below 100% it is unchanged. Checked at 1500 px and 390 px, where it stays on one line.
+
 ### Fixed — Receivables and Payables briefs gave DSO and DPO without their window
 
 "DSO is 39.6 days" (Receivables) and "DPO is 40.8 days" (Payables) now read "on 12 months of sales" and "on 12 months of purchases" (`tab_briefs/finance_actuals.py`). Both are trailing-12-month figures (`financial_intelligence.py`: AR or AP over 12 months of grand totals × 366), while the Working Capital tab's cycle uses 90 days, so 39.6 against 38.8 is two windows, not a mismatch. Values are unchanged.

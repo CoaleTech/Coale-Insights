@@ -321,7 +321,9 @@ const accountCountLabel = computed(() => {
 
 const fdShareLabel = computed(() => {
 	const pct = fd.value?.pct_of_cash
-	return pct == null ? undefined : `${formatPercent(pct)} of total cash`
+	if (pct == null) return undefined
+	// Over 100% means the other accounts are net negative (overdrawn), not a data error.
+	return pct > 100 ? `${formatPercent(pct)} of total cash: bank is overdrawn` : `${formatPercent(pct)} of total cash`
 })
 
 /**
