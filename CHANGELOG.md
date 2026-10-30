@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Drill-down table hid its Date, Due Date and Outstanding columns on phones with no cue
+
+The drill-down table is 859 px wide inside a 326 px scroller at 390 px, so only Invoice, Customer and Name showed and the amount was off-screen with nothing saying so. A line under the table now reads "Swipe sideways for all 6 columns" below the `sm` breakpoint (`IntelligenceDrillDown.vue`). Checked at 390 px (shown) and 1500 px (hidden).
+
 ### Fixed — Revenue and gross margin ignored Sales Return credit notes and mis-costed lines sold in a larger UOM
 
 Reported against ERPNext's Gross Profit report: Insights turnover and gross margin differed, and returned (rejected) material was not netted off actual sales.

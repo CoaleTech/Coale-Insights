@@ -143,6 +143,9 @@ function erpnextLink(col: DrillDownColumn, row: Record<string, unknown>): string
               </tbody>
             </table>
           </div>
+          <p class="flex-shrink-0 border-t px-4 py-1 text-center text-xs text-ink-gray-6 sm:hidden">
+            Swipe sideways for all {{ columns.length }} columns
+          </p>
 
           <div class="flex flex-shrink-0 items-center justify-between border-t bg-surface-white px-4 py-2 text-sm text-ink-gray-6">
             <Button variant="subtle" size="sm" label="Prev" :disabled="isPrevDisabled()" @click="emit('prev-page')"><template #prefix><ChevronLeft class="h-4 w-4" aria-hidden="true" /></template></Button>
