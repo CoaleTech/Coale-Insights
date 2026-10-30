@@ -842,7 +842,7 @@ def get_tax_cash_outlook(
             markers.append(
                 {
                     "due_date": due.isoformat(),
-                    "label": f"Advance tax — {label}",
+                    "label": f"Advance tax: {label}",
                     "cumulative_pct": pct,
                     "amount": None,
                     "reason": "No reviewed annual tax estimate recorded on this site",

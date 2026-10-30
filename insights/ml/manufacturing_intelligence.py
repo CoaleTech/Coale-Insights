@@ -169,36 +169,36 @@ class ManufacturingIntelligence:
             if total_orders == 0:
                 if pend:
                     ph = (
-                        f"No Work Orders recorded — {pend} pending material "
+                        f"No Work Orders recorded, {pend} pending material "
                         f"request{'s' if pend != 1 else ''} need action"
                     )
                     ph_sev = "medium"
                 else:
-                    ph = "No production data — configure BOMs and Work Orders to start tracking"
+                    ph = "No production data. Configure BOMs and Work Orders to start tracking"
                     ph_sev = "none"
             elif completion_rate is not None:
                 if completion_rate > 90:
                     ph = (
-                        f"Production on track — {completion_rate:.0f}% completion rate, "
+                        f"Production on track: {completion_rate:.0f}% completion rate, "
                         f"{completed_orders} of {total_orders} work orders done"
                     )
                     ph_sev = "low"
                 elif completion_rate > 80:
                     ph = (
-                        f"Production good — {completion_rate:.0f}%, "
+                        f"Production good: {completion_rate:.0f}%, "
                         f"{open_orders} order{'s' if open_orders != 1 else ''} still in progress"
                     )
                     ph_sev = "low"
                 else:
                     ph = (
-                        f"Production needs attention — {completion_rate:.0f}% completion rate, "
+                        f"Production needs attention: {completion_rate:.0f}% completion rate, "
                         f"{open_orders} of {total_orders} work orders outstanding"
                     )
                     ph_sev = "high"
             else:
                 ph = (
-                    f"{total_orders} work order{'s' if total_orders != 1 else ''} on record "
-                    f"— completion rate not computable"
+                    f"{total_orders} work order{'s' if total_orders != 1 else ''} on record, "
+                    f"completion rate not computable"
                 )
                 ph_sev = "medium"
 

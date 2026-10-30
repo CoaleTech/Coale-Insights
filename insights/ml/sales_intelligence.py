@@ -1165,7 +1165,7 @@ def _compute_verdict_headline(
 
     parts = [f"Revenue {cur}"]
     if yoy_phrase:
-        parts[0] += f" — {yoy_phrase}"
+        parts[0] += f": {yoy_phrase}"
 
     if softest:
         mon = datetime.strptime(softest["period"], "%Y-%m").strftime("%B")

@@ -153,8 +153,8 @@ def price_forecast(item_code: str, horizon_days: int = 30) -> dict[str, Any]:
         return {
             "status": "insufficient_history",
             "message": frappe._(
-                "Only {0} day(s) of sales history for {1} in the last {2} days — "
-                "at least {3} are needed to project a price."
+                "Only {0} day(s) of sales history for {1} in the last {2} days. "
+                "At least {3} are needed to project a price."
             ).format(len(df), item_code, _LOOKBACK_DAYS, _MIN_POINTS),
             "n_points": len(df),
             "drivers": [],

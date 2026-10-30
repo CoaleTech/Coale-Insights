@@ -185,13 +185,13 @@ def get_advance_tax_schedule(intelligence) -> List[Dict[str, Any]]:
             "label": "2nd Instalment",
             "due_date": f"15 Sep {fy_year}",
             "cumulative_pct": 45,
-            "note": "Cumulative 45% — pay shortfall from 1st instalment",
+            "note": "Cumulative 45%: pay shortfall from 1st instalment",
         },
         {
             "label": "3rd Instalment",
             "due_date": f"15 Dec {fy_year}",
             "cumulative_pct": 75,
-            "note": "Cumulative 75% — pay shortfall from earlier instalments",
+            "note": "Cumulative 75%: pay shortfall from earlier instalments",
         },
         {
             "label": "4th (Final) Instalment",

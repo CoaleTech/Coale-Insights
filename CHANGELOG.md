@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Em dashes in backend copy shown on the dashboards
+
+An AST scan of every non-docstring string literal under `insights/ml` found em dashes in text the dashboards render: the advance-tax instalment notes and "Advance tax" cash-outlook markers (India Tax), the Manufacturing production headline, the Price Intelligence "insufficient history" message and the Revenue verdict headline. They now use a colon, comma or full stop. No frontend code reads those strings, so nothing else moved. Module docstrings that still carry them are not shown to users.
+
 ### Fixed — Drill-down table hid its Date, Due Date and Outstanding columns on phones with no cue
 
 The drill-down table is 859 px wide inside a 326 px scroller at 390 px, so only Invoice, Customer and Name showed and the amount was off-screen with nothing saying so. A line under the table now reads "Swipe sideways for all 6 columns" below the `sm` breakpoint (`IntelligenceDrillDown.vue`). Checked at 390 px (shown) and 1500 px (hidden).
