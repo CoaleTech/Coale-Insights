@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Attrition rate (Executive and People) used a start headcount that counted hires who had already left
+
+Year-to-date attrition read 33.3% (3 exits over an average headcount of 9). The start headcount was derived by reversing the period's net change from today's headcount, but the 7 hires in the window include one who joined on 8 Jun and left on 18 Jul and one who is now Inactive. Neither is in today's 11, so the start came out as 7 instead of the real 8. Start and end headcount are now counted from joining and relieving dates (`_analyze_attrition` in `hr_intelligence.py`), giving 3 exits over an average of 9.5, or 31.6%. Inactive employees have no leaving date, so they are in neither count. This also fixes past or custom periods, where the end headcount used to be today's snapshot. Recomputed from the Employee table and matching: 11 active, 3 exits in the window (14 May, 15 Jul, 18 Jul), 8 employed on 31 Mar.
+
 ### Fixed — Next payroll date drifted a day early for a payroll posted on the 31st
 
 The 13-week forecast's detected payroll schedule stepped a monthly payroll by a flat 30 days, so a payroll posted on 31 Aug showed "next 30 Oct 2026" and the weekly lookup slid further off each month (the week holding 31 Dec read as having no payroll). Monthly payroll now steps by calendar month from the last payroll (`detect_payroll_pattern` in `strategic_finance/analysis.py`, `get_payroll_for_week` in `strategic_finance/data.py`). The schedule reads "Next Payroll: 31 Oct 2026". Regression test `test_monthly_payroll_stays_on_month_end` fails without the change.

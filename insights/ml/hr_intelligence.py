@@ -21,7 +21,7 @@ that don't run payroll in-house.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
@@ -425,20 +425,26 @@ class HRIntelligence:
 
         # Industry-standard formula: exits / average headcount over the
         # period, where average headcount = (start + end) / 2.
-        # `total_active` is the end-of-period (current) active headcount;
-        # the start-of-period headcount is derived by reversing this
-        # period's net change (removing this period's hires, adding back
-        # this period's exits).
+        # Both are counted from joining/relieving dates. Reversing the net
+        # change from today's headcount is wrong: hires who already left or
+        # went inactive are in `new_hires` but not in today's headcount, so the
+        # start came out too low and the rate too high. Inactive employees have
+        # no leaving date, so they are in neither count.
         #
         # Previously this divided by a count of every Employee record ever
         # created on the site (any status, no date bound at all) -- a
-        # denominator that only grows as terminated employees accumulate
-        # over the years, silently deflating the reported rate on every
-        # later period even though the comment here already named the
-        # correct formula and never implemented it.
-        end_headcount = c["total_active"]
-        net_change = c["new_hires"] - total_exits
-        start_headcount = end_headcount - net_change
+        # denominator that only grows as terminated employees accumulate.
+        def _headcount_on(day) -> int:
+            e = t("Employee")
+            f = e.filter(
+                (e["status"] != "Inactive")
+                & (e["date_of_joining"] <= str(day))
+                & (e["relieving_date"].isnull() | (e["relieving_date"] > str(day)))
+            )
+            return int(_scalar(f.aggregate(n=f.count())))
+
+        end_headcount = _headcount_on(self.to_date)
+        start_headcount = _headcount_on(self.from_date - timedelta(days=1))
         avg_headcount = (start_headcount + end_headcount) / 2
         attrition_rate = (total_exits / avg_headcount * 100) if avg_headcount > 0 else 0
 
