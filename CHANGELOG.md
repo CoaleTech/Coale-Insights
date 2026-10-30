@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — "Healthy" caption on the Customer Overview health tiles read 4.2:1 in dark mode
+
+Dark-theme scan of the four other Marketing tabs (Channels, Trend, Coverage, Win Probability), the five Customers tabs and the six Revenue tabs: one reading under 4.5:1 outside disabled controls (the greyed Previous/Next pager on Forecasts is exempt). The Customer Overview health-distribution tiles put a `text-ink-gray-6` caption (rgb 153) on the green tint (rgb 10 63 39) for "Healthy", the same pairing as the People diversity tile; At Risk and Critical passed. The caption is now `text-ink-gray-7`.
+
 ### Fixed — three captions under 4.5:1 (People diversity tile, Marketing funnel bars), and the Ordered amount clipped to "?"
 
 Dark-theme scan of the Executive, People, Marketing, Risk, Revenue, Tax and Procurement dashboards, then a light-theme recheck of the Marketing funnel. (1) The "Diversity score" caption and the balance word beside it on the People Workforce Composition tile were `text-ink-gray-6` (rgb 153) on the tinted green tile (rgb 10 63 39), 4.2:1; both now use `text-ink-gray-7`. (2) The lead-funnel bar labels (3,763 / 3,102 / 2,553 and "· 4,175 docs · ₹634.8M") were `text-white` on the dark-mode accent blue (rgb 50 148 227), 3.2:1; they now use `text-ink-white` (white in light mode, near-black in dark) and the 80% opacity on the docs label is dropped. (3) In light mode the Ordered amount was white on amber-600, 3.2:1, and its zone is about 4% of the bar with a 2 rem floor, so "₹8.2M" showed as "?". A new `--app-on-warn-fill` token (near-black, 5.7:1 on amber-600 and 8.6:1 on amber-500) colours it, and the floor is 3.5 rem. The other low readings were the disabled Export button on Executive (disabled, exempt) and a decorative "/" separator on Tax. The Refresh Analysis buttons on Risk, Tax and Procurement are frappe-ui's `solid gray`, which inverts to a light button in dark mode by design.

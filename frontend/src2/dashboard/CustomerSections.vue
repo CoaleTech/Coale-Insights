@@ -1139,7 +1139,7 @@ const toneOf = (s: Severity): StatItem['tone'] =>
             :class="healthDistTint(String(status))"
           >
             <div class="text-sm font-semibold text-ink-gray-9 tnum">{{ formatNumber(count) }}</div>
-            <div class="text-xs text-ink-gray-6">{{ status }}</div>
+            <div class="text-xs text-ink-gray-7">{{ status }}</div>
           </div>
         </div>
         <button
