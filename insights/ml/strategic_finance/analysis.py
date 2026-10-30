@@ -278,6 +278,15 @@ def _fetch_gl_payroll_entries(intelligence, six_months_ago: str) -> List[Dict[st
     )
 
 
+def _payroll_runs(rows) -> List[Dict[str, Any]]:
+    """One payroll run is many same-day entries (a Journal Entry per employee
+    here); sum them so the typical amount is the run, not one employee."""
+    runs: Dict[Any, float] = {}
+    for r in rows or []:
+        runs[r["posting_date"]] = runs.get(r["posting_date"], 0.0) + float(r["paid_amount"] or 0)
+    return [frappe._dict(posting_date=d, paid_amount=a) for d, a in sorted(runs.items(), reverse=True)]
+
+
 def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
     """
     Auto-detect payroll schedule from historical Journal Entry and Payment Entry
@@ -287,11 +296,11 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
     six_months_ago = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%d')
 
     # Search for payroll-related payments
-    payroll_entries = _fetch_payroll_entries(intelligence, six_months_ago)
+    payroll_entries = _payroll_runs(_fetch_payroll_entries(intelligence, six_months_ago))
 
-    if not payroll_entries or len(payroll_entries) < 2:
+    if len(payroll_entries) < 2:
         # Not enough data, check salary account directly
-        payroll_entries = _fetch_gl_payroll_entries(intelligence, six_months_ago)
+        payroll_entries = _payroll_runs(_fetch_gl_payroll_entries(intelligence, six_months_ago))
 
     if not payroll_entries or len(payroll_entries) < 2:
         return {

@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — 13-week cash forecast took one employee's salary as the monthly payroll
+
+The 13-Week tab said "Monthly payroll of ₹16,500 detected". Payroll here is posted as one Journal Entry per employee on the last day of the month (6 to 8 entries, ₹2K to ₹21K each), and `detect_payroll_pattern` took the median of those single entries. The real run is about ₹98K a month (31 Aug: 6 entries, ₹95,925), so the forecast understated payroll roughly six-fold. Same-day entries are now summed into one run before the pattern is detected (`_payroll_runs` in `strategic_finance/analysis.py`); the tab now reads ₹98,411 a month. Also recomputed from the ledger and matching: the Cash Forecast average daily flow of -₹19,200 (-₹1,727,999 over 90 days of Cash and Bank accounts) and its AR/AP split (₹18.64M overdue plus ₹1.07M due inside the window).
+
 ### Fixed — Finance EBITDA tiles matched Net Profit to the rupee with no explanation
 
 The KPI strip and the Overview tab both showed EBITDA ₹3,469,659 beside Net Profit ₹3,469,659. That is correct: the ledger has no interest, depreciation or amortisation posting this fiscal year (the only tax account, GST Expense, is ₹0), so there is nothing to add back. It still reads as a bug, and the Executive Summary tab already said so. The overview payload now carries `ebitda_addbacks` (`financial_intelligence.py`), the strip reads "margin, same as net profit" and the Overview tile "4.3% margin, no interest or depreciation" (`FinancialIntelligence.vue`, `OverviewTab.vue`); once an add-back is posted the wording drops away. Checked at 390, 1100 and 1500 px with no clipping.
