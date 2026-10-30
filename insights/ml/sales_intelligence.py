@@ -37,8 +37,10 @@ from insights.ml.inventory_intelligence import DemandForecasting
 from insights.ml.sales_forecasting import _is_partial, get_sales_forecast
 
 # Every revenue figure in this payload is tax-exclusive (base_net_total /
-# base_net_amount), in the company base currency, with credit notes
-# (is_return) excluded. Receivables / DSO are the one deliberate exception.
+# base_net_amount), in the company base currency. Revenue and gross margin are
+# net of Sales Return credit notes (like ERPNext's Gross Profit report); order
+# and customer counts cover non-return invoices only. Receivables / DSO are the
+# one deliberate exception.
 REVENUE_BASIS = "net_of_tax"
 
 
@@ -68,7 +70,7 @@ def calculate_revenue_metrics(
     """
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    )
     start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
@@ -84,8 +86,8 @@ def calculate_revenue_metrics(
     # One aggregate for the headline numbers.
     overall_df = si.aggregate(
         total_revenue=si.base_net_total.sum(),
-        total_transactions=si.count(),
-        unique_customers=si.customer.nunique(),
+        total_transactions=si.count(where=si.is_return == 0),
+        unique_customers=si.customer.nunique(where=si.is_return == 0),
         last_posting=si.posting_date.max(),
     ).execute()
     overall = overall_df.iloc[0]
@@ -111,7 +113,7 @@ def calculate_revenue_metrics(
         si_daily.group_by(si_daily.posting_date)
         .aggregate(
             revenue=si_daily.base_net_total.sum(),
-            transactions=si_daily.count(),
+            transactions=si_daily.count(where=si_daily.is_return == 0),
         )
         .order_by("posting_date")
         .execute()
@@ -133,7 +135,7 @@ def calculate_revenue_metrics(
         si_weekly.group_by(["year_week"])
         .aggregate(
             revenue=si_weekly.base_net_total.sum(),
-            transactions=si_weekly.count(),
+            transactions=si_weekly.count(where=si_weekly.is_return == 0),
         )
         .order_by("year_week")
         .execute()
@@ -153,8 +155,8 @@ def calculate_revenue_metrics(
         si_monthly.group_by("period")
         .aggregate(
             revenue=si_monthly.base_net_total.sum(),
-            transactions=si_monthly.count(),
-            unique_customers=si_monthly.customer.nunique(),
+            transactions=si_monthly.count(where=si_monthly.is_return == 0),
+            unique_customers=si_monthly.customer.nunique(where=si_monthly.is_return == 0),
         )
         .order_by("period")
         .execute()
@@ -173,7 +175,7 @@ def calculate_revenue_metrics(
     # Line-level GP: fetch once via cached_gp_lines; group in pandas for
     # daily / weekly / monthly windows. Replaces 3 separate SI×SII×DN×SLE
     # join executions with one shared materialisation per compute call.
-    gp_frame = cached_gp_lines(start, end, company or default_company())
+    gp_frame = cached_gp_lines(start, end, company or default_company(), include_returns=True)
 
     def _merge_gp(series: list[dict[str, Any]], gp_map: dict[str, tuple[float, float]], key: str) -> None:
         for row in series:
@@ -216,7 +218,7 @@ def calculate_revenue_metrics(
     # several invoices on one day are one order occasion, not a 0-day gap that
     # drags the average down.
     per_customer_df = (
-        si.group_by(si.customer)
+        si.filter(si.is_return == 0).group_by(si.customer)
         .aggregate(
             first_sale=si.posting_date.min(),
             last_sale=si.posting_date.max(),
@@ -504,11 +506,12 @@ def calculate_comparisons(
     growth" whenever the 12m date filter was selected. The MoM slice
     is inside the window and the filter is still applied to it.
     """
-    # Base set (submitted, non-return, company-scoped) reused for both
-    # slices below and for anchoring the "current" period.
+    # Base set (submitted, company-scoped, returns included so revenue is net
+    # of credit notes) reused for both slices below and for anchoring the
+    # "current" period; transaction counts exclude return invoices.
     base = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    )
 
     # MoM slice: subject to the user's date filter (both endpoints
     # live inside the window).
@@ -553,15 +556,15 @@ def calculate_comparisons(
             si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))
             return si_period.aggregate(
                 revenue=si_period.base_net_total.sum(),
-                transactions=si_period.count(),
+                transactions=si_period.count(where=si_period.is_return == 0),
             ).execute().iloc[0].fillna(0)
         si_period = si_base.filter(si_base.posting_date.between(start_d, full_end))
         lfl = si_period.posting_date <= end_d
         return si_period.aggregate(
             revenue=si_period.base_net_total.sum(where=lfl),
-            transactions=si_period.count(where=lfl),
+            transactions=si_period.count(where=lfl & (si_period.is_return == 0)),
             full_revenue=si_period.base_net_total.sum(),
-            full_transactions=si_period.count(),
+            full_transactions=si_period.count(where=si_period.is_return == 0),
         ).execute().iloc[0].fillna(0)
 
     import calendar as _cal
@@ -804,7 +807,7 @@ def gross_margin_totals(start, end, company: str | None = None) -> dict[str, flo
     """
     # Normalise to date objects for the cache key.
     _start, _end = (None if d is None else date.fromisoformat(str(d)[:10]) for d in (start, end))
-    df = cached_gp_lines(_start, _end, company or default_company())
+    df = cached_gp_lines(_start, _end, company or default_company(), include_returns=True)
     revenue = float(df["base_net_amount"].sum())
     profit = float(df["gross_profit"].sum())
     return {
@@ -828,7 +831,7 @@ def analyze_margins(
     """
     start, end = parse_date_filter(date_filter)
     # Use cached GP frame — avoids 3 separate SI×SII×DN×SLE join executions.
-    df = cached_gp_lines(start, end, company or default_company())
+    df = cached_gp_lines(start, end, company or default_company(), include_returns=True)
 
     totals = gross_margin_totals(start, end, company)
     total_revenue = totals["total_revenue"]

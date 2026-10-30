@@ -653,7 +653,7 @@ def analyze_by_dimensions(date_filter: str = "12m", company: str | None = None) 
 def analyze_margins(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
     si = DocType("Sales Invoice")
     sii = DocType("Sales Invoice Item")
-    profit_expr = sii.net_amount - sii.qty * Coalesce(sii.incoming_rate, 0)
+    profit_expr = sii.net_amount - sii.stock_qty * Coalesce(sii.incoming_rate, 0)
     overall_q = (
         frappe.qb.from_(si)
         .inner_join(sii)

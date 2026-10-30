@@ -6,6 +6,19 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Revenue and gross margin ignored Sales Return credit notes and mis-costed lines sold in a larger UOM
+
+Reported against ERPNext's Gross Profit report: Insights turnover and gross margin differed, and returned (rejected) material was not netted off actual sales.
+
+- **Returns.** `calculate_revenue_metrics` (headline, daily, weekly and monthly revenue), `calculate_comparisons` (period comparison and the monthly trend chart), `gross_margin_totals` and `analyze_margins` now include `is_return` invoices, so revenue, cost and gross profit are net of credit notes like ERPNext's report (which ticks "Include Returned Invoices"). Order and customer counts still cover non-return invoices only. `cached_gp_lines` gained `include_returns` (default False); the customer, territory and sales-rep callers keep False because they join the frame to non-return revenue. Finance gross profit (KPI strip, Cost Structure, Ratios) reads `gross_margin_totals`, so it is now net of returns too, matching the ledger revenue beside it.
+- **UOM.** The stored-rate cost fallback multiplied the stock-UOM `incoming_rate` by the selling-UOM `qty` (`line_cogs`, `cached_gp_lines`, the Sales Intelligence report). A line sold as 88 Tonnes at 5.5 per kg cost ₹484 instead of ₹484,000, which inflated April's margin. It now uses `stock_qty`.
+- **Verified against `erpnext...gross_profit.execute` on this site.** April 2026 selling amount ₹17,465,416 (was ₹17,517,941; the difference is credit note CN26271, ₹52,525) and May ₹14,951,363 match ERPNext exactly; May gross profit ₹1,156,029 matches to the rupee. April margin moved from 12.9% to 9.3% against ERPNext's 9.7%.
+- **Not matched (left as is).** Lines on a Sales Invoice with `update_stock = 0` and no Delivery Note link have no stock movement of their own; ERPNext costs them at the item's valuation rate (CI26271: ₹555,209), Insights at the invoice line's stored `incoming_rate` (₹484,000). That leaves April gross profit ₹69,624 apart and Apr to Sep ₹148,373 apart (₹6,260,526 against ₹6,408,899). Revenue by customer group, territory and product group (`analyze_by_dimensions`) and the customer and rep revenue still exclude credit notes.
+
+### Fixed — Finance header pushed "Refresh" onto its own row on phones
+
+At 390 px the "Updated: date" stamp sat between the period filter and the Refresh button, so Refresh wrapped to a third row and the sticky page header took about 110 px. The stamp is now hidden below the `sm` breakpoint (`FinancialIntelligence.vue`).
+
 ### Fixed — Working Capital DSO/DPO/DIO averaged 91 days of invoices over 90
 
 `analyze_working_capital` (`ml/strategic_finance/analysis.py`) summed invoices with `posting_date BETWEEN last-90d AND last`, which is inclusive at both ends (91 days), then divided by 90. That overstated average daily sales and purchases by about 1.1% and understated DSO, DPO and DIO by the same amount. The window start is now `last - 89 days`. Reconciled against the database: 17 Jun to 14 Sep sales invoices ₹43,864,370 and ledger receivables ₹18,929,784 give DSO 38.8 (before: 37.7, from ₹45,152,699 over 91 days). Live on the Working Capital tab: "DSO 38.8 + DIO 2.2 - DPO 33.3 = 7.7 days" (before 37.7, 2.2, 32.4, 7.5). `test_strategic_finance_math` 13 of 13. The same pass reconciled the Finance KPI strip to the ledger: AR ₹19,714,214 (140), 90+ days ₹1,176,510 (24), AP ₹19,069,276 (320), liquid cash -₹246,351, YTD revenue ₹80,149,403, net profit ₹3,469,659 (matches to the rupee after excluding one entry dated after today). Not changed: the KPI strip DSO (40 days) uses trailing-12-month sales while this tab uses the last 90 days of the ledger, so the two differ by design; the strip does not say which window it uses. The "last 90 days" is anchored on the last posted invoice (14 Sep), not today (29 Oct).

@@ -253,7 +253,9 @@ def line_cogs(sii: ir.Table, dn_rate: ir.Column, sle_svd: ir.Column | None = Non
     """
     import ibis
 
-    stored = sii.qty * ibis.coalesce(sii.incoming_rate.nullif(0), dn_rate, 0)
+    # incoming_rate / DN rate are per STOCK uom: multiply by stock_qty, not the
+    # selling-uom qty (a line sold as 88 Tonnes at 5.5/kg cost 484, not 484,000).
+    stored = sii.stock_qty * ibis.coalesce(sii.incoming_rate.nullif(0), dn_rate, 0)
     if sle_svd is None:
         return stored
     return ibis.coalesce(-sle_svd, stored)
@@ -263,6 +265,7 @@ def cached_gp_lines(
     start,  # date | datetime | None  — same window as the calling compute
     end,    # date | datetime | None
     company: str | None,
+    include_returns: bool = False,
 ) -> "pd.DataFrame":
     """Per-Sales-Invoice-Item row with revenue, cost, and period columns.
 
@@ -272,9 +275,13 @@ def cached_gp_lines(
     caller (revenue GP, margins, sales-reps, customer profitability, territory
     rollup) groups the same frame in pandas instead of re-issuing the join.
 
-    The cache is keyed by (user, start, end, company) and lives only on
-    ``frappe.local`` -- it resets automatically at the end of every request
-    and never leaks across users or concurrent sessions.
+    The cache is keyed by (user, start, end, company, include_returns) and
+    lives only on ``frappe.local`` -- it resets automatically at the end of
+    every request and never leaks across users or concurrent sessions.
+
+    ``include_returns=True`` nets Sales Return credit notes (negative revenue
+    and cost) like ERPNext's Gross Profit report; callers that join the frame
+    to non-return invoice revenue keep the default False.
     """
     import pandas as pd
 
@@ -284,7 +291,7 @@ def cached_gp_lines(
         d = v.date() if hasattr(v, "date") and callable(v.date) else v
         return str(d)[:10]
 
-    key = (frappe.session.user, _ds(start), _ds(end), company or "")
+    key = (frappe.session.user, _ds(start), _ds(end), company or "", include_returns)
     cache = getattr(frappe.local, "insights_gp_line_cache", None)
     if cache is None:
         cache = frappe.local.insights_gp_line_cache = {}
@@ -295,7 +302,9 @@ def cached_gp_lines(
 
     _si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    )
+    if not include_returns:
+        _si = _si.filter(_si.is_return == 0)
     if start is not None:
         _start = start.date() if hasattr(start, "date") and callable(start.date) else start
         _si = _si.filter(_si.posting_date >= _start)
@@ -323,6 +332,7 @@ def cached_gp_lines(
             item_group=_sii.item_group,
             base_net_amount=_sii.base_net_amount,
             qty=_sii.qty,
+            stock_qty=_sii.stock_qty,
             incoming_rate=_sii.incoming_rate,
             dn_rate=_dn.dn_rate,
             svd=_sle.svd,
@@ -331,7 +341,7 @@ def cached_gp_lines(
     )
 
     # Numeric coercion (MariaDB DECIMAL → float; nulls stay as NaN for cost logic).
-    for _col in ("base_net_amount", "qty", "incoming_rate", "base_net_total"):
+    for _col in ("base_net_amount", "qty", "stock_qty", "incoming_rate", "base_net_total"):
         df[_col] = df[_col].astype(float)
     df["dn_rate"] = pd.to_numeric(df["dn_rate"], errors="coerce")
     df["svd"] = pd.to_numeric(df["svd"], errors="coerce")
@@ -344,10 +354,10 @@ def cached_gp_lines(
         lambda d: d.date() if hasattr(d, "date") and callable(d.date) else d
     ).astype(object)
 
-    # line_cogs: -svd when the stock ledger booked it, else qty * coalesce(rate, 0).
+    # line_cogs: -svd when the stock ledger booked it, else stock_qty * coalesce(rate, 0).
     # Mirrors ibis_source.line_cogs() exactly.
     _rate = df["incoming_rate"].where(df["incoming_rate"] != 0, df["dn_rate"]).fillna(0)
-    _stored = df["qty"] * _rate
+    _stored = df["stock_qty"] * _rate
     df["line_cogs"] = (-df["svd"]).where(df["svd"].notna(), _stored)
     df["gross_profit"] = df["base_net_amount"] - df["line_cogs"]
 

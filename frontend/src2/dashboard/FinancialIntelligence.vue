@@ -8,7 +8,7 @@
 			</div>
 			<div class="flex flex-wrap items-center gap-3">
 				<IntelligenceDateFilter v-model="dateFilter" />
-				<span v-if="lastUpdated" class="text-sm text-ink-gray-6">
+				<span v-if="lastUpdated" class="hidden text-sm text-ink-gray-6 sm:inline">
 					Updated: {{ formatDate(lastUpdated) }}
 				</span>
 				<Button
