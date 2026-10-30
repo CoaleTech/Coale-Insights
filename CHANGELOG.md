@@ -6,6 +6,14 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — clicking a customer (or any dashboard link) did nothing in a tab opened before the last build
+
+Reported: a click on a customer in the Customers tab no longer opened the customer's detail page. Every click path I tried opens it on the current build (directory row, Overview "View →", Actions list, Geography drill; real mouse clicks at 390, 820, 1100 and 1500 px; the detail API answers for the nine non-admin users I tried, though six of them see zero invoices for that customer because of their row-level permissions). What does fail is a tab that was open when the frontend was rebuilt: the build empties its output folder (`emptyOutDir`), so the old tab still asks for `CustomerDetail-<old hash>.js`, the server answers 404, vue-router's lazy import rejects and the click does nothing at all, with no message. I reproduced it by removing a lazy chunk from the served folder: the click left the URL unchanged. `router.onError` in `src2/router.ts` now reloads onto the target when the failure is a module import, once per target (a `sessionStorage` flag, cleared by the next successful navigation, stops a genuinely missing chunk from looping). Checked the same way: the click now reloads onto the target, and a second failure stops instead of looping. This covers every lazy route (all dashboards, not only the customer page), and it also covers a production deploy. Until the fix is loaded, an already-open tab needs one reload.
+
+### Fixed — Risk "Ledger Anomalies" brief said no ledger scan had been run when the daily scan had run and found nothing
+
+The brief read "No ledger scan has been run" because the model scan (daily revenue and expense days, last 7 days of invoices) returned no rows, and it stayed that way after "Run ledger scan" had listed 25 entries below it. It now says the daily revenue and expense scan flagged nothing and points to the ledger scan on the tab; when it does flag days the headline says "N unusual days flagged by the daily revenue and expense scan" instead of "ledger anomalies" (they are invoice days, not ledger entries). The ledger scan itself was checked: 40,397 entries in the last 12 months, top 25 ranked by z-score within each account, and it is labelled as unusual, not wrong.
+
 ### Fixed — Risk dashboard: four figures that read like other figures but were not
 
 Recomputed from the invoice and stock tables and matching: overdue receivables ₹18,641,511 (135 of 140 invoices), overdue payables ₹17,651,731 (303 of 320 bills), every aging bucket and bill count, amount-weighted average days overdue 50.4 (AR) and 42.7 (AP), the 1,278 customers and 986 suppliers, and the overall score 48.5 from its four weighted components. Four things were misleading:
