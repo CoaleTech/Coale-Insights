@@ -80,14 +80,14 @@
 					:level="3"
 				/>
 				<Badge v-if="fd.pct_of_cash != null" v-bind="severityBadge('none')"
-					   :label="`${formatPercent(fd.pct_of_cash)} of cash`" size="sm" />
+					   :label="`${formatPercent(fd.pct_of_cash)} of cash${fd.pct_of_cash > 100 ? ', bank overdrawn' : ''}`" size="sm" />
 			</div>
 
 			<div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 wide:grid-cols-6">
 				<KpiCard variant="tile" label="Principal on Deposit" :amount="fd.balance" :currency="currency" />
-				<KpiCard variant="tile" label="Placed" :amount="fd.placed" :currency="currency"
+				<KpiCard variant="tile" :label="`Placed · ${fd.window_months ?? 12} mo`" :amount="fd.placed" :currency="currency"
 					:sublabel="placementLabel" />
-				<KpiCard variant="tile" label="Released" :amount="fd.released" :currency="currency"
+				<KpiCard variant="tile" :label="`Released · ${fd.window_months ?? 12} mo`" :amount="fd.released" :currency="currency"
 					:sublabel="releaseLabel" />
 				<KpiCard variant="tile" label="Interest Booked" :amount="fd.interest_booked_fy" :currency="currency"
 					:sublabel="fd.fiscal_year ? `FY ${fd.fiscal_year} to date` : undefined" />

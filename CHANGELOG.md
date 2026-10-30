@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Fixed-deposit Placed and Released tiles did not say they cover 12 months, and their badge missed the overdrawn note
+
+On the Cash tab, Principal on Deposit (₹9,821,496) is the all-time ledger balance, while Placed (₹63,563,630) and Released (₹59,439,820) cover the last 12 months from the first of the month (`window_months`, both recomputed from the ledger from 1 Nov 2025 and matching to the rupee). Placed minus Released is ₹4.12M against a ₹9.82M balance, which looked like a break and is the deposits opened before the window. The tiles now read "Placed · 12 mo" and "Released · 12 mo", and the section badge reads "102.6% of cash, bank overdrawn" like the tile above it (`CashFlowTab.vue`). The Cash tab's brief figures were also recomputed from the ledger and match exactly: Payment Entries in ₹15,083,794 and out ₹14,675,310 a month, net ledger movement ₹86,963 a month over the six complete months.
+
 ### Fixed — Cash tab fixed-deposit tile read "102.6% of total cash" with no explanation
 
 Fixed deposits ₹9,821,496 against total cash ₹9,575,145 is correct, because the bank account is overdrawn by ₹842,390, but a share above 100% reads as a bug. When the share exceeds 100% the tile now says "102.6% of total cash: bank is overdrawn" (`CashFlowTab.vue`); at or below 100% it is unchanged. Checked at 1500 px and 390 px, where it stays on one line.
