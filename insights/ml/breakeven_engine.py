@@ -316,7 +316,7 @@ class BreakevenEngine:
                 allocated_fixed = round(total_fixed * (cm * actual_qty / total_contribution), 2)
 
             be_qty = round(allocated_fixed / cm, 2) if cm > 0 else 0.0
-            coverage = round(actual_qty / be_qty, 2) if be_qty > 0 else None
+            coverage = round(actual_qty / be_qty, 4) if be_qty > 0 else None
             safety_margin = round((actual_qty - be_qty) / actual_qty * 100, 2) if be_qty > 0 and actual_qty > 0 else None
 
             results.append({
@@ -439,7 +439,7 @@ class BreakevenEngine:
             payroll_cost = payroll_map.get(dept, 0.0)
             orders_needed = round(payroll_cost / avg_contribution_per_order, 2) if avg_contribution_per_order > 0 else 0.0
             actual_orders = orders_map.get(dept, 0)
-            coverage = round(actual_orders / orders_needed, 2) if orders_needed > 0 else None
+            coverage = round(actual_orders / orders_needed, 4) if orders_needed > 0 else None
 
             results.append({
                 "department": dept,
@@ -516,7 +516,7 @@ class BreakevenEngine:
 
         total_in = round(cumulative_in, 2)
         total_out = round(cumulative_out, 2)
-        coverage = round(total_in / total_out, 2) if total_out > 0 else None
+        coverage = round(total_in / total_out, 4) if total_out > 0 else None
 
         return {
             "period": self.period,
@@ -715,7 +715,7 @@ class BreakevenEngine:
         if actual_revenue is None:
             actual_revenue = sum(i.get("actual_revenue", 0) for i in item_data.get("items", []))
         overall_be_revenue = _be_revenue(total_fixed, total_variable, actual_revenue) if self.configured else None
-        coverage = round(actual_revenue / overall_be_revenue, 2) if overall_be_revenue else None
+        coverage = round(actual_revenue / overall_be_revenue, 4) if overall_be_revenue else None
         safety_margin = (
             round((actual_revenue - overall_be_revenue) / actual_revenue * 100, 2)
             if overall_be_revenue is not None and actual_revenue > 0 else None
@@ -815,7 +815,7 @@ class BreakevenEngine:
                 if total_contribution > 0 and cm > 0:
                     allocated_fixed = round(scenario_fixed * (cm * qty / total_contribution), 2)
                 be_qty = round(allocated_fixed / cm, 2) if cm > 0 else 0.0
-                coverage = round(qty / be_qty, 2) if be_qty > 0 else None
+                coverage = round(qty / be_qty, 4) if be_qty > 0 else None
                 safety_margin = round((qty - be_qty) / qty * 100, 2) if be_qty > 0 and qty > 0 else None
                 results.append({
                     **item,
@@ -829,7 +829,7 @@ class BreakevenEngine:
             projected_revenue = round(sum(r["revenue"] for r in results), 2)
             projected_qty = round(sum(r["qty"] for r in results), 2)
             overall_be_revenue = _be_revenue(scenario_fixed, scenario_variable, projected_revenue) if self.configured else None
-            overall_coverage = round(projected_revenue / overall_be_revenue, 2) if overall_be_revenue else None
+            overall_coverage = round(projected_revenue / overall_be_revenue, 4) if overall_be_revenue else None
             overall_safety_margin = (
                 round((projected_revenue - overall_be_revenue) / projected_revenue * 100, 2)
                 if overall_be_revenue is not None and projected_revenue > 0 else None
@@ -838,7 +838,7 @@ class BreakevenEngine:
             current_qty = round(sum(i.get("actual_qty", 0) for i in baseline["items"]), 2)
             current_revenue = round(sum(i.get("actual_revenue", 0) for i in baseline["items"]), 2)
             current_be_revenue = _be_revenue(base_fixed, base_variable, current_revenue) if self.configured else None
-            current_coverage = round(current_revenue / current_be_revenue, 2) if current_be_revenue else None
+            current_coverage = round(current_revenue / current_be_revenue, 4) if current_be_revenue else None
 
             return {
                 "status": "success",

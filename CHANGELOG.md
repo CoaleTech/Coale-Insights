@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Break-even coverage ratios were rounded to two decimals before they became percentages
+
+On Break-Even Overview the Cash Coverage read 102.0% while the ledger gives 101.8% (₹90,502,764 received against ₹88,942,733 paid). `breakeven_engine.py` rounded every coverage ratio to 2 decimals (1.02), so each percentage was off by up to half a point and a ratio just under or over 1.0 or 1.2 could land in the wrong RAG band. All seven coverage ratios now keep 4 decimals. Cash Coverage now reads 101.8%. Recomputed from the ledger and matching: total cash in and out and the break-even revenue basis (₹80,057,566 is invoice net revenue after credit notes; the ledger income total is ₹91,837 higher because it includes non-invoice income).
+
 ### Fixed — Scenario Analysis compared an after-tax best/worst case with a pre-tax base case, both labelled "Net Income"
 
 On the Scenario Analysis tab the Best Case (P95, ₹4,052,291) and Worst Case (P5, ₹958,377) are percentiles of simulated net income after tax, while the Base Case "Net Income" ₹3,469,659 is before tax (its after-tax figure, ₹2,602,245, sits two lines lower). Read side by side the base case looked inside the range for the wrong reason. The two percentile cards now say "Net After Tax" (`ScenarioAnalysisTab.vue`). Recomputed from the ledger and matching: the sensitivity matrix (0%/0% ₹3,469,659, revenue -10% ₹-4,545,281, expenses +10% ₹-4,198,315), break-even ₹72,004,164 and 10.2% margin of safety on the 40% fixed-cost assumption, 42.6% contribution margin, and the Period Comparison year-over-year figures (revenue ₹80,149,403 against ₹97,727,489, expenses ₹76,679,743 against ₹95,223,355). That revenue gap reads -18% only because ledger data stops about 14 Sep: to the same day last year it is ₹81,090,809, -1.2%.
