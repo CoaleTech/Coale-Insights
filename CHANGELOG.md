@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Ratios tab working-capital turnover used a different cash figure than the Working Capital tab
+
+`calculate_ratio_trends` built working capital from raw ledger cash, so the latest window's Working Capital Turnover read 5.64x (₹14,337,526 of working capital) while the Working Capital tab, built on book cash with post-dated payments already out, showed ₹14,214,393. The ₹123,133 gap is the future-dated payment disclosure. The latest window now uses the same `get_cash_total`, giving 5.69x (₹19.95M × 365/90 ÷ ₹14,214,393). Older windows keep ledger cash, since the post-dated split only exists for today. Net margin 5.4%, ROA 13.2%, ROCE 24.7%, asset turnover 2.46x and EBIT ₹1,068,319 were recomputed from the ledger and match.
+
 ### Fixed — Days inventory outstanding divided stock by tax-inclusive purchases, not cost of goods sold
 
 `analyze_working_capital` computed DIO as inventory over average daily **Purchase Invoice grand total** (a variable named `avg_daily_cogs`). Purchases include GST and are not what left stock: over the 90 days to the last posting the invoices total ₹41.4M against ₹34.9M of ledger Cost of Goods Sold. DIO is now inventory over ledger COGS across the same 90-day window as DSO (anchored on the last Sales Invoice), through a new `cogs` column in the GL daily cache. It falls back to purchases when the ledger has no COGS account. DPO still uses purchases, which is the basis of the payables it divides. On this site DIO moves from 2.2 to 2.6 days and the cash conversion cycle from 7.7 to 8.2 (DSO 38.8, DPO 33.3 unchanged). Inventory ₹1,025,946, receivables ₹18,929,784 and payables ₹15,316,482 on the tab match the ledger and the Bin table to the rupee.

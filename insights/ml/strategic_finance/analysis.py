@@ -739,7 +739,9 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         assets      = abs(_gl_cumulative(gl, q["end"], "asset"))
         liabilities = abs(_gl_cumulative(gl, q["end"], "liability"))
         equity      = abs(_gl_cumulative(gl, q["end"], "equity"))
-        cash        = _gl_cumulative(gl, q["end"], "cash")
+        # Latest window uses book cash (post-dated payments already out), like the
+        # Working Capital tab and Cash Position card; older windows have no such split.
+        cash        = get_cash_total(intelligence) if q is quarters[0] else _gl_cumulative(gl, q["end"], "cash")
         receivables = _gl_cumulative(gl, q["end"], "receivable")
         inventory   = _gl_cumulative(gl, q["end"], "inventory")
         payables    = abs(_gl_cumulative(gl, q["end"], "payable"))
