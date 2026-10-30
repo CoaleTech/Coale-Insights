@@ -109,12 +109,15 @@ class TestGenerateMarketingAlerts(FrappeTestCase):
         self.assertTrue(any("collapsed" in a["title"] for a in alerts))
 
     def test_source_concentration_alert(self):
-        source_rows = [{"source": "Only Channel", "leads": 90}, {"source": "Other", "leads": 10}]
+        # The source panel is capped at the top 12 channels, so the share is taken over all leads:
+        # 70 of 100 leads is 70%, not 70 of the 80 listed (88%).
+        source_rows = [{"source": "Only Channel", "leads": 70}, {"source": "Other", "leads": 10}]
         alerts = _generate_marketing_alerts(
-            total=0, open_leads=0, expired_value=0, won_value=0,
+            total=100, open_leads=0, expired_value=0, won_value=0,
             trend=[], source_rows=source_rows, days_stale=None,
         )
-        self.assertTrue(any("concentrated" in a["title"] for a in alerts))
+        alert = next(a for a in alerts if "concentrated" in a["title"])
+        self.assertIn("70%", alert["description"])
 
     def test_stale_data_alert_is_inserted_first(self):
         """Stale-data alert must be the operator's first read -- it explains

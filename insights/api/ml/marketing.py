@@ -309,17 +309,16 @@ def _generate_marketing_alerts(
                     round(recent, 1), round(earlier, 1)
                 ),
             })
-    # Concentration is measured against the same all-time base as
-    # `source_performance`, so the percentage on screen matches the panel.
-    source_total = sum(int(r["leads"] or 0) for r in source_rows)
+    # Share of ALL leads. `source_rows` is capped at the top 12 sources, so
+    # summing it overstated the share (71% against a true 70.4%).
     concentration = max((int(r["leads"] or 0) for r in source_rows), default=0)
-    if source_total and concentration / source_total > 0.6:
+    if total and concentration / total > 0.6:
         top = max(source_rows, key=lambda r: int(r["leads"] or 0))
         alerts.append({
             "severity": "medium",
             "title": _("Lead supply is concentrated in one channel"),
             "description": _("{0} accounts for {1}% of all leads, so the pipeline depends on a single source.").format(
-                top["source"], round(concentration / source_total * 100)
+                top["source"], round(concentration / total * 100)
             ),
         })
     if days_stale is not None and days_stale > 60:

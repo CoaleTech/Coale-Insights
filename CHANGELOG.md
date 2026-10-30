@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Marketing "concentrated in one channel" alert divided by the top 12 sources, not all leads
+
+The alert read "IndiaMart accounts for 71% of all leads". The source panel is capped at the 12 largest of 23 sources, and the share was taken over those 12, so it overstated by the leads in the other 11. IndiaMart has 2,651 of 3,763 leads, or 70.4%. The alert now divides by the total lead count and reads 70% (`_generate_marketing_alerts` in `api/ml/marketing.py`); the test now asserts the percentage. Recomputed from the Lead and Quotation tables and matching: 3,763 leads (798 in the last 12 months), 661 unqualified (Inquiry 609, Open 44, Interested 8), 8.8% lead conversion (332), the funnel stages (3,102 reached Opportunity, 2,553 quoted), 4,175 quotation documents worth ₹634.8M, and period ordered ₹8.2M, expired ₹50.2M and lost ₹26.8M. Test module `test_marketing_analytics` cannot start here (Fiscal Year overlap in the test setup), so I ran the alert function directly instead.
+
 ### Fixed — People headcount waterfall opened at the wrong headcount and made a false claim about turnover
 
 The Headcount Flow chart read Opening 11, Exits −7, New Hires +7, Closing 11 and said "The entire workforce turned over in one year, with zero net growth". The opening was today's headcount minus the net change, so it counted a hire who has since left and one now Inactive. The server now returns `opening_headcount`, counted from joining and relieving dates (`_headcount_bounds` in `hr_intelligence.py`, shared with the attrition rate), and the chart reads Opening 12, Exits −7, New Hires +6, Closing 11, which adds up. The sentence now states the numbers ("Headcount went from 12 to 11: 7 exits and 7 new hires. 1 of the hires is Inactive and not counted.") instead of claiming the workforce turned over, which was false: 7 left out of 12. The title also said "Trailing 12 Months" whichever period was selected; it now uses the selected period's label (`HRIntelligence.vue`). Checked live on Trailing 12 Months and at 390 px (no overflow); the title with another period selected I did not check in the browser.
