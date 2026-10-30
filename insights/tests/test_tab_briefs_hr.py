@@ -40,3 +40,13 @@ class TestBriefs(unittest.TestCase):
 
     def test_every_tab_has_a_brief(self):
         self.assertEqual(set(briefs(load("hr"))), {"attrition", "department", "payroll", "planning"})
+
+
+class TestAttritionPeriods(unittest.TestCase):
+    def test_attrition_computes_for_every_period(self):
+        # TTM's start date came back as a string and broke the start-headcount maths.
+        from insights.ml.hr_intelligence import HRIntelligence
+
+        for period in ("MTD", "QTD", "YTD", "TTM"):
+            rate = HRIntelligence(period)._analyze_attrition()["attrition_rate_pct"]
+            self.assertGreaterEqual(rate, 0, period)

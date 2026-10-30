@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 import frappe
 from frappe.defaults import get_user_default
-from frappe.utils import add_months
+from frappe.utils import add_months, getdate
 
 from insights.api.ml.ibis_source import t
 
@@ -444,7 +444,7 @@ class HRIntelligence:
             return int(_scalar(f.aggregate(n=f.count())))
 
         end_headcount = _headcount_on(self.to_date)
-        start_headcount = _headcount_on(self.from_date - timedelta(days=1))
+        start_headcount = _headcount_on(getdate(self.from_date) - timedelta(days=1))
         avg_headcount = (start_headcount + end_headcount) / 2
         attrition_rate = (total_exits / avg_headcount * 100) if avg_headcount > 0 else 0
 
