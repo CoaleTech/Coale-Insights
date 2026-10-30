@@ -45,7 +45,7 @@ def _working(p: dict):
     sev = "none" if cr is None else "low" if cr >= CR_GOOD else "medium" if cr >= CR_WARN else "high"
     details = []
     if all(w.get(k) is not None for k in ("dso", "dio", "dpo")):
-        details.append(detail("Cycle", f"DSO {w['dso']:g} + DIO {w['dio']:g} - DPO {w['dpo']:g} = {_f(w['cash_conversion_cycle']):g} days."))
+        details.append(detail("Cycle", f"DSO {w['dso']:g} + DIO {w['dio']:g} - DPO {w['dpo']:g} = {_f(w['cash_conversion_cycle']):g} days, on 90 days of invoiced sales, purchases and cost of goods sold to the last posting."))
     if w.get("quick_ratio") is not None:
         details.append(detail(
             "Liquidity",

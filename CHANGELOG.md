@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Working Capital cycle line did not say which window it used
+
+The brief's "Cycle: DSO 38.8 + DIO 2.6 - DPO 33.3 = 8.2 days." sat under a KPI strip that says "40 days DSO · 12 mo", so the two DSO figures looked like a disagreement. The line now ends "on 90 days of invoiced sales, purchases and cost of goods sold to the last posting" (`tab_briefs/finance_planning.py`). Values are unchanged.
+
 ### Fixed — ROE, Debt to Equity, Interest Coverage and DSCR showed a bare dash on the Ratios tab
 
 Those four ratios are null when there is nothing to divide by, and the tab said nothing about why. On this site the ledger has no Equity-type account with a balance: the three partner accounts (₹4.75M, ₹4.44M and ₹2.28M credit) are classed as Liabilities, so equity is zero and ROE and Debt to Equity cannot be computed. The null rows now read "No Equity-type balance in the ledger; partner capital may sit under Liabilities" (ROE, Debt to Equity), "No interest expense in this period" (Interest Coverage) and "No interest or loan repayment in this period" (DSCR) in place of the formula line. Values and the backend are unchanged (`FinancialRatiosTab.vue`). Reclassifying the partner accounts under Equity is a chart-of-accounts decision for the accountant, not something the dashboard should guess.
