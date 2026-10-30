@@ -591,7 +591,7 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     # ── DSO / DPO / DIO (Sales Invoice + Purchase Invoice — unchanged) ────
     today_bound = datetime.now().strftime('%Y-%m-%d')
 
-    def _daily_avg(doctype: str) -> float:
+    def _window(doctype: str):
         # 90 days ending at the LAST posted document, not at today: when the
         # ledger runs behind the calendar, a window anchored on today counts
         # empty days and inflates DSO/DPO (45 live days / 90 halved the average).
@@ -604,16 +604,28 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
         )
         last = base.select(Max(t.posting_date)).run()[0][0]
         if not last:
+            return None
+        return base, getdate(last) - timedelta(days=89), last  # BETWEEN is inclusive: 90 days, matching the /90 below
+
+    def _daily_avg(doctype: str) -> float:
+        w = _window(doctype)
+        if not w:
             return 1.0
-        start = getdate(last) - timedelta(days=89)  # BETWEEN is inclusive: 90 days, matching the /90 below
-        total = base.select(Coalesce(Sum(t.grand_total), 0)).where(t.posting_date.between(start, last)).run()[0][0]
+        base, start, last = w
+        total = base.select(Coalesce(Sum(DocType(doctype).grand_total), 0)).where(DocType(doctype).posting_date.between(start, last)).run()[0][0]
         return float(total or 0) / 90 or 1.0
 
     avg_daily_revenue = _daily_avg("Sales Invoice")
-    avg_daily_cogs = _daily_avg("Purchase Invoice")
+    avg_daily_purchases = _daily_avg("Purchase Invoice")
+    # DIO is stock held against cost of goods SOLD, taken from the ledger over the
+    # sales window. Purchase invoices are tax-inclusive and are not what left stock
+    # (₹41.4M vs ₹34.9M here). Without a COGS account (no perpetual inventory) fall
+    # back to purchases rather than reporting 0 days.
+    sw = _window("Sales Invoice")
+    avg_daily_cogs = (_gl_sum_period(gl, str(sw[1]), str(sw[2]), "cogs") / 90 if sw else 0) or avg_daily_purchases
 
     dso = min(receivables / float(avg_daily_revenue), 365) if avg_daily_revenue > 0 else 0
-    dpo = min(abs(float(current_liabilities)) / float(avg_daily_cogs), 365) if avg_daily_cogs > 0 else 0
+    dpo = min(abs(float(current_liabilities)) / float(avg_daily_purchases), 365) if avg_daily_purchases > 0 else 0
     dio = min(inventory / float(avg_daily_cogs), 365) if avg_daily_cogs > 0 else 0
     ccc = max(min(dso + dio - dpo, 365), -365)
 

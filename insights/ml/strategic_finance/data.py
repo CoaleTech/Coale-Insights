@@ -153,7 +153,7 @@ def get_cash_total(intelligence) -> float:
 def _gl_daily_cache(intelligence) -> list:
     """One GL Entry × Account scan grouped by posting_date — all history up to today.
 
-    Returns a list of dicts (oldest-first) with 15 CASE-SUM columns covering
+    Returns a list of dicts (oldest-first) with 16 CASE-SUM columns covering
     every aggregate shape needed by calculate_ratio_trends (8 × 2 queries),
     calculate_executive_summary (9 GL queries), compare_periods (6 queries),
     analyze_working_capital (3 GL queries), and generate_scenario_analysis.
@@ -214,6 +214,8 @@ def _gl_daily_cache(intelligence) -> list:
                             gle.debit - gle.credit).else_(0)).as_("receivable"),
             Sum(Case().when(acc.account_type == "Stock",
                             gle.debit - gle.credit).else_(0)).as_("inventory"),
+            Sum(Case().when((acc.account_type == "Cost of Goods Sold") & trading,
+                            gle.debit - gle.credit).else_(0)).as_("cogs"),
             Sum(Case().when(acc.account_type == "Payable",
                             gle.credit - gle.debit).else_(0)).as_("payable"),
             Sum(Case().when(

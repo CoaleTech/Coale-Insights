@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Days inventory outstanding divided stock by tax-inclusive purchases, not cost of goods sold
+
+`analyze_working_capital` computed DIO as inventory over average daily **Purchase Invoice grand total** (a variable named `avg_daily_cogs`). Purchases include GST and are not what left stock: over the 90 days to the last posting the invoices total ₹41.4M against ₹34.9M of ledger Cost of Goods Sold. DIO is now inventory over ledger COGS across the same 90-day window as DSO (anchored on the last Sales Invoice), through a new `cogs` column in the GL daily cache. It falls back to purchases when the ledger has no COGS account. DPO still uses purchases, which is the basis of the payables it divides. On this site DIO moves from 2.2 to 2.6 days and the cash conversion cycle from 7.7 to 8.2 (DSO 38.8, DPO 33.3 unchanged). Inventory ₹1,025,946, receivables ₹18,929,784 and payables ₹15,316,482 on the tab match the ledger and the Bin table to the rupee.
+
 ### Fixed — Em dashes in backend copy shown on the dashboards
 
 An AST scan of every non-docstring string literal under `insights/ml` found em dashes in text the dashboards render: the advance-tax instalment notes and "Advance tax" cash-outlook markers (India Tax), the Manufacturing production headline, the Price Intelligence "insufficient history" message and the Revenue verdict headline. They now use a colon, comma or full stop. No frontend code reads those strings, so nothing else moved. Module docstrings that still carry them are not shown to users.
