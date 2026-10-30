@@ -119,3 +119,13 @@ class TestStrategicFinanceMath(unittest.TestCase):
             for bad in ("[1]", '"x"', "5"):
                 with self.assertRaises(frappe.ValidationError):
                     fn("outstanding_ar", bad)
+
+    def test_monthly_payroll_stays_on_month_end(self):
+        # A flat 30-day step put a payroll posted on the 31st a day early, so the
+        # week that holds 31 Dec was reported as having no payroll.
+        from insights.ml.strategic_finance.data import get_payroll_for_week
+
+        pattern = {"detected": True, "frequency": "monthly", "next_date": "2026-10-31", "typical_amount": 98411}
+        self.assertEqual(get_payroll_for_week(None, "2026-12-31", pattern), 98411)
+        self.assertEqual(get_payroll_for_week(None, "2026-12-24", pattern), 0)
+        self.assertEqual(get_payroll_for_week(None, "2026-12-03", pattern), 0)

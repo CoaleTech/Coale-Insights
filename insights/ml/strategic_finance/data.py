@@ -583,18 +583,23 @@ def get_payroll_for_week(intelligence, week_start, payroll_pattern: Dict) -> flo
     elif frequency == 'semi-monthly':
         interval = 15
     else:  # monthly
-        interval = 30
+        interval = None
 
-    # Check if any subsequent payroll dates fall in this week
+    # Check if any subsequent payroll dates fall in this week. Monthly steps by
+    # calendar month from next_date (a flat 30 days drifts off a month-end payroll).
+    iteration = 0
     check_date = next_payroll_date
     max_iterations = 20  # Safety limit
-    iteration = 0
 
     while check_date <= week_end and iteration < max_iterations:
         if week_start <= check_date <= week_end:
             return typical_amount
-        check_date += timedelta(days=interval)
         iteration += 1
+        check_date = (
+            add_months(next_payroll_date, iteration)
+            if interval is None
+            else check_date + timedelta(days=interval)
+        )
 
     return 0
 

@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Next payroll date drifted a day early for a payroll posted on the 31st
+
+The 13-week forecast's detected payroll schedule stepped a monthly payroll by a flat 30 days, so a payroll posted on 31 Aug showed "next 30 Oct 2026" and the weekly lookup slid further off each month (the week holding 31 Dec read as having no payroll). Monthly payroll now steps by calendar month from the last payroll (`detect_payroll_pattern` in `strategic_finance/analysis.py`, `get_payroll_for_week` in `strategic_finance/data.py`). The schedule reads "Next Payroll: 31 Oct 2026". Regression test `test_monthly_payroll_stays_on_month_end` fails without the change.
+
 ### Fixed — Fixed-deposit Implied Yield read 0.3% because it annualised a year-end interest lump from a part-year
 
 The Cash tab's Implied Yield divided fiscal-year-to-date interest (₹16,646, April to August) by the 12-month average deposit balance and scaled it to a year. This ledger books most deposit interest in one entry at year end (₹267,249 in Mar 2026), so the part-year figure read 0.3% and the tile told the reader to check interest posting. Interest and balance now cover the same 12-month window (₹290,525 booked since Nov 2025), so it reads 3.3%, and the sub-label says "interest booked · 12 mo" instead of "annualised" (`financial_intelligence.py`, `CashFlowTab.vue`). Recomputed from the ledger and matching: Interest Booked ₹16,646 for FY 2627 (112 entries, last 31 Aug 2026) and Interest Accrued ₹0 (the accrual account nets to zero).

@@ -370,7 +370,6 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
 
     # Calculate next expected payroll date
     last_payroll = dates[0] if dates else datetime.now()
-    next_date = last_payroll + timedelta(days=expected_interval)
 
     # Get the date part for comparison
     def get_date(d):
@@ -378,9 +377,20 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
             return d.date()
         return d
 
-    # If next_date is in the past, keep adding intervals
-    while get_date(next_date) < datetime.now().date():
-        next_date += timedelta(days=expected_interval)
+    # Roll forward to the first date on or after today. Monthly steps by
+    # calendar month from the last payroll: a flat 30 days drifts a day early
+    # whenever the payroll is posted on the 31st.
+    today = datetime.now().date()
+    if frequency == 'monthly':
+        k = 1
+        next_date = add_months(get_date(last_payroll), k)
+        while get_date(next_date) < today:
+            k += 1
+            next_date = add_months(get_date(last_payroll), k)
+    else:
+        next_date = last_payroll + timedelta(days=expected_interval)
+        while get_date(next_date) < today:
+            next_date += timedelta(days=expected_interval)
 
     return {
         'detected': True,
