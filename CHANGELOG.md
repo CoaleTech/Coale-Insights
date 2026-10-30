@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — AI assistant input was a white box in dark mode, with near-invisible typing
+
+Dark-theme scan of seven Finance tabs (a surface lighter than 70% luminance over 3,000 px², and text under 4.5:1 against its background): the only bright surface on any of them was the Ask-about-your-data field of the Financial AI Assistant, which has no background class and so took the browser's white while its text took the light dark-theme ink (rgb 212 on rgb 255, about 1.5:1). The same component is on every dashboard. It now takes `bg-surface-white` and `text-ink-gray-9` like the buttons around it. No text on those seven tabs measured under 4.5:1 (0 of 143 to 316 text nodes per tab).
+
 ### Fixed — Finance chart tooltips printed raw numbers; the Cash Forecast chart announced Kenyan shillings
 
 Hovering a Finance chart showed the bare number: "Base: -3,165,903.2" on Cash Forecast, "Loss: -159,069.06" on Monthly Net Profit, no currency and with paise, while the axis, tiles and tables beside it read ₹ and whole rupees. `IntelligenceChart` takes a new `valueFormat` prop; frappe-ui's tooltip formatter is re-run with the values already formatted (its zero filter and descending sort are repeated, since they need numbers), and every money chart on Overview, Cash, Receivables, Payables, Working Capital, Cost Structure, Executive Summary, Cash Forecast, 13-Week Cash Flow and Budget Variance passes the shared `formatMoney`. The Cash Forecast chart had a second fault: `currency` defaulted to `'KES'` and was never passed, so its screen-reader table read "KES 1,933,931" on this INR site, and its "Day 90" tiles and the 13-week tiles dropped the currency symbol ("-3.8M"). They now use the company currency like the rest. Charts that are not money (the Current Ratio line, the Risk, People and Marketing charts) keep frappe-ui's tooltip.
