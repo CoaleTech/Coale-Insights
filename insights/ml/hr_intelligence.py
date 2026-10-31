@@ -66,6 +66,12 @@ def _scalar(expr, default: float = 0.0):
         return default
 
 
+def _count(v) -> int:
+    """Int from an aggregate cell. SUM over zero rows is NULL, which pandas
+    returns as NaN (truthy, so ``v or 0`` keeps it and ``int()`` raises)."""
+    return 0 if v is None or v != v else int(v)
+
+
 def _period_start_date(period: str, company: str | None = None) -> date:
     """Resolve a period keyword, or the start of an encoded custom range
     (see `insights.api.ml.utils.parse_custom_range`), to a ``date``. ``YTD``
@@ -275,9 +281,9 @@ class HRIntelligence:
         voluntary_exits = 0
         involuntary_exits = 0
         if exits_df is not None and len(exits_df):
-            total_exits = int(exits_df.iloc[0].get("total") or 0)
-            voluntary_exits = int(exits_df.iloc[0].get("voluntary") or 0)
-            involuntary_exits = int(exits_df.iloc[0].get("involuntary") or 0)
+            total_exits = _count(exits_df.iloc[0].get("total"))
+            voluntary_exits = _count(exits_df.iloc[0].get("voluntary"))
+            involuntary_exits = _count(exits_df.iloc[0].get("involuntary"))
 
         # Department composition (active only).
         # Ibis gotcha: count must reference the filtered+grouped relation,
@@ -646,12 +652,12 @@ class HRIntelligence:
         work_from_home = 0
         if totals_df is not None and len(totals_df):
             r = totals_df.iloc[0]
-            total = int(r.get("total") or 0)
-            present = int(r.get("present_strict") or 0)
-            absent = int(r.get("absent") or 0)
-            half_day = int(r.get("half_day") or 0)
-            on_leave = int(r.get("on_leave") or 0)
-            work_from_home = int(r.get("work_from_home") or 0)
+            total = _count(r.get("total"))
+            present = _count(r.get("present_strict"))
+            absent = _count(r.get("absent"))
+            half_day = _count(r.get("half_day"))
+            on_leave = _count(r.get("on_leave"))
+            work_from_home = _count(r.get("work_from_home"))
 
         effective_present = (
             present + work_from_home + on_leave + (half_day * 0.5)

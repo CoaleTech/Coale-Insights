@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — People dashboard failed with "cannot convert float NaN to integer" on Month to Date
+
+`HRIntelligence` summed exit and attendance flags with `SUM(...)`, which is NULL when the window has no rows. Pandas returns that as NaN, `NaN or 0` stays NaN, and `int()` raised, so every period with no exits or no attendance (Month to Date, now that the ledger and attendance end in mid-September) showed "Could not load HR data". A small `_count` helper now turns NULL/NaN into 0 for the exit and attendance counts. `insights/tests/test_hr_count.py` covers it.
+
 ### Fixed — money charts on Revenue, Tax, Procurement, Executive and Risk showed raw numbers on hover
 
 The Finance fix (`valueFormat` on `IntelligenceChart`) is now applied to the money charts on the other dashboards, so a hover reads "₹8,945,490" instead of "8945490.3": Revenue (Monthly Trend, Margin Trend, daily forecast, revenue projection, Revenue by Lead Source), Tax (GST Cash Bridge, Top 5 TDS Sections, GST Forecast), Procurement (Monthly Spend Trend, Monthly PO Trend, Spend History and Forecast), Executive (Revenue Trend) and Risk (Exposure Trend). `valueFormat` now also receives the series name as its second argument, which lets the Margin Trend, whose tooltip mixes Net Sales (money) with Margin % on a second axis, format each in its own unit ("₹14,092,311", "7.4%"). Not changed: charts that are counts, rates or scores (Marketing trend, Tax effective rate, Manufacturing production, Risk overdue days).
