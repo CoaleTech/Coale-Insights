@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Customer detail churn and health score numbers were 2.2:1 in dark mode
+
+Dark-theme scan of the Customer detail page (all five sections), Pricing, Inventory, Search, Machine Learning, Manufacturing and Sustainability: the score circles on Risk Assessment printed "38%" and "64" in `text-ink-gray-9` (rgb 248) on the mid-luminance severity fills (amber rgb 231 153 19, green rgb 70 179 126), 2.2:1 and 2.5:1. `severityFill` is documented as non-text only; the circles now use `severityTint` like the other text-carrying severity cells, which `utils/status.ts` measures at 11.3:1 or better in both themes. Nothing else on those pages measured under 4.5:1 apart from decorative "/" separators and disabled controls.
+
 ### Fixed — "Healthy" caption on the Customer Overview health tiles read 4.2:1 in dark mode
 
 Dark-theme scan of the four other Marketing tabs (Channels, Trend, Coverage, Win Probability), the five Customers tabs and the six Revenue tabs: one reading under 4.5:1 outside disabled controls (the greyed Previous/Next pager on Forecasts is exempt). The Customer Overview health-distribution tiles put a `text-ink-gray-6` caption (rgb 153) on the green tint (rgb 10 63 39) for "Healthy", the same pairing as the People diversity tile; At Risk and Critical passed. The caption is now `text-ink-gray-7`.

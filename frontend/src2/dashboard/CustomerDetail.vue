@@ -18,7 +18,7 @@ import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillD
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import {
-  severityBadge, severityFill, severityAria, scoreSeverity, deltaInk, deltaGlyph, type Severity,
+  severityBadge, severityTint, severityAria, scoreSeverity, deltaInk, deltaGlyph, type Severity,
   HEALTH_SCORE_THRESHOLDS,
 } from '../utils/status'
 import {
@@ -716,7 +716,7 @@ watch(customerId, () => {
                 </SectionHeader>
                 <div class="text-center py-6">
                   <div
-                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(churnRisk)]"
+                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityTint(churnRisk)]"
                     :aria-label="severityAria('Churn Risk', churnRisk, pct0(churnScore))"
                     role="img"
                   >
@@ -754,7 +754,7 @@ watch(customerId, () => {
                 </SectionHeader>
                 <div class="text-center py-6">
                   <div
-                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(healthSeverity)]"
+                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityTint(healthSeverity)]"
                     :aria-label="severityAria('Health Score', healthSeverity, healthScore === undefined ? NO_VALUE : healthScore.toFixed(0))"
                     role="img"
                   >
