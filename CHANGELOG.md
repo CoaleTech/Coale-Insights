@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — People attendance tile showed "0.0%, High risk" when the period had no attendance records
+
+With the Month to Date load fixed, the Attendance Rate tile read "0.0% / High / 0 present of 0 records" and the Workforce Overview sub-metric showed a red 0.0%, which looks like a real attendance collapse. With zero records the tile now shows "–" with no severity and "No attendance records in this period", the sub-metric is grey "–", and the Attendance Breakdown section is hidden until there are records.
+
 ### Fixed — People dashboard failed with "cannot convert float NaN to integer" on Month to Date
 
 `HRIntelligence` summed exit and attendance flags with `SUM(...)`, which is NULL when the window has no rows. Pandas returns that as NaN, `NaN or 0` stays NaN, and `int()` raised, so every period with no exits or no attendance (Month to Date, now that the ledger and attendance end in mid-September) showed "Could not load HR data". A small `_count` helper now turns NULL/NaN into 0 for the exit and attendance counts. `insights/tests/test_hr_count.py` covers it.

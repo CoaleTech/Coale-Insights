@@ -354,11 +354,15 @@ const kpis = computed(() => {
       // Attendance Rate is more actionable at a glance and drives the
       // engagement score; salary now appears in the hero sub-metrics row.
       label: 'Attendance Rate',
-      value: formatPercent(atm.attendance_rate_pct),
-      sublabel: atm.total_attendance_records != null
-        ? `${atm.present_days ?? 0} present of ${atm.total_attendance_records} records`
-        : undefined,
-      severity: scoreSeverity(atm.attendance_rate_pct, { good: 92, warn: 85, higherIsBetter: true }) as Severity,
+      value: atm.total_attendance_records === 0 ? NO_VALUE : formatPercent(atm.attendance_rate_pct),
+      sublabel: atm.total_attendance_records === 0
+        ? 'No attendance records in this period'
+        : atm.total_attendance_records != null
+          ? `${atm.present_days ?? 0} present of ${atm.total_attendance_records} records`
+          : undefined,
+      severity: atm.total_attendance_records === 0
+        ? 'none'
+        : scoreSeverity(atm.attendance_rate_pct, { good: 92, warn: 85, higherIsBetter: true }) as Severity,
       drillable: false,
       metric: undefined,
     },
@@ -748,8 +752,8 @@ function handleChatNavigation(path: string) {
                 <div>
                   <p
                     class="text-xl font-bold"
-                    :class="(attendanceMetrics.attendance_rate_pct ?? 100) < 85 ? 'text-ink-red-4' : 'text-ink-gray-9'"
-                  >{{ formatPercent(attendanceMetrics.attendance_rate_pct) }}</p>
+                    :class="attendanceMetrics.total_attendance_records !== 0 && (attendanceMetrics.attendance_rate_pct ?? 100) < 85 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+                  >{{ attendanceMetrics.total_attendance_records === 0 ? NO_VALUE : formatPercent(attendanceMetrics.attendance_rate_pct) }}</p>
                   <p class="text-xs text-ink-gray-6 mt-0.5">Attendance rate</p>
                   <p class="text-xs text-ink-gray-6">
                     {{ attendanceMetrics.present_days ?? '–' }} present · {{ attendanceMetrics.absent_days ?? '–' }} absent
@@ -969,7 +973,7 @@ function handleChatNavigation(path: string) {
           </div>
 
           <!-- Attendance Breakdown (supports the engagement score on the KPI strip). -->
-          <div v-if="hasData && data?.attendance_metrics" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <div v-if="hasData && data?.attendance_metrics?.total_attendance_records" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Attendance Breakdown" :level="3" />
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
               <KpiCard
