@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — three more places printed text on a non-text severity fill
+
+Following the Customer detail fix, a search of `bg-pos-fill`, `bg-warn-fill`, `bg-neg-fill` and `severityFill(` for fills that carry text (the rest are bars, dots and legend swatches) found: the numbered badges on the Executive alerts (`text-white` on amber, 3.2:1 in light mode and 2.2:1 in dark; the red one was fine in light but is now the matching tint), and the A/B/C chips of the Inventory Classification panel in the dashboard viewer, which printed `text-neg`, `text-warn` and `text-pos` on their own saturated fill (red on red). All now use the `surface-*-2` tint with `text-ink-gray-9`, as `utils/status.ts` prescribes for text-carrying cells. Toast icons are 3:1 graphics and were left alone.
+
 ### Fixed — Customer detail churn and health score numbers were 2.2:1 in dark mode
 
 Dark-theme scan of the Customer detail page (all five sections), Pricing, Inventory, Search, Machine Learning, Manufacturing and Sustainability: the score circles on Risk Assessment printed "38%" and "64" in `text-ink-gray-9` (rgb 248) on the mid-luminance severity fills (amber rgb 231 153 19, green rgb 70 179 126), 2.2:1 and 2.5:1. `severityFill` is documented as non-text only; the circles now use `severityTint` like the other text-carrying severity cells, which `utils/status.ts` measures at 11.3:1 or better in both themes. Nothing else on those pages measured under 4.5:1 apart from decorative "/" separators and disabled controls.

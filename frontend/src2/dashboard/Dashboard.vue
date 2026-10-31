@@ -364,9 +364,9 @@ function formatNumber(value: number, type: string = 'number'): string {
 					<div v-for="(count, cls) in mlPredictions.models.abc_xyz_classification.class_distribution" :key="cls"
 						class="text-center p-1 rounded text-xs"
 						:class="{
-							'bg-neg-fill text-neg': cls.startsWith('A'),
-							'bg-warn-fill text-warn': cls.startsWith('B'),
-							'bg-pos-fill text-pos': cls.startsWith('C')
+							'bg-surface-red-2 text-ink-gray-9': cls.startsWith('A'),
+							'bg-surface-amber-2 text-ink-gray-9': cls.startsWith('B'),
+							'bg-surface-green-2 text-ink-gray-9': cls.startsWith('C')
 						}">
 						<div class="font-bold">{{ cls }}</div>
 						<div>{{ count }}</div>

@@ -286,7 +286,7 @@
             >
               <div class="flex items-start gap-2 mb-1">
                 <span
-                  class="flex-shrink-0 w-5 h-5 rounded-full bg-neg-fill text-white text-xs font-bold flex items-center justify-center"
+                  class="flex-shrink-0 w-5 h-5 rounded-full bg-surface-red-2 text-ink-gray-9 text-xs font-bold flex items-center justify-center"
                   aria-hidden="true"
                 >{{ i + 1 }}</span>
                 <div>
@@ -322,7 +322,7 @@
                 class="flex items-start gap-2 py-2.5 border-b border-outline-gray-1 last:border-0"
               >
                 <span
-                  class="flex-shrink-0 w-5 h-5 rounded-full bg-warn-fill text-white text-xs font-bold flex items-center justify-center"
+                  class="flex-shrink-0 w-5 h-5 rounded-full bg-surface-amber-2 text-ink-gray-9 text-xs font-bold flex items-center justify-center"
                   aria-hidden="true"
                 >{{ criticalAlerts.length + i + 1 }}</span>
                 <div class="flex-1 min-w-0">
