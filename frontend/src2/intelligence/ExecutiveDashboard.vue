@@ -114,6 +114,7 @@
           <IntelligenceChart
             v-if="revenueTrendData.length > 1"
             :config="revenueTrendConfig"
+            :value-format="(v) => formatMoney(v, companyCurrency)"
             class="h-80"
           />
           <div v-else class="h-44 sm:h-52 flex items-center justify-center text-sm text-ink-gray-5">

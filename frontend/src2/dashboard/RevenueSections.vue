@@ -1067,7 +1067,7 @@ const scenarioRows = computed(() => {
           <template #actions><TrendingUp class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <div class="rounded-lg border border-outline-gray-1 bg-accent-soft p-4">
-          <IntelligenceChart v-if="monthlyTrendConfig" :config="monthlyTrendConfig" class="h-80" />
+          <IntelligenceChart v-if="monthlyTrendConfig" :config="monthlyTrendConfig" :value-format="money" class="h-80" />
           <div v-else class="flex h-56 items-center justify-center text-sm text-ink-gray-6">No trend data</div>
           <table v-if="monthlyTrendConfig" class="sr-only">
             <caption>Monthly revenue trend</caption>
@@ -1382,7 +1382,7 @@ const scenarioRows = computed(() => {
         <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
       </SectionHeader>
       <div v-if="marginTrendConfig" class="mt-4 h-64 sm:h-72 lg:h-80">
-        <IntelligenceChart :config="marginTrendConfig" class="h-64 sm:h-72 lg:h-80" />
+        <IntelligenceChart :config="marginTrendConfig" :value-format="(v, series) => (series === 'Margin %' ? pct(v) : money(v))" class="h-64 sm:h-72 lg:h-80" />
       </div>
       <p v-else class="mt-4 text-center py-12 text-ink-gray-6 text-sm">No margin history available.</p>
     </div>
@@ -1485,7 +1485,7 @@ const scenarioRows = computed(() => {
       </section>
       <section v-if="dailyForecastConfig" class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
         <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">{{ forecastDays }}-day projection with confidence interval</h3>
-        <div class="p-4"><IntelligenceChart :config="dailyForecastConfig" class="h-72" /></div>
+        <div class="p-4"><IntelligenceChart :config="dailyForecastConfig" :value-format="money" class="h-72" /></div>
       </section>
     </div>
     <div class="mb-6">
@@ -1516,7 +1516,7 @@ const scenarioRows = computed(() => {
       </div>
       <p v-if="trainingStatus" class="mt-2 text-sm" :class="trainingOk ? 'text-ink-gray-8' : 'text-ink-red-4'">{{ trainingStatus }}</p>
       <div v-if="revenueProjectionConfig" class="mt-4 h-64 sm:h-72 lg:h-80">
-        <IntelligenceChart :config="revenueProjectionConfig" class="h-64 sm:h-72 lg:h-80" />
+        <IntelligenceChart :config="revenueProjectionConfig" :value-format="money" class="h-64 sm:h-72 lg:h-80" />
       </div>
       <div v-else-if="isLoadingDimensional" class="mt-4 text-center py-12 text-ink-gray-6">
         <Activity class="w-10 h-10 mx-auto opacity-40 mb-2 animate-pulse" aria-hidden="true" />
@@ -1647,7 +1647,7 @@ const scenarioRows = computed(() => {
       <SectionHeader variant="caption" title="Revenue by Lead Source"
         hint="Revenue and gross profit attributed through the lead → invoice chain" :level="3" />
       <div v-if="attributionConfig" class="mt-4 h-56 sm:h-72 lg:h-80">
-        <IntelligenceChart :config="attributionConfig" class="h-56 sm:h-72 lg:h-80" />
+        <IntelligenceChart :config="attributionConfig" :value-format="money" class="h-56 sm:h-72 lg:h-80" />
       </div>
       <div v-if="attributionRows.length" class="mt-6 overflow-x-auto">
         <table class="w-full text-sm">

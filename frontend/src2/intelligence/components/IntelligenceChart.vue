@@ -57,8 +57,9 @@ const props = withDefaults(
     /**
      * Format for tooltip values. frappe-ui prints the raw number
      * ("-2,535,356.05"), so a money chart passes `formatMoney` to match its axis and tiles.
+     * The series name is the second argument, for a chart that mixes units.
      */
-    valueFormat?: (value: number) => string
+    valueFormat?: (value: number, series: string) => string
   }>(),
   { kind: 'axis' },
 )
@@ -101,10 +102,10 @@ function retint(opts: { xAxis?: Retintable | Retintable[]; yAxis?: Retintable | 
  * descending sort are frappe-ui's own, repeated here because they need numbers; a
  * missing value (a Loss series in a profit month) is dropped too, not printed as "-".
  */
-type TipRow = { value: [unknown, number] }
+type TipRow = { seriesName?: string; value: [unknown, number] }
 function formatTooltipValues(
   base: { tooltip?: { formatter?: (p: unknown) => string } },
-  format: (value: number) => string,
+  format: (value: number, series: string) => string,
   swapXY: boolean,
 ) {
   const inner = base.tooltip?.formatter
@@ -117,7 +118,7 @@ function formatTooltipValues(
       .sort((a, b) => (b.value?.[at] as number) - (a.value?.[at] as number))
       .map((p) => {
         const value = [...p.value] as unknown[]
-        value[at] = format(value[at] as number)
+        value[at] = format(value[at] as number, p.seriesName ?? '')
         return { ...p, value }
       })
     return inner(rows)

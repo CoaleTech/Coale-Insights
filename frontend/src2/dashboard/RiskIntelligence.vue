@@ -906,6 +906,7 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
               <IntelligenceChart
                 v-if="exposureTrend.length"
                 :config="exposureTrendConfig"
+                :value-format="(v) => formatMoney(v, baseCurrency)"
                 class="h-80"
               />
               <p v-else class="text-sm text-ink-gray-6 text-center py-8">

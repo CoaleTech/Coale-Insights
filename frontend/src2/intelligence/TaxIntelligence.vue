@@ -1707,7 +1707,7 @@ const actionsStrip = computed<StatItem[]>(() => [
               <div class="min-w-0 space-y-6">
                 <div v-if="gstBridgeConfig" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                   <SectionHeader variant="caption" title="GST Cash Bridge" hint="Output GST less input tax credit, and the credit at risk" :level="3" />
-                  <IntelligenceChart :config="gstBridgeConfig" class="mt-4 h-52 sm:h-64" />
+                  <IntelligenceChart :config="gstBridgeConfig" :value-format="(v) => formatMoney(v, baseCurrency)" class="mt-4 h-52 sm:h-64" />
                   <p v-if="gstBridgeNote" class="mt-3 text-xs text-ink-gray-6">{{ gstBridgeNote }}</p>
                 </div>
 
@@ -2278,7 +2278,7 @@ const actionsStrip = computed<StatItem[]>(() => [
               <div v-if="tdsBarConfig" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader variant="caption" title="Top 5 TDS Sections" :level="3" />
                 <div class="h-80 mt-4">
-                  <IntelligenceChart :config="tdsBarConfig" class="h-52 sm:h-64 lg:h-72" />
+                  <IntelligenceChart :config="tdsBarConfig" :value-format="(v) => formatMoney(v, baseCurrency)" class="h-52 sm:h-64 lg:h-72" />
                 </div>
               </div>
             </div>
@@ -2433,7 +2433,7 @@ const actionsStrip = computed<StatItem[]>(() => [
               <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
                 <SectionHeader variant="caption" title="GST Forecast (Next 3 Months)" :level="3" />
                 <div class="h-80 mt-4">
-                  <IntelligenceChart v-if="taxForecastConfig" :config="taxForecastConfig" class="h-52 sm:h-64 lg:h-72" />
+                  <IntelligenceChart v-if="taxForecastConfig" :config="taxForecastConfig" :value-format="(v) => formatMoney(v, baseCurrency)" class="h-52 sm:h-64 lg:h-72" />
                   <div v-else class="h-full flex items-center justify-center text-ink-gray-6">No forecast data available</div>
                 </div>
                 <table v-if="taxForecastConfig" class="sr-only">

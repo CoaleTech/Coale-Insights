@@ -125,6 +125,7 @@
                 v-if="completeTrendData.length"
                 class="mt-4 h-80"
                 :config="monthlySpendConfig"
+                :value-format="(v) => formatMoney(v, baseCurrency)"
               />
               <div v-else class="h-48 flex items-center justify-center text-sm text-ink-gray-6">
                 No spend data available
@@ -392,7 +393,7 @@
         <!-- Monthly PO Trend -->
         <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <SectionHeader variant="caption" title="Monthly Purchase Order Trend" :hint="baseCurrency" :level="3" />
-          <IntelligenceChart v-if="purchaseData.monthly_trend?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="monthlyPOConfig" />
+          <IntelligenceChart v-if="purchaseData.monthly_trend?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="monthlyPOConfig" :value-format="(v) => formatMoney(v, baseCurrency)" />
           <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
             No purchase order data available
           </div>
@@ -782,7 +783,7 @@
         <!-- Historical Trend + forecast -->
         <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <SectionHeader variant="caption" title="Monthly Spend History and Forecast" hint="Last 24 months, dashed = forecast, not affected by the period filter" :level="3" />
-          <IntelligenceChart v-if="forecastData.historical?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="historicalSpendConfig" />
+          <IntelligenceChart v-if="forecastData.historical?.length" class="mt-4 h-48 sm:h-56 lg:h-64" :config="historicalSpendConfig" :value-format="(v) => formatMoney(v, baseCurrency)" />
           <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
             No historical data available
           </div>

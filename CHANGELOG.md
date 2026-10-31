@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — money charts on Revenue, Tax, Procurement, Executive and Risk showed raw numbers on hover
+
+The Finance fix (`valueFormat` on `IntelligenceChart`) is now applied to the money charts on the other dashboards, so a hover reads "₹8,945,490" instead of "8945490.3": Revenue (Monthly Trend, Margin Trend, daily forecast, revenue projection, Revenue by Lead Source), Tax (GST Cash Bridge, Top 5 TDS Sections, GST Forecast), Procurement (Monthly Spend Trend, Monthly PO Trend, Spend History and Forecast), Executive (Revenue Trend) and Risk (Exposure Trend). `valueFormat` now also receives the series name as its second argument, which lets the Margin Trend, whose tooltip mixes Net Sales (money) with Margin % on a second axis, format each in its own unit ("₹14,092,311", "7.4%"). Not changed: charts that are counts, rates or scores (Marketing trend, Tax effective rate, Manufacturing production, Risk overdue days).
+
 ### Fixed — three more places printed text on a non-text severity fill
 
 Following the Customer detail fix, a search of `bg-pos-fill`, `bg-warn-fill`, `bg-neg-fill` and `severityFill(` for fills that carry text (the rest are bars, dots and legend swatches) found: the numbered badges on the Executive alerts (`text-white` on amber, 3.2:1 in light mode and 2.2:1 in dark; the red one was fine in light but is now the matching tint), and the A/B/C chips of the Inventory Classification panel in the dashboard viewer, which printed `text-neg`, `text-warn` and `text-pos` on their own saturated fill (red on red). All now use the `surface-*-2` tint with `text-ink-gray-9`, as `utils/status.ts` prescribes for text-carrying cells. Toast icons are 3:1 graphics and were left alone.
