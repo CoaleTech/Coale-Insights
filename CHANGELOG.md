@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Changed — Customer detail page and the ABC/XYZ classification are faster
+
+Both were measured, not guessed. `customer_360_detail` took 4 s warm and 8 to 38 s cold on every visit, so it now keeps its result for 10 minutes per user and per set of arguments (the permission check still runs first, and only a success is stored). The second call for one customer returned in 0 ms. The ABC/XYZ classification filtered the whole monthly-sales frame once per item; it now groups once. On the 12-month window the compute fell from 11.7 s to 2.3 s of CPU with a byte-identical payload (apart from the timestamp), and the cost no longer grows with items times rows.
+
 ### Fixed — Revenue & Customers failed on Last 7 Days with "cannot convert float NaN to integer"
 
 The same NaN as the People Month to Date failure, from the shared cause. Every real dashboard compute runs through `use_pyarrow_materialization`, which hands a NULL number to pandas as float NaN; the cursor path the code was written for returned `None`. An aggregate over an empty window is one row of NULLs (`SUM`, `COUNT(where=)`), so `int(row["total_transactions"] or 0)` raised, and `float(row["total_revenue"] or 0)` would have put NaN into the payload. A direct call to the same function passed, which is why it hid. The patched `execute` now keeps NULL numbers in a one-row aggregate as `None`. Any period with no invoices (a short window past the end of the ledger) now loads.

@@ -1118,15 +1118,20 @@ class ABCXYZClassification:
         else:
             item_meta = {}
 
+        # One groupby up front: filtering the whole monthly frame once per
+        # item is items x rows (4x slower at 392 items, quadratic beyond).
+        monthly_by_item = {k: g["monthly_qty"] for k, g in per_item_monthly.groupby("item_code")}
+
         # Build rows
         rows: list[dict[str, Any]] = []
         for _, r in per_item_sales.iterrows():
             item_code = r["item_code"]
-            monthly = per_item_monthly[per_item_monthly["item_code"] == item_code]
-            if len(monthly) >= 2:
-                mean_q = monthly["monthly_qty"].mean()
-                std_q = monthly["monthly_qty"].std(ddof=0)
-                cv = float(std_q / mean_q) if mean_q > 0 else math.inf
+            monthly = monthly_by_item.get(item_code)
+            n_months = 0 if monthly is None else len(monthly)
+            avg_monthly = float(monthly.mean()) if n_months else 0
+            if n_months >= 2:
+                std_q = monthly.std(ddof=0)
+                cv = float(std_q / avg_monthly) if avg_monthly > 0 else math.inf
             else:
                 cv = 999.0  # insufficient data → treat as Z
 
@@ -1139,7 +1144,7 @@ class ABCXYZClassification:
                     "item_group": meta.get("item_group"),
                     "total_value": float(r["total_value"] or 0),
                     "total_qty": float(r["total_qty"] or 0),
-                    "avg_monthly_qty": float(monthly["monthly_qty"].mean()) if len(monthly) else 0,
+                    "avg_monthly_qty": avg_monthly,
                     "stock_qty": sm["stock_qty"],
                     "stock_value": sm["stock_value"],
                     "cv": cv if math.isfinite(cv) else 999.0,

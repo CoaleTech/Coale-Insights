@@ -11,7 +11,7 @@ return in the same latency budget as any other Insights query.
 fans out across several of those chains and takes tens of seconds, so it is
 served from cache and recomputed by a background job, keyed per
 (date_filter, company); see `insights.api.ml.utils.cached_run`. Everything
-else here has no cache.
+else here has no cache, except `customer_360_detail` (10 minutes, per user).
 
 Names + kwarg signatures are preserved exactly so the frontend (which calls
 these by string through ``frappe.call``) keeps working.
@@ -141,6 +141,9 @@ def customer_360(customer_id: str, date_filter: str = "12m") -> Dict[str, Any]:
                "Customer 360")
 
 
+_CUSTOMER_360_TTL = 10 * 60
+
+
 @frappe.whitelist()
 def customer_360_detail(customer_id: str,
                         include_purchases: bool = True,
@@ -165,7 +168,19 @@ def customer_360_detail(customer_id: str,
             result.setdefault("revenue_basis", "net_of_tax")
         return result
 
-    return run(_with_currency, "Customer 360 detail")
+    # Synchronous (the detail page waits on it) and 4-13 s to compute, so a
+    # short per-user cache; a failure is never cached.
+    key = _scoped(
+        f"insights_ml_customer_360:{customer_id}:{include_purchases}:"
+        f"{include_recommendations}:{company}:{date_filter}"
+    )
+    cached = frappe.cache.get_value(key)
+    if cached is not None:
+        return cached
+    result = run(_with_currency, "Customer 360 detail")
+    if isinstance(result, dict) and result.get("status") == "success":
+        frappe.cache.set_value(key, result, expires_in_sec=_CUSTOMER_360_TTL)
+    return result
 
 
 # ---------------------------------------------------------------------------
