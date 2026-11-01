@@ -31,7 +31,13 @@ import frappe
 import ibis
 from frappe import _
 
-from insights.api.ml.ibis_source import company_filter, default_company, t, with_paid_date
+from insights.api.ml.ibis_source import (
+    company_filter,
+    default_company,
+    gl_ledger,
+    t,
+    with_paid_date,
+)
 
 # Risk-score thresholds (0-100). Same as the original class.
 RISK_THRESHOLDS = {
@@ -966,20 +972,11 @@ def _exposure_trend(company: str | None) -> list[dict]:
     -- 13 output rows do not justify a window function, and the running total
     must begin at the first entry ever posted, not at the window's cutoff.
     """
-    gle = t("GL Entry")
-    a = t("Account")
-    a_filtered = a.filter(
-        a.account_type.isin(["Receivable", "Payable"]), a.is_group == 0
-    )
-    q = gle.join(a_filtered, gle.account == a_filtered.name).filter(
-        gle.is_cancelled == 0
-    )
-    if company:
-        q = q.filter(gle.company == company)
+    gl = gl_ledger(company)
     df = (
-        q.mutate(month=gle.posting_date.truncate("M"))
-        .group_by(["month", "account_type"])
-        .aggregate(net=(gle.debit.fill_null(0) - gle.credit.fill_null(0)).sum())
+        gl.filter(gl.account_type.isin(["Receivable", "Payable"]))
+        .group_by([gl.posting_date.truncate("M").name("month"), gl.account_type])
+        .aggregate(net=(gl.debit.fill_null(0) - gl.credit.fill_null(0)).sum())
         .order_by("month")
         .execute()
     )
@@ -1368,24 +1365,21 @@ def _forecast_cash_flow(company: str | None) -> dict:
     Cash Position everywhere else. No sklearn / no Prophet."""
     import pandas as pd
 
-    gle = t("GL Entry")
-    a = t("Account")
+    gl = gl_ledger(company)
     today = datetime.now().date()
     cutoff = _months_ago(6)
-    a_filtered = a.filter(
-        a.account_type.isin(["Cash", "Bank"]) | a.account_name.lower().like("fixed deposit%")
+    df = (
+        gl.filter(
+            gl.account_type.isin(["Cash", "Bank"]) | gl.account_name.lower().like("fixed deposit%"),
+            gl.posting_date >= cutoff,
+            gl.posting_date <= today,
+        )
+        .select(
+            posting_date=gl.posting_date,
+            amount=gl.debit.fill_null(0) - gl.credit.fill_null(0),
+        )
+        .execute()
     )
-    q = gle.join(a_filtered, gle.account == a_filtered.name).filter(
-        gle.is_cancelled == 0,
-        gle.posting_date >= cutoff,
-        gle.posting_date <= today,
-    )
-    if company:
-        q = q.filter(gle.company == company)
-    df = q.select(
-        posting_date=gle.posting_date,
-        amount=gle.debit.fill_null(0) - gle.credit.fill_null(0),
-    ).execute()
     if df.empty or df["posting_date"].nunique() < 7:
         return {
             "status": "insufficient_data",
@@ -1637,22 +1631,14 @@ def _gl_balance_for_account_types(account_types: list[str], company: str | None)
     Fixed-deposit accounts count as cash, by name, the same way the Finance
     dashboard's cash position does; they are not typed Bank on this ledger.
     """
-    gle = t("GL Entry")
-    a = t("Account")
-    match = a.account_type.isin(account_types)
+    gl = gl_ledger(company)
+    match = gl.account_type.isin(account_types)
     if "Cash" in account_types:
-        match = match | a.account_name.lower().like("fixed deposit%")
-    a_filtered = a.filter(match, a.is_group == 0)
-    q = (
-        gle.join(a_filtered, gle.account == a_filtered.name)
-        .filter(gle.is_cancelled == 0)
-    )
-    if company:
-        q = q.filter(gle.company == company)
-    net = gle.debit.fill_null(0) - gle.credit.fill_null(0)
+        match = match | gl.account_name.lower().like("fixed deposit%")
+    net = gl.debit.fill_null(0) - gl.credit.fill_null(0)
     if account_types == ["Payable", "Tax"]:
-        net = gle.credit.fill_null(0) - gle.debit.fill_null(0)
-    val = q.aggregate(v=net.sum()).execute().iloc[0]["v"] or 0
+        net = gl.credit.fill_null(0) - gl.debit.fill_null(0)
+    val = gl.filter(match).aggregate(v=net.sum()).execute().iloc[0]["v"] or 0
     return float(val)
 
 

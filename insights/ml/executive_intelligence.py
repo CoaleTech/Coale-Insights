@@ -283,16 +283,13 @@ def _gl_period_pnl(period: str) -> tuple[float, float]:
     excluded -- the same basis as FinancialIntelligence's ytd_* scalars."""
     import ibis
 
-    from insights.api.ml.ibis_source import company_filter, t
+    from insights.api.ml.ibis_source import gl_ledger
     from insights.ml.hr_intelligence import _period_end_date, _period_start_date
 
-    gle, acc = t("GL Entry"), t("Account")
-    j = company_filter(gle.join(acc, gle["account"] == acc["name"]), _company())
-    j = j.filter(
-        (j["is_cancelled"] == 0)
-        & (j["voucher_type"] != "Period Closing Voucher")
-        & (j["posting_date"] >= _period_start_date(period))
-        & (j["posting_date"] <= _period_end_date(period))
+    gl = gl_ledger(_company())
+    j = gl.filter(
+        (gl["posting_date"] >= _period_start_date(period))
+        & (gl["posting_date"] <= _period_end_date(period))
     )
     row = j.aggregate(
         income=ibis.ifelse(j["root_type"] == "Income", j["credit"] - j["debit"], 0).sum(),

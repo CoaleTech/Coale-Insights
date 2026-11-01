@@ -191,7 +191,7 @@ def fork_map(thunks: list[Callable[[], object]]) -> list:
                 _ORPHANED.extend([frappe.local.db, getattr(frappe.local, "insights_ml_ibis_conn", None)])
                 frappe.connect(set_admin_as_user=False)
                 frappe.local.insights_ml_ibis_conn = None
-                frappe.local.insights_ml_executed = None
+                frappe.local.insights_ml_executed = frappe.local.insights_gl_ledger = None
                 try:
                     payload = ("ok", fn())
                 except Exception:
@@ -298,6 +298,7 @@ def _compute(fn: Callable[[], dict]) -> dict:
     use_pyarrow_materialization()
     # Per-compute memos: a warm_all pass must not serve one endpoint's rows to the next.
     frappe.local.insights_ml_executed = frappe.local.insights_gp_line_cache = None
+    frappe.local.insights_gl_ledger = None
 
     with threadpoolctl.threadpool_limits(1):
         return fn()

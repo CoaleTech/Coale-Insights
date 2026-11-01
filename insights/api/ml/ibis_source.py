@@ -322,6 +322,44 @@ def sle_cost() -> ir.Table:
     )
 
 
+_LEDGER_COLUMNS = ("account", "posting_date", "debit", "credit", "company")
+_LEDGER_ACCOUNT_COLUMNS = ("account_name", "account_type", "root_type", "parent_account")
+
+
+def gl_ledger(company: str | None) -> ir.Table:
+    """Live GL Entry rows joined to their Account, as a narrow temporary table.
+
+    A dashboard asks the ledger twenty-odd aggregate questions, and each one
+    re-scanned the 534-byte-wide GL Entry rows (0.5-1.4 s apiece under load).
+    Built once per compute from the permissioned ``t()`` expressions, so the
+    row filter still applies, then every question reads the ~100-byte copy.
+    Period Closing Vouchers and cancelled rows are left out, as every caller
+    already did. The temp table lives on this connection only; a compute that
+    needs more columns (voucher_no, remarks) reads ``t("GL Entry")`` instead.
+    """
+    import hashlib
+
+    cache = getattr(frappe.local, "insights_gl_ledger", None)
+    if cache is None:
+        cache = frappe.local.insights_gl_ledger = {}
+    key = (frappe.session.user, company or "")
+    if key in cache:
+        return cache[key]
+
+    gle, acc = t("GL Entry"), t("Account")
+    joined = company_filter(gle.join(acc, gle["account"] == acc["name"]), company)
+    joined = joined.filter(
+        (joined["is_cancelled"] == 0) & (joined["voucher_type"] != "Period Closing Voucher")
+    )
+    narrow = joined.select(*[joined[c] for c in (*_LEDGER_COLUMNS, *_LEDGER_ACCOUNT_COLUMNS)])
+    conn = connection()
+    name = "_insights_gl_" + hashlib.sha1(repr(key).encode()).hexdigest()[:10]
+    conn.raw_sql(f"DROP TEMPORARY TABLE IF EXISTS `{name}`").close()
+    conn.raw_sql(f"CREATE TEMPORARY TABLE `{name}` AS {conn.compile(narrow)}").close()
+    cache[key] = conn.table(name)
+    return cache[key]
+
+
 def with_paid_date(si: ir.Table) -> ir.Table:
     """Sales Invoice expression plus ``paid_date``: the posting date of its
     last submitted Payment Entry, i.e. when it was actually settled. An invoice

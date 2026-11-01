@@ -25,7 +25,7 @@ from typing import Any
 
 import frappe
 
-from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.ibis_source import company_filter, default_company, gl_ledger, t
 from insights.api.ml.utils import parse_date_filter
 
 
@@ -112,17 +112,23 @@ class FinancialIntelligence:
         return self.train()
 
     # ------------------------------------------------------------------ helpers
-    def _gl_with_account(self, company: str | None = None):
+    def _gl_with_account(self, company: str | None = None, wide: bool = False):
+        """Live (not cancelled, not Period Closing) GL rows joined to Account.
+
+        Period Closing Vouchers move P&L into equity on the last day of a year; they are
+        bookkeeping, not trading, and would show as negative revenue in that month.
+        ``wide`` reads the raw tables for the few callers that need voucher_no,
+        remarks or against; everything else reads the narrow per-compute ledger.
+        """
+        if not wide:
+            return gl_ledger(company or self.company)
         gle = t("GL Entry")
         acc = t("Account")
         joined = gle.join(acc, gle["account"] == acc["name"])
         joined = company_filter(joined, company or self.company)
-        # Period Closing Vouchers move P&L into equity on the last day of a year; they are
-        # bookkeeping, not trading, and would show as negative revenue in that month.
-        joined = joined.filter(
+        return joined.filter(
             (joined["is_cancelled"] == 0) & (joined["voucher_type"] != "Period Closing Voucher")
         )
-        return joined
 
     def _scalar(self, expr, default: float = 0.0) -> float:
         """Execute an Ibis expression and return its single scalar value.
@@ -589,6 +595,7 @@ class FinancialIntelligence:
             return None
         import re
 
+        joined = self._gl_with_account(wide=True)
         fd = joined.filter(joined["account"].isin([r["account"] for r in fd_rows]))
         balance = sum(r["balance"] for r in fd_rows)
         entries = self._rows(
