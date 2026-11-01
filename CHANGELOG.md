@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Removed — files nothing referenced
+
+Deleted 18 files, about 3,600 lines, each checked by name across every app, the hooks, the patches and the frontend (including kebab-case tags). Frontend: the Executive Summary tab of Strategic Finance and the expense pie chart only it used, the fiscal-year period picker, the user and team lists, the health ring, the workbook tab switcher, the avatar group, the column rename and column selector panels, `store_locally`, and the collapse-sidebar icon. Backend and root: the two tax demo-data generators, `api/notebooks.py` (no caller, and the v2 patch removes its Notebook Page doctype), `hooks.py.dead`, and `migration_helper.py` with its own test. Kept on purpose: the three self-check scripts in `insights/ml/`, which assert real logic outside the test path.
+
 ### Changed — Customer detail page and the ABC/XYZ classification are faster
 
 Both were measured, not guessed. `customer_360_detail` took 4 s warm and 8 to 38 s cold on every visit, so it now keeps its result for 10 minutes per user and per set of arguments (the permission check still runs first, and only a success is stored). The second call for one customer returned in 0 ms. The ABC/XYZ classification filtered the whole monthly-sales frame once per item; it now groups once. On the 12-month window the compute fell from 11.7 s to 2.3 s of CPU with a byte-identical payload (apart from the timestamp), and the cost no longer grows with items times rows.
