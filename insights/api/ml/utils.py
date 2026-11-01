@@ -150,6 +150,80 @@ def run(fn: Callable[[], object], label: str) -> dict:
     return success(data=result)
 
 
+# Connections a forked child replaced. Held for the life of the child so the
+# parent's sockets are never closed from here: dropping the last reference to
+# a MariaDB connection sends COM_QUIT down the descriptor both processes share.
+_ORPHANED: list = []
+
+
+def fork_map(thunks: list[Callable[[], object]]) -> list:
+    """Run independent zero-argument callables at once, one forked child each,
+    and return their results in order.
+
+    A dashboard that fans out to eight pipelines (the executive rollup) is
+    Python-bound per pipeline, so threads gain nothing; processes do. Each
+    child opens its own database connection and ibis connection and returns
+    its result pickled down a pipe. A child's exception is re-raised here.
+
+    Runs serially when there is nothing to overlap, under tests (a child cannot
+    see the test's uncommitted rows), or inside a web request.
+    """
+    import os
+    import pickle
+
+    if len(thunks) < 2 or frappe.flags.in_test or _in_request():
+        return [fn() for fn in thunks]
+
+    # macOS aborts a forked child that first-imports a library touching
+    # CoreFoundation (pyarrow, pandas); load them here so the child inherits them.
+    import numpy  # noqa: F401
+    import pandas  # noqa: F401
+    import pyarrow  # noqa: F401
+
+    children = []
+    for fn in thunks:
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:  # child: never returns
+            status = 1
+            try:
+                os.close(read_fd)
+                _ORPHANED.extend([frappe.local.db, getattr(frappe.local, "insights_ml_ibis_conn", None)])
+                frappe.connect(set_admin_as_user=False)
+                frappe.local.insights_ml_ibis_conn = None
+                frappe.local.insights_ml_executed = None
+                try:
+                    payload = ("ok", fn())
+                except Exception:
+                    payload = ("error", frappe.get_traceback())
+                try:
+                    data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+                except Exception:
+                    data = pickle.dumps(("error", frappe.get_traceback()))
+                with os.fdopen(write_fd, "wb") as pipe:
+                    pipe.write(data)
+                status = 0
+            finally:
+                os._exit(status)
+        os.close(write_fd)
+        children.append((pid, read_fd))
+
+    results, failure = [], None
+    for pid, read_fd in children:
+        with os.fdopen(read_fd, "rb") as pipe:
+            try:
+                kind, value = pickle.load(pipe)
+            except EOFError:
+                kind, value = "error", "child died without a result"
+        os.waitpid(pid, 0)
+        if kind == "error":
+            failure = failure or value
+        results.append(value)
+    if failure:
+        raise RuntimeError(f"parallel branch failed:\n{failure}")
+    return results
+
+
 def _scoped(cache_key: str) -> str:
     """Cache keys are per-user.
 
@@ -222,6 +296,8 @@ def _compute(fn: Callable[[], dict]) -> dict:
     from insights.api.ml.ibis_source import use_pyarrow_materialization
 
     use_pyarrow_materialization()
+    # Per-compute memos: a warm_all pass must not serve one endpoint's rows to the next.
+    frappe.local.insights_ml_executed = frappe.local.insights_gp_line_cache = None
 
     with threadpoolctl.threadpool_limits(1):
         return fn()

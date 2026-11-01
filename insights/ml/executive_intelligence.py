@@ -1062,14 +1062,20 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
     would look like a valid payload to ``cached_run`` and get cached for
     a full day.
     """
-    sales = _load_sales(period)
-    customer = _load_customer(period)
-    inventory = _load_inventory(period)
-    procurement = _load_procurement(period)
-    financial = _load_financial(period)
-    risk = _load_risk(period)
-    hr = _load_hr(period)
-    manufacturing = _load_manufacturing(period)
+    from insights.api.ml.utils import fork_map
+
+    sales, customer, inventory, procurement, financial, risk, hr, manufacturing = fork_map(
+        [
+            lambda: _load_sales(period),
+            lambda: _load_customer(period),
+            lambda: _load_inventory(period),
+            lambda: _load_procurement(period),
+            lambda: _load_financial(period),
+            lambda: _load_risk(period),
+            lambda: _load_hr(period),
+            lambda: _load_manufacturing(period),
+        ]
+    )
 
     kpis: Dict[str, Any] = {
         "financial": _financial_kpis(financial, period),

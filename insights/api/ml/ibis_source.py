@@ -61,11 +61,22 @@ def use_pyarrow_materialization() -> None:
     """
     import ibis.expr.types as ir
 
+    if getattr(ir.Table.execute, "_insights_patched", False):
+        return
     _original_execute = ir.Table.execute
 
     def _execute(self, *args, **kwargs):
         if kwargs.pop("_unsafe", False):
             return _original_execute(self, *args, **kwargs)
+        # The same expression (a cash balance, a row count) is asked for by
+        # several analyses in one compute. Ibis compile + round trip is ~0.5 s
+        # each, so run it once per request; `.copy()` because callers mutate.
+        memo = getattr(frappe.local, "insights_ml_executed", None)
+        if memo is None:
+            memo = frappe.local.insights_ml_executed = {}
+        key = (self.op(), args, tuple(sorted(kwargs.items())))
+        if key in memo:
+            return memo[key].copy()
         df = self.to_pyarrow().to_pandas(timestamp_as_object=True)
         # An aggregate with no rows (SUM/COUNT(where=) over an empty window) is
         # one row of NULLs. Arrow hands a NULL number to pandas as float NaN,
@@ -75,9 +86,68 @@ def use_pyarrow_materialization() -> None:
         if len(df) == 1:
             for col in df.columns[df.isna().iloc[0] & df.dtypes.map(lambda d: d.kind in "fiu")]:
                 df[col] = df[col].astype(object).where(df[col].notna(), None)
+        memo[key] = df.copy()
         return df
 
+    _execute._insights_patched = True
     ir.Table.execute = _execute
+    _cache_compiled_sql()
+
+
+_COMPILED_MAX = 2048
+_COMPILED_TTL = 3 * 24 * 3600
+
+
+def _cache_compiled_sql() -> None:
+    """Memoise ``SQLBackend.compile``: in this process, then in Redis.
+
+    Compiling an ibis expression is pure Python and the largest single cost of
+    a dashboard compute (~0.2-0.5 s per query, 25-50 queries each). The same
+    expressions come back -- the hourly refresh, the Refresh button, another
+    user, another worker -- and ibis ops compare by value (also across fresh
+    connections), so the SQL string is reusable. Redis keeps it across
+    processes keyed by a digest of the printed expression (``str(expr)`` is
+    ~4x cheaper than compiling it and carries every literal, so a changed
+    filter or date is a different key). Parameterised and ``pretty`` compiles
+    go through untouched.
+    """
+    import hashlib
+
+    import ibis
+    import sqlglot
+    from ibis.backends.sql import SQLBackend
+
+    if getattr(SQLBackend.compile, "_insights_patched", False):
+        return
+    original = SQLBackend.compile
+    compiled: dict = {}
+    versions = f"{ibis.__version__}/{sqlglot.__version__}"
+
+    def compile(self, expr, /, *, limit=None, params=None, pretty=False):
+        if params or pretty:
+            return original(self, expr, limit=limit, params=params, pretty=pretty)
+        key = (expr.op(), limit, type(self.compiler), self.dialect)
+        sql = compiled.get(key)
+        if sql is None:
+            # Redis only for this app's own connection: an external Data
+            # Source's SQL carries its own database, which the printed
+            # expression does not.
+            redis_key = None
+            if type(self.compiler) is type(_plain_equality_compiler()):
+                digest = hashlib.sha1(f"{versions}|{limit}|{expr}".encode()).hexdigest()
+                redis_key = f"insights_sql:{digest}"
+                sql = frappe.cache.get_value(redis_key)
+            if sql is None:
+                sql = original(self, expr, limit=limit)
+                if redis_key:
+                    frappe.cache.set_value(redis_key, sql, expires_in_sec=_COMPILED_TTL)
+            if len(compiled) >= _COMPILED_MAX:
+                compiled.pop(next(iter(compiled)))
+            compiled[key] = sql
+        return sql
+
+    compile._insights_patched = True
+    SQLBackend.compile = compile
 
 
 @functools.cache
@@ -124,8 +194,31 @@ def connection() -> ibis.BaseBackend:
             charset="utf8mb4",
         )
         conn.compiler = _plain_equality_compiler()
+        conn.get_schema = _cached_get_schema(conn.get_schema, conf.get("db_name"))
         frappe.local.insights_ml_ibis_conn = conn
     return frappe.local.insights_ml_ibis_conn
+
+
+_SCHEMAS: dict = {}
+_SCHEMA_TTL = 300
+
+
+def _cached_get_schema(get_schema, db_name):
+    """``connection().table()`` asks the database to describe the table first
+    (~0.4 s each under load, 7-12 DocTypes per dashboard). A schema only
+    changes on migrate, so keep it for five minutes across requests."""
+    import time
+
+    def cached(name, *, catalog=None, database=None):
+        key = (db_name, name, catalog, database)
+        hit = _SCHEMAS.get(key)
+        if hit and time.monotonic() - hit[0] < _SCHEMA_TTL:
+            return hit[1]
+        schema = get_schema(name, catalog=catalog, database=database)
+        _SCHEMAS[key] = (time.monotonic(), schema)
+        return schema
+
+    return cached
 
 
 def t(doctype: str, extra_columns: tuple[str, ...] = ()) -> ir.Table:
@@ -279,28 +372,39 @@ def cached_gp_lines(
     """Per-Sales-Invoice-Item row with revenue, cost, and period columns.
 
     Materialises the ``Sales Invoice × Sales Invoice Item × Delivery Note
-    Item × Stock Ledger Entry`` join exactly ONCE per compute call and caches
-    the result on ``frappe.local`` for the duration of that request, so every
-    caller (revenue GP, margins, sales-reps, customer profitability, territory
-    rollup) groups the same frame in pandas instead of re-issuing the join.
+    Item × Stock Ledger Entry`` join exactly ONCE per (user, company) per
+    request -- over the whole history -- and slices the window in pandas. A
+    dashboard asks for many windows (every month of a trend, each fiscal
+    year); one query per window cost ~2 s each in ibis compile alone.
 
-    The cache is keyed by (user, start, end, company, include_returns) and
-    lives only on ``frappe.local`` -- it resets automatically at the end of
-    every request and never leaks across users or concurrent sessions.
+    The cache lives only on ``frappe.local`` -- it resets automatically at the
+    end of every request and never leaks across users or concurrent sessions.
 
     ``include_returns=True`` nets Sales Return credit notes (negative revenue
     and cost) like ERPNext's Gross Profit report; callers that join the frame
     to non-return invoice revenue keep the default False.
+
+    ponytail: whole-history fetch; if one company's invoice lines reach
+    millions, push the window back into SQL.
     """
+    def _day(v):
+        return v.date() if hasattr(v, "date") and callable(v.date) else v
+
+    df = _gp_lines_all(company)
+    if not include_returns:
+        df = df[df["is_return"] == 0]
+    if start is not None:
+        df = df[df["posting_date"] >= _day(start)]
+    if end is not None:
+        df = df[df["posting_date"] <= _day(end)]
+    return df.copy()
+
+
+def _gp_lines_all(company: str | None) -> "pd.DataFrame":
     import pandas as pd
 
-    def _ds(v) -> str:
-        if v is None:
-            return ""
-        d = v.date() if hasattr(v, "date") and callable(v.date) else v
-        return str(d)[:10]
-
-    key = (frappe.session.user, _ds(start), _ds(end), company or "", include_returns)
+    company = company or default_company()
+    key = (frappe.session.user, company or "")
     cache = getattr(frappe.local, "insights_gp_line_cache", None)
     if cache is None:
         cache = frappe.local.insights_gp_line_cache = {}
@@ -309,17 +413,9 @@ def cached_gp_lines(
 
     import ibis as _ibis
 
-    _si = company_filter(t("Sales Invoice"), company or default_company()).filter(
+    _si = company_filter(t("Sales Invoice"), company).filter(
         t("Sales Invoice").docstatus == 1
     )
-    if not include_returns:
-        _si = _si.filter(_si.is_return == 0)
-    if start is not None:
-        _start = start.date() if hasattr(start, "date") and callable(start.date) else start
-        _si = _si.filter(_si.posting_date >= _start)
-    if end is not None:
-        _end = end.date() if hasattr(end, "date") and callable(end.date) else end
-        _si = _si.filter(_si.posting_date <= _end)
 
     _sii = t("Sales Invoice Item")
     _dn = dn_cost()
@@ -333,18 +429,19 @@ def cached_gp_lines(
         .select(
             parent=_si.name,
             posting_date=_si.posting_date,
+            is_return=_si.is_return,
             customer=_si.customer,
             territory=_si.territory,
-            base_net_total=_si.base_net_total,
+            base_net_total=_si.base_net_total.cast("float64"),
             item_code=_sii.item_code,
             item_name=_sii.item_name,
             item_group=_sii.item_group,
-            base_net_amount=_sii.base_net_amount,
-            qty=_sii.qty,
-            stock_qty=_sii.stock_qty,
-            incoming_rate=_sii.incoming_rate,
-            dn_rate=_dn.dn_rate,
-            svd=_sle.svd,
+            base_net_amount=_sii.base_net_amount.cast("float64"),
+            qty=_sii.qty.cast("float64"),
+            stock_qty=_sii.stock_qty.cast("float64"),
+            incoming_rate=_sii.incoming_rate.cast("float64"),
+            dn_rate=_dn.dn_rate.cast("float64"),
+            svd=_sle.svd.cast("float64"),
         )
         .execute()
     )

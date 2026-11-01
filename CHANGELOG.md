@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Changed — dashboard compute does less repeated work
+
+The Executive rollup runs its eight domain loaders in parallel forked processes instead of one after another (`fork_map` in `api/ml/utils.py`); on this ledger, under heavy machine load, a cold compute fell from 303 s serial to 95 to 120 s, with a payload identical to the serial one. It still runs serially inside web requests and under tests. The gross-profit line fetch now happens once per company for the whole history and is sliced per window, with decimals cast to float in SQL. Identical Ibis executions within one compute are memoised, compiled SQL is cached in process and in Redis for three days, and table schemas are cached for five minutes. A cold Sales compute went from 60 s to 29 s, Finance from 49 s to 30 s on a warm Redis. The Executive and Strategic Finance computes are still above 15 s on this machine; the remaining time is MariaDB (128 MB buffer pool against a 1 GB `tabGL Entry`) and the host load.
+
 ### Removed — files nothing referenced
 
 Deleted 18 files, about 3,600 lines, each checked by name across every app, the hooks, the patches and the frontend (including kebab-case tags). Frontend: the Executive Summary tab of Strategic Finance and the expense pie chart only it used, the fiscal-year period picker, the user and team lists, the health ring, the workbook tab switcher, the avatar group, the column rename and column selector panels, `store_locally`, and the collapse-sidebar icon. Backend and root: the two tax demo-data generators, `api/notebooks.py` (no caller, and the v2 patch removes its Notebook Page doctype), `hooks.py.dead`, and `migration_helper.py` with its own test. Kept on purpose: the three self-check scripts in `insights/ml/`, which assert real logic outside the test path.
