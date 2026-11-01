@@ -66,7 +66,16 @@ def use_pyarrow_materialization() -> None:
     def _execute(self, *args, **kwargs):
         if kwargs.pop("_unsafe", False):
             return _original_execute(self, *args, **kwargs)
-        return self.to_pyarrow().to_pandas(timestamp_as_object=True)
+        df = self.to_pyarrow().to_pandas(timestamp_as_object=True)
+        # An aggregate with no rows (SUM/COUNT(where=) over an empty window) is
+        # one row of NULLs. Arrow hands a NULL number to pandas as float NaN,
+        # which is truthy: ``int(v or 0)`` then raises and ``float(v or 0)``
+        # leaks NaN into the payload. The cursor path returned None, which is
+        # what every caller is written for.
+        if len(df) == 1:
+            for col in df.columns[df.isna().iloc[0] & df.dtypes.map(lambda d: d.kind in "fiu")]:
+                df[col] = df[col].astype(object).where(df[col].notna(), None)
+        return df
 
     ir.Table.execute = _execute
 

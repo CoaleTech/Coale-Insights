@@ -6,6 +6,12 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-10-24
 
+### Fixed — Revenue & Customers failed on Last 7 Days with "cannot convert float NaN to integer"
+
+The same NaN as the People Month to Date failure, from the shared cause. Every real dashboard compute runs through `use_pyarrow_materialization`, which hands a NULL number to pandas as float NaN; the cursor path the code was written for returned `None`. An aggregate over an empty window is one row of NULLs (`SUM`, `COUNT(where=)`), so `int(row["total_transactions"] or 0)` raised, and `float(row["total_revenue"] or 0)` would have put NaN into the payload. A direct call to the same function passed, which is why it hid. The patched `execute` now keeps NULL numbers in a one-row aggregate as `None`. Any period with no invoices (a short window past the end of the ledger) now loads.
+
+A sweep of all eleven dashboard endpoints through the real compute path on an empty window (Last 7 Days, or Month to Date) now succeeds, apart from `customer_intelligence`, which reports "No customer data found". The Customers tab already says so. The Customers KPI tile, though, waited on `custData` alone and stayed a loading skeleton for good. It now stops loading on `custError`, like the At Risk tile beside it.
+
 ### Fixed — People attendance tile showed "0.0%, High risk" when the period had no attendance records
 
 With the Month to Date load fixed, the Attendance Rate tile read "0.0% / High / 0 present of 0 records" and the Workforce Overview sub-metric showed a red 0.0%, which looks like a real attendance collapse. With zero records the tile now shows "–" with no severity and "No attendance records in this period", the sub-metric is grey "–", and the Attendance Breakdown section is hidden until there are records.

@@ -253,7 +253,7 @@ function handleDashboardRedirect(_target: string) {
         <KpiCard
           label="Customers"
           :value="custSummary.total_customers == null ? undefined : formatCount(custSummary.total_customers as number)"
-          :loading="!custData || custWarming"
+          :loading="(!custData && !custError) || custWarming"
         />
         <KpiCard
           label="Avg Order Value"
