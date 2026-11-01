@@ -194,6 +194,11 @@ def connection() -> ibis.BaseBackend:
             charset="utf8mb4",
         )
         conn.compiler = _plain_equality_compiler()
+        # MariaDB's "lateral derived" plan re-runs a grouped subquery once per
+        # outer row; for ``with_paid_date`` that was 13 s against 0.4 s for a
+        # plain materialisation of the same join. Session-scoped, this
+        # connection only.
+        conn.raw_sql("SET SESSION optimizer_switch='split_materialized=off'").close()
         conn.get_schema = _cached_get_schema(conn.get_schema, conf.get("db_name"))
         frappe.local.insights_ml_ibis_conn = conn
     return frappe.local.insights_ml_ibis_conn
