@@ -18,7 +18,7 @@ With the Month to Date load fixed, the Attendance Rate tile read "0.0% / High / 
 
 ### Fixed — People dashboard failed with "cannot convert float NaN to integer" on Month to Date
 
-`HRIntelligence` summed exit and attendance flags with `SUM(...)`, which is NULL when the window has no rows. Pandas returns that as NaN, `NaN or 0` stays NaN, and `int()` raised, so every period with no exits or no attendance (Month to Date, now that the ledger and attendance end in mid-September) showed "Could not load HR data". A small `_count` helper now turns NULL/NaN into 0 for the exit and attendance counts. `insights/tests/test_hr_count.py` covers it.
+`HRIntelligence` summed exit and attendance flags with `SUM(...)`, which is NULL when the window has no rows; `NaN or 0` stays NaN and `int()` raised, so every period with no exits or no attendance (Month to Date, now that attendance ends in mid-September) showed "Could not load HR data". The NaN came from the shared pyarrow materialisation path, fixed there (entry above), so no HR-specific code was kept.
 
 ### Fixed — money charts on Revenue, Tax, Procurement, Executive and Risk showed raw numbers on hover
 
