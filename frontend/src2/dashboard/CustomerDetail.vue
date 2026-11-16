@@ -18,7 +18,7 @@ import IntelligenceDrillDown from '../intelligence/components/IntelligenceDrillD
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
 import {
-  severityBadge, severityFill, severityAria, scoreSeverity, deltaInk, deltaGlyph, type Severity,
+  severityBadge, severityTint, severityAria, scoreSeverity, deltaInk, deltaGlyph, type Severity,
   HEALTH_SCORE_THRESHOLDS,
 } from '../utils/status'
 import {
@@ -234,18 +234,17 @@ watch(customerId, () => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <header class="sticky top-0 z-10 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between px-6 py-4 bg-surface-white border-b border-outline-gray-1">
       <div class="flex items-center gap-4">
         <Button
           variant="ghost"
           theme="gray"
-          aria-label="Back to customer intelligence"
+          :icon="ArrowLeft"
+          label="Back to customer intelligence"
           @click="goBack"
-        >
-          <ArrowLeft class="w-4 h-4" />
-        </Button>
+        />
         <div>
           <div class="flex items-center gap-3">
             <h1 class="text-xl font-semibold text-ink-gray-9">
@@ -362,6 +361,7 @@ watch(customerId, () => {
             <!-- Key Metrics Cards -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <KpiCard
+                variant="tile"
                 label="Total Revenue"
                 :value="money(totalRevenue)"
                 sublabel="Lifetime Value"
@@ -370,6 +370,7 @@ watch(customerId, () => {
                 @click="drillDown.open(CUSTOMER_ENDPOINT, 'Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'all' })"
               />
               <KpiCard
+                variant="tile"
                 label="Total Orders"
                 :value="formatNumber(totalOrders)"
                 :sublabel="`AOV: ${money(avgOrderValue)}`"
@@ -378,12 +379,14 @@ watch(customerId, () => {
                 @click="drillDown.open(CUSTOMER_ENDPOINT, 'Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'all' })"
               />
               <KpiCard
+                variant="tile"
                 label="Predicted CLV (12m)"
                 :value="money(predictedClv)"
                 sublabel="Next 12 months"
                 :loading="!hasData"
               />
               <KpiCard
+                variant="tile"
                 label="Last Purchase"
                 :value="formatNumber(daysSincePurchase)"
                 sublabel="days ago"
@@ -713,7 +716,7 @@ watch(customerId, () => {
                 </SectionHeader>
                 <div class="text-center py-6">
                   <div
-                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(churnRisk)]"
+                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityTint(churnRisk)]"
                     :aria-label="severityAria('Churn Risk', churnRisk, pct0(churnScore))"
                     role="img"
                   >
@@ -751,7 +754,7 @@ watch(customerId, () => {
                 </SectionHeader>
                 <div class="text-center py-6">
                   <div
-                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityFill(healthSeverity)]"
+                    :class="['inline-flex items-center justify-center w-24 h-24 rounded-full text-3xl font-bold text-ink-gray-9', severityTint(healthSeverity)]"
                     :aria-label="severityAria('Health Score', healthSeverity, healthScore === undefined ? NO_VALUE : healthScore.toFixed(0))"
                     role="img"
                   >
@@ -804,11 +807,13 @@ watch(customerId, () => {
               </SectionHeader>
               <div class="mt-4 grid grid-cols-1 md:grid-cols-4 gap-4">
                 <KpiCard
+                  variant="tile"
                   label="Avg Days to Pay"
                   :value="(customer?.avg_days_to_pay as number)?.toFixed(0) ?? 'N/A'"
                   :severity="scoreSeverity(customer?.avg_days_to_pay as number, { good: 30, warn: 60, higherIsBetter: false })"
                 />
                 <KpiCard
+                  variant="tile"
                   label="Outstanding Amount"
                   :value="money(customer?.outstanding_amount as number)"
                   :severity="(customer?.outstanding_amount as number) > 0 ? 'high' : undefined"
@@ -816,11 +821,13 @@ watch(customerId, () => {
                   @click="drillDown.open(CUSTOMER_ENDPOINT, 'Outstanding Invoices', { metric: 'customer_invoices', customer: customerId, bucket: 'outstanding' })"
                 />
                 <KpiCard
+                  variant="tile"
                   label="Payment Score"
                   :percent="customer?.payment_score == null ? null : Math.round(customer?.payment_score as number)"
                   :severity="scoreSeverity(customer?.payment_score as number, { good: 75, warn: 50 })"
                 />
                 <KpiCard
+                  variant="tile"
                   label="Overdue Invoices"
                   :value="asNumber(customer?.overdue_count)"
                   :severity="(customer?.overdue_count as number) > 0 ? 'high' : undefined"
@@ -834,10 +841,10 @@ watch(customerId, () => {
                 <SectionHeader variant="caption" title="Recommended Credit Limit"
                   hint="Suggested exposure ceiling from demand and repayment risk" :level="4" />
                 <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <KpiCard label="Recommended" :value="money(recommendedCreditLimit)" sublabel="suggested ceiling" />
-                  <KpiCard label="Current Limit (ERPNext)" :value="currentCreditLimit > 0 ? money(currentCreditLimit) : 'Not set'"
+                  <KpiCard variant="tile" label="Recommended" :value="money(recommendedCreditLimit)" sublabel="suggested ceiling" />
+                  <KpiCard variant="tile" label="Current Limit (ERPNext)" :value="currentCreditLimit > 0 ? money(currentCreditLimit) : 'Not set'"
                     :sublabel="currentCreditLimit > 0 ? undefined : 'no limit configured'" />
-                  <KpiCard label="Headroom vs Outstanding" :value="money(creditHeadroom)"
+                  <KpiCard variant="tile" label="Headroom vs Outstanding" :value="money(creditHeadroom)"
                     :severity="creditHeadroom < 0 ? 'high' : undefined"
                     :sublabel="creditHeadroom < 0 ? 'over recommended exposure' : 'available'" />
                 </div>

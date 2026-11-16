@@ -37,8 +37,10 @@ from insights.ml.inventory_intelligence import DemandForecasting
 from insights.ml.sales_forecasting import _is_partial, get_sales_forecast
 
 # Every revenue figure in this payload is tax-exclusive (base_net_total /
-# base_net_amount), in the company base currency, with credit notes
-# (is_return) excluded. Receivables / DSO are the one deliberate exception.
+# base_net_amount), in the company base currency. Revenue and gross margin are
+# net of Sales Return credit notes (like ERPNext's Gross Profit report); order
+# and customer counts cover non-return invoices only. Receivables / DSO are the
+# one deliberate exception.
 REVENUE_BASIS = "net_of_tax"
 
 
@@ -68,7 +70,7 @@ def calculate_revenue_metrics(
     """
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    )
     start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
@@ -84,8 +86,9 @@ def calculate_revenue_metrics(
     # One aggregate for the headline numbers.
     overall_df = si.aggregate(
         total_revenue=si.base_net_total.sum(),
-        total_transactions=si.count(),
-        unique_customers=si.customer.nunique(),
+        total_transactions=si.count(where=si.is_return == 0),
+        unique_customers=si.customer.nunique(where=si.is_return == 0),
+        last_posting=si.posting_date.max(),
     ).execute()
     overall = overall_df.iloc[0]
     total_revenue = float(overall["total_revenue"] or 0)
@@ -93,16 +96,24 @@ def calculate_revenue_metrics(
     unique_customers = int(overall["unique_customers"] or 0)
     avg_order_value = round(total_revenue / total_transactions, 2) if total_transactions else 0
 
-    # Daily series (31 days ending at the window end -- not "today", or a past
-    # or custom range would be cut off at today-30d and lose its tail).
-    anchor = end or datetime.now()
+    # Daily series (last 30 days of the actual data, not the filter window end).
+    # Using `end` (which equals today for the 12m preset) makes the daily window
+    # start at today-30, which is past the last invoice when data has a lag
+    # (e.g. max invoice date Sep 14 → daily_cutoff Sep 22 → zero rows).
+    # `calculate_comparisons` already solves this with the same pattern.
+    import pandas as _pd
+    _max_row = overall["last_posting"]
+    if _max_row is not None and not _pd.isna(_max_row):
+        anchor = _pd.Timestamp(_max_row).to_pydatetime()
+    else:
+        anchor = end or datetime.now()
     daily_cutoff = (anchor - timedelta(days=30)).date()
     si_daily = si.filter(si.posting_date >= daily_cutoff)
     daily_df = (
         si_daily.group_by(si_daily.posting_date)
         .aggregate(
             revenue=si_daily.base_net_total.sum(),
-            transactions=si_daily.count(),
+            transactions=si_daily.count(where=si_daily.is_return == 0),
         )
         .order_by("posting_date")
         .execute()
@@ -124,7 +135,7 @@ def calculate_revenue_metrics(
         si_weekly.group_by(["year_week"])
         .aggregate(
             revenue=si_weekly.base_net_total.sum(),
-            transactions=si_weekly.count(),
+            transactions=si_weekly.count(where=si_weekly.is_return == 0),
         )
         .order_by("year_week")
         .execute()
@@ -144,8 +155,8 @@ def calculate_revenue_metrics(
         si_monthly.group_by("period")
         .aggregate(
             revenue=si_monthly.base_net_total.sum(),
-            transactions=si_monthly.count(),
-            unique_customers=si_monthly.customer.nunique(),
+            transactions=si_monthly.count(where=si_monthly.is_return == 0),
+            unique_customers=si_monthly.customer.nunique(where=si_monthly.is_return == 0),
         )
         .order_by("period")
         .execute()
@@ -164,7 +175,7 @@ def calculate_revenue_metrics(
     # Line-level GP: fetch once via cached_gp_lines; group in pandas for
     # daily / weekly / monthly windows. Replaces 3 separate SI×SII×DN×SLE
     # join executions with one shared materialisation per compute call.
-    gp_frame = cached_gp_lines(start, end, company or default_company())
+    gp_frame = cached_gp_lines(start, end, company or default_company(), include_returns=True)
 
     def _merge_gp(series: list[dict[str, Any]], gp_map: dict[str, tuple[float, float]], key: str) -> None:
         for row in series:
@@ -207,7 +218,7 @@ def calculate_revenue_metrics(
     # several invoices on one day are one order occasion, not a 0-day gap that
     # drags the average down.
     per_customer_df = (
-        si.group_by(si.customer)
+        si.filter(si.is_return == 0).group_by(si.customer)
         .aggregate(
             first_sale=si.posting_date.min(),
             last_sale=si.posting_date.max(),
@@ -250,7 +261,7 @@ def calculate_payment_mix(
     date_filter: str = "12m",
     company: str | None = None,
 ) -> dict[str, Any]:
-    """Cash (outstanding == 0) vs Credit (outstanding > 0) by period.
+    """Cash (settled, due on the posting date) vs Credit (credit terms, or still open).
 
     `outstanding_amount` and `grand_total` are computed via two
     conditional aggregate measures in one query; the bucket split is
@@ -266,13 +277,14 @@ def calculate_payment_mix(
         si = si.filter(si.posting_date <= end.date())
 
     # Split on the net-of-tax base so cash_total + credit_total equals
-    # summary.total_revenue; `outstanding_amount == 0` only classifies an
-    # invoice as settled.
-    is_cash = si.outstanding_amount == 0
+    # summary.total_revenue. An invoice due after its posting date is a credit
+    # sale even once paid.
+    is_cash = (si.outstanding_amount == 0) & (si.due_date <= si.posting_date)
     overall_df = si.aggregate(
         total=si.base_net_total.sum(),
         cash_total=ibis.ifelse(is_cash, si.base_net_total, 0).sum(),
         credit_total=ibis.ifelse(is_cash, 0, si.base_net_total).sum(),
+        last_posting=si.posting_date.max(),
     ).execute().iloc[0]
     total = float(overall_df["total"] or 0)
     cash_total = float(overall_df["cash_total"] or 0)
@@ -281,10 +293,19 @@ def calculate_payment_mix(
     cash_ratio = round(cash_total / total * 100, 1) if total > 0 else 0
     credit_ratio = round(credit_total / total * 100, 1) if total > 0 else 0
 
-    # Daily mix (31 days ending at the window end). Each day gets its own cash/credit row.
-    daily_cutoff = ((end or datetime.now()) - timedelta(days=30)).date()
+    # Daily mix: anchor to the latest invoice, not to `end` (which equals today
+    # for the 12m preset). When the ledger has a posting lag (e.g. last invoice
+    # 2026-09-14, today 2026-10-26), using `end` shifts the 30-day window past
+    # the last invoice and returns zero rows. Same pattern as calculate_revenue_metrics.
+    import pandas as _pd
+    _max_row = overall_df["last_posting"]
+    if _max_row is not None and not _pd.isna(_max_row):
+        _anchor = _pd.Timestamp(_max_row).to_pydatetime()
+    else:
+        _anchor = end or datetime.now()
+    daily_cutoff = (_anchor - timedelta(days=30)).date()
     si_daily = si.filter(si.posting_date >= daily_cutoff)
-    is_cash_daily = si_daily.outstanding_amount == 0
+    is_cash_daily = (si_daily.outstanding_amount == 0) & (si_daily.due_date <= si_daily.posting_date)
     daily_df = (
         si_daily.group_by(si_daily.posting_date)
         .aggregate(
@@ -485,20 +506,29 @@ def calculate_comparisons(
     growth" whenever the 12m date filter was selected. The MoM slice
     is inside the window and the filter is still applied to it.
     """
-    # Base set (submitted, non-return, company-scoped) reused for both
-    # slices below and for anchoring the "current" period.
+    # Base set (submitted, company-scoped, returns included so revenue is net
+    # of credit notes) reused for both slices below and for anchoring the
+    # "current" period; transaction counts exclude return invoices.
     base = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    )
 
-    # Anchor "current" to the latest month that actually has sales, not the
-    # calendar month. A no-op when the ledger is current (max posting date is
-    # in this month); when data lags -- e.g. the last invoice is weeks old --
-    # it stops the still-empty calendar month from reporting -100% MoM/YoY
-    # growth against a fully-populated prior month.
+    # MoM slice: subject to the user's date filter (both endpoints
+    # live inside the window).
+    si = base
+    start, end = parse_date_filter(date_filter)
+    if start is not None:
+        si = si.filter(si.posting_date >= start.date())
+    if end is not None:
+        si = si.filter(si.posting_date <= end.date())
+
+    # Anchor "current" to the latest month that actually has sales inside the
+    # window, not the calendar month. A no-op when the ledger is current; when
+    # data lags or the window ends before the latest sale, it stops the empty
+    # month from reporting -100% MoM/YoY growth against a populated one.
     import pandas as pd
     today = datetime.now().date()
-    max_posting = base.aggregate(m=base.posting_date.max()).execute().iloc[0]["m"]
+    max_posting = si.aggregate(m=si.posting_date.max()).execute().iloc[0]["m"]
     if max_posting is not None and not pd.isna(max_posting):
         anchor = pd.Timestamp(max_posting).date()
         if anchor < today:
@@ -512,32 +542,40 @@ def calculate_comparisons(
         last_month_final_day,
     )
     last_year_month_start = current_month_start.replace(year=current_month_start.year - 1)
-    last_year_month_end = last_year_month_start.replace(day=min(today.day, 28))
 
-    # MoM slice: subject to the user's date filter (both endpoints
-    # live inside the window).
-    si = base
-    start, end = parse_date_filter(date_filter)
-    if start is not None:
-        si = si.filter(si.posting_date >= start.date())
-    if end is not None:
-        si = si.filter(si.posting_date <= end.date())
 
     # YoY slice: skips the user's `date_filter` (which would push the cutoff
     # past the YoY window's start). Date filter is still respected for the
     # day-of-month comparison to stay apples-to-apples.
     si_yoy = base
 
-    def _slice(si_base, start_d, end_d):
-        si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))
+    def _slice(si_base, start_d, end_d, full_end=None):
+        """Revenue/txns for [start_d, end_d]; with `full_end`, also the full
+        [start_d, full_end] month (`full_*`) from the same scan."""
+        if full_end is None:
+            si_period = si_base.filter(si_base.posting_date.between(start_d, end_d))
+            return si_period.aggregate(
+                revenue=si_period.base_net_total.sum(),
+                transactions=si_period.count(where=si_period.is_return == 0),
+            ).execute().iloc[0].fillna(0)
+        si_period = si_base.filter(si_base.posting_date.between(start_d, full_end))
+        lfl = si_period.posting_date <= end_d
         return si_period.aggregate(
-            revenue=si_period.base_net_total.sum(),
-            transactions=si_period.count(),
-        ).execute().iloc[0]
+            revenue=si_period.base_net_total.sum(where=lfl),
+            transactions=si_period.count(where=lfl & (si_period.is_return == 0)),
+            full_revenue=si_period.base_net_total.sum(),
+            full_transactions=si_period.count(where=si_period.is_return == 0),
+        ).execute().iloc[0].fillna(0)
 
+    import calendar as _cal
+    ly_days = _cal.monthrange(last_year_month_start.year, last_year_month_start.month)[1]
+    last_year_month_end = last_year_month_start.replace(day=min(today.day, ly_days))
     cur = _slice(si, current_month_start, today)
-    last = _slice(si, last_month_start, last_month_end)
-    last_year = _slice(si_yoy, last_year_month_start, last_year_month_end)
+    last = _slice(si, last_month_start, last_month_end, last_month_final_day)
+    last_year = _slice(
+        si_yoy, last_year_month_start, last_year_month_end,
+        last_year_month_start.replace(day=ly_days),
+    )
 
     current_revenue = float(cur["revenue"] or 0)
     last_month_revenue = float(last["revenue"] or 0)
@@ -553,6 +591,22 @@ def calculate_comparisons(
     yoy_growth = round((current_revenue - last_year_revenue) / last_year_revenue * 100, 1) if last_year_revenue > 0 else 0
     mom_txn_growth = round((current_txns - last_txns) / last_txns * 100, 1) if last_txns > 0 else 0
     yoy_txn_growth = round((current_txns - last_year_txns) / last_year_txns * 100, 1) if last_year_txns > 0 else 0
+
+    # Full-calendar-month comparisons: no day-of-month cap so the reader sees
+    # the actual prior-month total, not a same-duration slice.
+    # `mom_growth` (like-for-like) is kept for backward compat; `mom_growth_full`
+    # is the headline figure — last complete calendar month vs prior.
+    last_full_revenue = float(last["full_revenue"] or 0)
+    last_full_txns = int(last["full_transactions"] or 0)
+    mom_growth_full = (
+        round((current_revenue - last_full_revenue) / last_full_revenue * 100, 1)
+        if last_full_revenue > 0 else None
+    )
+    last_year_full_revenue = float(last_year["full_revenue"] or 0)
+    yoy_growth_full = (
+        round((current_revenue - last_year_full_revenue) / last_year_full_revenue * 100, 1)
+        if last_year_full_revenue > 0 else None
+    )
 
     # Monthly trend (last 13 months for MoM).
     si_monthly = si.mutate(period=si.posting_date.strftime("%Y-%m"))
@@ -585,10 +639,17 @@ def calculate_comparisons(
             "aov": current_aov,
             "period": current_month_start.strftime("%Y-%m"),
         },
+        # last_month: same-duration like-for-like slice (day-of-month cap applied)
         "last_month": {
             "revenue": last_month_revenue,
             "transactions": last_txns,
             "aov": last_aov,
+            "period": last_month_start.strftime("%Y-%m"),
+        },
+        # last_month_full: entire prior calendar month (no day cap)
+        "last_month_full": {
+            "revenue": round(last_full_revenue, 2),
+            "transactions": last_full_txns,
             "period": last_month_start.strftime("%Y-%m"),
         },
         "last_year_same_month": {
@@ -597,8 +658,18 @@ def calculate_comparisons(
             "aov": last_year_aov,
             "period": last_year_month_start.strftime("%Y-%m"),
         },
+        # last_year_full: entire same calendar month of prior year (no day cap)
+        "last_year_full": {
+            "revenue": round(last_year_full_revenue, 2),
+            "period": last_year_month_start.strftime("%Y-%m"),
+        },
+        # mom_growth: like-for-like (same-duration slice; backward compatible)
         "mom_growth": mom_growth,
+        # mom_growth_full: headline MoM — current period vs full prior calendar month
+        "mom_growth_full": mom_growth_full,
         "yoy_growth": yoy_growth,
+        # yoy_growth_full: current period vs full prior-year same calendar month
+        "yoy_growth_full": yoy_growth_full,
         "mom_txn_growth": mom_txn_growth,
         "yoy_txn_growth": yoy_txn_growth,
         "monthly_trend": monthly_trend,
@@ -614,10 +685,10 @@ def analyze_by_dimensions(
     date_filter: str = "12m",
     company: str | None = None,
 ) -> dict[str, Any]:
-    """Revenue by customer_group, territory, and product_group."""
+    """Revenue (net of Sales Return credit notes) by customer_group, territory, and product_group."""
     si = company_filter(t("Sales Invoice"), company or default_company()).filter(
         t("Sales Invoice").docstatus == 1
-    ).filter(t("Sales Invoice").is_return == 0)
+    )
     start, end = parse_date_filter(date_filter)
     if start is not None:
         si = si.filter(si.posting_date >= start.date())
@@ -637,8 +708,8 @@ def analyze_by_dimensions(
         si.group_by(si.customer_group.fill_null("Uncategorized").name("customer_group"))
         .aggregate(
             revenue=si.base_net_total.sum(),
-            transactions=si.count(),
-            unique_customers=si.customer.nunique(),
+            transactions=si.count(where=si.is_return == 0),
+            unique_customers=si.customer.nunique(where=si.is_return == 0),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
@@ -647,8 +718,8 @@ def analyze_by_dimensions(
         si.group_by(si.territory.fill_null("Unassigned").name("territory"))
         .aggregate(
             revenue=si.base_net_total.sum(),
-            transactions=si.count(),
-            unique_customers=si.customer.nunique(),
+            transactions=si.count(where=si.is_return == 0),
+            unique_customers=si.customer.nunique(where=si.is_return == 0),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
@@ -696,7 +767,7 @@ def analyze_by_dimensions(
         .aggregate(
             revenue=sii.base_net_amount.sum(),
             qty_sold=sii.qty.sum(),
-            transactions=si.name.nunique(),
+            transactions=si.name.nunique(where=si.is_return == 0),
         )
         .order_by(ibis.desc("revenue"))
         .execute()
@@ -736,7 +807,7 @@ def gross_margin_totals(start, end, company: str | None = None) -> dict[str, flo
     """
     # Normalise to date objects for the cache key.
     _start, _end = (None if d is None else date.fromisoformat(str(d)[:10]) for d in (start, end))
-    df = cached_gp_lines(_start, _end, company or default_company())
+    df = cached_gp_lines(_start, _end, company or default_company(), include_returns=True)
     revenue = float(df["base_net_amount"].sum())
     profit = float(df["gross_profit"].sum())
     return {
@@ -760,7 +831,7 @@ def analyze_margins(
     """
     start, end = parse_date_filter(date_filter)
     # Use cached GP frame — avoids 3 separate SI×SII×DN×SLE join executions.
-    df = cached_gp_lines(start, end, company or default_company())
+    df = cached_gp_lines(start, end, company or default_company(), include_returns=True)
 
     totals = gross_margin_totals(start, end, company)
     total_revenue = totals["total_revenue"]
@@ -983,7 +1054,13 @@ def analyze_fulfillment(
     ).filter(t("Sales Invoice").is_return == 0)
     # DSO stays tax-inclusive on both sides: outstanding_amount includes tax,
     # so the daily-sales divisor must too.
-    cutoff_90 = (datetime.now() - timedelta(days=90)).date()
+    # Anchor on the last invoice, not the wall clock: with a data lag a
+    # today-90 window holds fewer days of sales than the /90 divisor assumes
+    # and inflates DSO (same pattern as the daily series above).
+    _last = si.aggregate(last=si.posting_date.max()).execute().iloc[0]["last"]
+    import pandas as _pd
+    anchor = datetime.now().date() if _pd.isna(_last) else min(_pd.Timestamp(_last).date(), datetime.now().date())
+    cutoff_90 = anchor - timedelta(days=90)
     receivables_df = si.aggregate(total=si.outstanding_amount.sum()).execute().iloc[0]
     total_receivables = float(receivables_df["total"] or 0)
     last_90_df = (
@@ -1051,6 +1128,63 @@ def aggregate_forecasts(date_filter: str = "12m", company: str | None = None) ->
     }
 
 
+def _compute_verdict_headline(
+    summary: dict[str, Any],
+    comparisons: dict[str, Any],
+    fulfillment: dict[str, Any],
+    forecasts: dict[str, Any],
+    base_currency: str,
+) -> str:
+    """One-sentence revenue overview verdict, computed server-side (Rule 7).
+    Combines total revenue, YoY classification, softest month, DSO alert, and
+    forecast projection into a single readable headline for the Overview tab card.
+    """
+    def _fmt(v: float) -> str:
+        if v >= 1e9: return f"{v / 1e9:.1f}B"
+        if v >= 1e6: return f"{v / 1e6:.1f}M"
+        if v >= 1e3: return f"{v / 1e3:.0f}K"
+        return f"{v:.0f}"
+
+    total_rev = float(summary.get("total_revenue") or 0)
+    yoy = summary.get("yoy_growth")
+    yoy_full = summary.get("yoy_growth_full")
+    cur = f"{base_currency} {_fmt(total_rev)}"
+
+    # The YoY figures compare only the latest (often partial) month, not the
+    # 12-month total, so say so and show both bases instead of a bare adjective.
+    if yoy is None:
+        yoy_phrase = ""
+    else:
+        yoy_phrase = f"latest month {yoy:+.1f}% YoY like-for-like"
+        if yoy_full is not None:
+            yoy_phrase += f" ({yoy_full:+.1f}% vs the full month last year)"
+
+    trend = comparisons.get("monthly_trend") or []
+    complete = [m for m in trend if not m.get("is_partial")]
+    softest = min(complete, key=lambda m: m.get("revenue", 0), default=None) if complete else None
+
+    parts = [f"Revenue {cur}"]
+    if yoy_phrase:
+        parts[0] += f": {yoy_phrase}"
+
+    if softest:
+        mon = datetime.strptime(softest["period"], "%Y-%m").strftime("%B")
+        parts.append(f"{mon} at {base_currency} {_fmt(softest['revenue'])} is the softest month in the window")
+
+    dso = float(fulfillment.get("dso") or 0)
+    if dso > 30:
+        parts.append(f"DSO {dso:.0f} days is {dso - 30:.0f} days above the 30-day target")
+
+    fs = (forecasts.get("sales_forecast") or {}).get("forecast_summary") or {}
+    fc_total = fs.get("total_forecast")
+    fc_days = fs.get("days")
+    stale = int(fs.get("stale_days") or 0)
+    if fc_total and fc_days and stale < 90:
+        parts.append(f"The {fc_days}-day forecast projects {base_currency} {_fmt(float(fc_total))}")
+
+    return ". ".join(parts) + "."
+
+
 def run_sales_intelligence(
     date_filter: str = "12m",
     company: str | None = None,
@@ -1064,6 +1198,7 @@ def run_sales_intelligence(
     margins = analyze_margins(date_filter, company)
     fulfillment = analyze_fulfillment(date_filter, company)
     forecasts = aggregate_forecasts(date_filter, company)
+    currency = _base_currency(company)
 
     summary = {
         "total_revenue": revenue_metrics["total_revenue"],
@@ -1073,20 +1208,25 @@ def run_sales_intelligence(
         "cash_ratio": payment_mix["cash_ratio"],
         "credit_ratio": payment_mix["credit_ratio"],
         "mom_growth": comparisons["mom_growth"],
+        "mom_growth_full": comparisons["mom_growth_full"],
         "yoy_growth": comparisons["yoy_growth"],
+        "yoy_growth_full": comparisons["yoy_growth_full"],
         "overall_margin": margins["overall_margin"],
         "fulfillment_rate": fulfillment["fulfillment_rate"],
         "dso": fulfillment["dso"],
         "total_sales_reps": sales_reps["total_reps"],
     }
 
-    return {
+    verdict_headline = _compute_verdict_headline(summary, comparisons, fulfillment, forecasts, currency)
+
+    result: dict[str, Any] = {
         "status": "success",
         "analysis_date": datetime.now().isoformat(),
-        "base_currency": _base_currency(company),
+        "base_currency": currency,
         "revenue_basis": REVENUE_BASIS,
         "date_filter": date_filter,
         "summary": summary,
+        "verdict_headline": verdict_headline,
         "revenue_metrics": revenue_metrics,
         "payment_mix": payment_mix,
         "sales_reps": sales_reps,
@@ -1096,6 +1236,9 @@ def run_sales_intelligence(
         "fulfillment": fulfillment,
         "forecasts": forecasts,
     }
+    from insights.ml.tab_briefs.revenue import briefs as _rev_briefs
+    result["tab_briefs"] = _rev_briefs(result)
+    return result
 
 
 def get_sales_intelligence(

@@ -21,7 +21,7 @@ that don't run payroll in-house.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 import frappe
 from frappe.defaults import get_user_default
-from frappe.utils import add_months
+from frappe.utils import add_months, getdate
 
 from insights.api.ml.ibis_source import t
 
@@ -261,14 +261,23 @@ class HRIntelligence:
                 voluntary=(
                     emp_exits["resignation_letter_date"].notnull().cast("int").sum()
                 ),
+                # Involuntary only when a non-resignation reason is recorded;
+                # exits with neither field set are unclassified, not involuntary.
+                involuntary=(
+                    (emp_exits["resignation_letter_date"].isnull()
+                     & emp_exits["reason_for_leaving"].notnull()
+                     & (emp_exits["reason_for_leaving"] != "")).cast("int").sum()
+                ),
             )
             .execute()
         )
         total_exits = 0
         voluntary_exits = 0
+        involuntary_exits = 0
         if exits_df is not None and len(exits_df):
             total_exits = int(exits_df.iloc[0].get("total") or 0)
             voluntary_exits = int(exits_df.iloc[0].get("voluntary") or 0)
+            involuntary_exits = int(exits_df.iloc[0].get("involuntary") or 0)
 
         # Department composition (active only).
         # Ibis gotcha: count must reference the filtered+grouped relation,
@@ -362,12 +371,33 @@ class HRIntelligence:
             "new_hires": int(new_hires),
             "total_exits": total_exits,
             "voluntary_exits": voluntary_exits,
-            "involuntary_exits": max(0, total_exits - voluntary_exits),
+            "involuntary_exits": involuntary_exits,
             "department_breakdown": dept_breakdown,
             "employment_type_breakdown": emp_type_breakdown,
             "gender_dist": gender_dist,
         }
         return self._corpora_cache
+
+    def _headcount_bounds(self) -> tuple[int, int]:
+        """Employees on the books the day before the period starts and on its last day.
+
+        Counted from joining/relieving dates. Reversing the net change from
+        today's headcount is wrong: hires who already left or went inactive
+        are in `new_hires` but not in today's headcount, so the start came out
+        too low. Inactive employees have no leaving date, so they are in
+        neither count.
+        """
+
+        def on(day) -> int:
+            e = t("Employee")
+            f = e.filter(
+                (e["status"] != "Inactive")
+                & (e["date_of_joining"] <= str(day))
+                & (e["relieving_date"].isnull() | (e["relieving_date"] > str(day)))
+            )
+            return int(_scalar(f.aggregate(n=f.count())))
+
+        return on(getdate(self.from_date) - timedelta(days=1)), on(self.to_date)
 
     # ------------------------------------------------------------------ headcount
     def _analyze_headcount(self) -> Dict[str, Any]:
@@ -401,6 +431,7 @@ class HRIntelligence:
             "growth_rate_pct": round(growth_rate, 2),
             "turnover_rate_pct": round(turnover_rate, 2),
             "hire_rate_pct": round(hire_rate, 2),
+            "opening_headcount": self._headcount_bounds()[0],
             "largest_department": largest_dept.get("department") or "N/A",
             "smallest_department": smallest_dept.get("department") or "N/A",
             "department_count": len(dept),
@@ -416,20 +447,7 @@ class HRIntelligence:
 
         # Industry-standard formula: exits / average headcount over the
         # period, where average headcount = (start + end) / 2.
-        # `total_active` is the end-of-period (current) active headcount;
-        # the start-of-period headcount is derived by reversing this
-        # period's net change (removing this period's hires, adding back
-        # this period's exits).
-        #
-        # Previously this divided by a count of every Employee record ever
-        # created on the site (any status, no date bound at all) -- a
-        # denominator that only grows as terminated employees accumulate
-        # over the years, silently deflating the reported rate on every
-        # later period even though the comment here already named the
-        # correct formula and never implemented it.
-        end_headcount = c["total_active"]
-        net_change = c["new_hires"] - total_exits
-        start_headcount = end_headcount - net_change
+        start_headcount, end_headcount = self._headcount_bounds()
         avg_headcount = (start_headcount + end_headcount) / 2
         attrition_rate = (total_exits / avg_headcount * 100) if avg_headcount > 0 else 0
 
@@ -1061,7 +1079,7 @@ class HRIntelligence:
                 "priority": "high",
                 "category": "Retention",
                 "title": "Address High Attrition Rate",
-                "description": f"Current attrition rate of {attr.get('attrition_rate_pct', 0)}% is above industry average.",
+                "description": f"Current attrition rate is {attr.get('attrition_rate_pct', 0)}%.",
                 "actions": ["Conduct exit interviews", "Review compensation", "Improve management training"],
             })
         if att.get("attendance_rate_pct", 0) < 92 and att.get("attendance_rate_pct", 0) > 0:

@@ -4,6 +4,609 @@ Notable changes to the intelligence dashboard surface of this fork. Values quote
 `before → after` were measured against the JKM Chemtrade ledger (INR, Indian fiscal year
 Apr–Mar), not estimated.
 
+## [Unreleased] — 2026-10-24
+
+### Changed — one narrow GL copy per compute
+
+Finance, Risk and the Executive profit figures each re-scanned the 534-byte-wide GL Entry rows twenty-odd times. `gl_ledger()` in `api/ml/ibis_source.py` now builds the permissioned GL Entry and Account join once per compute as a temporary table of nine columns, and those queries read it instead. Rows, cancelled entries and Period Closing Vouchers are filtered exactly as before, the copy is keyed by user and company, and it resets with the other per-compute memos (also in forked children). The Finance payload is byte-identical to the old code and the Risk payload differs only in its training timestamp. Cold Finance went from 33.8 s to 23.0 s in one A/B run, Risk from 8.9 s to 7.7 s; with a warm Redis and the load average near 10, a fresh-process compute now takes Finance 10.0 s, Risk 14.7 s, Executive 15.2 s, Tax 12.1 s, Procurement 10.5 s, Sales 9.2 s and Customers 8.9 s. Inventory is still 24.9 s on its first run in a fresh process, mostly one-time imports. Callers that need voucher number, remarks or the counter-account (the fixed-deposit activity list) still read the wide tables. New test: the ledger copy holds exactly the GL rows each user may read.
+
+### Changed — dashboard compute does less repeated work
+
+The Executive rollup runs its eight domain loaders in parallel forked processes instead of one after another (`fork_map` in `api/ml/utils.py`); on this ledger, under heavy machine load, a cold compute fell from 303 s serial to 95 to 120 s, with a payload identical to the serial one. It still runs serially inside web requests and under tests. The gross-profit line fetch now happens once per company for the whole history and is sliced per window, with decimals cast to float in SQL. Identical Ibis executions within one compute are memoised, compiled SQL is cached in process and in Redis for three days, and table schemas are cached for five minutes. A cold Sales compute went from 60 s to 29 s, Finance from 49 s to 30 s on a warm Redis. The Executive and Strategic Finance computes are still above 15 s on this machine; the remaining time is MariaDB (128 MB buffer pool against a 1 GB `tabGL Entry`) and the host load.
+
+### Changed — payment-date join no longer re-runs per invoice
+
+MariaDB planned the `with_paid_date` join (each invoice with its last Payment Entry date) as a lateral derived table, re-running the grouped subquery once per invoice. The Ibis connection now turns `split_materialized` off for its own session, and the same query dropped from 13.2 s to 0.4 s with identical rows. The Risk compute fell from 63 s to 35 s cold and from 29.5 s to 21.9 s warm. What remains in Risk and Finance is about twenty full scans of the 74,000-row GL Entry table per compute, 0.5 to 1.4 s each under load; going lower needs one GL fetch shared across a compute.
+
+### Removed — files nothing referenced
+
+Deleted 18 files, about 3,600 lines, each checked by name across every app, the hooks, the patches and the frontend (including kebab-case tags). Frontend: the Executive Summary tab of Strategic Finance and the expense pie chart only it used, the fiscal-year period picker, the user and team lists, the health ring, the workbook tab switcher, the avatar group, the column rename and column selector panels, `store_locally`, and the collapse-sidebar icon. Backend and root: the two tax demo-data generators, `api/notebooks.py` (no caller, and the v2 patch removes its Notebook Page doctype), `hooks.py.dead`, and `migration_helper.py` with its own test. Kept on purpose: the three self-check scripts in `insights/ml/`, which assert real logic outside the test path.
+
+### Changed — Customer detail page and the ABC/XYZ classification are faster
+
+Both were measured, not guessed. `customer_360_detail` took 4 s warm and 8 to 38 s cold on every visit, so it now keeps its result for 10 minutes per user and per set of arguments (the permission check still runs first, and only a success is stored). The second call for one customer returned in 0 ms. The ABC/XYZ classification filtered the whole monthly-sales frame once per item; it now groups once. On the 12-month window the compute fell from 11.7 s to 2.3 s of CPU with a byte-identical payload (apart from the timestamp), and the cost no longer grows with items times rows.
+
+### Fixed — Revenue & Customers failed on Last 7 Days with "cannot convert float NaN to integer"
+
+The same NaN as the People Month to Date failure, from the shared cause. Every real dashboard compute runs through `use_pyarrow_materialization`, which hands a NULL number to pandas as float NaN; the cursor path the code was written for returned `None`. An aggregate over an empty window is one row of NULLs (`SUM`, `COUNT(where=)`), so `int(row["total_transactions"] or 0)` raised, and `float(row["total_revenue"] or 0)` would have put NaN into the payload. A direct call to the same function passed, which is why it hid. The patched `execute` now keeps NULL numbers in a one-row aggregate as `None`. Any period with no invoices (a short window past the end of the ledger) now loads.
+
+A sweep of all eleven dashboard endpoints through the real compute path on an empty window (Last 7 Days, or Month to Date) now succeeds, apart from `customer_intelligence`, which reports "No customer data found". The Customers tab already says so. The Customers KPI tile, though, waited on `custData` alone and stayed a loading skeleton for good. It now stops loading on `custError`, like the At Risk tile beside it.
+
+### Fixed — People attendance tile showed "0.0%, High risk" when the period had no attendance records
+
+With the Month to Date load fixed, the Attendance Rate tile read "0.0% / High / 0 present of 0 records" and the Workforce Overview sub-metric showed a red 0.0%, which looks like a real attendance collapse. With zero records the tile now shows "–" with no severity and "No attendance records in this period", the sub-metric is grey "–", and the Attendance Breakdown section is hidden until there are records.
+
+### Fixed — People dashboard failed with "cannot convert float NaN to integer" on Month to Date
+
+`HRIntelligence` summed exit and attendance flags with `SUM(...)`, which is NULL when the window has no rows; `NaN or 0` stays NaN and `int()` raised, so every period with no exits or no attendance (Month to Date, now that attendance ends in mid-September) showed "Could not load HR data". The NaN came from the shared pyarrow materialisation path, fixed there (entry above), so no HR-specific code was kept.
+
+### Fixed — money charts on Revenue, Tax, Procurement, Executive and Risk showed raw numbers on hover
+
+The Finance fix (`valueFormat` on `IntelligenceChart`) is now applied to the money charts on the other dashboards, so a hover reads "₹8,945,490" instead of "8945490.3": Revenue (Monthly Trend, Margin Trend, daily forecast, revenue projection, Revenue by Lead Source), Tax (GST Cash Bridge, Top 5 TDS Sections, GST Forecast), Procurement (Monthly Spend Trend, Monthly PO Trend, Spend History and Forecast), Executive (Revenue Trend) and Risk (Exposure Trend). `valueFormat` now also receives the series name as its second argument, which lets the Margin Trend, whose tooltip mixes Net Sales (money) with Margin % on a second axis, format each in its own unit ("₹14,092,311", "7.4%"). Not changed: charts that are counts, rates or scores (Marketing trend, Tax effective rate, Manufacturing production, Risk overdue days).
+
+### Fixed — three more places printed text on a non-text severity fill
+
+Following the Customer detail fix, a search of `bg-pos-fill`, `bg-warn-fill`, `bg-neg-fill` and `severityFill(` for fills that carry text (the rest are bars, dots and legend swatches) found: the numbered badges on the Executive alerts (`text-white` on amber, 3.2:1 in light mode and 2.2:1 in dark; the red one was fine in light but is now the matching tint), and the A/B/C chips of the Inventory Classification panel in the dashboard viewer, which printed `text-neg`, `text-warn` and `text-pos` on their own saturated fill (red on red). All now use the `surface-*-2` tint with `text-ink-gray-9`, as `utils/status.ts` prescribes for text-carrying cells. Toast icons are 3:1 graphics and were left alone.
+
+### Fixed — Customer detail churn and health score numbers were 2.2:1 in dark mode
+
+Dark-theme scan of the Customer detail page (all five sections), Pricing, Inventory, Search, Machine Learning, Manufacturing and Sustainability: the score circles on Risk Assessment printed "38%" and "64" in `text-ink-gray-9` (rgb 248) on the mid-luminance severity fills (amber rgb 231 153 19, green rgb 70 179 126), 2.2:1 and 2.5:1. `severityFill` is documented as non-text only; the circles now use `severityTint` like the other text-carrying severity cells, which `utils/status.ts` measures at 11.3:1 or better in both themes. Nothing else on those pages measured under 4.5:1 apart from decorative "/" separators and disabled controls.
+
+### Fixed — "Healthy" caption on the Customer Overview health tiles read 4.2:1 in dark mode
+
+Dark-theme scan of the four other Marketing tabs (Channels, Trend, Coverage, Win Probability), the five Customers tabs and the six Revenue tabs: one reading under 4.5:1 outside disabled controls (the greyed Previous/Next pager on Forecasts is exempt). The Customer Overview health-distribution tiles put a `text-ink-gray-6` caption (rgb 153) on the green tint (rgb 10 63 39) for "Healthy", the same pairing as the People diversity tile; At Risk and Critical passed. The caption is now `text-ink-gray-7`.
+
+### Fixed — three captions under 4.5:1 (People diversity tile, Marketing funnel bars), and the Ordered amount clipped to "?"
+
+Dark-theme scan of the Executive, People, Marketing, Risk, Revenue, Tax and Procurement dashboards, then a light-theme recheck of the Marketing funnel. (1) The "Diversity score" caption and the balance word beside it on the People Workforce Composition tile were `text-ink-gray-6` (rgb 153) on the tinted green tile (rgb 10 63 39), 4.2:1; both now use `text-ink-gray-7`. (2) The lead-funnel bar labels (3,763 / 3,102 / 2,553 and "· 4,175 docs · ₹634.8M") were `text-white` on the dark-mode accent blue (rgb 50 148 227), 3.2:1; they now use `text-ink-white` (white in light mode, near-black in dark) and the 80% opacity on the docs label is dropped. (3) In light mode the Ordered amount was white on amber-600, 3.2:1, and its zone is about 4% of the bar with a 2 rem floor, so "₹8.2M" showed as "?". A new `--app-on-warn-fill` token (near-black, 5.7:1 on amber-600 and 8.6:1 on amber-500) colours it, and the floor is 3.5 rem. The other low readings were the disabled Export button on Executive (disabled, exempt) and a decorative "/" separator on Tax. The Refresh Analysis buttons on Risk, Tax and Procurement are frappe-ui's `solid gray`, which inverts to a light button in dark mode by design.
+
+### Fixed — chart tooltips were a white card on a dark page
+
+The same dark-theme pass over the other eight Finance tabs (Capital Planning, Scenario Analysis, Period Comparison, Budget Variance, Break-Even, Payables, Working Capital, Forex) found no bright surface and no text under 4.5:1; the one low reading was the disabled Export button on Budget Variance (2.9:1, no budget on this site, disabled controls are exempt). Hovering any axis chart, though, showed ECharts' default tooltip: a white card with grey text (rgb 102 on 255), the one part of the chart `retint` in `IntelligenceChart` had not covered. It now takes the surface, outline and ink tokens like the grid and legend. The pie and donut charts have their own tooltip and are unchanged.
+
+### Fixed — AI assistant input was a white box in dark mode, with near-invisible typing
+
+Dark-theme scan of seven Finance tabs (a surface lighter than 70% luminance over 3,000 px², and text under 4.5:1 against its background): the only bright surface on any of them was the Ask-about-your-data field of the Financial AI Assistant, which has no background class and so took the browser's white while its text took the light dark-theme ink (rgb 212 on rgb 255, about 1.5:1). The same component is on every dashboard. It now takes `bg-surface-white` and `text-ink-gray-9` like the buttons around it. No text on those seven tabs measured under 4.5:1 (0 of 143 to 316 text nodes per tab).
+
+### Fixed — Finance chart tooltips printed raw numbers; the Cash Forecast chart announced Kenyan shillings
+
+Hovering a Finance chart showed the bare number: "Base: -3,165,903.2" on Cash Forecast, "Loss: -159,069.06" on Monthly Net Profit, no currency and with paise, while the axis, tiles and tables beside it read ₹ and whole rupees. `IntelligenceChart` takes a new `valueFormat` prop; frappe-ui's tooltip formatter is re-run with the values already formatted (its zero filter and descending sort are repeated, since they need numbers), and every money chart on Overview, Cash, Receivables, Payables, Working Capital, Cost Structure, Executive Summary, Cash Forecast, 13-Week Cash Flow and Budget Variance passes the shared `formatMoney`. The Cash Forecast chart had a second fault: `currency` defaulted to `'KES'` and was never passed, so its screen-reader table read "KES 1,933,931" on this INR site, and its "Day 90" tiles and the 13-week tiles dropped the currency symbol ("-3.8M"). They now use the company currency like the rest. Charts that are not money (the Current Ratio line, the Risk, People and Marketing charts) keep frappe-ui's tooltip.
+
+### Fixed — Finance Ratios: ROE and Debt/Equity showed a bare dash with no reason
+
+Smoke pass over every Finance tab, Actuals and Planning, at 1500 px: no `NaN`, `undefined` or `null` text and no console errors; Overview figures match the ledger (net profit ₹3,469,659, cash ₹9,575,145, AR ₹19,714,214, AP ₹19,069,276) and the All Time chart's nine loss months match the monthly ledger totals. The one gap: ROE and Debt/Equity read "-" because no equity is recorded (partner capital sits under Liabilities), but the card's sublabel still said "Last 90 days, annualised · Benchmark: 15.0%", as if a figure were missing for no reason. An unavailable ratio card now says why: "No equity recorded" for ROE and Debt/Equity, "No data in the last 90 days" for the others.
+
+### Fixed — clicking a customer (or any dashboard link) did nothing in a tab opened before the last build
+
+Reported: a click on a customer in the Customers tab no longer opened the customer's detail page. Every click path I tried opens it on the current build (directory row, Overview "View →", Actions list, Geography drill; real mouse clicks at 390, 820, 1100 and 1500 px; the detail API answers for the nine non-admin users I tried, though six of them see zero invoices for that customer because of their row-level permissions). What does fail is a tab that was open when the frontend was rebuilt: the build empties its output folder (`emptyOutDir`), so the old tab still asks for `CustomerDetail-<old hash>.js`, the server answers 404, vue-router's lazy import rejects and the click does nothing at all, with no message. I reproduced it by removing a lazy chunk from the served folder: the click left the URL unchanged. `router.onError` in `src2/router.ts` now reloads onto the target when the failure is a module import, once per target (a `sessionStorage` flag, cleared by the next successful navigation, stops a genuinely missing chunk from looping). Checked the same way: the click now reloads onto the target, and a second failure stops instead of looping. This covers every lazy route (all dashboards, not only the customer page), and it also covers a production deploy. Until the fix is loaded, an already-open tab needs one reload.
+
+### Fixed — Risk "Ledger Anomalies" brief said no ledger scan had been run when the daily scan had run and found nothing
+
+The brief read "No ledger scan has been run" because the model scan (daily revenue and expense days, last 7 days of invoices) returned no rows, and it stayed that way after "Run ledger scan" had listed 25 entries below it. It now says the daily revenue and expense scan flagged nothing and points to the ledger scan on the tab; when it does flag days the headline says "N unusual days flagged by the daily revenue and expense scan" instead of "ledger anomalies" (they are invoice days, not ledger entries). The ledger scan itself was checked: 40,397 entries in the last 12 months, top 25 ranked by z-score within each account, and it is labelled as unusual, not wrong.
+
+### Fixed — Risk dashboard: four figures that read like other figures but were not
+
+Recomputed from the invoice and stock tables and matching: overdue receivables ₹18,641,511 (135 of 140 invoices), overdue payables ₹17,651,731 (303 of 320 bills), every aging bucket and bill count, amount-weighted average days overdue 50.4 (AR) and 42.7 (AP), the 1,278 customers and 986 suppliers, and the overall score 48.5 from its four weighted components. Four things were misleading:
+
+- The Cash Flow tab's "Avg Days Overdue 20.6" sat next to the Credit tab's "50.4 days overdue". They are different measures: the Cash Flow one averages days late over invoices *raised* in that month, paid or open. The tile is now "Avg Days Late" with "invoices raised 2026-09" under it, the chart hint says "by month raised", and the Cash Flow brief reads "Invoices raised in Nov 2025 ran 11.4 days late on average, those raised in Sep 2026 20.6".
+- The Cash Flow brief said "In Oct 2026 receivables were ₹18.9M against payables of ₹15.3M" while the Credit and Payables tabs say ₹19.7M and ₹19.1M. The first pair are ledger balances, the second open invoices. The brief now says "Ledger balances in Oct 2026".
+- The header said "64 stock items" with 576 in the Item master. It counts items with stock activity (the Inventory dashboard's definition), so it now reads "64 active stock items".
+- The Predictive brief said "the last week's net cash pace is -163.4% against the 30-day pace", which reads as a rate. It now says "runs 163.4% below the 30-day pace" (`tab_briefs/risk.py`, with a test for the above and below wording).
+
+### Fixed — Marketing "concentrated in one channel" alert divided by the top 12 sources, not all leads
+
+The alert read "IndiaMart accounts for 71% of all leads". The source panel is capped at the 12 largest of 23 sources, and the share was taken over those 12, so it overstated by the leads in the other 11. IndiaMart has 2,651 of 3,763 leads, or 70.4%. The alert now divides by the total lead count and reads 70% (`_generate_marketing_alerts` in `api/ml/marketing.py`); the test now asserts the percentage. Recomputed from the Lead and Quotation tables and matching: 3,763 leads (798 in the last 12 months), 661 unqualified (Inquiry 609, Open 44, Interested 8), 8.8% lead conversion (332), the funnel stages (3,102 reached Opportunity, 2,553 quoted), 4,175 quotation documents worth ₹634.8M, and period ordered ₹8.2M, expired ₹50.2M and lost ₹26.8M. Test module `test_marketing_analytics` cannot start here (Fiscal Year overlap in the test setup), so I ran the alert function directly instead.
+
+### Fixed — People headcount waterfall opened at the wrong headcount and made a false claim about turnover
+
+The Headcount Flow chart read Opening 11, Exits −7, New Hires +7, Closing 11 and said "The entire workforce turned over in one year, with zero net growth". The opening was today's headcount minus the net change, so it counted a hire who has since left and one now Inactive. The server now returns `opening_headcount`, counted from joining and relieving dates (`_headcount_bounds` in `hr_intelligence.py`, shared with the attrition rate), and the chart reads Opening 12, Exits −7, New Hires +6, Closing 11, which adds up. The sentence now states the numbers ("Headcount went from 12 to 11: 7 exits and 7 new hires. 1 of the hires is Inactive and not counted.") instead of claiming the workforce turned over, which was false: 7 left out of 12. The title also said "Trailing 12 Months" whichever period was selected; it now uses the selected period's label (`HRIntelligence.vue`). Checked live on Trailing 12 Months and at 390 px (no overflow); the title with another period selected I did not check in the browser.
+
+### Fixed — Attrition rate (Executive and People) used a start headcount that counted hires who had already left
+
+Year-to-date attrition read 33.3% (3 exits over an average headcount of 9). The start headcount was derived by reversing the period's net change from today's headcount, but the 7 hires in the window include one who joined on 8 Jun and left on 18 Jul and one who is now Inactive. Neither is in today's 11, so the start came out as 7 instead of the real 8. Start and end headcount are now counted from joining and relieving dates (`_analyze_attrition` in `hr_intelligence.py`), giving 3 exits over an average of 9.5, or 31.6%. Inactive employees have no leaving date, so they are in neither count. This also fixes past or custom periods, where the end headcount used to be today's snapshot. Recomputed from the Employee table and matching: 11 active, 3 exits in the window (14 May, 15 Jul, 18 Jul), 8 employed on 31 Mar.
+
+The first version of this change broke the Trailing 12 Months period (its start date comes back as a string), so the People dashboard showed "Could not load HR data". The start date is now converted with `getdate`, and `test_attrition_computes_for_every_period` runs MTD, QTD, YTD and TTM. TTM now reads 60.9% (7 exits over an average headcount of 11.5).
+
+### Fixed — Next payroll date drifted a day early for a payroll posted on the 31st
+
+The 13-week forecast's detected payroll schedule stepped a monthly payroll by a flat 30 days, so a payroll posted on 31 Aug showed "next 30 Oct 2026" and the weekly lookup slid further off each month (the week holding 31 Dec read as having no payroll). Monthly payroll now steps by calendar month from the last payroll (`detect_payroll_pattern` in `strategic_finance/analysis.py`, `get_payroll_for_week` in `strategic_finance/data.py`). The schedule reads "Next Payroll: 31 Oct 2026". Regression test `test_monthly_payroll_stays_on_month_end` fails without the change.
+
+### Fixed — Fixed-deposit Implied Yield read 0.3% because it annualised a year-end interest lump from a part-year
+
+The Cash tab's Implied Yield divided fiscal-year-to-date interest (₹16,646, April to August) by the 12-month average deposit balance and scaled it to a year. This ledger books most deposit interest in one entry at year end (₹267,249 in Mar 2026), so the part-year figure read 0.3% and the tile told the reader to check interest posting. Interest and balance now cover the same 12-month window (₹290,525 booked since Nov 2025), so it reads 3.3%, and the sub-label says "interest booked · 12 mo" instead of "annualised" (`financial_intelligence.py`, `CashFlowTab.vue`). Recomputed from the ledger and matching: Interest Booked ₹16,646 for FY 2627 (112 entries, last 31 Aug 2026) and Interest Accrued ₹0 (the accrual account nets to zero).
+
+### Fixed — Break-even coverage ratios were rounded to two decimals before they became percentages
+
+On Break-Even Overview the Cash Coverage read 102.0% while the ledger gives 101.8% (₹90,502,764 received against ₹88,942,733 paid). `breakeven_engine.py` rounded every coverage ratio to 2 decimals (1.02), so each percentage was off by up to half a point and a ratio just under or over 1.0 or 1.2 could land in the wrong RAG band. All seven coverage ratios now keep 4 decimals. Cash Coverage now reads 101.8%. Recomputed from the ledger and matching: total cash in and out and the break-even revenue basis (₹80,057,566 is invoice net revenue after credit notes; the ledger income total is ₹91,837 higher because it includes non-invoice income).
+
+### Fixed — Scenario Analysis compared an after-tax best/worst case with a pre-tax base case, both labelled "Net Income"
+
+On the Scenario Analysis tab the Best Case (P95, ₹4,052,291) and Worst Case (P5, ₹958,377) are percentiles of simulated net income after tax, while the Base Case "Net Income" ₹3,469,659 is before tax (its after-tax figure, ₹2,602,245, sits two lines lower). Read side by side the base case looked inside the range for the wrong reason. The two percentile cards now say "Net After Tax" (`ScenarioAnalysisTab.vue`). Recomputed from the ledger and matching: the sensitivity matrix (0%/0% ₹3,469,659, revenue -10% ₹-4,545,281, expenses +10% ₹-4,198,315), break-even ₹72,004,164 and 10.2% margin of safety on the 40% fixed-cost assumption, 42.6% contribution margin, and the Period Comparison year-over-year figures (revenue ₹80,149,403 against ₹97,727,489, expenses ₹76,679,743 against ₹95,223,355). That revenue gap reads -18% only because ledger data stops about 14 Sep: to the same day last year it is ₹81,090,809, -1.2%.
+
+### Fixed — 13-week cash forecast took one employee's salary as the monthly payroll
+
+The 13-Week tab said "Monthly payroll of ₹16,500 detected". Payroll here is posted as one Journal Entry per employee on the last day of the month (6 to 8 entries, ₹2K to ₹21K each), and `detect_payroll_pattern` took the median of those single entries. The real run is about ₹98K a month (31 Aug: 6 entries, ₹95,925), so the forecast understated payroll roughly six-fold. Same-day entries are now summed into one run before the pattern is detected (`_payroll_runs` in `strategic_finance/analysis.py`); the tab now reads ₹98,411 a month. Also recomputed from the ledger and matching: the Cash Forecast average daily flow of -₹19,200 (-₹1,727,999 over 90 days of Cash and Bank accounts) and its AR/AP split (₹18.64M overdue plus ₹1.07M due inside the window).
+
+### Fixed — Finance EBITDA tiles matched Net Profit to the rupee with no explanation
+
+The KPI strip and the Overview tab both showed EBITDA ₹3,469,659 beside Net Profit ₹3,469,659. That is correct: the ledger has no interest, depreciation or amortisation posting this fiscal year (the only tax account, GST Expense, is ₹0), so there is nothing to add back. It still reads as a bug, and the Executive Summary tab already said so. The overview payload now carries `ebitda_addbacks` (`financial_intelligence.py`), the strip reads "margin, same as net profit" and the Overview tile "4.3% margin, no interest or depreciation" (`FinancialIntelligence.vue`, `OverviewTab.vue`); once an add-back is posted the wording drops away. Checked at 390, 1100 and 1500 px with no clipping.
+
+### Fixed — Cost Structure waterfall labelled a reconciling step as "Expenses below gross profit"
+
+Gross profit (₹6,260,526) is priced from invoice item cost, matching ERPNext's Gross Profit report; net profit (₹3,469,659) comes from the ledger. The waterfall's last step is their difference, ₹2,790,866, labelled as expenses. The ledger's non-COGS expenses for the year are ₹3,031,086, and booked cost of goods sold is ₹73,648,657 against ₹73,888,877 of invoice cost, so the step was ₹240,220 lighter than real expenses. It is now "Expenses and cost variance" and the section hint says why (`CostStructureTab.vue`). Everything else on the tab was recomputed and matches: revenue ₹80,149,403 and net profit to the rupee, Gross/Net Profit to Salary 13.26x and 7.35x, Marketing 0.9%, Rent 0.3%, Incentives incl. commission 0.1%, and the expense forecast trend of -₹1,658,289 a month from the last six months of ledger expenses.
+
+### Fixed — Receivables "Days Overdue" per customer was the oldest invoice, but read as the whole balance's lateness
+
+The Top Overdue Customers table and the "Collect from the largest overdue customers" action showed R R Adhesive as ₹2,792,767 and 90 days late. 90 is the age of its oldest overdue invoice (`max_overdue_days`); the four invoices average 51 days past due and the balance is 38 days late weighted by amount. The column is now "Oldest Overdue" and the action reads "oldest invoice 90 days late" (`ReceivablesTab.vue`, `tab_briefs/finance_actuals.py`). Aging buckets, overdue average (72.2 days), invoice age (89.8 days), top-10 overdue balances and the 12 monthly collections were all recomputed from Sales Invoices and Payment Entry allocations and match to the rupee.
+
+### Fixed — Fixed-deposit Placed and Released tiles did not say they cover 12 months, and their badge missed the overdrawn note
+
+On the Cash tab, Principal on Deposit (₹9,821,496) is the all-time ledger balance, while Placed (₹63,563,630) and Released (₹59,439,820) cover the last 12 months from the first of the month (`window_months`, both recomputed from the ledger from 1 Nov 2025 and matching to the rupee). Placed minus Released is ₹4.12M against a ₹9.82M balance, which looked like a break and is the deposits opened before the window. The tiles now read "Placed · 12 mo" and "Released · 12 mo", and the section badge reads "102.6% of cash, bank overdrawn" like the tile above it (`CashFlowTab.vue`). The Cash tab's brief figures were also recomputed from the ledger and match exactly: Payment Entries in ₹15,083,794 and out ₹14,675,310 a month, net ledger movement ₹86,963 a month over the six complete months.
+
+### Fixed — Cash tab fixed-deposit tile read "102.6% of total cash" with no explanation
+
+Fixed deposits ₹9,821,496 against total cash ₹9,575,145 is correct, because the bank account is overdrawn by ₹842,390, but a share above 100% reads as a bug. When the share exceeds 100% the tile now says "102.6% of total cash: bank is overdrawn" (`CashFlowTab.vue`); at or below 100% it is unchanged. Checked at 1500 px and 390 px, where it stays on one line.
+
+### Fixed — Receivables and Payables briefs gave DSO and DPO without their window
+
+"DSO is 39.6 days" (Receivables) and "DPO is 40.8 days" (Payables) now read "on 12 months of sales" and "on 12 months of purchases" (`tab_briefs/finance_actuals.py`). Both are trailing-12-month figures (`financial_intelligence.py`: AR or AP over 12 months of grand totals × 366), while the Working Capital tab's cycle uses 90 days, so 39.6 against 38.8 is two windows, not a mismatch. Values are unchanged.
+
+### Fixed — Working Capital cycle line did not say which window it used
+
+The brief's "Cycle: DSO 38.8 + DIO 2.6 - DPO 33.3 = 8.2 days." sat under a KPI strip that says "40 days DSO · 12 mo", so the two DSO figures looked like a disagreement. The line now ends "on 90 days of invoiced sales, purchases and cost of goods sold to the last posting" (`tab_briefs/finance_planning.py`). Values are unchanged.
+
+### Fixed — ROE, Debt to Equity, Interest Coverage and DSCR showed a bare dash on the Ratios tab
+
+Those four ratios are null when there is nothing to divide by, and the tab said nothing about why. On this site the ledger has no Equity-type account with a balance: the three partner accounts (₹4.75M, ₹4.44M and ₹2.28M credit) are classed as Liabilities, so equity is zero and ROE and Debt to Equity cannot be computed. The null rows now read "No Equity-type balance in the ledger; partner capital may sit under Liabilities" (ROE, Debt to Equity), "No interest expense in this period" (Interest Coverage) and "No interest or loan repayment in this period" (DSCR) in place of the formula line. Values and the backend are unchanged (`FinancialRatiosTab.vue`). Reclassifying the partner accounts under Equity is a chart-of-accounts decision for the accountant, not something the dashboard should guess.
+
+### Fixed — Ratios tab working-capital turnover used a different cash figure than the Working Capital tab
+
+`calculate_ratio_trends` built working capital from raw ledger cash, so the latest window's Working Capital Turnover read 5.64x (₹14,337,526 of working capital) while the Working Capital tab, built on book cash with post-dated payments already out, showed ₹14,214,393. The ₹123,133 gap is the future-dated payment disclosure. The latest window now uses the same `get_cash_total`, giving 5.69x (₹19.95M × 365/90 ÷ ₹14,214,393). Older windows keep ledger cash, since the post-dated split only exists for today. Net margin 5.4%, ROA 13.2%, ROCE 24.7%, asset turnover 2.46x and EBIT ₹1,068,319 were recomputed from the ledger and match.
+
+### Fixed — Days inventory outstanding divided stock by tax-inclusive purchases, not cost of goods sold
+
+`analyze_working_capital` computed DIO as inventory over average daily **Purchase Invoice grand total** (a variable named `avg_daily_cogs`). Purchases include GST and are not what left stock: over the 90 days to the last posting the invoices total ₹41.4M against ₹34.9M of ledger Cost of Goods Sold. DIO is now inventory over ledger COGS across the same 90-day window as DSO (anchored on the last Sales Invoice), through a new `cogs` column in the GL daily cache. It falls back to purchases when the ledger has no COGS account. DPO still uses purchases, which is the basis of the payables it divides. On this site DIO moves from 2.2 to 2.6 days and the cash conversion cycle from 7.7 to 8.2 (DSO 38.8, DPO 33.3 unchanged). Inventory ₹1,025,946, receivables ₹18,929,784 and payables ₹15,316,482 on the tab match the ledger and the Bin table to the rupee.
+
+### Fixed — Em dashes in backend copy shown on the dashboards
+
+An AST scan of every non-docstring string literal under `insights/ml` found em dashes in text the dashboards render: the advance-tax instalment notes and "Advance tax" cash-outlook markers (India Tax), the Manufacturing production headline, the Price Intelligence "insufficient history" message and the Revenue verdict headline. They now use a colon, comma or full stop. No frontend code reads those strings, so nothing else moved. Module docstrings that still carry them are not shown to users.
+
+### Fixed — Drill-down table hid its Date, Due Date and Outstanding columns on phones with no cue
+
+The drill-down table is 859 px wide inside a 326 px scroller at 390 px, so only Invoice, Customer and Name showed and the amount was off-screen with nothing saying so. A line under the table now reads "Swipe sideways for all 6 columns" below the `sm` breakpoint (`IntelligenceDrillDown.vue`). Checked at 390 px (shown) and 1500 px (hidden).
+
+### Fixed — Revenue and gross margin ignored Sales Return credit notes and mis-costed lines sold in a larger UOM
+
+Reported against ERPNext's Gross Profit report: Insights turnover and gross margin differed, and returned (rejected) material was not netted off actual sales.
+
+- **Returns.** `calculate_revenue_metrics` (headline, daily, weekly and monthly revenue), `calculate_comparisons` (period comparison and the monthly trend chart), `gross_margin_totals` and `analyze_margins` now include `is_return` invoices, so revenue, cost and gross profit are net of credit notes like ERPNext's report (which ticks "Include Returned Invoices"). Order and customer counts still cover non-return invoices only. `cached_gp_lines` gained `include_returns` (default False); the customer, territory and sales-rep callers keep False because they join the frame to non-return revenue. Finance gross profit (KPI strip, Cost Structure, Ratios) reads `gross_margin_totals`, so it is now net of returns too, matching the ledger revenue beside it.
+- **UOM.** The stored-rate cost fallback multiplied the stock-UOM `incoming_rate` by the selling-UOM `qty` (`line_cogs`, `cached_gp_lines`, the Sales Intelligence report). A line sold as 88 Tonnes at 5.5 per kg cost ₹484 instead of ₹484,000, which inflated April's margin. It now uses `stock_qty`.
+- **Verified against `erpnext...gross_profit.execute` on this site.** April 2026 selling amount ₹17,465,416 (was ₹17,517,941; the difference is credit note CN26271, ₹52,525) and May ₹14,951,363 match ERPNext exactly; May gross profit ₹1,156,029 matches to the rupee. April margin moved from 12.9% to 9.3% against ERPNext's 9.7%.
+- **Not matched (left as is).** Lines on a Sales Invoice with `update_stock = 0` and no Delivery Note link have no stock movement of their own; ERPNext costs them at the item's valuation rate (CI26271: ₹555,209), Insights at the invoice line's stored `incoming_rate` (₹484,000). That leaves April gross profit ₹69,624 apart and Apr to Sep ₹148,373 apart (₹6,260,526 against ₹6,408,899). The customer and rep revenue still exclude credit notes.
+- **Dimensions.** `analyze_by_dimensions` (revenue by customer group, territory and product group) is net of credit notes too; its three totals and the headline now agree (₹147,447,678 over 12 months), with transaction and customer counts on non-return invoices.
+
+### Fixed — Finance header pushed "Refresh" onto its own row on phones
+
+At 390 px the "Updated: date" stamp sat between the period filter and the Refresh button, so Refresh wrapped to a third row and the sticky page header took about 110 px. The stamp is now hidden below the `sm` breakpoint (`FinancialIntelligence.vue`).
+
+### Fixed — Working Capital DSO/DPO/DIO averaged 91 days of invoices over 90
+
+`analyze_working_capital` (`ml/strategic_finance/analysis.py`) summed invoices with `posting_date BETWEEN last-90d AND last`, which is inclusive at both ends (91 days), then divided by 90. That overstated average daily sales and purchases by about 1.1% and understated DSO, DPO and DIO by the same amount. The window start is now `last - 89 days`. Reconciled against the database: 17 Jun to 14 Sep sales invoices ₹43,864,370 and ledger receivables ₹18,929,784 give DSO 38.8 (before: 37.7, from ₹45,152,699 over 91 days). Live on the Working Capital tab: "DSO 38.8 + DIO 2.2 - DPO 33.3 = 7.7 days" (before 37.7, 2.2, 32.4, 7.5). `test_strategic_finance_math` 13 of 13. The same pass reconciled the Finance KPI strip to the ledger: AR ₹19,714,214 (140), 90+ days ₹1,176,510 (24), AP ₹19,069,276 (320), liquid cash -₹246,351, YTD revenue ₹80,149,403, net profit ₹3,469,659 (matches to the rupee after excluding one entry dated after today). Not changed: the KPI strip DSO (40 days) uses trailing-12-month sales while this tab uses the last 90 days of the ledger, so the two differ by design; the strip does not say which window it uses. The "last 90 days" is anchored on the last posted invoice (14 Sep), not today (29 Oct).
+
+The KPI strip sublabels now say the window: "40 days DSO · 12 mo" and "41 days DPO · 12 mo" (`FinancialIntelligence.vue`), so they are no longer mistaken for the Working Capital tab's 90-day figures. The first, longer wording wrapped to 3 lines and made the AR and AP cards taller than their neighbours; the short one keeps all cards 125 px.
+
+### Fixed — Finance Overview expense labels were cut off with "…"
+
+The Expense Breakdown rows ("Stock Expenses", "Indirect Expenses", "Direct Expenses", "Freight Expenses") sat in an 80 px label column with `truncate` and no tooltip, so the full name could not be read (`scrollWidth` exceeded `clientWidth` on all four at 390 px; not measured before the change at 1500 px). The column is now 112 px and carries a `title` with the full name; after the change nothing on Overview is clipped at 390 or 1500 px. Same pass scanned all 8 Actuals tabs at 390 px: no tap target under 28 px and no other ellipsis clipping.
+
+### Fixed — drill-down Prev/Next labels broke onto two lines on phones
+
+My earlier switch of the pager from `← Prev` text to chevron icons put the icon and label inline inside the frappe-ui `Button` default slot, so at 390 px each button wrapped to "‹" over "Prev" (found on the Receivables 90+ days drill-down). The chevrons now go in the button's `prefix`/`suffix` slots with a `label`, which keeps one line and a 44 px touch height; desktop height is unchanged (28 px). The "Showing 1–24 of 24 records" text still wraps to two lines between them at 390 px, which reads fine. The table also scrolls sideways at 390 px (Outstanding column off-screen) with no visual cue; not changed.
+
+### Fixed — AI chat panel covered the page on phones after every reload
+
+The panel's open state is saved per dashboard and restored on load. At 390 px wide the panel is almost full width, so a user who had once opened it saw the Finance KPIs and brief hidden behind it on each visit (measured: panel open at 390 px with the saved flag set, KPI strip cut off). `DashboardChatButton.vue` now restores the saved state only at 768 px and wider; the button still opens it on demand. Measured after: 390 px panel closed with the flag still `true`, 1500 px panel restored. Same pass: no horizontal overflow on Overview, Receivables, Payables or Forex at 390, 768 and 1024 px; Planning sub-tabs all load with no NaN or em dashes.
+
+### Fixed — Finance Cost Structure advice text used em dashes
+
+The generated recommendations on the Cost Structure tab (salary, fixed-cost, marketing, training, incentive, rent, electricity cover, and the "Not enough data to assess" line) joined clauses with an em dash, which `PRODUCT.md` bans in user-facing copy. 19 strings in `ml/strategic_finance/cost_ratios.py` now use a colon. Live check: the tab shows 0 em dashes (8 before). `test_strategic_finance_math` 13 of 13. Same smoketest swept all 8 Actuals tabs (0 console errors apart from the known socket.io refusal, 0 NaN or undefined) and confirmed Overview, Receivables and Payables in light theme after last pass's `KpiCard` change.
+
+### Changed — frontend aligned to one component vocabulary (impeccable critique)
+
+Five read-only critiques (Nielsen 10 heuristics, AI-slop check) plus the `impeccable` detector scored the screens 23 to 26 of 40; the detector found only `animate-bounce` (chat typing dots, now `animate-pulse`). Aligned in this pass:
+
+- **Finance:** `shadow-sm` removed from 8 tab files so cards are border-only. Receivables and Payables summary tiles are now `KpiCard` (90+ days tile stays clickable and keyboard-operable: Enter opens "Overdue 90+ Days AR"). Overview attention items use `Badge`. Budget Variance lost its duplicate heading. "↗ View" is now "View →". Forex tiles stay hand-rolled because they colour the value by sign, which `KpiCard` does not do.
+- **Commercial:** Tax KPI ribbon now shows on every tab. Inventory double padding fixed. Pricing section headings use `SectionHeader` and `NO_VALUE`. Customer detail KpiCards use `variant="tile"` and the page gets `ink-fix`.
+- **Operations:** Global Search rewritten from a 470-line BEM stylesheet to Espresso utilities and shared `Badge`/`SectionHeader`; the frappe-ui `Card` (hard-coded `bg-white`) rendered white boxes with unreadable text in dark theme, so it is replaced by themed divs, also in Executive Reports. Board Presentations disables PowerPoint, PDF and HTML export ("Coming soon") because only JSON works, and lists key insights as a ranked list.
+- **Shared and builder:** `text-ink-amber-3` (3.16:1) is now `text-warn` in the stat strip and Finance overview. Chat panel and bubbles lose `rounded-2xl`/`shadow-2xl`; a network failure now shows an error bubble. ML panel gradient is flat. Sparkline fade uses the canvas token. Drill-down Prev/Next use chevrons. AI Insights uses lucide icons instead of emoji, `FormControl` for input and complexity, and AI Settings uses `FormControl` selects. Empty Dashboards list has a "Go to Workbooks" button.
+- Em dashes removed from user-facing copy in Revenue, Procurement, HR, ESG, Executive, Manufacturing and AI Settings.
+
+Not changed (needs a decision or backend work): Risk period selector, Forex `KpiCard` tiles, metric glossary tooltips. Verified live in dark theme on Finance (Overview, Receivables, Payables), Inventory, Tax, Search, AI Insights, AI Settings, Dashboards list and Board Presentations. Lint 0, vue-tsc 248 (baseline), vitest 195 of 195, build clean.
+
+### Fixed — pressing Enter on a drill-down row opened the dialog and closed it again
+
+Rows are `tr`/`div` with `tabindex="0"` and `@keydown.enter` (Receivables, Payables, Cash accounts, Working Capital, Forex, Revenue, Customers, Inventory, Marketing and more). The dialog opened and moved focus to its close button before `keypress` fired, so the same keystroke clicked it: event trace `keydown@TR → dialog=true → keypress@BUTTON → click@BUTTON → dialog=false` (239 ms open). Keyboard users could not open any drill-down with Enter. `main.ts` now calls `preventDefault` on Enter keydown for focusable non-native targets, which suppresses the `keypress`; native buttons, links and inputs are excluded. Measured on Receivables, "R R Adhesive": Enter and Space both leave "R R Adhesive AR" open; Escape closes it. Not changed: focus lands on `<body>` after close instead of returning to the row (cause not investigated).
+
+### Fixed — keyboard focus was invisible on every tab strip and the Actuals/Planning switch
+
+frappe-ui's `Tabs` and `TabButtons` carry `focus:outline-none` with no replacement; 9 of 35 focusables on the Finance page (8 tabs plus the segmented switch) showed no ring (WCAG 2.4.7). `index.css` now gives `button[role=tab]` and `button[role=radio]` a 2px inset `--ink-gray-9` outline on `:focus-visible` only. Measured after ArrowRight: 2px solid `#F8F8F8` in dark, `#171717` in light.
+
+**Follow-up:** the first version also ringed a tab after a mouse click, because headless-ui re-focuses the clicked tab by script and Chrome counts that as `:focus-visible` (measured on a fresh page: `fv=true` after a real click). `main.ts` now sets `data-input="keyboard"` on `<html>` on keydown and clears it on pointerdown, and the ring is scoped to it. Measured: click → transparent outline, ArrowRight → 2px `#F8F8F8`, click again → transparent.
+
+### Fixed — two small labels fell below 4.5:1 on tinted tiles in dark theme
+
+The Overview health-score label ("Efficiency" on an amber/green tile) and the shared `TabBrief` "As of …" stamp used `text-ink-gray-6`, which measured 4.20:1 on severity-tinted surfaces in dark theme. Both now use `text-ink-gray-7`. A contrast sweep of 15 Finance tabs in both themes then showed no remaining failures except the known frappe-ui amber/green `Badge` palette and blue-3 links (4.28:1, no darker Espresso shade). The disabled Budget Variance "Export" button is exempt.
+
+### Fixed — returning to a dashboard by the sidebar left the URL behind its tab
+
+Dashboards are kept alive, so Finance → Tax → Finance showed the Ratios tab under a bare `/financial-intelligence` URL; a reload then jumped to Overview. `useQueryParam` now writes the kept state back into the URL on reactivation, and a link that carries `?tab=` / `?range=` still wins.
+
+### Fixed — chart legend paged on phones; charts kept screen width when printed
+
+- **Legend:** frappe-ui reserves 25px per side for pager arrows and a 12px item gap, so the three-item Fixed Deposit legend showed "‹ 1/3 ›" in a 260px chart at 390px wide. `IntelligenceChart` now drops that padding (gap 8px); all three items show, and the legend still scrolls if it genuinely overflows.
+- **Print:** frappe-ui resizes on a debounced `ResizeObserver` that has not fired when the browser lays out the print page. `IntelligenceChart` now resizes its chart synchronously on `beforeprint` and `afterprint`. Measured by firing `beforeprint` after narrowing the container: the SVG stayed at 368px until the event, then went to 218px. The real print dialog was not exercised.
+
+### Fixed — accessibility, page titles and URL state across the intelligence dashboards
+
+- **Page titles:** `router.ts` sets `document.title` to `<dashboard> | Insights` after every navigation (it was the bare app title everywhere).
+- **Charts:** `IntelligenceChart` carries `role="img"` and an `aria-label` (optional `label` prop, else "Chart: <series>, N data points").
+- **Icon-only buttons:** frappe-ui's `Button` overwrites a passed `aria-label` with its `label`, so the search, scenario, customer-detail, board-presentation and executive-report icon buttons announced nothing. They now use `:icon` + `label`.
+- **Date filter:** an end date before the start date now shows "End date must be on or after the start date." (`role="alert"`).
+- **Revenue chart:** the right axis is titled "Margin %".
+- **Contrast:** the `ink-fix` class (one shade darker for `text-ink-gray-5` / `text-ink-red-3`) is on every intelligence dashboard root, not just Finance.
+- **URL state:** the active tab (`?tab=`) and date range (`?range=`) are mirrored to the URL on Finance (both groups), Revenue & Customers, Procurement, Inventory and Tax, so reload, shared links and Back/Forward restore them. Unknown ids fall back to the first tab. New `composables/useQueryParam.ts`; HR, Marketing, Risk, Executive, Manufacturing and ESG keep local state.
+
+### Fixed — Period Comparison named quarters by calendar year
+
+"Q3 2026" for a company on an April–March fiscal year is Q2 FY26-27. `scenarios._quarter_label` now emits "Q2 FY26-27" (calendar fallback when no fiscal year is configured).
+
+### Fixed — API endpoints trusted raw date, period and filter arguments
+
+- Customer, sales, procurement and inventory endpoints now pass dates through `canonical_date_filter`; HR and Marketing pass `period` through the new `canonical_period` (anything unrecognised becomes `TTM` and shares its cache entry).
+- All 14 drill-down endpoints parse `filters` and `page` through one `parse_detail_filters` (non-object `filters` is a `ValidationError`, `page` is clamped to ≥ 1) instead of per-endpoint copies.
+
+### Fixed — GL anomaly scan counted Period Closing Vouchers
+
+`gl_anomaly._count_entries` and `_rank_entries` now exclude `voucher_type = "Period Closing Voucher"`, whose year-end transfers were ranked as anomalies.
+
+### Fixed — "Could not load …" error panels were not announced to screen readers
+
+`IntelligenceDashboardShell.vue` (every intelligence dashboard) and the Finance "Planning data could not be loaded" and "Access restricted" panels replaced the page on failure with no live region. All now carry `role="alert"`, matching the `role="status"` added to the "Preparing …" panels.
+
+### Fixed — "Preparing …" screens were not announced to screen readers
+
+`IntelligenceDashboardShell.vue` (every intelligence dashboard) and the Finance Planning "Preparing planning data" panel: a cold date window swaps the page for a "computing in the background" message, with no live region, so a screen-reader user heard nothing change. Both now carry `role="status"` (polite).
+
+### Fixed — Text KPI values ("Not burning cash") were cut off, and made the Cash page scroll sideways at large text sizes
+
+`KpiCard.vue`: the value always used `truncate`. Money and percent figures keep it (wrapping would break a number mid-digit; the full value is in the tooltip and a screen-reader span), but plain-text values now use `break-words` and wrap onto a second line instead.
+
+### Fixed — "Create a Budget in ERPNext" link was 16 px tall
+
+`FinancialIntelligence.vue` (Budget Variance empty state): the standalone link is now `inline-block` with `py-1.5 -my-1.5`, giving a 27 px target without moving the layout. It was the last control under 24 px on any of the 15 tabs at 1500, 1024 and 768 px.
+
+### Fixed — Overview "↗ View / Receivables / Payables" links were only 14 px tall
+
+`OverviewTab.vue`: the six drill-down text buttons had no padding, so their hit area was 14 px high (WCAG 2.5.8 asks for 24 px). Added `py-1.5` with a matching negative margin, so the target is 26 px and the layout does not move.
+
+### Fixed — Cash tab charts showed a bare "↑" on the right-hand axis
+
+`CashFlowTab.vue`: the fixed-deposit and cash in/out charts gave their right (running balance) axis an empty title, so frappe-ui drew an orphan " ↑" with no unit. Both now read "Balance ↑", matching the 13-Week Cash Flow chart.
+
+### Fixed — The AI assistant panel ignored Escape and dropped focus when closed
+
+`DashboardChatButton.vue`: Escape did nothing while the panel was open, and closing it (the panel unmounts) left focus on `<body>`, so a keyboard user restarted from the top of the page. Escape and the panel's own Close button now go through `closeChat()`, which closes the panel and returns focus to the floating toggle.
+
+### Fixed — The AI assistant panel was invisible to screen readers
+
+`DashboardChatButton.vue` (every intelligence dashboard): the floating panel had no landmark, the message list had no live region so a reply arriving was never announced, and the input was named only by its placeholder. The panel is now `role="region"` "AI assistant", the message list is `role="log"` `aria-live="polite"`, and the textarea has an `aria-label`.
+
+### Fixed — Every dialog's close "×" button had no accessible name
+
+frappe-ui's `Dialog.vue` renders the close button as an icon-only `Button` and passes it no `label`, so Button's own `aria-label` logic had nothing to use and a screen reader announced "button" (checked on the Finance Overview drill-down dialogs; the same component backs all 63 files that open a Dialog). `App.vue` now sets `aria-label="Close"` on that button as each dialog mounts, matched by its exact position under the headlessui title (`header > div > row > button`), so an unrelated unnamed button in a custom dialog is left alone. This is a stop-gap in the app; the proper fix is upstream in frappe-ui.
+
+### Fixed — Stat strip sublabels were cut off with an ellipsis at larger text sizes
+
+At 200% text size the Scenario Analysis stat "Break-Even Revenue" showed "Assumes 40% of expenses ar…" (205 px of text in 173 px) with no tooltip, hiding the warning that the fixed-cost split is an assumption. `StatStrip.vue` sublabels now wrap (`break-words`), as `KpiCard` sublabels already do. The value line stays truncated by design (compact figure plus a full `sr-only` and `title` value). At 24 px and 32 px root font size no page-level horizontal scroll appears on any of the 15 tabs except a 16 px overflow on Cash at 32 px, where the text value "Not burning cash" in a Cash Runway card is truncated.
+
+### Fixed — Finance small text below WCAG AA contrast (gray-5 and red-3 tokens)
+
+A computed contrast scan of all 15 Finance tabs (text colour against the composited background, 4.5:1 for normal text) found `text-ink-gray-5` at 4.17:1 (light) / 3.98:1 (dark), including frappe-ui's own "Min Cash Threshold" FormControl label, the Cash "Maturity date…" note and the "(2)" count on Capital Planning, plus `text-ink-red-3` at 4.42:1 on the Payables "Payments due within 7 days" line. `index.css` gets an opt-in `.ink-fix` wrapper rule (same pattern as `.list-ink-fix`) that steps both down one shade (gray-6, red-4), and the Finance page root carries it. Re-scan: those items are gone in both themes. Not fixed: `ink-blue-3` action lines and links (3.97–4.28:1) have no darker Espresso shade (`text-ink-blue-4` fails the lint guard), the library's amber/green Badges (2.9–3.7:1), and gray-6 at 4.20:1 on tinted dark cards (the "As of…" line, Efficiency label).
+
+### Fixed — App shell had no `main` or `nav` landmark, and Finance had no page title
+
+Landmark scan on the Finance page: 0 `<main>`, 0 `<nav>`, so screen-reader landmark navigation had nothing to jump to, and the tab title was the static "Frappe Insights". `App.vue` now wraps the `RouterView` in `<main class="contents">` (layout unchanged: scroll width equals viewport at 1500 and 390 px) and the sidebar link list is `<nav aria-label="Main">`. `FinancialIntelligence.vue` sets `document.title = "Finance | Insights"` on activation (it is kept alive, so setup runs once) and restores the previous title on leave so the other dashboards, which set none, don't inherit it. Other intelligence dashboards still have no title of their own.
+
+### Fixed — Finance Overview had no H2, so its outline jumped from H1 to H3
+
+Every other Finance tab opens with an `<h2>` (the brief headline); Overview has no brief, so its first heading under "Finance" was the `<h3>` "Monthly Net Profit" chart title. That title is now the `<h2>`, giving H1 › H2 › H3 × 6. Markup only, no visual change.
+
+### Fixed — Finance Overview headings: "Key Positions" and "Needs Attention" were one level too deep
+
+They were `<h4>` cards sitting beside the `<h3>` chart card, so the outline read H1 › H3 › H4 › H4 › H3 and screen-reader heading navigation nested the right rail under the chart. Both are now `<h3>`, matching "Needs Attention" on the Revenue and Procurement dashboards. Markup only, no visual change (`level` picks the element, not the size).
+
+### Fixed — Finance drill-down endpoints crashed on a bad `page` or non-object `filters`
+
+`get_finance_detail` and `get_strategic_detail` did `int(f.pop("page", 1))`, so `{"page": "abc"}` raised a ValueError, `{"page": 0}` or a negative page produced a negative SQL offset, and a `filters` value that is a JSON list or string raised an AttributeError. The dashboard never sends these, but the endpoints are whitelisted. `page` now goes through `cint` and is clamped to 1 or more; a non-object `filters` gets a clean "filters must be an object" validation error. Checked against the live data: pages 0, −3, "abc" and null return page 1 (first row SI2627780 for outstanding AR); page 2 returns the next 50. New test `test_drill_down_rejects_non_object_filters` (13 of 13 pass).
+
+### Fixed — AI assistant loaded its session twice on every page load
+
+When the panel was left open, restoring that state fired the open-watcher (which loads the latest session and the session list) and `onMounted` then loaded the session again, so `get_recent_session` and `list_sessions` each ran twice per page load on every dashboard. `onMounted` now only loads the quick actions. Measured on Finance: 1 call each with the panel open (session and messages restored), none with it closed.
+
+### Fixed — Printing or saving a dashboard as PDF dropped most of the page
+
+The app shell is `h-screen overflow-hidden` with an inner scroll area, so a print or Save-as-PDF captured only the first screen: on Finance → Receivables the PDF stopped after the aging chart (no "Monthly Collections", no "Top Overdue Customers") and the floating AI assistant panel printed on top of the text. The shell now lays out as a normal flowing page in print (`print:block print:h-auto print:overflow-visible` in `App.vue`), and the sidebar, the mobile top bar and the assistant button/panel are hidden (`print:hidden`). Receivables now prints all sections over 3 pages, Overview over 3. Not fixed: charts keep the width they had on screen, so the right-hand 30–40px of a wide chart can be clipped in the PDF; that needs a re-render on `beforeprint` and is listed as an open item.
+
+### Fixed — "Toggle scenarios panel" button was squeezed to 20px on phones
+
+In the 13-Week Cash Flow what-if header the chevron button shared a row with the title, the type filter and itself, and flex shrank it to 20px wide (below the 24px minimum touch target). It no longer shrinks (`shrink-0`): 28px wide at 320, 390 and 1500px, no page overflow. A scan of every interactive element on all 15 Finance tabs at 390px found no other target under 24px except the inline "Create a Budget in ERPNext" text link, which is exempt.
+
+### Fixed — AI assistant panel was cut off on phones and short screens
+
+The chat panel was a fixed 384px wide and 500px tall, anchored 24px from the right and 88px from the bottom. On a 390px phone its left 18px (the assistant icon in the header) sat off-screen, and on a landscape phone (400px tall) the header went off the top. It is now capped at the viewport minus the margins (`max-w-[calc(100vw-3rem)]`, `max-h-[calc(100vh-7rem)]`). Measured on-screen at 390x800, 320x568, 800x400 and 1500x900. The Recent Conversations dropdown (288px) was clipped by the panel on a 320px phone (left edge at −9px); it is now capped at the panel width less 2rem (41–279px). The panel is shared, so every dashboard gets the fix.
+
+### Fixed — 13-Week Cash Flow made the whole page scroll sideways on phones
+
+At 390px the page was 544px wide. The chart's screen-reader table (`table.sr-only`) keeps `display: table`, which ignores the 1px width, so its long caption and four columns (496px) sat absolutely positioned against the page and widened it although they are clipped. A global `table.sr-only { position: fixed }` takes it out of the scrollable overflow; it applies to every screen-reader table on every dashboard. Verified at 390px on all 15 Finance tabs: no horizontal overflow.
+
+### Fixed — Overview monthly chart left a dangling "·" on short date windows
+
+With a window that has no postings (e.g. Last 7 Days while the books end mid-month) the card title read "Monthly Net Profit · " and the chart said "No monthly data available" beside a fiscal-YTD hint. The title now drops the empty window label and the empty state reads "No postings in the selected date window". A single-month window (Last 30 Days) read "Sep 26 – Sep 26" and now reads "Sep 26". Figures are unchanged.
+
+### Fixed — "Monthly Collections" did not say it excludes advances
+
+The chart sums Payment Entry allocations to Sales Invoices (recomputed from the Payment Entry references: Sep 26 ₹7,717,374), so customer advances that are not yet applied do not count. Receipts for September total ₹8,407,544, 9% more. The heading now carries the hint "Receipts applied to invoices; advances not included" and the screen-reader caption matches. Figures are unchanged.
+
+### Fixed — Marketing cost ratio ignored "Advertisement" accounts
+
+Cost Structure showed "Marketing Cost % of Revenue 0.0%" while the ledger holds ₹756,964 on `Advertisment Exp` for the fiscal year (0.9% of revenue). The default keywords were `Marketing / Advertising / Promotion / Branding`, and the matching is a case-insensitive substring, so "Advertisement" (and this chart's spelling "Advertisment") matched nothing. The default is now `Advert` in both `cost_ratios.py` and the Insights Settings field, which covers all three spellings. Existing sites keep the value stored in Insights Settings, so this site's setting was updated by hand to the new default. A site with its own list needs "Advert" added to Marketing Account Keywords.
+
+### Fixed — Ratios clamped by the server showed as exact figures
+
+Working Capital Turnover read "20.00x" in two quarters of the Ratios table. That is the server's ±20 clamp (`analysis.py`, applied when working capital is near zero), not a measured value. Working Capital Turnover and Interest Coverage (clamp ±20) and DSCR (±10) now read ">20.00x", "<-20.00x" and ">10.00x" in the quarterly table, the summary cards and the benchmark list; unclamped values print as before.
+
+### Fixed — Budget Variance "Export" downloaded an empty report when there was no Budget
+
+With no submitted Budget (as on this site), Export still saved `budget_variance_report_<date>.json` holding only a timestamp, an empty summary and empty lists. The button is now disabled whenever the tab shows an empty, error or permission state; with a Budget it exports as before. Checked in the browser by capturing the blob Export builds.
+
+### Fixed — Budget Variance compared spend to date with the full-year budget
+
+Seven months into the year, a budget that was exactly on pace read −42% "critical", raised a "High Budget Variance" alert, graded budget accuracy D and recommended "Improve Budget Planning Process". Checked with a throwaway submitted Budget on Salary (rolled back; budget ₹944,182, actual ₹472,091): the summary, the account and department variances and the revenue budget now use the budget to date (₹545,697, `budget_end` = today clipped to the fiscal year; a future fiscal year keeps the full year). Overall Variance −50.0% "critical" → −13.5% "acceptable"; the alert and the recommendation are gone; accuracy 50% grade D → 86.5% grade A. At fiscal year end nothing changes. The "Budget Utilization" card is now "Budget Utilization (to date)" and the brief says "Budget to date of …". The site has no submitted Budget, so the Budget Variance tab still shows its empty state.
+
+### Fixed — Budget run-rate called on-pace spending a "major deviation"
+
+`_get_ytd_performance` compared the share of the year elapsed (58%) with spend as a share of the *year-to-date* budget (86%), so spending exactly to plan would read 100% against 58% and be flagged `major_deviation`. It now uses spend as a share of the annual budget. Checked with a throwaway submitted Budget (rolled back) on Salary: spend ₹472,091 of a ₹944,182 budget is 50.0% against 58.0% of the year gone, `slight_deviation` (was `significant_deviation`). The field is in the payload only; no screen shows it yet. Not changed: the headline Overall Variance still compares actuals to date with the full-year budget, so a budget that is exactly on pace mid-year reads about −42% and "critical" (see the Budget Variance open item).
+
+### Fixed — AI assistant error text ended in a double period
+
+When the AI backend returns an error that already ends in a full stop, the chat appended another: "…configure your API key in Insights Settings.. Please try again." `DashboardChatButton.vue` (shared by all intelligence dashboards) now trims trailing periods from the server error before adding its own. Seen on this site, where AI Analytics is not enabled.
+
+### Fixed — Any text in `date_filter` became its own cache key and background compute
+
+`financial_intelligence` put the raw `date_filter` in its cache key. `?date_filter=xyz`, `99999d` or `custom:abc:def` each queued a separate two-minute compute (all of them evaluate as the default 12 months), and the hourly warm pass then kept refreshing each one for three days, crowding real dashboards out of its 40-entry batch. The endpoint now passes the value through `canonical_date_filter` (new, in `api/ml/utils.py`): presets (`Nd`/`Nm`/`Ny` up to 3 digits, `ytd`, `all`) and valid custom ranges are kept, anything else becomes `12m`. Checked after restart: three garbage values share one `12m` key. The same pattern exists in `sales`, `procurement` and the other intelligence endpoints; only Finance is changed here.
+
+### Fixed — A typed end date before the start date silently showed the last 12 months
+
+The date inputs' `min`/`max` stop the picker from choosing an inverted range, but a typed date got through: `custom:2026-09-30:2026-01-01` reached the server, which fell back to the default 12 months while the header still showed the inverted dates. `IntelligenceDateFilter.vue` (shared by all intelligence dashboards) now emits a custom range only when start ≤ end, so the page keeps the last valid range until the dates are corrected.
+
+### Fixed — Finance drill-down paging had no tie-breaker for invoices on the same date
+
+The Revenue and Expense drill-down lists (`get_strategic_detail`) ordered by `posting_date desc` only, so with many invoices on one date MySQL may return a different order per page and repeat or skip rows. All 3,897 sales and 5,600 purchase invoices paged cleanly today, but the order was not guaranteed; it is now `posting_date desc, name desc`.
+
+### Fixed — Capital Planning brief and category list used different bases without saying so
+
+The brief's "Register" line listed Furniture & Fixtures ₹289,871 and Plant & Machinery ₹42,969 (gross cost), while the "Assets by Category" list below showed ₹260,884 and ₹17,573 (register net value). Both are right; neither said which. The brief now reads "At gross cost: …" and the section header "Assets by Category · Register Net Value".
+
+### Fixed — Break-Even ROCE and cost queries counted the Period Closing Voucher for a past fiscal year
+
+`breakeven_engine.py` summed GL P&L over the chosen fiscal year without excluding the year-end Period Closing Voucher, which moves the whole P&L into equity. For FY 2425 the ROCE query returned EBIT ₹0 (income and expense both closed to zero); it is now −₹674,317, which ties to the ledger (income ₹40,301,187 less expense ₹40,975,504). The cost-centre fixed/variable cost and COGS queries get the same exclusion. The current fiscal year is unchanged (its closing voucher is dated in the prior year).
+
+### Fixed — AI chat send button had no accessible name
+
+An accessible-name scan of all 15 Finance tabs found one unnamed control, the chat panel's icon-only send button (`DashboardChatButton.vue`, shared by every intelligence dashboard). It now has `aria-label="Send message"`.
+
+### Fixed — Realised Forex table ignored the date filter without saying so
+
+With a custom range of Apr–Jun 2026 the Forex tab still listed Dec 25 and Jan 26. The query is a fixed trailing 12 months (like the other point-in-time tabs). The section header now reads "Realised Forex Gain / Loss · Last 12 Months" and the brief says "over the last 12 months (3 months with entries)" instead of "across 3 months".
+
+### Fixed — Overview profit chart subtitle mixed two scopes without saying so
+
+Under "Monthly Net Profit · Oct 25 – Sep 26" the subtitle read "YTD ₹3.5M profit on ₹80.1M revenue · 3 loss months: Dec, Jan, Mar". The first figure is fiscal year to date; the loss months come from the 12 bars. It now reads "Fiscal YTD …" and "… loss months in the chart: …".
+
+### Fixed — "Cash positive" runway card sat beside a negative Free Cash
+
+With liquid cash at −₹246,351, the Cash Runway card (Overview and Cash tab) read "Cash positive" because the ledger net movement is +₹86,963/mo. It now reads "Not burning cash", which is what the figure means.
+
+### Fixed — Cash brief's "Average month" line looked like it did not add up
+
+"Payments in ₹15,083,794, payments out ₹14,675,310; net ₹86,963" read as a subtraction error (the difference is ₹408,484). The in/out figures come from Payment Entries, the net from the cash accounts' ledger (which includes journal-posted sweeps and charges). The line now says "Payment Entries … (journal-posted movements not included)".
+
+### Fixed — Period Comparison margin change in bps was computed from rounded margins
+
+The Margin card showed "+170 bps" for 4.33% vs 2.57% (true +176). It subtracted the payload's one-decimal `margin` values, which can be 10 bps off. `PeriodComparisonTab.vue` now derives the bps from net income ÷ revenue.
+
+### Fixed — Finance briefs printed ISO dates in prose
+
+The Payables headline ("…the first being PI26271361 … on 2026-10-29"), the 13-Week low-balance line and the payroll "next" date used raw `YYYY-MM-DD` while the rest of the page reads "29 Oct 2026". A shared `day()` in `tab_briefs/__init__.py` formats them (a pandas time part is still stripped; unparseable input passes through). The two Payables tests that pinned the ISO wording were updated.
+
+### Fixed — Working Capital tab showed DSO/DPO that differ from the Overview without saying why
+
+The Working Capital tab's DSO 37.7 / DPO 32.4 days use ledger balances over the 90 days ending at the last posting, while the Overview and Receivables/Payables cards (DSO 40 / DPO 41) divide open invoices by trailing-12-month sales and purchases. Both are valid but looked like a contradiction. The three day-count cards now state "Ledger balance, last 90 days".
+
+### Fixed — Monte Carlo profit was after tax but labelled plain "Net Profit"
+
+The simulation reports after-tax profit (the tab's median ₹2.57M is the YTD ₹3.47M less the configured tax), yet the cards, KPI strip and brief called it "Net Profit" next to the pre-tax Overview and sensitivity-matrix figures, so the numbers looked inconsistent. Labels now say "after tax" and the tab states the basis. The "Value at Risk (5%)" tile, which is the 5th-percentile profit (still a profit, not a loss amount), is now "Downside Case (5th percentile)".
+
+### Fixed — Cash Forecast runway read "0 days" / "-" for opposite situations
+
+The forecast returns runway `0` when cash is already at or below zero and `None` when it stays positive for all 90 days. The Cash Forecast tile showed "0 days" for the first and "-" for the second; the brief printed "runs out of cash in 0 days" and turned a `None` pessimistic runway into "0 days" too. Now: "Already ≤ 0" and "90+ days" on the tile, and "is already at or below zero" / "stays positive for 90 days" in the brief (shown whenever either scenario is affected).
+
+### Fixed — Overview loss-month list was ambiguous on long windows
+
+Under Last 24 Months / All Time the hero hint listed loss months by name only ("Dec, Feb, Mar … Dec, Jan, Mar"), so a month appearing in two years was indistinguishable. Windows longer than 12 months now show "Mar 25"; shorter ones keep the compact month name.
+
+### Fixed — Finance P&L counted Period Closing Vouchers as trading
+
+Under Last 24 Months / All Time the Overview showed March 2025 revenue of **−₹26.2M**: the year-end Period Closing Voucher (income debited ₹40.3M, expenses credited ₹41.0M) was summed into that month's P&L. Actuals (`_gl_with_account`) now excludes closing vouchers, matching Executive Intelligence and Budget Variance; March 2025 reads ₹14.1M revenue and −₹1.02M profit, which ties to the ledger. The same exclusion was applied to the Planning P&L history scan (`data.py`, balance-sheet columns untouched) and to the Monte Carlo 12-month volatility queries, which would otherwise have swallowed the next closing voucher after 31 Mar 2027. Current-year figures are unchanged.
+
+### Fixed — Break-Even Month showed a raw `2026-04` key
+
+The Break-Even Overview's cash-flow card printed the backend's `YYYY-MM` month key. It now reads "Apr 2026" through a new `formatMonth` in `utils/format.ts`, matching the month labels on the other Finance tabs.
+
+### Fixed — Finance panel toggles and the AI chat button had no accessible name
+
+The "What-If Scenarios" and "Variance Review" chevron toggles passed `aria-label` to frappe-ui's `Button`, which overwrites it with its own empty `label`-derived value, so the rendered buttons had `aria-label=""` and read as unnamed to screen readers. They now use `label` plus the `#icon` slot (the component's icon-button contract). The floating AI assistant button and the chat panel's close button (every dashboard) gained names, and the floating button reports `aria-expanded`.
+
+### Fixed — Finance receivable and payable drill-downs showed party IDs only
+
+Outstanding AR/AP, Overdue 90+ AR/AP and the per-customer/per-supplier lists opened on rows like `SI2627780 · CS00322` with no name, while the card or table row clicked said "R R Adhesive" (procurement and tax drill-downs already show names). Each now has a Name column next to the ID (`get_finance_detail`: `outstanding_ar`, `overdue_ar_90`, `outstanding_ap`, `overdue_ap_90`, `top_customers_ar`, `top_suppliers_ap`). Totals unchanged and tie to SQL: 140 invoices ₹19,714,214 AR, 95 bills ₹1,273,410 AP over 90 days, 24 invoices ₹1,176,510 AR over 90 days.
+
+### Fixed — Working Capital and Cash tab drill-downs listed the wrong accounts
+
+"Total Current Assets" on Working Capital opened a list of Creditors and Salary payable accounts (liabilities) without the Fixed Deposit account (₹9.8M of the cash) and without any balance. It is now "Working Capital Accounts": every Cash, Bank, Fixed Deposit, Receivable, Payable and Stock account with its ledger balance as of today (assets sum to ₹29,654,008, payables to −₹15,316,482, matching the card), and "Total Current Liabilities" opens it too. Clicking one account under "Where it is held" on the Cash tab opened the full three-account list; it now shows only that account.
+
+### Fixed — Finance Overview "Cash Position ↗ View" listed accounts with no balances
+
+The drill-down opened on three account names, types and currencies and nothing else, so it could not be checked against the ₹9.6M card, and the Fixed Deposit row had a blank Type. `get_finance_detail("cash_accounts")` now adds a Balance column from GL Entry (same all-postings basis as the card: ₹596,039 cash, ₹9,821,496 fixed deposit, −₹842,390 bank, sum ₹9,575,145) and labels the deposit account "Fixed Deposit". It also requires GL Entry read permission, since it now returns ledger balances.
+
+### Fixed — Cash tab "Last 30 days" and "Last 3 months" panels covered 59 and 120 days
+
+`_calculate_cash_flow` took both windows from `_months_ago(n)`, which returns the first day of the month: on 29 Oct "LARGE CASH TRANSACTIONS (LAST 30 DAYS)" listed 1–12 Sept receipts and payments (nothing newer than the month's data), and "WHERE CASH CAME FROM / WENT, LAST 3 MONTHS" summed from 1 Jul (Customer receipts ₹37.3M against ₹24.6M over 90 days). Both now use real day windows (`financial_intelligence.py`); the 90-day totals equal a direct Payment Entry sum (₹25,146,453 received, ₹25,327,171 paid).
+
+### Fixed — Overview revenue growth no longer disagrees with Period Comparison by 0.1 pt
+
+The executive summary rounded `revenue_growth` to 2 dp before the page rounded it to 1 dp: ₹80,149,403 against ₹97,442,714 is −17.7477%, stored as −17.75 and shown as "−17.8% YoY" on Overview, while Period Comparison, rounding once, said −17.7%. It is now stored at 4 dp (`strategic_finance/summary.py`), so both read −17.7%.
+
+### Fixed — the 90-day cash forecast chart reaches day 90
+
+`CashForecastChart` sampled every 7th day, which for 90 days stops at day 84: the chart ended at W12 (base −₹219,532) while the "Day 90" tiles and the weekly summary table ended at W13 (−₹263,683), and its accessible caption said "over 12 weeks". It now also plots the final day, labelled W13 as in the table.
+
+### Fixed — "Quarterly Ratio Trends" columns are labelled for the 90 days they cover
+
+`calculate_ratio_trends` builds eight rolling 90-day windows ending today but labelled each with the calendar quarter of its end date, so on 29 Oct 2026 the column "Q3 2026" held 3 May–31 Jul and "Q4 2026" held 1 Aug–29 Oct (it matched the "Last 90 days" cards to the rupee, although October has no postings). On other dates two windows could even share a label (31 Mar: "Q1" twice). Each window also started 90 days before its end, so its first day was also the previous window's last day and was counted twice. Windows now start 89 days before their end (contiguous, no overlap) and the columns are labelled with the date they end on; the section is titled "90-Day Ratio Trends" with a line saying so (`strategic_finance/analysis.py::_rolling_90_day_windows`).
+
+### Fixed — Cash burn and runway tie to the ledger, and the Cash tab no longer contradicts itself
+
+`net_burn_rate` was Payment Entry outflow minus inflow, which misses every journal-posted payment: +₹408K/month building, against +₹87K on the ledger over the same six complete months. It is now the ledger's net movement of the cash accounts (bank, cash on hand and deposits, i.e. the accounts behind Total Cash) over those months (`financial_intelligence._calculate_cash_flow`); runway follows it. The Cash tab's runway card read "Cash positive" yet "₹998,499/mo drawing down" on the 90-day filter, because its sub-label averaged whichever months the filter charted, including the part-posted current one. It now shows the server's `net_burn_rate`, so it cannot disagree with the runway and ignores the date filter. The Overview attention item printed `Math.abs(net_burn)` as "Burn ₹408.5K/month" while cash was building; it names a burn only when there is one. The Cash brief's "Average month" net uses the same figure.
+
+### Fixed — Monte Carlo no longer reports a 47% chance of loss on a profitable year
+
+`generate_scenario_analysis` applied the month-to-month coefficient of variation (revenue 26%, expenses 27.4%) to the fiscal-YTD totals, and drew revenue and expenses independently although the 12-month series correlate at 0.988 (COGS follows sales). Net income therefore ranged −₹45.0M to +₹38.4M (5th–95th percentile) on a ₹3.47M profit, with a 47.4% loss probability. The draws are now scaled to the period (1/√months elapsed ≈ 1/√6.96) and taken from a bivariate normal at the measured correlation (`strategic_finance/scenarios.py`). Measured: 5th–95th percentile ₹0.95M–₹4.06M, median ₹2.57M (baseline after tax ₹2.60M), std ₹0.93M, loss probability 0.3%. Break-even, the sensitivity matrix and the monthly volatilities shown are unchanged; the Monte Carlo caption now says what the volatilities are.
+
+### Fixed — Capital Planning compares year-to-date capex with the same period last year
+
+The Capex card set 1 Apr–29 Oct (₹101,392) against the whole prior financial year (₹841,084) and printed "↓87.9% vs prior year": seven months against twelve. `analyze_capital_planning` now takes the prior figure over the same stretch of the prior year (1 Apr 2025–29 Oct 2025 = ₹537,870, equal to the Fixed Asset ledger debits), so the change reads −81.1%. The card is relabelled "Same Period Last Year" and the brief says "over the same period last year" (`analysis.py`, `CapitalPlanningTab.vue`, `tab_briefs/finance_planning.py`).
+
+### Fixed — 13-week cash flow labelled every week one week late
+
+`generate_thirteen_week_forecast` looped `range(14)` for weeks −1…12 but stored the loop index 0…13 as `week_number`, so `get_week_label` (which expects −1 = last week, 0 = this week) called the week starting 19 Oct "This Week" and the week actually containing today (26 Oct, flagged current) "Next Week"; the tab's `week_number >= 0` filter then also kept last week, showing 14 columns. The loop now runs `range(-1, 13)`, so labels, the current-week highlight and the 13-column table (current week + 12) line up; balances and totals are unchanged. `minimum_balance_week` stays the 1-based position in the window (this week = Week 1), and the header hint now says "next 12 weeks" (`strategic_finance/forecast.py`, `ThirteenWeekCashFlowTab.vue`).
+
+### Fixed — 13-week "Weeks Below Threshold" follows the Min Cash Threshold input
+
+Typing a threshold on the 13-Week Cash Flow tab moved the chart line and the Min Balance severity but not the "Weeks Below Threshold" card, the red closing-balance cells or the "Low" badges, which kept the server's flags for the threshold it was computed with (₹0): at ₹5,000,000 every week closes below it (all ≤ ₹1.4M) yet the card still read 1. `displayWeeks` now derives `below_threshold` from the live threshold and the card counts those (`ThirteenWeekCashFlowTab.vue`). The scenario panel's per-scenario counts are still computed server-side at the stored company threshold.
+
+### Fixed — Refresh waits for the recomputed dashboard instead of looking dead
+
+`cached_run` deliberately keeps serving the cached payload while a background job recomputes, and the page never asked again, so the header Refresh spinner ended in ~150 ms with the old numbers still shown (the new payload only appeared after a manual page reload). The cached payload is now flagged `refreshing` while a compute is in flight (`api/ml/utils.py::_flag_recompute`), `readInsightsEnvelope` decodes it, and both `useIntelligenceDashboard` and the Planning feed in `FinancialIntelligence.vue` keep the Refresh spinner on and re-check every 4 s (without `refresh`, so nothing re-queues) until the flag clears. Measured live on Finance: spinner held ~55 s until the compute finished, then re-enabled. Covers every dashboard on the shared composable. Test: `test_cached_run_refresh_flag`.
+
+### Fixed — Planning expense breakdown is a share of all expenses, not of the top ten
+
+`get_expense_breakdown` (Executive Summary expense chart) took the ten largest accounts and computed every share, and the chart's total, from those ten alone: COGS read 96.5% and the total ₹76.3M against real expenses of ₹76,679,743 (COGS is 96.0%). It now folds everything past the ten into an "Other" row (₹390,772) using signed balances, so the rows sum to the P&L expense total exactly and the shares to 100.0% (`strategic_finance/data.py`). Four accounts carry a net credit; with absolute values they overstated the total by ₹68,837.
+
+### Fixed — ROE/ROA/ROCE and turnover ratios are annualised before they meet yearly benchmarks
+
+The Ratios tab divided 90 days of profit or revenue by a balance sheet and graded it against yearly benchmarks (ROA 8%, asset turnover 1.2×, working-capital turnover 4×, ROCE 15%), so a business at benchmark read "warning" by construction. ROE, ROA, ROCE, asset turnover and working-capital turnover now scale the 90-day flow by 365/90, and the cards and metric rows say "annualised" (`strategic_finance/analysis.py`, `FinancialRatiosTab.vue`). Measured, equals SQL: ROA 2.8% → 11.3%, asset turnover 0.62× → 2.51×, ROCE 5.3% → 21.2%, working-capital turnover 1.43× → 5.75×; margins are unchanged. The Break-Even tab's ROCE had the same flaw with fiscal-year-to-date EBIT (212 days against a 15% yearly target): it is now annualised, 20.09% → 34.58% (`breakeven_engine.calculate_roce`, card relabelled "ROCE (annualised)"). ROE and debt-to-equity stay "unavailable" (no Equity or Loan balances in the ledger), as do interest coverage and DSCR (interest was last posted 31 Mar 2026, none in the 90-day window).
+
+### Fixed — Period Comparison banner no longer calls an empty month "in progress"
+
+With no postings since the last invoice (14 Sep), the Month-over-Month and Quarter-over-Quarter views read "Oct 2026 is still in progress" although 28 days of the month had passed. The banner now says "Oct 2026 has no postings yet" when both revenue and expenses are zero, and keeps "still in progress" for a genuinely open period (`PeriodComparisonTab.vue`). Figures unchanged: YoY ₹80,149,403 vs ₹97,442,714 equals GL income to 29 Oct for both years.
+
+### Fixed — Planning working-capital DSO/DPO/DIO window anchors on the last invoice
+
+`analyze_working_capital` averaged sales and purchases over the 90 calendar days ending today. With the ledger 45 days behind the calendar (last invoice 14 Sep, today 29 Oct) only about half that window held documents, so the daily average halved and DSO/DPO doubled. The 90 days now end at the last posted Sales / Purchase Invoice, the same anchor the Revenue DSO uses (`insights/ml/strategic_finance/analysis.py`). Measured: DSO 72.3 → 37.7, DPO 63.6 → 32.4, DIO 4.3 → 2.2, cash conversion cycle 13.0 → 7.5 days; Actuals' trailing-12-month DSO is 39.6. Matches SQL exactly.
+
+### Fixed — 13-week cash forecast now pays overdue payables
+
+`get_ar_collections_by_week` spreads receivables already past due over the first four weeks; `get_ap_payments_by_week` dropped payables past due, so only bills falling due inside the window were paid (₹2.4M of ₹19.07M outstanding) while all ₹19.7M of receivables were collected. It now spreads overdue payables over the first four weeks the same way (`insights/ml/strategic_finance/data.py`). Measured: 13-week AP payments ₹2.4M → ₹19,069,277 (equals AP outstanding); ending cash ₹17.68M → ₹1.01M; minimum balance +₹3.16M → −₹1.01M (week of 26 Oct); weeks below threshold 0 → 1. Scenario analysis and the cash-flow brief read the same weeks and move with it.
+
+### Fixed — Predicted 12m CLV no longer projects one-off and dormant customers
+
+`predicted_12m_clv` was `orders ÷ months between first and last order × 12 × AOV`, floored at one month, so a one-order customer was projected to buy monthly for a year (CS00019: ₹69,000 single order, 480 days dormant, Platinum). It is now `orders ÷ months since first purchase × 12 × AOV` in both the bulk engine and the customer detail (`insights/ml/customer.py`). Cadence-based churn is unchanged. Measured on the 12m window: portfolio predicted 12m CLV ₹412.9M → ₹236.5M (trailing-12m revenue ₹148.6M); customers dormant over 180 days contribute ₹100.0M → ₹15.8M; dormant customers scored Healthy 43 → 0. CLV tiers, the growth/health score and recommended credit limits move with it.
+
+### Fixed — Forecasts tab no longer projects dormant territories
+
+The by-territory / by-product-group projection weighted each group's last three *observed* months, so a territory that stopped selling long ago was forecast forward at its old level (Nepal ₹625,958 and Mansa ₹173,442 a month with no sale in the window) and a sporadic buyer's gap months were skipped. It now weights the last three calendar months of the history, counting a month with no sale as zero, and emits no projection for a group whose recent run-rate is zero (`insights/ml/sales_forecasting.py`). Territory groups on the tab 137 → 132; groups projected with no actual in the window 5 → 0 (₹856,912 a month of phantom forecast removed).
+
+### Changed — Intelligence tabs: server-built headline per tab, merged and cut tabs
+
+Every non-Overview tab opens with one server-written sentence and a severity (`TabBrief`), built in `insights/ml/tab_briefs/<dashboard>.py` from the payload the dashboard already computed. No new query, scan or endpoint; the refresh cron, `_scoped` keys and 24 h TTL are unchanged. `cached_run` attaches `tab_briefs` to the payload (lazy tabs attach `brief` to their own response). Missing data omits the brief; the client never builds headline text. Run `warm_all` after deploy so cached payloads carry `tab_briefs`.
+
+- **Mock content pass.** Risk Credit: four-stat strip (Total AR, Overdue over 30 days, High Risk Customers, Credit Risk Score), a Risk Tiers table grouped from the scored customers, and Max Overdue plus Exposure × Risk (outstanding × score / 100) columns. Inventory Warehouses: On hand, Reserved and On order columns from `by_warehouse`, table widened to two thirds. Judgement cards in the mocks (tier actions, architecture verdicts) are not built. Risk Payables: four-stat strip (Total AP, High-Risk Suppliers of total, Avg Days Overdue, Overdue 90+) and a Supplier Delivery Reliability table (orders, value, delay, cancelled, delivery risk) from `operational_risk.supplier_performance`. Risk Predictive: Lower and Upper bound columns on the cash forecast. HR Department Health: each department's share of headcount. Risk, HR, Procurement and Tax show their headline KPI row on the Overview tab only; the other tabs open on their brief and stat strip, as in the mocks. Marketing Coverage: a conversion-rate bar per territory (green above team average, red under 5%); the alert list that repeated the brief above every non-Funnel tab is removed. Procurement Suppliers: a Suppliers Scored stat (five-column strip) and PO count, value, on-time and lead time under each performer. Revenue & Customers: the six-card KPI row is Overview-only (Revenue Overview and Customer Overview), as in the per-tab mocks; Customers tab gains an RFM segments tile row; Geography table gains Rev share and Avg order (revenue / transactions) columns. Customer Cohorts: the average-retention pills became a retention curve, cohort months that have not happened yet show "-" instead of 0%, and they no longer pull the monthly averages down (the average now covers only cohorts that reached that month). Customer Rankings: four quadrant counts (Stars, Cash Traps, Growing, Drag, split at the scorecard's own median margin and consistency), a margin-by-consistency scatter and a Quadrant column. Customer Actions: an Action Type Breakdown that filters the queue. Customer Patterns: months and quarters follow the site's Fiscal Year start (Q1 is Apr-Jun here). Finance Cost Structure gains the Revenue to Profit Waterfall (revenue, cost of sales, gross profit, expenses below gross profit, net profit), each step arithmetic on the payload figures; the mock's direct/indirect split is not built because the payload does not carry it. Finance Payables gains a 7-Day Cash Adequacy Bridge (liquid cash, fixed deposits, invoices due within 7 days, net) and an AP Concentration and Aging Health card, all arithmetic on payload fields. Working Capital gains 12-month working capital and current ratio charts. Ratios show every quarter in the payload with EBITDA margin and working capital turnover rows, and each benchmark row states its gap in points or multiples. The Procurement Forecasts brief now says the monthly average covers the last 6 complete months, which is what the figure is. Tax: GST gains a GSTR-2A/2B reconciliation table (rows and amount per status, unactioned count); TDS & TCS gains RCM reconciliation (books, portal, gap) and PAN exceptions cards; Compliance gains the coverage matrix (moved from Overview) and a Compliance pulse card. Notices, Customs and Action Queue already match; Queue Gaps (judgement text) not built. HR Attrition gains an Engagement score decomposition bar (attendance, retention, leave pattern points). Inventory ABC/XYZ now shows the 3x3 class grid (items, sales, stock per cell) and Pareto concentration bars in place of the two tables; Aging gains a Capital at risk vs portfolio card (0-180d, 181-365d, 365+d); the Inventory Procurement tab drops its Supplier Performance table, which the mock keeps on the Procurement dashboard. Marketing Coverage owner table gains a vs-team column (rate minus team conversion). Manufacturing and ESG mock content is judgement text or has no payload field, so those tabs are unchanged. Risk Operational supplier table shows delay as early or late and gains a Cancelled column; a Process Risk Indicators card shows invoice error rate and renders the untracked approval time and downtime as "-". Risk Predictive: cash-forecast tile shows the lower bound, trend tile shows the first-to-last forecast values, an Anomalies Detected tile is added, and a Revenue Forecast card shows the window, total, trend and data points and flags a window that ends before the as-of date. Finance Cash Forecast tiles say what the opening cash covers (bank and cash dated up to today, fixed deposits excluded) and Scenario Analysis gains a four-stat strip (loss probability, safety margin, break-even revenue, median net profit). Risk Credit customer table is ordered by Exposure × Risk, as the mock states. Risk Payables supplier table gains the same Exposure × Risk column and ordering. Risk Cash Flow overdue-days trend is a line chart over the payload months, as the mock draws it, instead of a grid of tiles. Risk Cash Flow places the overdue-days chart beside the 30-day forecast table and gives each concentration row a share bar, matching the mock layout. Tax GST shows the monthly output GST table with total, effective rate on revenue and a year-to-date row, as the mock does; it was screen-reader only before. Tax GST gains the GST Cash Bridge bar chart (output GST, input tax credit, net GST, ITC at risk, from the same payload figures as the Overview waterfall) and a filed-share bar on each GSTR-1 and GSTR-3B card. Revenue Forecasts gains the 30-day projection chart with its confidence band beside Model health, as the mock lays it out; scenarios move to a full-width row below. Revenue Margins Peak and Trough tiles now carry the month's gross profit and the pp gap to the blended margin, as in the mock. Procurement Purchase Analytics pending-PO table ends with a '+ N more' row and a total row (count and open value from the payload), as in the mock. Customers Cohorts retention matrix ends with an Average row (the payload's average retention per month), as in the mock. Finance Receivables aging chart is followed by a visible bucket table with amount, invoices, share of AR and a total row, as in the mock. Capital Planning's asset table ends with a ledger-only gap row (gross assets on the ledger minus the register's gross), as in the mock. HR Attrition & Retention gains a "What Happened (TTM)" card (opening headcount, total exits, new hires, net headcount change), as in the mock. HR Workforce Planning recommendations show priority, category and the payload's action bullets, and the attrition recommendation no longer cites an "industry average" the payload cannot prove. Inventory ABC/XYZ top-items table gains a CV (demand variation) column, dashed when the server could not compute it, as in the mock. Customers List ranks Critical accounts by predicted 12-month CLV and labels the figure, as in the mock. Charts no longer overflow their card: the chart wrapper now carries frappe-ui's 300px minimum height, and the fixed-height wrappers on Payables, Collections, Cost Structure and the Tax charts were raised to match. The six-card KPI row on Finance, Procurement, Tax, Revenue and Customers now sits in one row from the `lg` breakpoint (it was `2xl`, so most laptop screens saw two rows), and `StatStrip` lays out six items in one row. The Finance Ratios tab gains ROCE (EBIT over total assets less trade payables, benchmarked against the Break-Even `roce_target` setting) and EBIT in the profitability group, the quarterly trend table and the benchmark list, from the existing GL scan. The Ratios quarterly table also shows EBITDA in money and Interest Coverage, as the mock's ratio history does. The Customers directory now follows the mock's columns (Territory, Hist CLV, 12M CLV, Total CLV kept as the sort basis, health shown as its status with the score on hover); Gross Profit and Recency left the table. The Cash Forecast and 13-week model now open at the book cash balance (post-dated cheques included, as on the Cash tab and the mock): the seven post-dated supplier payments (₹422,824) are unallocated, so open payables never counted them and a balance dated at today overstated opening cash. The Working Capital CCC circle's unit label now uses full-contrast ink so it reads on the amber fill in dark mode. The CCC circle now uses the text-safe `severityTint` fill (the docstring in `utils/status.ts` says `severityFill` is for non-text marks), which lifts its number and unit from 2.2:1 to a readable contrast in dark mode. Sales Reps rank 1 badge uses `bg-surface-amber-2` (was `-3`, 2.7:1 against its ink in dark mode). A scripted contrast scan of every tab in dark mode found no other text under 3:1. KpiCard's label row now wraps, so at 1280px a badge drops below the label instead of clipping it ("Compliance Health" on Tax, "Outstanding AR" on Finance). Six-across KPI rows now start at 1400px (the `wide` screen) instead of lg (1024px): below that the exact nine-digit money figures truncated (measured at 1100px and 1280px) ("₹163,3..."), and below xl the rows fall back to three across. Finance Overview P&L tiles run two across below 1400px, where the 2fr column truncated the exact figures. Tax Intelligence GST tab follows the design mock: two-column layout (Output GST table and GSTR Filing Status with e-Invoice IRN and e-Waybill on the left; GST Cash Bridge with footnote, 2A/2B Reconciliation with status dots and HSN on the right), Net GST period sublabel, and brief details for the return log, filing and ITC window. The monthly stacked chart and ITC gauge were removed. Marketing analyzers no longer raise UnboundLocalError on an empty window (loop variable `_` shadowed gettext), and the gross-profit line frame keeps `posting_date` comparable to a date when the window has no invoices, which had failed the Executive MTD/QTD sales load. Opening Insights from Desk (`/insights`) now lands on `/insights/executive-dashboard` instead of the dashboards list.
+- **Stat strip** (`StatStrip`) replaces KPI-card grids on Revenue, Customer, Procurement, Inventory (Turnover), Risk (Cash Flow, Operational, Predictive), Tax, HR, Marketing and Manufacturing. Finance keeps its existing KPI cards.
+- **Tab sets follow the design mocks** (one tab per mock file, each with its own brief and Actions card):
+  - **Finance Actuals** (7): Overview, Cash, Receivables, Payables, Working Capital, Ratios, Cost Structure and **Forex**. Planning keeps Cash Forecast and 13-Week Cash Flow separate. Forex (`ForexExposureTab.vue`, restored) is the honest empty state while no invoice is outside the base currency, plus a realised forex gain/loss table from `realized_forex_trend`. Budget and Break-Even briefs ride their lazy responses; `breakeven_summary` returns `base_currency`.
+  - **Risk** (7 + Overview): Credit, Payables, Cash Flow, Operational, Compliance, Predictive Analytics and Ledger Anomalies. The ledger anomaly scan runs behind a "Run ledger scan" button because it scans on mount.
+  - **Tax** (8): Customs is its own tab, separate from Notices & Legal. **HR** (5): Attrition, Payroll & Compensation (an honest "no Salary Slip records" state while there are none), Department Health and Workforce Planning. **Inventory** (7): Warehouses & Transfers is its own tab. **Manufacturing** (5): OEE, Capacity, Production Forecast and Recommendations always exist; with no Work Orders each shows the payload's own note about what is missing instead of zero gauges.
+  - **ESG** (5): Overview, Environmental, Social, Governance and Recommendations, all honest empty states while the backend returns `not_implemented`. Environmental and Social show labelled Procurement and HR context read from those dashboards' own endpoints; nothing is an ESG score.
+  - **Marketing**: the shared KPI row (and its drill-downs) is replaced by per-tab strips.
+- Dropped rather than invented: external ratio/OEE benchmark text, the procurement rate-contract and budget advice lines, and design-mock figures that the payload cannot back.
+- **Detail lines and Actions**: each brief now also carries `details` (label and sentence pairs, shown under the headline) and `actions` (numbered, with an optional money `impact`), built by the same `tab_briefs/<dashboard>.py` modules and rendered verbatim by `TabBrief` and the new `TabActions` card at the bottom of each tab. Every figure is a payload field or arithmetic on payload fields. The field-path "source" footer was removed from `TabBrief` (it now shows only "As of"). Revenue gained the cash/credit cards with a working-capital bridge, rep concentration and spotlight cards, a taxonomy-gap badge on the `All Item Groups` margin row, and forecast model-health and scenario panels, all computed in the browser from fields already in the payload.
+- **Deviation from the design mocks**: the mock's "37.2 d × ₹41.7K = ₹1.5M" working-capital figure mixes credit-only daily sales with a total-sales DSO. It is replaced by `AR − 30 × average daily sales` (DSO = AR ÷ average daily sales). Mock lines that were judgement or projection (for example "management failure", "N× more valuable", "~N leads projected", "no documented playbook", statutory penalty per day, owner and deadline columns) are not built.
+- **Inventory Turnover tab**: the group table is full width with Sales, COGS, Inventory Value, ITR, DSI and GM% columns and a Total row (`revenue_12m`, `cogs_12m`, `current_inventory_value`, `overall_turnover_ratio`, `days_sales_inventory`, `gross_margin_pct`). Fast movers show name, quantity sold, sales value and stock now; slow movers show name, on hand, valuation rate and stock value. The mock's "Definitions & Lineage" card is not built: it repeats the stat-strip sublabels and its COGS-source claim is unverified.
+- **Customers list tab**: a "Critical accounts" card (top 5 `churn_risk === 'Critical'` by `total_clv`) and a "Health by tier" table (`clv_tier` by `health_status`) sit above the directory. Both are computed client-side from the existing customer rows, so there is no new query.
+- **Marketing Channels tab**: a "Won revenue by channel" bar card (top 5 channels with won value, widths relative to the largest) and a "Vol %" column (`leads ÷ total_leads`). Both come from `source_performance` and `kpis.total_leads`, no new query.
+- **Risk Cash Flow tab**: a "30-day cash forecast" table (one row a week from `cashflow_risk.cash_forecast.forecast`, range sorted low to high), the Actions card moved to the bottom of the tab (it sat inside the Revenue Concentration card), and the Overdue Days tiles shortened from "N days overdue" to "N days" so they no longer truncate.
+- **Not built from the mocks**: the ESG data-gap decision queue (owners, effort estimates and an 80%-of-spend claim are not payload fields; the ESG tabs are empty states with labelled HR and Procurement context only).
+- **Rollout**: payload shape changed (`tab_briefs.*.details`, `.actions`); run `warm_all` after deploy. No query, scan, endpoint, cache key or cron change.
+
+### Fixed — Tax GST brief and Recon Match Rate tile read a key that no longer exists
+
+`get_reconciliation_score` returns `match_rate_pct` (the key was renamed earlier), but the GST tab brief and the Tax GST stat strip still read `reconciliation_score.reconciliation_score`. The GST brief was therefore never produced and the "Recon Match Rate" tile showed `-`. Both now read `match_rate_pct`, and the test fixture carries the real key, so the GST test fails if the key drifts again.
+
+### Fixed — Inventory ABC/XYZ matrix "Sales Value" column was blank
+
+The matrix table read `sales_value`, but `abc_xyz.matrix[]` carries `total_value`, so every row showed `-`. It now shows the payload value (AX ₹27,257,706, AY ₹68,082,402, AZ ₹22,801,182). The Class A/B/C tile sublabels no longer state a fixed "~80% / ~15% / ~5%"; they show each class's actual share of classified sales, computed from `abc_summary` (79.8%, 15.1%, 5.1%).
+
+### Changed — Mock-alignment pass: panels the approved mocks showed from fields the payload already carries
+
+No new query, scan or endpoint; every figure is a payload field or arithmetic on payload fields, and an absent value renders `-`.
+
+- **Inventory**: Aging gains a "Days to 365+ bucket" column. Revenue Forecasts "Training window" renders dates with their years.
+- **Customers**: new "Customer group breakdown" card.
+- **Procurement**: "Savings by Item" card on Price and a "3-month total" row on Forecasts. The brief's rate symbol and "analyzed" spelling now follow the site.
+- **Tax**: all money renders exact (no compact form); new "TDS challans by period" table on the TDS tab (6 periods, ₹82,434 on jkm).
+- **Marketing & CRM**: "Recent months" table on Trend and a "Conv." column on Coverage territories. Win Probability headers got padding and a blank source reads "No source".
+- **Risk**: Signals gains a weekly "Cash forecast" table and shows customer names on payment-delay rows (code underneath). Compliance shows GST periods as "Oct 2026" and document counts with separators. The invoice error rate strip tile shows two decimals, matching the brief.
+- **HR**: department "Payroll Cost" and "Cost/Employee" show `-` when payroll is `no_data` (was a fabricated ₹0); "1 employee" singular.
+- **Finance**: the 90-day and 13-week charts no longer draw a second legend over the caller's own; the 13-week stats row no longer overflows into the next card; cash runway says "1 day"; Period Comparison opens on the first non-partial period (YoY when MoM is partial) instead of ₹0 for an empty current month; Break-Even "Fixed Costs" / "Variable Costs" show `-` while the cost structure is unconfigured.
+- **Layout**: the 6-KPI strips on Revenue, Procurement, Finance and Tax go six-up from `2xl` (they truncated at `xl`). `KpiCard` sublabels wrap instead of truncating.
+- **Dark mode charts**: frappe-ui leaves ECharts' light grid and legend text and hardcodes `#fff` behind the axis-name label, so every axis chart drew near-white gridlines and a white "↑" box on the dark surface. `IntelligenceChart` now retints grid, axis labels, legend text and the axis-name background from the `--outline-gray-2` / `--ink-gray-6` / `--surface-white` tokens, and re-tints on a light/dark switch.
+- **Marketing Funnel**: the "Ordered" zone amount was fixed white on amber, 2.2:1 in dark mode; it now uses `text-ink-white`, which flips with the theme.
+- **Side stripes removed**: the Procurement verdict, the HR "Needs Attention" rail and the Tax Action Queue overdue rows drew a coloured left border. Severity was already carried by the badge, the "days late" text and the Escalate badge, so the stripe was dropped.
+- **Known limitation**: tab brief text (`insights/ml/tab_briefs`) is assembled from fragments with figures, plurals and joined lists, so it is English-only and not wrapped in `_()`. Wrapping fragments would give translators unusable messages; real translation needs whole-sentence templates per brief.
+- **Finance bugs found while checking the above**: the 90-day chart's "Day 90" tiles read day 84 (the weekly sample stops at day 84 of 90), so Base showed -₹132K while the scenario card said -₹199,917; the tiles now read the real last day. Break-Even "Employee Break-Even by Department" showed ₹0 payroll and 0 orders needed when no department has payroll; both now show `-`.
+
+## [Unreleased] — 2026-10-22
+
+### Changed — Overview tab redesign across all 12 intelligence dashboards, plus the data problems it exposed
+
+Each Overview follows the chosen design-shotgun variant (headline strip ≤6 KPIs, one hero chart, ranked "Needs attention", server-computed verdicts). Chart wrappers are `h-80` because the frappe-ui ECharts root has `min-h-[300px]`. Live `jkm` before → after:
+
+- **Executive**: MTD revenue ₹0 → Revenue (YTD) ₹80.1M, Net Margin 4.33%. `financial_intelligence._calculate_financial_overview` used a hardcoded `mtd_start`; `_financial_kpis` now uses YTD for non-MTD periods. Payload adds `trends.revenue_months` and `trends.revenue_12m` (₹149.3M, the sum of the chart series). The `pipeline_value` KPI is relabelled "Sales Revenue (period)" (it was labelled "12m" but follows the selected period).
+- **Finance**: `executive_summary.cash_balance` ₹424K vs `cash_flow.total_cash` ₹9.6M disagreed (only one included FDs). Payload now has `cash_liquid` (-₹246K), `cash_fd`, `cash_total` (₹9.6M); `runway_months` is `null` when there is no net burn (cash positive, as before), `0.0` only when liquid cash ≤ 0 and cash is draining, else liquid cash ÷ net burn.
+- **Strategic Finance forecasts**: `strategic_finance.data.get_cash_balance` is liquid cash (Bank + Cash, FDs excluded; -₹246K on jkm, was ₹424K), so `forecast_cash_flow`, the 13-week forecast and the liquidity score open from liquid cash, not the ₹9.6M total shown on the Executive Summary card. FDs are treated as non-operating until released; the forecast tabs must label this basis.
+- **Revenue**: `daily_sales` was always empty (anchored on the window end, not the last invoice date) → 24 rows. Adds `mom_growth_full` (-47.5%) / `yoy_growth_full` (-38.3%) beside the like-for-like figures, and a server `verdict_headline` that states both YoY bases instead of "strong growth".
+- **Customer**: `pareto_curve` is now 101 downsampled points over all 581 customers, points are `{customer_pct, cumulative_percent}`, with `pareto_80_threshold_pct` (8.95%).
+- **Tax**: `reconciliation_score.reconciliation_score` renamed `match_rate_pct`; header FY label is derived from the fiscal-year dates (`2627` → `FY 2026-27`).
+- **Risk**: `cashflow_risk` carries `cashflow_score`, `total_receivables`, `total_payables`, `net_exposure`, `cash_position`, `net_working_capital`; server `risk_verdict` (`_risk_verdict`, tested in `ml/test_risk_verdict.py`).
+- **Inventory**: `health_score` no-data branch returns null (was 50); `reorder_count` 287 → 38 (stock population was every Bin, now active SKUs).
+- **Procurement**: root group "All Item Groups" labelled "Uncategorised"; `pct_of_total` is relative to total spend (categories sum to 86%, the rest is taxes/charges in the PI grand total); the partial month is excluded from the trend.
+- **Manufacturing**: `production_health` is now a sentence with `production_health_severity`; JKM has no Work Orders/BOMs, so the empty state is genuine.
+- **Marketing & CRM**: funnel is lead-based (Quoted 4,175 docs → 2,553 leads); expired/won/decided quote values are TTM-scoped (expired ₹35.97 Cr → ₹5.04 Cr). `_LAZY_MAP` gained the marketing endpoints so `warm_all` warms them.
+- **HR**: headcount, hires and exits now show their denominators; no Salary Slips exist, so payroll renders `-`.
+- **ESG**: honest "not yet backed by real data" state with a per-pillar ERPNext source list (no engine built).
+- **Resource budget (2 vCPU / 8 GB plan)**: the redesign adds no scans. Extra figures ride existing queries: Marketing period quote totals are conditional aggregates on the all-time `group_by` (was a second Quotation scan); Revenue `last_posting` rides the headline aggregate and the full-month last-month/last-year totals ride the like-for-like slices (3 queries saved per compute). Cached payloads change shape (e.g. Customer `pareto_curve`) and `CACHE_TTL` is 24 h, so run `warm_all` after deploy.
+
 ## [Unreleased] — 2026-09-22
 
 ### Changed — Tax Intelligence is now Kenya (KRA), India GST/TDS package removed

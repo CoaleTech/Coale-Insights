@@ -232,6 +232,8 @@ def calculate_revenue_metrics(date_filter: str = "12m", company: str | None = No
 
 def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
     si = DocType("Sales Invoice")
+    # Cash = settled AND no credit terms; an invoice due after its posting date is a credit sale even once paid.
+    is_cash = (si.outstanding_amount == 0) & (si.due_date <= si.posting_date)
     base = (
         frappe.qb.from_(si)
         .select(
@@ -239,7 +241,7 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
             Coalesce(
                 Sum(
                     Case()
-                    .when(si.outstanding_amount == 0, si.grand_total)
+                    .when(is_cash, si.grand_total)
                     .else_(0)
                 ),
                 0,
@@ -247,7 +249,7 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
             Coalesce(
                 Sum(
                     Case()
-                    .when(si.outstanding_amount != 0, si.grand_total)
+                    .when(~is_cash, si.grand_total)
                     .else_(0)
                 ),
                 0,
@@ -275,7 +277,7 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
             Coalesce(
                 Sum(
                     Case()
-                    .when(si.outstanding_amount == 0, si.grand_total)
+                    .when(is_cash, si.grand_total)
                     .else_(0)
                 ),
                 0,
@@ -283,7 +285,7 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
             Coalesce(
                 Sum(
                     Case()
-                    .when(si.outstanding_amount != 0, si.grand_total)
+                    .when(~is_cash, si.grand_total)
                     .else_(0)
                 ),
                 0,
@@ -325,7 +327,7 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
             Coalesce(
                 Sum(
                     Case()
-                    .when(si.outstanding_amount == 0, si.grand_total)
+                    .when(is_cash, si.grand_total)
                     .else_(0)
                 ),
                 0,
@@ -333,7 +335,7 @@ def calculate_payment_mix(date_filter: str = "12m", company: str | None = None) 
             Coalesce(
                 Sum(
                     Case()
-                    .when(si.outstanding_amount != 0, si.grand_total)
+                    .when(~is_cash, si.grand_total)
                     .else_(0)
                 ),
                 0,
@@ -651,7 +653,7 @@ def analyze_by_dimensions(date_filter: str = "12m", company: str | None = None) 
 def analyze_margins(date_filter: str = "12m", company: str | None = None) -> dict[str, Any]:
     si = DocType("Sales Invoice")
     sii = DocType("Sales Invoice Item")
-    profit_expr = sii.net_amount - sii.qty * Coalesce(sii.incoming_rate, 0)
+    profit_expr = sii.net_amount - sii.stock_qty * Coalesce(sii.incoming_rate, 0)
     overall_q = (
         frappe.qb.from_(si)
         .inner_join(sii)

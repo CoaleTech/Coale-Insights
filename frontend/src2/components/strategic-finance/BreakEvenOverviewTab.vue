@@ -35,13 +35,13 @@
       </div>
 
       <!-- Cash Flow Break-Even Banner -->
-      <div v-if="cashData" class="bg-surface-white rounded-lg p-5 shadow-sm border border-outline-gray-1">
+      <div v-if="cashData" class="bg-surface-white rounded-lg p-5 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Cash Flow Break-Even" :level="3" />
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-3">
           <div>
             <p class="text-xs text-ink-gray-6">Break-Even Month</p>
             <p class="text-base font-semibold text-ink-gray-9 mt-0.5">
-              {{ cashData.breakeven_month || 'Not reached' }}
+              {{ cashData.breakeven_month ? formatMonth(cashData.breakeven_month) : 'Not reached' }}
             </p>
           </div>
           <div>
@@ -66,7 +66,7 @@
       </div>
 
       <!-- Employee Break-Even -->
-      <div v-if="departments.length" class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
+      <div v-if="departments.length" class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
         <div class="px-5 py-4 border-b border-outline-gray-1">
           <SectionHeader variant="caption" title="Employee Break-Even by Department" :level="3" />
         </div>
@@ -83,11 +83,11 @@
             <div class="space-y-2">
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Payroll Cost</span>
-                <span class="font-medium text-ink-gray-9">{{ formatCurrency(dept.payroll_cost) }}</span>
+                <span class="font-medium text-ink-gray-9">{{ noPayroll ? NO_VALUE : formatCurrency(dept.payroll_cost) }}</span>
               </div>
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Orders Needed</span>
-                <span class="font-medium text-ink-gray-9">{{ formatCount(dept.orders_needed) }}</span>
+                <span class="font-medium text-ink-gray-9">{{ noPayroll ? NO_VALUE : formatCount(dept.orders_needed) }}</span>
               </div>
               <div class="flex justify-between text-xs">
                 <span class="text-ink-gray-6">Actual Orders</span>
@@ -108,13 +108,13 @@
       </div>
 
       <!-- Capital Efficiency -->
-      <div v-if="data.roce || data.irr" class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
+      <div v-if="data.roce || data.irr" class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
         <div class="px-5 py-4 border-b border-outline-gray-1">
           <SectionHeader variant="caption" title="Capital Efficiency" :level="3" />
         </div>
         <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-5">
           <div class="bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
-            <p class="text-xs text-ink-gray-6">ROCE</p>
+            <p class="text-xs text-ink-gray-6">ROCE (annualised)</p>
             <p class="text-2xl font-bold mt-1 text-ink-gray-9">
               {{ percent(data.roce?.roce) }}
             </p>
@@ -148,7 +148,7 @@ import { Badge } from 'frappe-ui'
 import { ragSeverity, severityBadge, type Severity } from '../../utils/status'
 import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
-import { formatCount, formatMoney, NO_VALUE } from '../../utils/format'
+import { formatCount, formatMoney, formatMonth, NO_VALUE } from '../../utils/format'
 
 defineOptions({ name: 'BreakEvenOverviewTab' })
 
@@ -212,6 +212,8 @@ const currency = useCurrency('')
 
 const cashData = computed<CashFlowBreakeven | null>(() => props.data?.cash_flow_breakeven ?? null)
 const departments = computed<Department[]>(() => props.data?.employee_breakeven?.departments ?? [])
+// No department carries payroll (no Salary Slips): its cost and the orders it implies are unmeasured, not zero.
+const noPayroll = computed(() => departments.value.every(d => !d.payroll_cost))
 
 const kpiCards = computed<KpiCardData[]>(() => {
   const d = props.data
@@ -219,8 +221,8 @@ const kpiCards = computed<KpiCardData[]>(() => {
   // Unconfigured: the server withholds BE figures; show "-" rather than 0% coverage / 100% margin.
   const unconfigured = d.configured === false
   return [
-    { label: 'Fixed Costs', value: formatCurrency(d.fixed_costs) },
-    { label: 'Variable Costs', value: formatCurrency(d.variable_costs) },
+    { label: 'Fixed Costs', value: unconfigured ? NO_VALUE : formatCurrency(d.fixed_costs) },
+    { label: 'Variable Costs', value: unconfigured ? NO_VALUE : formatCurrency(d.variable_costs) },
     { label: 'BE Revenue', value: formatCurrency(d.be_revenue) },
     { label: 'Actual Revenue', value: formatCurrency(d.actual_revenue) },
     { label: 'BE Quantity', value: unconfigured ? NO_VALUE : formatCount(d.be_qty) },

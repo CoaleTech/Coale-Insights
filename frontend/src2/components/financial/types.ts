@@ -27,6 +27,7 @@ export interface OverviewData {
 	ytd_profit?: number
 	ytd_ebitda?: number | null
 	ebitda_margin?: number | null
+	ebitda_addbacks?: { interest?: number; depreciation?: number }
 	net_margin?: number
 	monthly_trend?: MonthlyTrendRow[]
 	expense_breakdown?: ExpenseRow[]
@@ -257,4 +258,5 @@ export interface ForexData {
 	net_unrealized?: number
 	exposure_summary?: ForexExposureRow[]
 	at_risk_invoices?: AtRiskInvoice[]
+	realized_forex_trend?: { period: string; forex_gain: number; forex_loss: number }[]
 }

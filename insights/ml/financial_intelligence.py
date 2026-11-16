@@ -25,7 +25,7 @@ from typing import Any
 
 import frappe
 
-from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.ibis_source import company_filter, default_company, gl_ledger, t
 from insights.api.ml.utils import parse_date_filter
 
 
@@ -112,13 +112,23 @@ class FinancialIntelligence:
         return self.train()
 
     # ------------------------------------------------------------------ helpers
-    def _gl_with_account(self, company: str | None = None):
+    def _gl_with_account(self, company: str | None = None, wide: bool = False):
+        """Live (not cancelled, not Period Closing) GL rows joined to Account.
+
+        Period Closing Vouchers move P&L into equity on the last day of a year; they are
+        bookkeeping, not trading, and would show as negative revenue in that month.
+        ``wide`` reads the raw tables for the few callers that need voucher_no,
+        remarks or against; everything else reads the narrow per-compute ledger.
+        """
+        if not wide:
+            return gl_ledger(company or self.company)
         gle = t("GL Entry")
         acc = t("Account")
         joined = gle.join(acc, gle["account"] == acc["name"])
         joined = company_filter(joined, company or self.company)
-        joined = joined.filter(joined["is_cancelled"] == 0)
-        return joined
+        return joined.filter(
+            (joined["is_cancelled"] == 0) & (joined["voucher_type"] != "Period Closing Voucher")
+        )
 
     def _scalar(self, expr, default: float = 0.0) -> float:
         """Execute an Ibis expression and return its single scalar value.
@@ -320,6 +330,7 @@ class FinancialIntelligence:
             "gross_margin": None,
             "ytd_ebitda": round(ytd_ebitda, 2),
             "ebitda_margin": ebitda_margin,
+            "ebitda_addbacks": {"interest": ytd_interest_expense, "depreciation": ytd_depreciation},
             "net_margin": net_margin,
             "monthly_trend": monthly_trend,
             "revenue_breakdown": rev_rows,
@@ -413,11 +424,31 @@ class FinancialIntelligence:
 
         avg_outflow = _avg6(cash_outflows)
         avg_inflow = _avg6(cash_inflows)
-        net_burn = avg_outflow - avg_inflow
-        runway_months = round(total_cash / net_burn, 1) if net_burn > 0 else None
+        # Burn is the ledger's net movement of the cash accounts over the same
+        # months, so it ties to the balances. Payment Entries miss every
+        # journal-posted payment, and their in-minus-out read +408K/month here
+        # while the cash accounts moved +87K.
+        gl_net = self._rows(
+            self._cash_accounts(joined)
+            .filter((joined["posting_date"] >= six_months_ago) & (joined["posting_date"] < this_month + "-01"))
+            .aggregate(net=(joined["debit"] - joined["credit"]).sum())
+        )
+        net_burn = -float((gl_net[0]["net"] if gl_net else 0) or 0) / 6
+        # Runway uses liquid_cash (spendable without breaking FDs). No net burn
+        # -> None (cash positive, matches the Cash Flow tab). Burning with a
+        # negative liquid balance means overdrawn: 0 months.
+        liquid_cash = total_cash - fd_balance
+        if net_burn <= 0:
+            runway_months: float | None = None
+        elif liquid_cash <= 0:
+            runway_months = 0.0
+        else:
+            runway_months = round(liquid_cash / net_burn, 1)
 
-        # Inflow/outflow by source (party_type) for last 3 months — one query.
-        three_months_ago = _months_ago(3)
+        # Inflow/outflow by source (party_type) for the last 90 days — one query.
+        # (`_months_ago(3)` is the 1st of the month: on 29 Oct that is 1 Jul, 120 days,
+        # under a "last 3 months" title.)
+        three_months_ago = _add_days(datetime.now(), -90).isoformat()
         pe_src_rows = self._rows(
             pe
             .filter(
@@ -438,8 +469,8 @@ class FinancialIntelligence:
             for r in pe_src_rows if r.get("payment_type") == "Pay"
         ]
 
-        # Large transactions in last 1 month
-        one_month_ago = _months_ago(1)
+        # Large transactions in the last 30 days (`_months_ago(1)` reached back 59).
+        one_month_ago = _add_days(datetime.now(), -30).isoformat()
         large_tx = (
             pe
             .filter((pe["posting_date"] >= one_month_ago) & (pe["posting_date"] <= today))
@@ -564,6 +595,7 @@ class FinancialIntelligence:
             return None
         import re
 
+        joined = self._gl_with_account(wide=True)
         fd = joined.filter(joined["account"].isin([r["account"] for r in fd_rows]))
         balance = sum(r["balance"] for r in fd_rows)
         entries = self._rows(
@@ -638,14 +670,15 @@ class FinancialIntelligence:
             r["closing"] = round(running, 2)
             running -= r["net"]
 
-        interest = self._deposit_interest()
+        interest = self._deposit_interest(months)
         avg_balance = (
             sum(r["closing"] for r in series) / len(series) if series else balance
         )
+        # Interest and balance cover the same window: this ledger books most
+        # interest in one lump at year end, so a fiscal-year-to-date figure
+        # annualised over the average balance reads ~0.3% instead of ~3%.
         yield_pct = (
-            round(interest["booked_fy"] / avg_balance * (12 / interest["months_elapsed"]) * 100, 2)
-            if avg_balance > 0
-            else None
+            round(interest["booked_window"] / avg_balance * 100, 2) if avg_balance > 0 else None
         )
         return {
             "balance": round(balance, 2),
@@ -676,7 +709,7 @@ class FinancialIntelligence:
             "yield_pct": yield_pct,
         }
 
-    def _deposit_interest(self) -> dict[str, Any]:
+    def _deposit_interest(self, months: int = 12) -> dict[str, Any]:
         """Deposit interest booked this fiscal year, and the accrual balance.
 
         Matched on account name (interest + deposit/FD) because the chart of
@@ -702,13 +735,19 @@ class FinancialIntelligence:
             .filter(joined["root_type"] == "Asset")
             .aggregate(v=(joined["debit"] - joined["credit"]).sum())
         )
-        start = datetime.strptime(fy["start_date"], "%Y-%m-%d").date()
-        elapsed = max((datetime.now().date() - start).days / 30.44, 1.0)
+        booked_window = self._scalar(
+            interest
+            .filter(
+                (joined["root_type"] == "Income")
+                & (joined["posting_date"] >= _months_ago(months - 1))
+            )
+            .aggregate(v=(joined["credit"] - joined["debit"]).sum())
+        )
         return {
             "booked_fy": round(booked, 2),
+            "booked_window": round(booked_window, 2),
             "accrued": round(accrued, 2),
             "fiscal_year": fy["name"],
-            "months_elapsed": round(elapsed, 2),
         }
 
     # ------------------------------------------------------------------ receivables

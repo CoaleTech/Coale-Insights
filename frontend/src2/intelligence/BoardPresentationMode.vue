@@ -103,26 +103,23 @@
               @click="previousSlide"
               variant="ghost"
               class="text-ink-white hover:bg-surface-gray-6"
-              aria-label="Previous slide"
-            >
-              <ChevronLeft class="w-5 h-5" />
-            </Button>
+              :icon="ChevronLeft"
+              label="Previous slide"
+            />
             <Button
               @click="nextSlide"
               variant="ghost"
               class="text-ink-white hover:bg-surface-gray-6"
-              aria-label="Next slide"
-            >
-              <ChevronRight class="w-5 h-5" />
-            </Button>
+              :icon="ChevronRight"
+              label="Next slide"
+            />
             <Button
               @click="exitFullscreen"
               variant="ghost"
               class="text-ink-white hover:bg-surface-gray-6"
-              aria-label="Exit fullscreen"
-            >
-              <X class="w-5 h-5" />
-            </Button>
+              :icon="X"
+              label="Exit fullscreen"
+            />
           </div>
         </div>
       </div>
@@ -182,16 +179,30 @@
         </div>
       </div>
 
-      <!-- Key Insights Grid -->
-      <div v-if="presentationData.key_insights?.length" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-        <Card v-for="insight in presentationData.key_insights" :key="insight.title" class="p-6">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="font-semibold text-ink-gray-9">{{ insight.title }}</h3>
-            <Badge v-bind="severityBadge(priorityToSeverity(insight.impact))" size="sm" />
-          </div>
-          <div class="text-2xl font-bold text-ink-gray-9 mb-2">{{ insight.value }}</div>
-          <p class="text-sm text-ink-gray-6">{{ insight.insight }}</p>
-        </Card>
+      <!-- Key Insights: ranked list (one row per insight) -->
+      <div v-if="presentationData.key_insights?.length" class="bg-surface-white shadow-sm mb-6 rounded-lg">
+        <div class="px-6 py-6">
+          <h2 class="text-xl font-semibold text-ink-gray-9 mb-4">Key Insights</h2>
+          <ol class="divide-y divide-outline-gray-1">
+            <li
+              v-for="(insight, i) in presentationData.key_insights"
+              :key="insight.title"
+              class="flex items-start gap-4 py-4 first:pt-0 last:pb-0"
+            >
+              <span class="flex-shrink-0 w-6 text-sm font-semibold text-ink-gray-5 text-right mt-0.5">{{ i + 1 }}</span>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-start justify-between gap-3">
+                  <p class="text-sm font-medium text-ink-gray-9 leading-snug">{{ insight.title }}</p>
+                  <div class="flex items-center gap-2 flex-shrink-0">
+                    <span v-if="insight.value" class="tnum text-sm font-semibold text-ink-gray-9">{{ insight.value }}</span>
+                    <Badge v-if="insight.impact" v-bind="severityBadge(priorityToSeverity(insight.impact))" size="sm" />
+                  </div>
+                </div>
+                <p v-if="insight.insight" class="text-xs text-ink-gray-6 mt-1 leading-relaxed">{{ insight.insight }}</p>
+              </div>
+            </li>
+          </ol>
+        </div>
       </div>
 
       <!-- Presentation Slides -->
@@ -256,15 +267,22 @@
           <div>
             <label class="block text-sm font-medium text-ink-gray-7 mb-2">Export Format</label>
             <div class="space-y-3">
-              <label v-for="format in exportFormats" :key="format.value" class="flex items-center">
+              <label
+                v-for="format in exportFormats"
+                :key="format.value"
+                class="flex items-center"
+                :class="format.disabled ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'"
+                :aria-disabled="format.disabled ? 'true' : undefined"
+              >
                 <input
                   type="radio"
                   v-model="exportFormat"
                   :value="format.value"
-                  class="h-4 w-4 border-outline-gray-2 focus-visible:ring-2 focus-visible:ring-outline-gray-3"
+                  :disabled="format.disabled"
+                  class="h-4 w-4 border-outline-gray-2 focus-visible:ring-2 focus-visible:ring-outline-gray-3 disabled:cursor-not-allowed"
                 />
                 <span class="ml-3">
-                  <span class="font-medium text-ink-gray-8">{{ format.label }}</span>
+                  <span class="font-medium" :class="format.disabled ? 'text-ink-gray-5' : 'text-ink-gray-8'">{{ format.label }}</span>
                   <span class="text-sm text-ink-gray-6 block">{{ format.description }}</span>
                 </span>
               </label>
@@ -329,7 +347,7 @@ import {
   AlertTriangle
 } from 'lucide-vue-next'
 import PresentationSlide from './PresentationSlide.vue'
-import { apiCall } from '../helpers/api'
+import { apiCall, apiCallEnvelope } from '../helpers/api'
 import { BOARD_DASHBOARD_OPTIONS, BOARD_PRESENTATION_SOURCES } from '../helpers/dashboards'
 import { severityBadge } from '../utils/status'
 
@@ -350,11 +368,11 @@ interface PresentationData {
   slides?: PresentationSlideData[]
   error?: string
 }
-/** Response of `export_presentation_powerpoint` / `export_presentation_pdf`. */
+/** `apiCall` unwraps the `{status, data, message}` envelope of
+ * `export_presentation_powerpoint` / `export_presentation_pdf`, so this is its `data`. */
 interface PresentationExportResult {
-  status?: string
-  message?: string
-  data?: { download_ready?: boolean; [key: string]: unknown }
+  download_ready?: boolean
+  [key: string]: unknown
 }
 
 /** Map a priority / impact string to a Severity. */
@@ -398,7 +416,7 @@ const currentSlide = ref(1)
 const presentationData = ref<PresentationData>({})
 
 // Export options
-const exportFormat = ref('powerpoint')
+const exportFormat = ref('json')
 const exportOptions = ref({
   includeCharts: true,
   includeTables: true,
@@ -410,23 +428,27 @@ const exportFormats = [
   {
     value: 'powerpoint',
     label: 'PowerPoint (.pptx)',
-    description: 'Structured slide data for PowerPoint (not yet a downloadable .pptx file)'
+    description: 'Coming soon',
+    disabled: true,
   },
   {
     value: 'pdf',
     label: 'PDF Document (.pdf)',
-    description: 'Structured page data for PDF (not yet a downloadable .pdf file)'
+    description: 'Coming soon',
+    disabled: true,
   },
   {
     value: 'html',
     label: 'Web Page (.html)',
-    description: 'Not yet available'
+    description: 'Coming soon',
+    disabled: true,
   },
   {
     value: 'json',
     label: 'JSON Data (.json)',
-    description: 'Structured data for custom processing'
-  }
+    description: 'Structured data for custom processing',
+    disabled: false,
+  },
 ]
 
 // Computed properties
@@ -456,9 +478,17 @@ const fetchedDashboardData = ref<Record<string, unknown>>({})
 
 async function fetchLiveDashboardData(dashboardType: string): Promise<Record<string, unknown>> {
   const urls: string[] = BOARD_PRESENTATION_SOURCES[dashboardType] || []
-  const results = await Promise.all(
-    urls.map((url) => apiCall<Record<string, unknown>>(url).catch(() => null)),
-  )
+  // A cold cache answers `warming` (null data) while it computes; generating
+  // from that produced an empty board pack. Poll each source until it lands.
+  const fetchSource = async (url: string): Promise<Record<string, unknown> | null> => {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const { data, warming } = await apiCallEnvelope<Record<string, unknown>>(url)
+      if (!warming) return data
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+    }
+    return null
+  }
+  const results = await Promise.all(urls.map(fetchSource))
   const loaded = results.filter((r): r is Record<string, unknown> => r !== null)
   return Object.assign({ dashboard_type: dashboardType }, ...loaded)
 }
@@ -563,17 +593,15 @@ const performExport = async () => {
       export_options: exportOptions.value
     })
 
-    if (!result || result.status !== 'success') {
-      throw new Error(result?.message || 'Export failed')
-    }
+    if (!result) throw new Error('Export failed')
 
-    if (result.data?.download_ready === false) {
+    if (result.download_ready === false) {
       // Backend is honest: this format has no real document generator yet.
-      exportError.value = result.message || 'This export format is not yet available as a downloadable file.'
+      exportError.value = 'This export format is not yet available as a downloadable file. Use JSON to get the underlying presentation data.'
       return
     }
 
-    downloadExportedFile(result.data, exportFormat.value)
+    downloadExportedFile(result, exportFormat.value)
     showExportModal.value = false
   } catch (err) {
     console.error('Error exporting presentation:', err)

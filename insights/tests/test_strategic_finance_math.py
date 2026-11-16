@@ -4,12 +4,16 @@
 """Pure-function tests for strategic finance math (no DB)."""
 
 import unittest
-from datetime import date
+from datetime import date, datetime
+from itertools import pairwise
 from types import SimpleNamespace
 
+import numpy as np
+
+from insights.ml.strategic_finance.analysis import _rolling_90_day_windows
 from insights.ml.strategic_finance.cost_ratios import _get_fixed_cost
 from insights.ml.strategic_finance.forecast import _shift_weeks, apply_scenario
-from insights.ml.strategic_finance.scenarios import build_periods, calc_change
+from insights.ml.strategic_finance.scenarios import _simulate_revenue_expenses, build_periods, calc_change
 from insights.ml.strategic_finance.summary import calculate_health_scores, generate_key_insights
 
 
@@ -33,13 +37,13 @@ class TestStrategicFinanceMath(unittest.TestCase):
     def test_prior_quarter_is_full_quarter(self):
         p = build_periods(date(2026, 10, 6), date(2026, 4, 1), date(2027, 3, 31))
         self.assertEqual((p["prior_quarter"]["start"], p["prior_quarter"]["end"]), (date(2026, 7, 1), date(2026, 9, 30)))
-        self.assertEqual(p["prior_quarter"]["label"], "Q3 2026")
+        self.assertEqual(p["prior_quarter"]["label"], "Q2 FY26-27")
         self.assertEqual((p["prior_month"]["start"], p["prior_month"]["end"]), (date(2026, 9, 1), date(2026, 9, 30)))
 
     def test_prior_quarter_year_rollover(self):
         p = build_periods(date(2026, 1, 10), date(2025, 4, 1), date(2026, 3, 31))
         self.assertEqual((p["prior_quarter"]["start"], p["prior_quarter"]["end"]), (date(2025, 10, 1), date(2025, 12, 31)))
-        self.assertEqual(p["prior_quarter"]["label"], "Q4 2025")
+        self.assertEqual(p["prior_quarter"]["label"], "Q3 FY25-26")
 
     def test_fiscal_labels_and_leap_safe_prior_ytd(self):
         p = build_periods(date(2028, 2, 29), date(2027, 4, 1), date(2028, 3, 31))
@@ -69,6 +73,29 @@ class TestStrategicFinanceMath(unittest.TestCase):
         self.assertEqual(apply_scenario(None, weeks, threshold=500)["weeks_below_threshold"], 3)
         self.assertEqual(apply_scenario(None, weeks)["weeks_below_threshold"], 0)
 
+    def test_monte_carlo_spread_is_for_the_period_and_follows_correlation(self):
+        def draw(rho, months):
+            np.random.seed(1)
+            return _simulate_revenue_expenses(80e6, 76.7e6, 0.26, 0.274, rho, months, 20000)
+
+        revenue, _ = draw(0.0, 7)
+        # monthly CV 26% over 7 months: a total's CV is 26% / sqrt(7), not 26%
+        self.assertAlmostEqual(revenue.std() / 80e6, 0.26 / 7 ** 0.5, delta=0.005)
+        # COGS follows sales: correlated draws leave far less net-income risk than independent ones
+        net_independent = np.subtract(*draw(0.0, 7)).std()
+        net_correlated = np.subtract(*draw(0.99, 7)).std()
+        self.assertLess(net_correlated * 5, net_independent)
+
+    def test_ratio_windows_are_contiguous_and_uniquely_labelled(self):
+        # 31 Mar: calendar-quarter labels would repeat ("Q1" for 31 Mar and 1 Jan)
+        w = _rolling_90_day_windows(datetime(2026, 3, 31))
+        self.assertEqual(w[0]["end"], "2026-03-31")
+        self.assertEqual(len({x["label"] for x in w}), 8)
+        for newer, older in pairwise(w):
+            gap = datetime.fromisoformat(newer["start"]) - datetime.fromisoformat(older["end"])
+            self.assertEqual(gap.days, 1)  # no shared day, no skipped day
+        self.assertEqual((datetime.fromisoformat(w[0]["end"]) - datetime.fromisoformat(w[0]["start"])).days, 89)
+
     def test_unconfigured_fixed_cost_is_none(self):
         self.assertIsNone(_get_fixed_cost("c", "2026-04-01", "2026-10-06", SimpleNamespace(fixed_cost_centers="  ")))
 
@@ -80,3 +107,25 @@ class TestStrategicFinanceMath(unittest.TestCase):
         insights = generate_key_insights(None, 0, 0, net_margin=None, revenue_growth=None,
                                          cash_runway_months=None, debt_to_equity=None, roe=None, health_scores=hs)
         self.assertEqual(insights, [])
+
+    def test_drill_down_rejects_non_object_filters(self):
+        # A bare list/string used to die on `f.pop` with an AttributeError; it must be a clean validation error.
+        import frappe
+
+        from insights.api.ml.financial import get_finance_detail
+        from insights.api.ml.strategic_finance import get_strategic_detail
+
+        for fn in (get_finance_detail, get_strategic_detail):
+            for bad in ("[1]", '"x"', "5"):
+                with self.assertRaises(frappe.ValidationError):
+                    fn("outstanding_ar", bad)
+
+    def test_monthly_payroll_stays_on_month_end(self):
+        # A flat 30-day step put a payroll posted on the 31st a day early, so the
+        # week that holds 31 Dec was reported as having no payroll.
+        from insights.ml.strategic_finance.data import get_payroll_for_week
+
+        pattern = {"detected": True, "frequency": "monthly", "next_date": "2026-10-31", "typical_amount": 98411}
+        self.assertEqual(get_payroll_for_week(None, "2026-12-31", pattern), 98411)
+        self.assertEqual(get_payroll_for_week(None, "2026-12-24", pattern), 0)
+        self.assertEqual(get_payroll_for_week(None, "2026-12-03", pattern), 0)

@@ -410,32 +410,18 @@ onMounted(() => {
 				</div>
 
 				<div class="grid grid-cols-2 gap-4">
-					<div>
-					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Primary Model</label>
-						<select
-							v-model="settings.doc.ai_model"
-							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-						>
-							<optgroup v-for="group in modelOptions" :key="group.group" :label="group.group">
-								<option v-for="opt in group.options" :key="opt.value" :value="opt.value">
-									{{ opt.label }}
-								</option>
-							</optgroup>
-						</select>
-					</div>
-					<div>
-					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Fallback Model</label>
-						<select
-							v-model="settings.doc.ai_model_fallback"
-							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-						>
-							<optgroup v-for="group in modelOptions" :key="group.group" :label="group.group">
-								<option v-for="opt in group.options" :key="opt.value" :value="opt.value">
-									{{ opt.label }}
-								</option>
-							</optgroup>
-						</select>
-					</div>
+				<FormControl
+					type="select"
+					label="Primary Model"
+					v-model="settings.doc.ai_model"
+					:options="modelOptions.flatMap(g => g.options)"
+				/>
+				<FormControl
+					type="select"
+					label="Fallback Model"
+					v-model="settings.doc.ai_model_fallback"
+					:options="modelOptions.flatMap(g => g.options)"
+				/>
 				</div>
 			</div>
 
@@ -443,16 +429,15 @@ onMounted(() => {
 			<div v-if="selectedProvider === 'openai'" class="border-t pt-6 space-y-5">
 				<h2 class="text-base font-medium text-ink-gray-8">OpenAI Settings</h2>
 
-				<div>
-					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Authentication</label>
-					<select
-						v-model="settings.doc.openai_auth_mode"
-						class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-					>
-						<option value="API Key">API Key — metered, billed per token</option>
-						<option value="ChatGPT Subscription">ChatGPT Subscription — Plus/Pro account</option>
-					</select>
-				</div>
+			<FormControl
+				type="select"
+				label="Authentication"
+				v-model="settings.doc.openai_auth_mode"
+				:options="[
+					{ value: 'API Key', label: 'API Key: metered, billed per token' },
+					{ value: 'ChatGPT Subscription', label: 'ChatGPT Subscription (Plus/Pro account)' },
+				]"
+			/>
 
 				<!-- ChatGPT subscription login -->
 				<div v-if="usesSubscription" class="rounded-lg border border-outline-gray-2 bg-surface-gray-1 p-4 space-y-3">
@@ -506,29 +491,24 @@ onMounted(() => {
 						<p class="text-xs text-ink-gray-3 mt-1">API key from platform.openai.com/api-keys, or the bearer token of your gateway.</p>
 					</div>
 					<div :class="usesSubscription ? 'col-span-2' : ''">
-						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Model</label>
-						<select
-							v-model="settings.doc.openai_model"
-							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-						>
-							<optgroup label="GPT-5.6 (recommended)">
-								<option value="gpt-5.6-terra">GPT-5.6 Terra — balanced</option>
-								<option value="gpt-5.6-sol">GPT-5.6 Sol — frontier</option>
-								<option value="gpt-5.6-luna">GPT-5.6 Luna — cheapest</option>
-							</optgroup>
-							<optgroup label="GPT-5.x">
-								<option value="gpt-5.5">GPT-5.5</option>
-								<option value="gpt-5.4">GPT-5.4</option>
-								<option value="gpt-5.4-mini">GPT-5.4 Mini</option>
-								<option value="gpt-5.4-nano">GPT-5.4 Nano</option>
-							</optgroup>
-							<optgroup label="Non-reasoning (legacy)">
-								<option value="gpt-4.1">GPT-4.1</option>
-								<option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-								<option value="gpt-4o">GPT-4o</option>
-								<option value="gpt-4o-mini">GPT-4o Mini</option>
-							</optgroup>
-						</select>
+					<FormControl
+						type="select"
+						label="Model"
+						v-model="settings.doc.openai_model"
+						:options="[
+							{ value: 'gpt-5.6-terra', label: 'GPT-5.6 Terra (balanced)' },
+							{ value: 'gpt-5.6-sol', label: 'GPT-5.6 Sol (frontier)' },
+							{ value: 'gpt-5.6-luna', label: 'GPT-5.6 Luna (cheapest)' },
+							{ value: 'gpt-5.5', label: 'GPT-5.5' },
+							{ value: 'gpt-5.4', label: 'GPT-5.4' },
+							{ value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini' },
+							{ value: 'gpt-5.4-nano', label: 'GPT-5.4 Nano' },
+							{ value: 'gpt-4.1', label: 'GPT-4.1' },
+							{ value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+							{ value: 'gpt-4o', label: 'GPT-4o' },
+							{ value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+						]"
+					/>
 					</div>
 				</div>
 
@@ -569,28 +549,23 @@ onMounted(() => {
 						</div>
 						<p class="text-xs text-ink-gray-3 mt-1">Get your key at build.nvidia.com</p>
 					</div>
-					<div>
-						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Model</label>
-						<select
-							v-model="settings.doc.nvidia_model"
-							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-						>
-							<optgroup label="Nemotron 3">
-								<option value="nvidia/nemotron-3-super-120b-a12b">Nemotron 3 Super 120B</option>
-								<option value="nvidia/nemotron-3-ultra-550b-a55b">Nemotron 3 Ultra 550B</option>
-								<option value="nvidia/nemotron-3-nano-30b-a3b">Nemotron 3 Nano 30B</option>
-								<option value="nvidia/llama-3.3-nemotron-super-49b-v1.5">Llama 3.3 Nemotron Super 49B</option>
-							</optgroup>
-							<optgroup label="Other publishers">
-								<option value="meta/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
-								<option value="deepseek-ai/deepseek-v4-pro">DeepSeek V4 Pro</option>
-								<option value="minimaxai/minimax-m3">MiniMax M3</option>
-								<option value="moonshotai/kimi-k2.6">Kimi K2.6</option>
-								<option value="openai/gpt-oss-120b">GPT-OSS 120B</option>
-								<option value="mistralai/mistral-nemotron">Mistral Nemotron</option>
-							</optgroup>
-						</select>
-					</div>
+				<FormControl
+					type="select"
+					label="Model"
+					v-model="settings.doc.nvidia_model"
+					:options="[
+						{ value: 'nvidia/nemotron-3-super-120b-a12b', label: 'Nemotron 3 Super 120B' },
+						{ value: 'nvidia/nemotron-3-ultra-550b-a55b', label: 'Nemotron 3 Ultra 550B' },
+						{ value: 'nvidia/nemotron-3-nano-30b-a3b', label: 'Nemotron 3 Nano 30B' },
+						{ value: 'nvidia/llama-3.3-nemotron-super-49b-v1.5', label: 'Llama 3.3 Nemotron Super 49B' },
+						{ value: 'meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct' },
+						{ value: 'deepseek-ai/deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+						{ value: 'minimaxai/minimax-m3', label: 'MiniMax M3' },
+						{ value: 'moonshotai/kimi-k2.6', label: 'Kimi K2.6' },
+						{ value: 'openai/gpt-oss-120b', label: 'GPT-OSS 120B' },
+						{ value: 'mistralai/mistral-nemotron', label: 'Mistral Nemotron' },
+					]"
+				/>
 				</div>
 			</div>
 
@@ -637,20 +612,20 @@ onMounted(() => {
 						</p>
 					</div>
 					<div>
-						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Model</label>
 						<FormControl
 							v-if="ollamaModels.length === 0"
 							type="text"
+							label="Model"
 							v-model="settings.doc.ollama_model"
 							placeholder="llama3.1"
 						/>
-						<select
+						<FormControl
 							v-else
+							type="select"
+							label="Model"
 							v-model="settings.doc.ollama_model"
-							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-						>
-							<option v-for="m in ollamaModels" :key="m" :value="m">{{ m }}</option>
-						</select>
+							:options="ollamaModels"
+						/>
 						<p class="text-xs text-ink-gray-3 mt-1">
 							{{ ollamaModels.length > 0 ? `${ollamaModels.length} models detected` : 'Test connection to discover models' }}
 						</p>
@@ -663,14 +638,15 @@ onMounted(() => {
 				<h2 class="text-base font-medium text-ink-gray-8">Kimi (Moonshot) Settings</h2>
 
 				<div>
-					<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Authentication</label>
-					<select
-						v-model="settings.doc.moonshot_auth_mode"
-						class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-					>
-						<option value="API Key">API Key — Moonshot Open Platform, billed per token</option>
-						<option value="Kimi Subscription">Kimi Subscription — Kimi Code plan</option>
-					</select>
+				<FormControl
+					type="select"
+					label="Authentication"
+					v-model="settings.doc.moonshot_auth_mode"
+					:options="[
+						{ value: 'API Key', label: 'API Key: Moonshot Open Platform, billed per token' },
+						{ value: 'Kimi Subscription', label: 'Kimi Subscription (Kimi Code plan)' },
+					]"
+				/>
 					<p class="text-xs text-ink-gray-3 mt-1">
 						These are separate services. A Moonshot Open Platform key is rejected by the
 						Kimi Code endpoint, and a subscription serves the kimi-for-coding models.
@@ -729,20 +705,17 @@ onMounted(() => {
 						<p class="text-xs text-ink-gray-3 mt-1">Get your key at platform.moonshot.ai</p>
 					</div>
 					<div v-if="!usesKimiSubscription">
-						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Model</label>
-						<select
-							v-model="settings.doc.moonshot_model"
-							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-						>
-							<optgroup label="Kimi K3 (recommended)">
-								<option value="kimi-k3">kimi-k3 — 1M context, vision</option>
-							</optgroup>
-							<optgroup label="Kimi K2">
-								<option value="kimi-k2.7-code">kimi-k2.7-code</option>
-								<option value="kimi-k2.7-code-highspeed">kimi-k2.7-code-highspeed</option>
-								<option value="kimi-k2.6">kimi-k2.6</option>
-							</optgroup>
-						</select>
+					<FormControl
+						type="select"
+						label="Model"
+						v-model="settings.doc.moonshot_model"
+						:options="[
+							{ value: 'kimi-k3', label: 'kimi-k3 (1M context, vision)' },
+							{ value: 'kimi-k2.7-code', label: 'kimi-k2.7-code' },
+							{ value: 'kimi-k2.7-code-highspeed', label: 'kimi-k2.7-code-highspeed' },
+							{ value: 'kimi-k2.6', label: 'kimi-k2.6' },
+						]"
+					/>
 					</div>
 				</div>
 			</div>
@@ -752,17 +725,12 @@ onMounted(() => {
 				<h2 class="text-base font-medium text-ink-gray-8">Schedule & Limits</h2>
 
 				<div class="grid grid-cols-2 gap-4">
-					<div>
-						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Auto Refresh</label>
-						<select
-							v-model="settings.doc.refresh_schedule"
-							class="w-full rounded-md border border-outline-gray-2 px-3 py-[7px] text-sm bg-surface-white focus:border-accent focus:ring-1 focus:ring-accent focus:outline-none"
-						>
-							<option v-for="opt in scheduleOptions" :key="opt.value" :value="opt.value">
-								{{ opt.label }}
-							</option>
-						</select>
-					</div>
+				<FormControl
+					type="select"
+					label="Auto Refresh"
+					v-model="settings.doc.refresh_schedule"
+					:options="scheduleOptions"
+				/>
 					<div>
 						<label class="block text-sm font-medium text-ink-gray-6 mb-1.5">Daily Quota</label>
 						<div class="flex items-center gap-2">

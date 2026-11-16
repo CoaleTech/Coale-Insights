@@ -11,7 +11,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
-from insights.api.ml.utils import cached_run, run, parse_date_filter
+from insights.api.ml.utils import cached_run, canonical_date_filter, run, parse_date_filter, parse_detail_filters
 
 
 @frappe.whitelist()
@@ -69,6 +69,7 @@ def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[
     """
     try:
         frappe.has_permission("Sales Invoice", "read", throw=True)
+        date_filter = canonical_date_filter(date_filter)
         from insights.ml.sales_intelligence import get_sales_intelligence
 
         return cached_run(
@@ -216,7 +217,9 @@ def quotation_analytics(date_filter: str = '12m') -> Dict[str, Any]:
         start_dt, end_dt = parse_date_filter(date_filter)
         start = start_dt.strftime("%Y-%m-%d") if start_dt else "2000-01-01"
         end = end_dt.strftime("%Y-%m-%d") if end_dt else frappe.utils.nowdate()
-        return success(get_quotation_analytics(start, end))
+        from insights.ml.tab_briefs import attach_lazy
+        from insights.ml.tab_briefs.revenue import lazy_rev_sources
+        return attach_lazy(success(get_quotation_analytics(start, end)), lazy_rev_sources, "rev-sources")
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -272,8 +275,7 @@ def _net_invoice_filters(company, period_value: str) -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_sales_detail(metric: str, filters: str) -> dict:
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
@@ -309,7 +311,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Order",
             filters=db_filters,
-            fields=["name", "customer", "transaction_date", "delivery_date", "grand_total", "status"],
+            fields=["name", "customer", "transaction_date", "delivery_date", "base_grand_total", "status"],
             start=start, page_length=page_size, order_by="transaction_date desc",
             ignore_permissions=False,
         )
@@ -319,7 +321,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
                 {"label": "Delivery", "fieldname": "delivery_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
             ],
             "rows": rows,
@@ -372,7 +374,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Quotation",
             filters=db_filters,
-            fields=["name", "party_name", "transaction_date", "grand_total", "status", "order_lost_reason"],
+            fields=["name", "party_name", "transaction_date", "base_grand_total", "status", "order_lost_reason"],
             start=start, page_length=page_size, order_by="transaction_date desc",
             ignore_permissions=False,
         )
@@ -381,7 +383,7 @@ def get_sales_detail(metric: str, filters: str) -> dict:
                 {"label": "Quotation", "fieldname": "name", "fieldtype": "Link", "options": "Quotation"},
                 {"label": "Party", "fieldname": "party_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
-                {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
                 {"label": "Lost Reason", "fieldname": "order_lost_reason", "fieldtype": "Data"},
             ],
@@ -424,5 +426,97 @@ def get_sales_detail(metric: str, filters: str) -> dict:
             "rows": rows,
             "total": frappe.db.count("Sales Invoice", filters=db_filters),
         }
+
+    if metric == "receivables":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters: Dict[str, Any] = {"docstatus": 1, "is_return": 0, "outstanding_amount": (">", 0)}
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "posting_date", "base_grand_total", "outstanding_amount", "territory"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Grand Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
+                {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
+                {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
+    if metric == "unfulfilled_orders":
+        frappe.has_permission("Sales Order", throw=True)
+        db_filters = {"docstatus": 1, "per_delivered": ("<", 100)}
+        if bound := _period_bound(period):
+            db_filters["transaction_date"] = bound
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Order",
+            filters=db_filters,
+            fields=["name", "customer", "transaction_date", "delivery_date", "base_grand_total", "per_delivered", "status"],
+            start=start, page_length=page_size, order_by="transaction_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Order", "fieldname": "name", "fieldtype": "Link", "options": "Sales Order"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "transaction_date", "fieldtype": "Date"},
+                {"label": "Delivery", "fieldname": "delivery_date", "fieldtype": "Date"},
+                {"label": "Total", "fieldname": "base_grand_total", "fieldtype": "Currency"},
+                {"label": "Delivered %", "fieldname": "per_delivered", "fieldtype": "Percent"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Order", filters=db_filters),
+        }
+
+    if metric == "invoices_by_period":
+        frappe.has_permission("Sales Invoice", throw=True)
+        inv_period = f.get("invoice_period") or period
+        # Accept YYYY-MM (from attention rail softest-month click) or fall back
+        # to the normal date-filter window.
+        if inv_period and len(inv_period) == 7 and inv_period[4] == "-":
+            import calendar as _cal
+            y, m = int(inv_period[:4]), int(inv_period[5:7])
+            period_start = f"{y:04d}-{m:02d}-01"
+            last_day = _cal.monthrange(y, m)[1]
+            period_end = f"{y:04d}-{m:02d}-{last_day:02d}"
+            db_filters = {
+                "docstatus": 1, "is_return": 0,
+                "posting_date": ("between", [period_start, period_end]),
+            }
+        else:
+            db_filters = _net_invoice_filters(company, inv_period)
+        if company:
+            db_filters["company"] = company
+        rows = frappe.get_list(
+            "Sales Invoice",
+            filters=db_filters,
+            fields=["name", "customer", "posting_date", "base_net_total", "territory"],
+            start=start, page_length=page_size, order_by="posting_date desc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
+                {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
+                {"label": "Territory", "fieldname": "territory", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("Sales Invoice", filters=db_filters),
+        }
+
 
     frappe.throw(_("Unknown metric: {0}").format(metric), frappe.ValidationError)

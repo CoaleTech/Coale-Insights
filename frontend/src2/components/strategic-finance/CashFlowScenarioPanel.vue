@@ -19,16 +19,19 @@
         />
         <Button
           variant="ghost"
-          aria-label="Toggle scenarios panel"
+          class="shrink-0"
+          label="Toggle scenarios panel"
           :aria-expanded="String(expanded)"
           @click="expanded = !expanded"
         >
-          <ChevronDown
-            :class="[
-              'h-5 w-5 text-ink-gray-5 transition-transform motion-reduce:transition-none',
-              expanded ? 'rotate-180' : '',
-            ]"
-          />
+          <template #icon>
+            <ChevronDown
+              :class="[
+                'h-5 w-5 text-ink-gray-5 transition-transform motion-reduce:transition-none',
+                expanded ? 'rotate-180' : '',
+              ]"
+            />
+          </template>
         </Button>
       </div>
     </div>
@@ -164,11 +167,10 @@
           </h5>
           <Button
             variant="ghost"
-            aria-label="Close scenario detail"
+            :icon="X"
+            label="Close scenario detail"
             @click="selectedScenario = null"
-          >
-            <X class="h-4 w-4 text-ink-gray-5" />
-          </Button>
+          />
         </div>
 
         <!-- Comparison Bars -->

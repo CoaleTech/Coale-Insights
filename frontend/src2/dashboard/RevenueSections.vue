@@ -14,15 +14,18 @@ import { apiCall } from '../helpers/api'
 import { confirmDialog } from '../helpers/confirm_dialog'
 import {
   TrendingUp, Activity, BarChart3, Calendar,
-  Banknote, CreditCard, Target,
+  Target,
 } from 'lucide-vue-next'
 import { computed, ref, watch } from 'vue'
 import { createToast } from '../helpers/toasts'
 import { chartPalette, themeColor } from '../utils/chartTheme'
 import KpiCard from '../intelligence/components/KpiCard.vue'
 import SectionHeader from '../intelligence/components/SectionHeader.vue'
-import { severityBadge, scoreSeverity, deltaInk, deltaGlyph, type Severity } from '../utils/status'
-import { formatMoney, formatDateShort, formatCount, formatPercent, asNumber, NO_VALUE } from '../utils/format'
+import TabBrief, { type Brief } from '../intelligence/components/TabBrief.vue'
+import TabActions from '../intelligence/components/TabActions.vue'
+import StatStrip, { type StatItem } from '../intelligence/components/StatStrip.vue'
+import { severityBadge, severityTint, scoreSeverity, deltaInk, deltaGlyph, type Severity } from '../utils/status'
+import { formatMoney, formatDate, formatDateShort, formatCount, formatPercent, asNumber, NO_VALUE } from '../utils/format'
 import { DEFAULT_DATE_RANGES, FISCAL_PERIOD_RANGES, decodeCustomRange } from '../utils/dateRangePresets'
 import type { DrillDownParams } from '../intelligence/composables/useDrillDown'
 
@@ -32,10 +35,12 @@ const props = defineProps<{
   dateFilter: string
   currency: string | null
   drillDownEndpoint: string
+  atRiskCount?: number | null
 }>()
 
 const emit = defineEmits<{
   (e: 'drill-down', endpoint: string, title: string, params: DrillDownParams): void
+  (e: 'refresh'): void
 }>()
 
 function drillOpen(title: string, params: DrillDownParams) {
@@ -60,11 +65,14 @@ const forecasts = computed(() => (props.data.forecasts ?? {}) as Record<string, 
  * wrong by a factor of three.
  */
 interface SalesForecastPayload {
-  forecast?: { yhat?: number }[]
+  forecast?: { yhat?: number; yhat_lower?: number; yhat_upper?: number }[]
   forecast_summary?: { total_forecast?: number; avg_daily_forecast?: number; trend?: string; days?: number; stale_days?: number }
   method?: string
   metrics?: Record<string, number>
+  data_range?: { start?: string; end?: string }
 }
+/** Daily forecast rows carry their date; the sales-forecast type above only lists the fields read elsewhere. */
+interface DailyForecastRow { ds?: string; yhat?: number; yhat_lower?: number; yhat_upper?: number }
 const salesForecast = computed(
   () => (forecasts.value.sales_forecast ?? null) as SalesForecastPayload | null,
 )
@@ -165,6 +173,18 @@ const lastMonth = computed(() => (comparisons.value.last_month ?? {}) as PeriodT
 const lastYearMonth = computed(() => (comparisons.value.last_year_same_month ?? {}) as PeriodTotals)
 const momGrowth = computed(() => asNumber(comparisons.value.mom_growth) ?? null)
 const yoyGrowth = computed(() => asNumber(comparisons.value.yoy_growth) ?? null)
+// Full-month comparisons: no day-of-month cap (added by backend fix)
+const momGrowthFull = computed(() => asNumber(comparisons.value.mom_growth_full) ?? null)
+const yoyGrowthFull = computed(() => asNumber(comparisons.value.yoy_growth_full) ?? null)
+interface PeriodFull { revenue?: number; transactions?: number; period?: string }
+const lastMonthFull = computed(() => (comparisons.value.last_month_full ?? {}) as PeriodFull)
+const lastYearFull = computed(() => (comparisons.value.last_year_full ?? {}) as PeriodFull)
+
+// Server-computed verdict headline (Rule 7)
+const verdictHeadline = computed(
+  () => (props.data.verdict_headline as string | undefined) ?? null,
+)
+
 function growthText(v: number | null): string {
   return v === null ? NO_VALUE : `${Math.abs(v).toFixed(1)}%`
 }
@@ -173,13 +193,12 @@ function periodLabel(period: string, partial?: boolean): string {
 }
 
 const cashRatio = computed(() => asNumber(paymentMix.value.cash_ratio) ?? null)
-const todayCashPct = computed(() => asNumber(paymentMix.value.today_cash_pct) ?? null)
-const todayCreditPct = computed(() => (todayCashPct.value === null ? null : 100 - todayCashPct.value))
-// No invoices today is "no sales", not "100% credit".
-const hasTodaySales = computed(() => (asNumber(paymentMix.value.today_total) ?? 0) > 0)
+
 // Unattributed revenue is ~0 once the basis is net; hide the note then.
 const unattributedRevenue = computed(() => asNumber(salesReps.value.unattributed_revenue) ?? null)
 const forecastStaleDays = computed(() => salesForecast.value?.forecast_summary?.stale_days ?? 0)
+// ERPNext's built-in root Item Group: items left in it have no specific product group.
+const ROOT_ITEM_GROUP = 'All Item Groups'
 
 /**
  * Group-level margins (reps, product groups, sources) cluster around the
@@ -194,8 +213,106 @@ function groupMarginSeverity(v: number | null | undefined): Severity {
   return base === null ? 'none' : scoreSeverity(v, { good: base * 1.2, warn: base * 0.8 })
 }
 
-// ── State: collapsible daily sales ─────────────────────────────────────────
-const showDailySales = ref(false)
+// ── Attention rail items (computed from payload; severity classification only) ──
+interface AttentionItem {
+  severity: Severity
+  metric: string
+  why: string
+  drill?: { title: string; params: DrillDownParams }
+}
+const attentionItems = computed((): AttentionItem[] => {
+  const items: AttentionItem[] = []
+  const dsoVal = dso.value
+  const totalRec = asNumber(fulfillment.value.total_receivables) ?? null
+
+  // 1. DSO (high if > 60, medium if > 30)
+  if (dsoVal !== null && dsoVal > 30) {
+    const sev: Severity = dsoVal > 60 ? 'high' : 'medium'
+    const surplus = Math.round(dsoVal - 30)
+    items.push({
+      severity: sev,
+      metric: `DSO: ${dsoVal.toFixed(0)} days`,
+      why: `${surplus} days above the 30-day target.${totalRec != null ? ` ${money(totalRec)} in receivables outstanding.` : ''}`,
+      drill: { title: 'Receivables', params: { metric: 'receivables' } },
+    })
+  }
+
+  // 2. Softest complete month (warn if MoM < -20%)
+  const trend = monthlyTrendRows.value.filter(m => !m.is_partial)
+  if (trend.length >= 2) {
+    const softest = trend.reduce((a, b) => ((b.revenue ?? 0) < (a.revenue ?? 0) ? b : a))
+    const sf_pct = (softest as unknown as { mom_pct?: number | null }).mom_pct
+    if (sf_pct !== null && sf_pct !== undefined && sf_pct < -20) {
+      const sfFull = lastMonthFull.value
+      const sfFullRev = sfFull.revenue != null ? ` Full prior month ${money(sfFull.revenue)}.` : ''
+      items.push({
+        severity: 'medium',
+        metric: `${formatPeriod(softest.period)} revenue: ${money(softest.revenue)}`,
+        why: `Softest complete month in the window.${sfFullRev}`,
+        drill: { title: `Invoices: ${formatPeriod(softest.period)}`, params: { metric: 'invoices_by_period', period: softest.period } },
+      })
+    }
+  }
+
+  // 3. Forecast reliability / staleness
+  const rel = forecastReliability.value
+  const stale = forecastStaleDays.value
+  if (rel && (rel.level === 'Low' || stale > 30)) {
+    items.push({
+      severity: 'medium',
+      metric: `Forecast reliability: ${rel.level}`,
+      why: `${rel.label} ${rel.value.toFixed(1)}%${stale > 0 ? `, model ${stale} days stale` : ''}. Retrain to improve accuracy.`,
+    })
+  }
+
+  // 4. At-risk customers (from shell prop, optional)
+  if (props.atRiskCount != null && props.atRiskCount > 0) {
+    items.push({
+      severity: 'medium',
+      metric: `${props.atRiskCount} customers at risk`,
+      why: 'High + Critical churn risk from customer intelligence. Review the Actions tab.',
+    })
+  }
+
+  // Positive items
+  const frRate = fulfillmentRate.value
+  if (frRate !== null && frRate >= 95) {
+    const fulfilled = asNumber(fulfillment.value.fulfilled) ?? null
+    const total = asNumber(fulfillment.value.total_orders) ?? null
+    items.push({
+      severity: 'low',
+      metric: `Fulfillment: ${pct(frRate)}`,
+      why: fulfilled != null && total != null
+        ? `${num(fulfilled)} of ${num(total)} orders fulfilled.`
+        : 'Orders are being fulfilled on schedule.',
+    })
+  }
+  const yoy = yoyGrowth.value
+  if (yoy !== null && yoy >= 10) {
+    items.push({
+      severity: 'low',
+      metric: `YoY: +${yoy.toFixed(1)}% (like-for-like)`,
+      why: 'Same-duration comparison vs prior year. Full-month basis may differ.',
+    })
+  }
+
+  return items
+})
+// ── Operational tile sublabel helpers ─────────────────────────────────────
+const fulfillmentSublabel = computed(() => {
+  const f = asNumber(fulfillment.value.fulfilled)
+  const t = asNumber(fulfillment.value.total_orders)
+  return f != null && t != null ? `${num(f)} of ${num(t)} orders` : undefined
+})
+const receivablesSublabel = computed(() => {
+  const r = asNumber(fulfillment.value.total_receivables)
+  return r != null ? `Receivables ${money(r)}` : undefined
+})
+const avgDaysSubLabel = computed(() => {
+  const n = asNumber(revenueMetrics.value.unique_customers)
+  return n != null ? `${num(n)} customers` : undefined
+})
+
 
 // ── State: ML training ────────────────────────────────────────────────────
 const isTraining = ref<string | false>(false)
@@ -268,7 +385,7 @@ const marginTrendConfig = computed(() => {
     title: '',
     xAxis: { key: 'period', type: 'category' as const },
     yAxis: { title: '', yMin: 0 },
-    y2Axis: { title: '', yMin: 0 },
+    y2Axis: { title: 'Margin %', yMin: 0 },
     series: [
       { name: 'Net Sales', type: 'bar' as const, color: palette[0], axis: 'y' as const },
       { name: 'Margin %', type: 'line' as const, color: palette[1], axis: 'y2' as const, showDataPoints: true },
@@ -293,22 +410,23 @@ const marginGroups = computed(() => {
 function trainForecasts(modelType: string) {
   confirmDialog({
     title: 'Train Forecast Model',
-    message: `This will retrain the ${modelType} forecast model on a background worker. It takes several minutes; the dashboard updates once it finishes.`,
+    message: `This recomputes the ${modelType} forecast from the latest invoices, then refreshes the dashboard. It can take a minute.`,
     primaryActionLabel: 'Train Model',
     onSuccess: async () => {
       isTraining.value = modelType
       trainingStatus.value = ''
       try {
-        // The endpoint queues the fit and returns immediately, so report what
-        // the server actually said rather than claiming the model is trained.
+        // The endpoint recomputes inline (no background job), so the
+        // dashboard payload is reloaded once it returns.
         const result = (await apiCall('insights.api.ml.train_forecast_models', {
           model_type: modelType,
         })) as Record<string, unknown>
-        const message = (result?.message as string) || 'Training started in the background'
+        const message = (result?.message as string) || 'Forecast recomputed'
+        emit('refresh')
         trainingStatus.value = message
         trainingOk.value = true
         createToast({
-          title: 'Training Started',
+          title: 'Forecast Recomputed',
           message,
           variant: 'success',
         })
@@ -609,122 +727,6 @@ function grossProfitRows<T extends { cost_of_sales?: number; gross_profit?: numb
   ]
 }
 
-// ── Weekly performance transposed table ───────────────────────────────────
-interface WeeklySalesItem { year_week: string; revenue?: number; transactions?: number; cost_of_sales?: number; gross_profit?: number }
-const transposedWeeklyPerformance = computed(() => {
-  const weeklyData = (revenueMetrics.value.weekly_sales as WeeklySalesItem[]) || []
-  if (!weeklyData.length) return { weeks: [] as { label: string }[], rows: [] as TransposedRow[] }
-  const recentWeeks = weeklyData.slice(-8)
-  const weekKey = (w: WeeklySalesItem) => w.year_week.replace(/^\d{4}-/, '')
-  const weeks = recentWeeks.map(w => ({ label: weekKey(w) }))
-  const rows: TransposedRow[] = [
-    {
-      metric: 'Revenue',
-      values: recentWeeks.reduce((acc, w) => { acc[weekKey(w)] = w.revenue ?? 0; return acc }, {} as Record<string, number>),
-      total: recentWeeks.reduce((sum, w) => sum + (w.revenue ?? 0), 0),
-      colorClass: 'text-ink-gray-9 font-bold',
-      isCurrency: true,
-    },
-    {
-      metric: 'Orders',
-      values: recentWeeks.reduce((acc, w) => { acc[weekKey(w)] = w.transactions ?? 0; return acc }, {} as Record<string, number>),
-      total: recentWeeks.reduce((sum, w) => sum + (w.transactions ?? 0), 0),
-      colorClass: 'text-ink-gray-7',
-      isCurrency: false,
-    },
-    {
-      metric: 'AOV',
-      values: recentWeeks.reduce((acc, w) => {
-        acc[weekKey(w)] = (w.transactions ?? 0) > 0 ? (w.revenue ?? 0) / (w.transactions ?? 1) : 0
-        return acc
-      }, {} as Record<string, number>),
-      total: recentWeeks.reduce((sum, w) => sum + (w.revenue ?? 0), 0) / Math.max(1, recentWeeks.reduce((sum, w) => sum + (w.transactions ?? 0), 0)),
-      colorClass: 'text-ink-gray-8',
-      isCurrency: true,
-    },
-  ]
-  rows.push(...grossProfitRows(recentWeeks, weekKey))
-  return { weeks, rows }
-})
-
-// ── Monthly summary transposed table ──────────────────────────────────────
-interface MonthlySalesItem { period: string; revenue?: number; transactions?: number; unique_customers?: number; cost_of_sales?: number; gross_profit?: number; is_partial?: boolean }
-const transposedMonthlySummary = computed(() => {
-  const monthlyData = (revenueMetrics.value.monthly_sales as MonthlySalesItem[]) || []
-  if (!monthlyData.length) return { months: [] as string[], partial: new Set<string>(), rows: [] as TransposedRow[] }
-  const recentMonths = monthlyData.slice(-6)
-  const months = recentMonths.map(m => m.period)
-  const partial = new Set(recentMonths.filter(m => m.is_partial).map(m => m.period))
-  // Unique customers are not additive across months. The only distinct count the
-  // payload carries covers the whole window, so it is the right total only when
-  // the table shows the whole window; otherwise the total is left blank.
-  const customersTotal = monthlyData.length === recentMonths.length
-    ? (asNumber(summary.value.unique_customers) ?? null)
-    : null
-  const rows: TransposedRow[] = [
-    {
-      metric: 'Revenue',
-      values: recentMonths.reduce((acc, m) => { acc[m.period] = m.revenue ?? 0; return acc }, {} as Record<string, number>),
-      total: recentMonths.reduce((sum, m) => sum + (m.revenue ?? 0), 0),
-      colorClass: 'text-ink-gray-9 font-bold',
-      isCurrency: true,
-    },
-    {
-      metric: 'Orders',
-      values: recentMonths.reduce((acc, m) => { acc[m.period] = m.transactions ?? 0; return acc }, {} as Record<string, number>),
-      total: recentMonths.reduce((sum, m) => sum + (m.transactions ?? 0), 0),
-      colorClass: 'text-ink-gray-7',
-      isCurrency: false,
-    },
-    {
-      metric: 'Customers',
-      values: recentMonths.reduce((acc, m) => { acc[m.period] = m.unique_customers ?? 0; return acc }, {} as Record<string, number>),
-      total: customersTotal,
-      colorClass: 'text-ink-gray-8',
-      isCurrency: false,
-    },
-  ]
-  rows.push(...grossProfitRows(recentMonths, m => m.period))
-  return { months, partial, rows }
-})
-
-// ── Daily sales transposed table ──────────────────────────────────────────
-interface DailySalesItem { date: string; revenue?: number; transactions?: number; cost_of_sales?: number; gross_profit?: number }
-const transposedDailySales = computed(() => {
-  const dailyData = (revenueMetrics.value.daily_sales as DailySalesItem[]) || []
-  if (!dailyData.length) return { dates: [] as string[], rows: [] as TransposedRow[] }
-  const recentDays = dailyData
-  const dates = recentDays.map(d => d.date)
-  const rows: TransposedRow[] = [
-    {
-      metric: 'Revenue',
-      values: recentDays.reduce((acc, d) => { acc[d.date] = d.revenue ?? 0; return acc }, {} as Record<string, number>),
-      total: recentDays.reduce((sum, d) => sum + (d.revenue ?? 0), 0),
-      colorClass: 'text-ink-gray-9 font-bold',
-      isCurrency: true,
-    },
-    {
-      metric: 'Orders',
-      values: recentDays.reduce((acc, d) => { acc[d.date] = d.transactions ?? 0; return acc }, {} as Record<string, number>),
-      total: recentDays.reduce((sum, d) => sum + (d.transactions ?? 0), 0),
-      colorClass: 'text-ink-gray-7',
-      isCurrency: false,
-    },
-    {
-      metric: 'Avg Order',
-      values: recentDays.reduce((acc, d) => {
-        acc[d.date] = (d.transactions ?? 0) > 0 ? (d.revenue ?? 0) / (d.transactions ?? 1) : 0
-        return acc
-      }, {} as Record<string, number>),
-      total: recentDays.reduce((sum, d) => sum + (d.revenue ?? 0), 0) / Math.max(1, recentDays.reduce((sum, d) => sum + (d.transactions ?? 0), 0)),
-      colorClass: 'text-ink-gray-8',
-      isCurrency: true,
-    },
-  ]
-  rows.push(...grossProfitRows(recentDays, d => d.date))
-  return { dates, rows }
-})
-
 // ── Format helpers ─────────────────────────────────────────────────────────
 function formatPeriod(period: string | null | undefined): string {
   if (!period || !/^\d{4}-\d{2}/.test(period)) return period || NO_VALUE
@@ -812,284 +814,440 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
   if (tab === 'rev-forecasts') loadDimensionalForecast()
   if (tab === 'rev-sources' && sourcesLoadedFor !== filter) loadSourceAttribution()
 }, { immediate: true })
+
+const sourcesBrief = computed(
+  () => (quotationAnalytics.value?.brief ?? null) as Brief | null,
+)
+// ── Server briefs + stat strips ───────────────────────────────────────────
+// Headline text is built server-side (insights/ml/tab_briefs/revenue.py); the
+// client only renders it, and renders nothing for an older cached payload.
+const tabBriefs = computed(
+  () => (props.data.tab_briefs ?? {}) as Record<string, Brief>,
+)
+const toneOf = (s: Severity): StatItem['tone'] =>
+  s === 'high' || s === 'critical' ? 'neg' : s === 'medium' ? 'warn' : s === 'low' ? 'pos' : undefined
+const ofRevenue = (v: unknown) => {
+  const n = asNumber(v)
+  return n == null ? undefined : `${n.toFixed(1)}% of revenue`
+}
+
+const paymentStrip = computed<StatItem[]>(() => [
+  { label: 'Cash Sales', amount: asNumber(paymentMix.value.cash_total) ?? null, sublabel: ofRevenue(paymentMix.value.cash_ratio) },
+  { label: 'Credit Sales', amount: asNumber(paymentMix.value.credit_total) ?? null, sublabel: ofRevenue(paymentMix.value.credit_ratio) },
+  { label: 'DSO', value: dso.value?.toFixed(1) ?? null, unit: ' days', tone: toneOf(dsoSeverity.value) },
+  { label: 'Receivables Outstanding', amount: asNumber(fulfillment.value.total_receivables) ?? null },
+])
+
+const repsStrip = computed<StatItem[]>(() => {
+  const reps = (salesReps.value.reps ?? []) as Record<string, number | string>[]
+  const team = asNumber(salesReps.value.total_team_revenue)
+  const top = salesReps.value.top_performer as Record<string, number | string> | undefined
+  const best = reps.reduce<Record<string, number | string> | null>(
+    (a, r) => (a === null || (r.margin_pct as number) > (a.margin_pct as number) ? r : a), null)
+  const nameOf = (r: Record<string, number | string> | null | undefined) =>
+    r ? String(r.sales_person_name || r.sales_person) : undefined
+  return [
+    { label: 'Team Revenue', amount: team ?? null, sublabel: `${reps.length} reps` },
+    { label: 'Top Rep Share', percent: top && team ? ((top.total_revenue as number) / team) * 100 : null, sublabel: nameOf(top) },
+    { label: 'Blended Margin', percent: asNumber(margins.value.overall_margin) ?? null },
+    { label: 'Best Margin Rep', percent: best ? (best.margin_pct as number) : null, sublabel: nameOf(best) },
+  ]
+})
+
+/** "Apr 26, ₹2.25M gross profit, +4.1pp vs blended" for a margin-trend month; the blended margin is the payload's overall margin. */
+const monthSub = (t: Record<string, unknown> | null): string | undefined => {
+  if (!t) return undefined
+  const blended = asNumber(margins.value.overall_margin)
+  const gp = asNumber(t.gross_profit)
+  const diff = blended === undefined ? null : Number(t.margin_pct) - blended
+  return [
+    formatPeriod(t.period as string),
+    gp === undefined ? null : `${money(gp)} gross profit`,
+    diff === null ? null : `${diff >= 0 ? '+' : '-'}${Math.abs(diff).toFixed(1)}pp vs blended`,
+  ].filter(Boolean).join(', ')
+}
+
+const marginsStrip = computed<StatItem[]>(() => {
+  const done = ((margins.value.margin_trend ?? []) as Record<string, unknown>[])
+    .filter(t => t.is_partial !== true && typeof t.margin_pct === 'number')
+  const hi = done.reduce<Record<string, unknown> | null>((a, t) => (a === null || (t.margin_pct as number) > (a.margin_pct as number) ? t : a), null)
+  const lo = done.reduce<Record<string, unknown> | null>((a, t) => (a === null || (t.margin_pct as number) < (a.margin_pct as number) ? t : a), null)
+  const groups = (margins.value.by_product_group ?? []) as Record<string, unknown>[]
+  const top = groups.reduce<Record<string, unknown> | null>((a, g) => (a === null || (g.margin_pct as number) > (a.margin_pct as number) ? g : a), null)
+  return [
+    { label: 'Blended Margin', percent: asNumber(margins.value.overall_margin) ?? null, sublabel: `${money(margins.value.total_profit as number)} gross profit` },
+    { label: 'Peak Month', percent: hi ? (hi.margin_pct as number) : null, sublabel: monthSub(hi) },
+    { label: 'Trough Month', percent: lo ? (lo.margin_pct as number) : null, sublabel: monthSub(lo) },
+    { label: 'Top Group Margin', percent: top ? (top.margin_pct as number) : null, sublabel: top ? String(top.item_group) : undefined },
+  ]
+})
+
+const forecastStrip = computed<StatItem[]>(() => {
+  const rows = salesForecast.value?.forecast ?? []
+  const sum = (k: 'yhat_lower' | 'yhat_upper') =>
+    rows.length && rows.every(r => typeof r[k] === 'number') ? rows.reduce((s, r) => s + (r[k] as number), 0) : null
+  const rel = forecastReliability.value
+  return [
+    { label: 'Base Forecast', amount: salesForecast.value?.forecast_summary?.total_forecast ?? null, sublabel: `${forecastDays.value} days, ${methodLabel.value}` },
+    { label: 'Downside', amount: sum('yhat_lower'), sublabel: 'sum of the lower bound' },
+    { label: 'Upside', amount: sum('yhat_upper'), sublabel: 'sum of the upper bound' },
+    { label: 'Model Error', percent: rel ? rel.value : null, sublabel: rel ? `${rel.label}, ${rel.level} reliability` : undefined, tone: rel?.level === 'Low' ? 'warn' : undefined },
+  ]
+})
+
+/** The 30 daily forecast values with their confidence band, one line each. */
+const dailyForecastConfig = computed(() => {
+  const rows = (salesForecast.value?.forecast ?? []) as DailyForecastRow[]
+  if (!rows.length || rows.some((r) => !r.ds || typeof r.yhat !== 'number')) return null
+  const palette = chartPalette(3)
+  return {
+    data: rows.map((r) => ({
+      day: r.ds!,
+      'Upper bound': Number(r.yhat_upper ?? r.yhat),
+      'Point estimate': Number(r.yhat),
+      'Lower bound': Number(r.yhat_lower ?? r.yhat),
+    })),
+    title: '',
+    xAxis: { key: 'day', type: 'category' as const },
+    yAxis: { title: 'Revenue per day' },
+    series: [
+      { name: 'Upper bound', type: 'area' as const, color: palette[1], fillOpacity: 0.12, showDataPoints: false },
+      { name: 'Point estimate', type: 'line' as const, color: palette[0], showDataPoints: false },
+      { name: 'Lower bound', type: 'line' as const, color: palette[2], lineType: 'dashed' as const, showDataPoints: false },
+    ],
+  }
+})
+
+const sourcesStrip = computed<StatItem[]>(() => {
+  const s = attributionSummary.value
+  return [
+    { label: 'Attributed Revenue', amount: s ? s.attributedRevenue : null, sublabel: s ? `${pct(s.attributedPct)} of total revenue` : undefined },
+    { label: 'Top Lead Source', value: s ? s.topSource : null, sublabel: s?.topSourceRevenue != null ? money(s.topSourceRevenue) : undefined },
+    { label: 'Quote Conversion', percent: quotationAnalytics.value ? (quotationAnalytics.value.conversion_rate as number) : null, sublabel: 'quotes won / total' },
+    { label: 'Sources Tracked', value: s ? String(s.sourceCount) : null, sublabel: 'excludes unattributed' },
+  ]
+})
+
+// ── Cash vs Credit panels: arithmetic on payload fields only ──────────────
+const DSO_TARGET = 30 // the `good` cut of `dsoSeverity`
+const creditRatio = computed(() => asNumber(paymentMix.value.credit_ratio) ?? null)
+const paymentCards = computed(() => [
+  { title: 'Cash', share: cashRatio.value, amount: asNumber(paymentMix.value.cash_total) ?? null, note: 'Collected at the point of sale', tint: 'bg-card', fill: 'bg-surface-green-3' },
+  {
+    title: 'Credit',
+    share: creditRatio.value,
+    amount: asNumber(paymentMix.value.credit_total) ?? null,
+    note: asNumber(fulfillment.value.total_receivables) == null ? null : `${money(asNumber(fulfillment.value.total_receivables))} outstanding now`,
+    tint: 'bg-surface-amber-2',
+    fill: 'bg-surface-amber-3',
+  },
+])
+interface BridgeBar { text: string; width: number; fill: string }
+// Each bar is scaled against the longest bar in its own row (money rows against
+// 100%, the DSO row against the larger of DSO and target).
+const bridge = computed<{ label: string; bars: BridgeBar[] }[]>(() => {
+  const daily = asNumber(fulfillment.value.avg_daily_sales)
+  const ar = asNumber(fulfillment.value.total_receivables)
+  const d = dso.value
+  if (!daily || ar == null || d === null) return []
+  const rows: { label: string; bars: BridgeBar[] }[] = [
+    { label: 'Avg daily sales', bars: [{ text: `${money(daily)} / day`, width: 100, fill: 'bg-surface-blue-2' }] },
+  ]
+  if (creditRatio.value != null) {
+    rows.push({
+      label: `Credit portion (${pct(creditRatio.value)})`,
+      bars: [{ text: `${money((daily * creditRatio.value) / 100)} / day`, width: creditRatio.value, fill: 'bg-surface-amber-2' }],
+    })
+  }
+  const longest = Math.max(d, DSO_TARGET)
+  rows.push({
+    label: 'Collection period',
+    bars: [
+      { text: `${d.toFixed(1)} days`, width: (d / longest) * 100, fill: 'bg-surface-amber-2' },
+      { text: `${DSO_TARGET} day target`, width: (DSO_TARGET / longest) * 100, fill: 'bg-surface-green-2' },
+    ],
+  })
+  const excess = ar - DSO_TARGET * daily
+  if (excess > 0) {
+    rows.push({
+      label: 'Receivables beyond target',
+      bars: [{ text: money(excess), width: (excess / ar) * 100, fill: 'bg-surface-red-2' }],
+    })
+  }
+  return rows
+})
+
+// ── Sales Reps: concentration bar + spotlight cards ───────────────────────
+interface RepRow { sales_person: string; sales_person_name?: string; total_revenue: number; margin_pct: number; gross_profit: number; avg_order_value: number; total_orders: number; unique_customers: number; rank: number }
+const repName = (r: RepRow) => r.sales_person_name || r.sales_person
+const rankedReps = computed(() =>
+  [...((salesReps.value.reps ?? []) as RepRow[])].sort((a, b) => b.total_revenue - a.total_revenue),
+)
+const repSegments = computed(() => {
+  const team = asNumber(salesReps.value.total_team_revenue)
+  const reps = rankedReps.value
+  if (!team || !reps.length) return []
+  const fills = ['bg-surface-blue-3', 'bg-surface-amber-3', 'bg-surface-green-3']
+  const seg = (name: string, amount: number, fill: string) => ({ name, amount, share: (amount / team) * 100, fill })
+  const out = reps.slice(0, 3).map((r, i) => seg(repName(r), r.total_revenue, fills[i]))
+  const tail = reps.slice(3)
+  if (tail.length) out.push(seg(tail.map(repName).join(' + '), tail.reduce((s, r) => s + r.total_revenue, 0), 'bg-surface-gray-4'))
+  return out
+})
+const repSpotlights = computed(() => {
+  const reps = rankedReps.value
+  const base = marginBaseline.value
+  if (reps.length < 2) return []
+  const top = reps[0]
+  const cards = [{ heading: 'Largest book', rep: top, tint: 'bg-surface-amber-2' }]
+  const second = reps[1]
+  if (base !== null && second.margin_pct < base) cards.push({ heading: 'Below blended margin', rep: second, tint: 'bg-surface-red-2' })
+  const best = reps.reduce((a, r) => (r.margin_pct > a.margin_pct ? r : a), reps[0])
+  if (best !== top && base !== null && best.margin_pct > base) cards.push({ heading: 'Highest margin', rep: best, tint: 'bg-surface-green-2' })
+  return cards
+})
+
+// ── Forecasts: model health + scenarios ───────────────────────────────────
+const forecastRange = computed(() => {
+  const rows = salesForecast.value?.forecast ?? []
+  const lows = rows.map(r => r.yhat_lower).filter((v): v is number => typeof v === 'number')
+  const ups = rows.map(r => r.yhat_upper).filter((v): v is number => typeof v === 'number')
+  return { lows, ups, complete: rows.length > 0 && lows.length === rows.length && ups.length === rows.length }
+})
+const modelHealth = computed(() => {
+  const sf = salesForecast.value
+  if (!sf) return []
+  const m = sf.metrics ?? {}
+  const { lows, ups, complete } = forecastRange.value
+  const range = sf.data_range
+  return [
+    { label: 'Method', value: methodLabel.value },
+    { label: 'Training points', value: m.n_points == null ? NO_VALUE : `${num(m.n_points)} daily observations` },
+    { label: 'Training window', value: range?.start && range?.end ? `${formatDate(range.start)} to ${formatDate(range.end)}` : NO_VALUE },
+    { label: 'sMAPE', value: m.smape == null ? NO_VALUE : pct(m.smape) },
+    { label: 'RMSE', value: m.rmse == null ? NO_VALUE : money(m.rmse) },
+    { label: 'MAE', value: m.mae == null ? NO_VALUE : money(m.mae) },
+    { label: 'Daily interval', value: complete ? `${money(Math.min(...lows))} to ${money(Math.max(...ups))}` : NO_VALUE },
+  ]
+})
+const scenarioRows = computed(() => {
+  const { lows, ups, complete } = forecastRange.value
+  const base = salesForecast.value?.forecast_summary?.total_forecast
+  if (!complete || base == null) return []
+  const sum = (xs: number[]) => xs.reduce((s, v) => s + v, 0)
+  return [
+    { name: 'Downside', note: 'Sum of the daily lower bound', amount: sum(lows), tint: 'bg-surface-red-2' },
+    { name: 'Base', note: 'Sum of the daily point forecast', amount: base, tint: 'bg-surface-blue-2' },
+    { name: 'Upside', note: 'Sum of the daily upper bound', amount: sum(ups), tint: 'bg-surface-green-2' },
+  ]
+})
 </script>
 
 <template>
   <!-- ═══ Revenue Overview ═══ -->
   <div v-if="activeTab === 'rev-overview'">
-    <dl class="mb-6 grid grid-cols-2 gap-x-6 gap-y-4 rounded-lg border border-outline-gray-1 bg-card p-4 sm:grid-cols-4">
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Unique Customers</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ num(asNumber(revenueMetrics.unique_customers) ?? asNumber(summary.unique_customers)) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="text-sm text-ink-gray-6">Avg Days Between Orders</dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ revenueMetrics.avg_days_between_orders ?? '-' }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="flex items-center gap-2 text-sm text-ink-gray-6">
-          Fulfillment Rate
-          <Badge v-if="fulfillmentSeverity !== 'none'" v-bind="severityBadge(fulfillmentSeverity)" size="sm" />
-        </dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ pct(fulfillmentRate) }}</dd>
-      </div>
-      <div class="min-w-0">
-        <dt class="flex items-center gap-2 text-sm text-ink-gray-6">
-          Days Sales Outstanding
-          <Badge v-if="dsoSeverity !== 'none'" v-bind="severityBadge(dsoSeverity)" size="sm" />
-        </dt>
-        <dd class="tnum text-lg font-semibold text-ink-gray-9">{{ dso === null ? NO_VALUE : `${dso.toFixed(0)} days` }}</dd>
-      </div>
-    </dl>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <!-- Period Comparison -->
-      <div class="lg:col-span-1 space-y-4">
-        <SectionHeader variant="caption" title="Period Comparison" :level="3">
-          <template #actions><Calendar class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
-        </SectionHeader>
-        <div class="divide-y divide-outline-gray-1 rounded-lg border border-outline-gray-1 bg-card">
-          <div class="p-4">
-            <div class="flex justify-between items-start">
-              <div>
-                <p class="text-sm text-ink-gray-6 font-medium">{{ currentMonthPartial ? 'Month to date' : 'Current month' }}</p>
-                <p class="text-2xl font-bold text-ink-gray-9">{{ money(currentMonth.revenue) }}</p>
-              </div>
-              <span class="text-xs text-ink-gray-6">{{ currentMonth.period }}<template v-if="currentMonthPartial"> · partial</template></span>
-            </div>
-            <div class="flex gap-4 mt-2 text-sm text-ink-gray-6">
-              <span>{{ num(currentMonth.transactions) }} orders</span>
-              <span>AOV: {{ money(currentMonth.aov) }}</span>
-            </div>
-          </div>
-          <div class="p-4">
-            <div class="flex justify-between items-center">
-              <p class="text-sm text-ink-gray-6 font-medium">Previous month</p>
-              <span v-if="currentMonthPartial" class="text-xs text-ink-gray-6">MoM n/a · month in progress</span>
-              <span v-else :class="['text-sm font-bold', deltaInk(momGrowth)]">
-                {{ deltaGlyph(momGrowth) }}
-                {{ growthText(momGrowth) }}
-              </span>
-            </div>
-            <p class="text-lg font-semibold text-ink-gray-9 mt-1">
-              {{ money(lastMonth.revenue) }}
-            </p>
-            <p class="text-xs text-ink-gray-6 mt-0.5">
-              {{ num(lastMonth.transactions) }} transactions
-            </p>
-          </div>
-          <div class="p-4">
-            <div class="flex justify-between items-center">
-              <p class="text-sm text-ink-gray-6 font-medium">Same month last year</p>
-              <span :class="['text-sm font-bold', deltaInk(yoyGrowth)]">
-                {{ deltaGlyph(yoyGrowth) }}
-                {{ growthText(yoyGrowth) }}
-              </span>
-            </div>
-            <p class="text-lg font-semibold text-ink-gray-9 mt-1">
-              {{ money(lastYearMonth.revenue) }}
-            </p>
-            <p class="text-xs text-ink-gray-6 mt-0.5">
-              {{ num(lastYearMonth.transactions) }} transactions
-            </p>
-          </div>
-        </div>
-      </div>
+    <!-- Verdict card: server-computed finding (Rule 7) -->
+    <div
+      v-if="verdictHeadline"
+      class="mb-6 rounded-lg border border-outline-gray-2 bg-accent-soft p-4"
+    >
+      <p class="text-sm font-semibold leading-snug text-ink-gray-9">{{ verdictHeadline }}</p>
+      <p class="mt-1 text-xs text-ink-gray-6">{{ windowLabel }}{{ currency ? ` · ${currency}` : '' }}</p>
+    </div>
 
-      <!-- Monthly Revenue Trend -->
-      <div class="lg:col-span-2">
-        <SectionHeader variant="caption" title="Monthly Revenue Trend" :level="3">
+    <!-- 2-col: hero chart + period comparison (left) + attention rail (right) -->
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+
+      <!-- LEFT: hero chart + period comparison -->
+      <div class="space-y-4 lg:col-span-2">
+
+        <!-- Monthly trend: accent-soft hero panel -->
+        <SectionHeader variant="caption" title="Monthly Revenue Trend" :hint="windowLabel" :level="3">
           <template #actions><TrendingUp class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
-        <div class="mt-4 bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
-          <IntelligenceChart v-if="monthlyTrendConfig" :config="monthlyTrendConfig" class="h-56" />
-          <div v-else class="h-56 flex items-center justify-center text-ink-gray-6">No trend data</div>
+        <div class="rounded-lg border border-outline-gray-1 bg-accent-soft p-4">
+          <IntelligenceChart v-if="monthlyTrendConfig" :config="monthlyTrendConfig" :value-format="money" class="h-80" />
+          <div v-else class="flex h-56 items-center justify-center text-sm text-ink-gray-6">No trend data</div>
+          <table v-if="monthlyTrendConfig" class="sr-only">
+            <caption>Monthly revenue trend</caption>
+            <thead><tr><th scope="col">Period</th><th scope="col">Revenue</th></tr></thead>
+            <tbody>
+              <tr v-for="m in monthlyTrendRows" :key="m.period">
+                <th scope="row">{{ m.period }}{{ m.is_partial ? ' (partial)' : '' }}</th>
+                <td>{{ money(m.revenue) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <table v-if="monthlyTrendConfig" class="sr-only">
-          <caption>Monthly revenue trend</caption>
-          <thead><tr><th scope="col">Period</th><th scope="col">Revenue</th></tr></thead>
-          <tbody>
-            <tr v-for="m in monthlyTrendRows" :key="m.period">
-              <th scope="row">{{ m.period }}{{ m.is_partial ? ' (partial)' : '' }}</th>
-              <td>{{ money(m.revenue) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+
+        <!-- Period comparison: current | like-for-like prior | year-ago -->
+        <div class="overflow-hidden rounded-lg border border-outline-gray-1 bg-card">
+          <div class="flex items-center justify-between border-b border-outline-gray-1 px-4 py-2">
+            <span class="text-xs font-medium uppercase tracking-wide text-ink-gray-6">Period Comparison</span>
+            <span class="text-xs text-ink-gray-6">{{ formatPeriod(currentMonth.period) }} vs prior periods</span>
+          </div>
+          <div class="grid grid-cols-1 divide-y divide-outline-gray-1 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <!-- Current period -->
+            <div class="p-4">
+              <p class="mb-1 text-xs text-ink-gray-6">{{ formatPeriod(currentMonth.period) }} (current{{ currentMonthPartial ? ', partial' : '' }})</p>
+              <p class="tnum text-xl font-bold text-ink-gray-9">{{ money(currentMonth.revenue) }}</p>
+              <p class="mt-1 text-xs text-ink-gray-6">
+                {{ num(currentMonth.transactions) }} orders
+                <template v-if="currentMonth.aov"> · AOV {{ money(currentMonth.aov) }}</template>
+              </p>
+            </div>
+            <!-- Prior window (like-for-like, same-duration) -->
+            <div class="p-4">
+              <div class="mb-1 flex items-baseline justify-between gap-2">
+                <p class="text-xs text-ink-gray-6">Prior window (like-for-like)</p>
+                <span v-if="momGrowth !== null" :class="['shrink-0 text-xs font-bold', deltaInk(momGrowth)]">
+                  {{ deltaGlyph(momGrowth) }} {{ growthText(momGrowth) }}
+                </span>
+              </div>
+              <p class="tnum text-lg font-semibold text-ink-gray-9">{{ money(lastMonth.revenue) }}</p>
+              <p class="mt-1 text-xs text-ink-gray-6">{{ num(lastMonth.transactions) }} orders</p>
+              <!-- Full-month MoM for disambiguation -->
+              <p v-if="momGrowthFull !== null && lastMonthFull.revenue != null"
+                 class="mt-2 border-t border-outline-gray-1 pt-2 text-xs text-ink-gray-6">
+                Full {{ formatPeriod(lastMonthFull.period) }}: {{ money(lastMonthFull.revenue) }}
+                <span :class="['ml-1 font-medium', deltaInk(momGrowthFull)]">
+                  {{ deltaGlyph(momGrowthFull) }} {{ growthText(momGrowthFull) }}
+                </span>
+              </p>
+            </div>
+            <!-- Year ago (like-for-like, same-duration) -->
+            <div class="p-4">
+              <div class="mb-1 flex items-baseline justify-between gap-2">
+                <p class="text-xs text-ink-gray-6">Year ago (like-for-like)</p>
+                <span v-if="yoyGrowth !== null" :class="['shrink-0 text-xs font-bold', deltaInk(yoyGrowth)]">
+                  {{ deltaGlyph(yoyGrowth) }} {{ growthText(yoyGrowth) }}
+                </span>
+              </div>
+              <p class="tnum text-lg font-semibold text-ink-gray-9">{{ money(lastYearMonth.revenue) }}</p>
+              <p class="mt-1 text-xs text-ink-gray-6">{{ num(lastYearMonth.transactions) }} orders</p>
+              <!-- Full-month YoY for disambiguation -->
+              <p v-if="yoyGrowthFull !== null && lastYearFull.revenue != null"
+                 class="mt-2 border-t border-outline-gray-1 pt-2 text-xs text-ink-gray-6">
+                Full {{ formatPeriod(lastYearFull.period) }}: {{ money(lastYearFull.revenue) }}
+                <span :class="['ml-1 font-medium', deltaInk(yoyGrowthFull)]">
+                  {{ deltaGlyph(yoyGrowthFull) }} {{ growthText(yoyGrowthFull) }}
+                </span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /LEFT -->
+
+      <!-- RIGHT: attention rail -->
+      <div>
+        <SectionHeader variant="caption" title="Needs Attention" :level="3" class="mb-3" />
+        <div
+          v-if="attentionItems.length"
+          class="divide-y divide-outline-gray-1 overflow-hidden rounded-lg border border-outline-gray-1"
+        >
+          <div
+            v-for="item in attentionItems"
+            :key="item.metric"
+            :class="['p-3', item.severity === 'low' ? 'bg-surface-green-1' : '']"
+          >
+            <div class="mb-1"><Badge v-bind="severityBadge(item.severity)" size="sm" /></div>
+            <p class="text-sm font-semibold text-ink-gray-9">{{ item.metric }}</p>
+            <p class="mt-0.5 text-xs leading-snug text-ink-gray-6">{{ item.why }}</p>
+            <button
+              v-if="item.drill"
+              class="mt-1 text-xs font-medium text-ink-blue-2 hover:underline focus-visible:outline-none"
+              @click="drillOpen(item.drill.title, item.drill.params)"
+            >
+              View details →
+            </button>
+          </div>
+        </div>
+        <div v-else class="rounded-lg border border-outline-gray-1 bg-surface-gray-1 p-4 text-center text-xs text-ink-gray-6">
+          No alerts for this period
+        </div>
+      </div><!-- /RIGHT -->
+
+    </div><!-- /2-col -->
+
+    <!-- Operational metric tiles: 4-up below main grid -->
+    <div class="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <KpiCard
+        variant="tile"
+        label="Fulfillment Rate"
+        :percent="fulfillmentRate"
+        :severity="fulfillmentSeverity"
+        :sublabel="fulfillmentSublabel"
+        :clickable="true"
+        @click="drillOpen('Unfulfilled Orders', { metric: 'unfulfilled_orders', period: props.dateFilter })"
+      />
+      <KpiCard
+        variant="tile"
+        label="Days Sales Outstanding"
+        :value="dso !== null ? `${dso.toFixed(0)} days` : undefined"
+        :severity="dsoSeverity"
+        :sublabel="receivablesSublabel"
+        :clickable="true"
+        @click="drillOpen('Receivables Detail', { metric: 'receivables' })"
+      />
+      <KpiCard
+        variant="tile"
+        label="30-Day Forecast"
+        :value="salesForecast?.forecast_summary?.total_forecast != null
+          ? money(salesForecast.forecast_summary.total_forecast as number)
+          : undefined"
+        :sublabel="forecastReliability
+          ? `${forecastTrendLabel} · reliability: ${forecastReliability.level}`
+          : forecastStaleDays > 0 ? `${forecastStaleDays}d stale` : undefined"
+        :severity="forecastReliability?.level === 'Low' ? 'medium' : 'none'"
+      />
+      <KpiCard
+        variant="tile"
+        label="Avg Days Between Orders"
+        :value="revenueMetrics.avg_days_between_orders != null
+          ? `${(revenueMetrics.avg_days_between_orders as number).toFixed(1)} days`
+          : undefined"
+        :sublabel="avgDaysSubLabel"
+      />
     </div>
 
-    <!-- Daily Sales (collapsible) -->
-    <div class="mt-6">
-      <Button
-        variant="ghost" theme="gray"
-        class="w-full justify-between p-3 bg-surface-gray-1 rounded-lg hover:bg-surface-gray-2 h-auto text-left"
-        :aria-expanded="showDailySales"
-        @click="showDailySales = !showDailySales"
-      >
-        <span class="font-semibold text-ink-gray-8 flex items-center gap-2">
-          <Activity class="w-4 h-4" aria-hidden="true" />
-          Daily Sales Detail{{ transposedDailySales.dates.length ? ` (${transposedDailySales.dates.length} Days)` : '' }}
-        </span>
-        <span class="text-ink-gray-6" aria-hidden="true">{{ showDailySales ? '▼' : '▶' }}</span>
-      </Button>
-      <div v-if="showDailySales && transposedDailySales.dates.length" class="mt-4 overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-surface-gray-1">
-            <tr>
-              <th scope="col" class="px-3 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[90px] text-ink-gray-7">Metric</th>
-              <th v-for="date in transposedDailySales.dates" :key="date" scope="col" class="px-2 py-2 text-right min-w-[70px] text-xs text-ink-gray-7">{{ formatDateShort(date) }}</th>
-              <th scope="col" class="px-3 py-2 text-right bg-surface-gray-2 min-w-[90px] text-ink-gray-7">Total/Avg</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in transposedDailySales.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
-              <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
-              <td v-for="date in transposedDailySales.dates" :key="date" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                {{ row.isPercent ? pct(row.values[date]) : row.isCurrency ? money(row.values[date]) : num(row.values[date]) }}
-              </td>
-              <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                {{ row.isPercent ? pct(row.total) : row.isCurrency ? money(row.total) : num(row.total) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-else-if="showDailySales" class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No daily data available</div>
-    </div>
-
-    <!-- Weekly Performance -->
-    <div class="mt-6">
-      <SectionHeader variant="caption" title="Weekly Performance" :level="3">
-        <template #actions><BarChart3 class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
-      </SectionHeader>
-      <div v-if="transposedWeeklyPerformance.weeks.length" class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-surface-gray-1">
-            <tr>
-              <th scope="col" class="px-3 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[80px] text-ink-gray-7">Metric</th>
-              <th v-for="week in transposedWeeklyPerformance.weeks" :key="week.label" scope="col" class="px-2 py-2 text-right min-w-[70px] text-xs text-ink-gray-7">{{ week.label }}</th>
-              <th scope="col" class="px-3 py-2 text-right bg-surface-gray-2 min-w-[85px] text-ink-gray-7">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in transposedWeeklyPerformance.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
-              <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
-              <td v-for="week in transposedWeeklyPerformance.weeks" :key="week.label" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                {{ row.isPercent ? pct(row.values[week.label]) : row.isCurrency ? money(row.values[week.label]) : num(row.values[week.label]) }}
-              </td>
-              <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                {{ row.isPercent ? pct(row.total) : row.isCurrency ? money(row.total) : num(row.total) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-else class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No weekly data available</div>
-    </div>
-
-    <!-- Monthly Summary -->
-    <div class="mt-6">
-      <SectionHeader variant="caption" title="Monthly Summary" :level="3">
-        <template #actions><Calendar class="w-4 h-4 text-ink-gray-6" aria-hidden="true" /></template>
-      </SectionHeader>
-      <div v-if="transposedMonthlySummary.months.length" class="mt-4 bg-surface-white rounded-lg border border-outline-gray-1 overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-surface-gray-1">
-            <tr>
-              <th scope="col" class="px-3 py-2 text-left sticky left-0 bg-surface-gray-1 z-10 min-w-[80px] text-ink-gray-7">Metric</th>
-              <th v-for="month in transposedMonthlySummary.months" :key="month" scope="col" class="px-2 py-2 text-right min-w-[70px] text-xs text-ink-gray-7">
-                {{ formatPeriod(month) }}
-                <div v-if="transposedMonthlySummary.partial.has(month)" class="text-[10px] font-normal text-ink-gray-6">partial</div>
-              </th>
-              <th scope="col" class="px-3 py-2 text-right bg-surface-gray-2 min-w-[85px] text-ink-gray-7">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="row in transposedMonthlySummary.rows" :key="row.metric" class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
-              <td class="px-3 py-2 font-medium sticky left-0 bg-surface-white z-10" :class="row.colorClass">{{ row.metric }}</td>
-              <td v-for="month in transposedMonthlySummary.months" :key="month" class="px-2 py-2 text-right text-xs" :class="row.colorClass">
-                {{ row.isPercent ? pct(row.values[month]) : row.isCurrency ? money(row.values[month]) : num(row.values[month]) }}
-              </td>
-              <td class="px-3 py-2 text-right bg-surface-gray-1 font-bold" :class="row.colorClass">
-                {{ row.isPercent ? pct(row.total) : row.isCurrency ? money(row.total) : num(row.total) }}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <div v-else class="mt-4 text-center py-6 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No monthly data available</div>
-    </div>
   </div>
 
   <!-- ═══ Cash vs Credit ═══ -->
   <div v-if="activeTab === 'rev-payment'">
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div>
-        <SectionHeader variant="caption" title="Overall Payment Mix" :hint="windowLabel" :level="3" />
-        <div class="mt-4 flex items-center gap-8">
-          <div class="relative w-40 h-40" role="img" :aria-label="`Cash ratio: ${pct(paymentMix.cash_ratio as number)}`">
-            <!--
-              The two arcs are categories, not statuses: the filled arc is Cash
-              and the track is the Credit remainder, so they must equal the
-              legend swatches below (`bg-surface-green-3` / `bg-surface-gray-4`).
-              They previously used raw `#10b981` (emerald-500, which is not even
-              in the Espresso palette) and `#e5e7eb`, so they mismatched their
-              own legend AND stayed light-mode fixed under `data-theme="dark"`.
-              `lint:palette` did not catch it because that gate greps Tailwind
-              class names, not SVG presentation attributes.
-            -->
-            <svg viewBox="0 0 100 100" class="w-full h-full">
-              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--surface-gray-4)" stroke-width="20" />
-              <circle cx="50" cy="50" r="40" fill="none" stroke="var(--surface-green-3)" stroke-width="20"
-                :stroke-dasharray="`${(cashRatio ?? 0) * 2.51} 251`"
-                stroke-dashoffset="0" transform="rotate(-90 50 50)" />
-            </svg>
-            <div class="absolute inset-0 flex items-center justify-center flex-col">
-              <p class="text-2xl font-bold text-ink-gray-9">{{ pct(paymentMix.cash_ratio as number) }}</p>
-              <p class="text-xs text-ink-gray-6">Cash</p>
-            </div>
-          </div>
-          <div class="space-y-4">
-            <div class="flex items-center gap-3">
-              <div class="w-4 h-4 bg-surface-green-3 rounded" aria-hidden="true" />
-              <div>
-                <p class="font-medium text-ink-gray-8">Cash Sales</p>
-                <p class="text-sm text-ink-gray-6">{{ money(paymentMix.cash_total as number) }}</p>
-              </div>
-            </div>
-            <div class="flex items-center gap-3">
-              <div class="w-4 h-4 bg-surface-gray-4 rounded" aria-hidden="true" />
-              <div>
-                <p class="font-medium text-ink-gray-8">Credit Sales</p>
-                <p class="text-sm text-ink-gray-6">{{ money(paymentMix.credit_total as number) }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div>
-        <SectionHeader variant="caption" title="Today's Performance" :level="3" />
-        <div class="mt-4 bg-surface-gray-1 rounded-lg p-6 border border-outline-gray-1">
-          <div class="flex items-center justify-between mb-4">
-            <p class="text-lg font-medium text-ink-gray-8">Today's Total</p>
-            <p class="text-2xl font-bold text-ink-gray-9">{{ money(paymentMix.today_total as number) }}</p>
-          </div>
-          <div v-if="hasTodaySales" class="flex gap-4">
-            <div class="flex-1 bg-surface-white rounded-lg p-3 text-center border border-outline-gray-1">
-              <Banknote class="w-6 h-6 mx-auto text-ink-gray-6 mb-1" aria-hidden="true" />
-              <p class="text-lg font-bold text-ink-gray-9">{{ pct(todayCashPct) }}</p>
-              <p class="text-xs text-ink-gray-6">Cash</p>
-            </div>
-            <div class="flex-1 bg-surface-white rounded-lg p-3 text-center border border-outline-gray-1">
-              <CreditCard class="w-6 h-6 mx-auto text-ink-gray-6 mb-1" aria-hidden="true" />
-              <p class="text-lg font-bold text-ink-gray-9">{{ pct(todayCreditPct) }}</p>
-              <p class="text-xs text-ink-gray-6">Credit</p>
-            </div>
-          </div>
-          <p v-else class="text-sm text-ink-gray-6">No sales posted today.</p>
-        </div>
-      </div>
+    <div class="mb-6 space-y-4">
+      <TabBrief :brief="tabBriefs['rev-payment']" />
+      <StatStrip :items="paymentStrip" :currency="props.currency" />
     </div>
+    <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <section v-for="c in paymentCards" :key="c.title" class="min-w-0 rounded-lg border border-outline-gray-1 p-4" :class="c.tint">
+        <h3 class="text-base font-semibold text-ink-gray-9">{{ c.title }} ({{ pct(c.share) }} of revenue)</h3>
+        <div class="mt-3 h-2 overflow-hidden rounded-full bg-surface-gray-3" role="img" :aria-label="`${c.title} share of revenue ${pct(c.share)}`">
+          <div class="h-full rounded-full" :class="c.fill" :style="{ width: `${Math.max(0, Math.min(100, c.share ?? 0))}%` }" />
+        </div>
+        <p class="tnum mt-3 text-2xl font-semibold text-ink-gray-9">{{ money(c.amount) }}</p>
+        <p v-if="c.note" class="text-sm text-ink-gray-7">{{ c.note }}</p>
+      </section>
+    </div>
+
+    <section v-if="bridge.length" class="mt-6 min-w-0 rounded-lg border border-outline-gray-1 bg-card">
+      <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">Working capital bridge</h3>
+      <div class="space-y-3 p-4">
+        <div v-for="row in bridge" :key="row.label" class="grid grid-cols-1 gap-1 text-sm sm:grid-cols-[12rem_1fr] sm:items-center sm:gap-3">
+          <span class="text-ink-gray-7">{{ row.label }}</span>
+          <div class="flex min-w-0 flex-col gap-1">
+            <div
+              v-for="bar in row.bars"
+              :key="bar.text"
+              class="tnum flex h-7 min-w-max items-center whitespace-nowrap rounded px-2 text-xs text-ink-gray-9"
+              :class="bar.fill"
+              :style="{ width: `${Math.max(0, Math.min(100, bar.width))}%` }"
+            >{{ bar.text }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <div class="mt-6">
       <SectionHeader variant="caption" title="Daily Cash Ratio Trend" :level="3" />
@@ -1117,27 +1275,45 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
       </div>
       <div v-else class="mt-4 text-center py-8 text-ink-gray-6 bg-surface-gray-1 rounded-lg border border-outline-gray-1">No daily data available</div>
     </div>
+
+    <TabActions class="mt-6" :actions="tabBriefs['rev-payment']?.actions" />
   </div>
 
   <!-- ═══ Sales Reps ═══ -->
   <div v-if="activeTab === 'rev-reps'">
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-6">
-      <KpiCard label="Total Sales Reps" :value="String(salesReps.total_reps ?? 0)" />
-      <div>
-        <KpiCard label="Team Revenue" :value="money(salesReps.total_team_revenue as number)" />
-        <p v-if="(unattributedRevenue ?? 0) >= 1" class="text-xs text-ink-gray-5 mt-1">
-          + {{ money(unattributedRevenue) }} ({{ pct(salesReps.unattributed_revenue_pct as number) }}) invoiced with no reconciling Sales Team allocation
-        </p>
+    <div class="mb-6 space-y-4">
+      <TabBrief :brief="tabBriefs['rev-reps']" />
+      <StatStrip :items="repsStrip" :currency="props.currency" />
+      <p v-if="(unattributedRevenue ?? 0) >= 1" class="text-xs text-ink-gray-6">
+        + {{ money(unattributedRevenue) }} ({{ pct(salesReps.unattributed_revenue_pct as number) }}) invoiced with no reconciling Sales Team allocation
+      </p>
+    </div>
+    <section v-if="repSegments.length" class="min-w-0 rounded-lg border border-outline-gray-1 bg-card p-4">
+      <h3 class="text-base font-semibold text-ink-gray-9">Revenue concentration</h3>
+      <div class="mt-3 flex h-10 overflow-hidden rounded" role="img" :aria-label="`Revenue share by rep: ${repSegments.map(s => `${s.name} ${pct(s.share)}`).join(', ')}`">
+        <div v-for="s in repSegments" :key="s.name" class="h-full" :class="s.fill" :style="{ width: `${s.share}%` }" :title="`${s.name}: ${pct(s.share)}`" />
       </div>
-      <div v-if="salesReps.top_performer" class="lg:col-span-2 bg-surface-gray-1 rounded-lg p-4 border border-outline-gray-1">
-        <p class="text-sm text-ink-gray-6">Top Performer</p>
-        <p class="text-xl font-bold text-ink-gray-9">
-          {{ (salesReps.top_performer as Record<string, string>).sales_person_name || (salesReps.top_performer as Record<string, string>).sales_person }}
-        </p>
-        <p class="text-sm text-ink-gray-6">
-          {{ money((salesReps.top_performer as Record<string, number>).total_revenue) }} revenue
-        </p>
-      </div>
+      <ul class="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-gray-7">
+        <li v-for="s in repSegments" :key="s.name" class="flex items-center gap-1.5">
+          <span class="size-2.5 shrink-0 rounded-sm" :class="s.fill" aria-hidden="true" />
+          <span>{{ s.name }} ({{ pct(s.share) }}, {{ money(s.amount) }})</span>
+        </li>
+      </ul>
+    </section>
+
+    <div v-if="repSpotlights.length" class="my-6 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <section v-for="c in repSpotlights" :key="c.heading" class="min-w-0 rounded-lg border border-outline-gray-1" :class="c.tint">
+        <p class="px-4 pt-3 text-xs font-medium uppercase tracking-wide text-ink-gray-7">{{ c.heading }}</p>
+        <div class="p-4">
+          <h3 class="text-base font-semibold text-ink-gray-9">{{ repName(c.rep) }}</h3>
+          <p class="text-xs text-ink-gray-7">Rank {{ c.rep.rank }} · {{ num(c.rep.total_orders) }} orders · {{ num(c.rep.unique_customers) }} customers</p>
+          <dl class="tnum mt-3 space-y-1 text-sm">
+            <div class="flex justify-between gap-2"><dt class="text-ink-gray-7">Revenue</dt><dd class="font-medium text-ink-gray-9">{{ money(c.rep.total_revenue) }}</dd></div>
+            <div class="flex justify-between gap-2"><dt class="text-ink-gray-7">Margin</dt><dd class="font-medium text-ink-gray-9">{{ pct(c.rep.margin_pct) }} ({{ money(c.rep.gross_profit) }} GP)</dd></div>
+            <div class="flex justify-between gap-2"><dt class="text-ink-gray-7">Avg order</dt><dd class="font-medium text-ink-gray-9">{{ money(c.rep.avg_order_value) }}</dd></div>
+          </dl>
+        </div>
+      </section>
     </div>
 
     <SectionHeader variant="caption" title="Sales Rep Leaderboard" :hint="windowLabel" :level="3" />
@@ -1165,7 +1341,7 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
             <td class="px-4 py-2">
               <span :class="[
                 'w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold',
-                rep.rank === 1 ? 'bg-surface-amber-3 text-ink-gray-9' :
+                rep.rank === 1 ? 'bg-surface-amber-2 text-ink-gray-9' :
                 rep.rank === 2 ? 'bg-surface-gray-3 text-ink-gray-7' :
                 rep.rank === 3 ? 'bg-surface-gray-4 text-ink-gray-7' :
                 'bg-surface-gray-2 text-ink-gray-6'
@@ -1187,38 +1363,17 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
         </tbody>
       </table>
     </div>
+    <TabActions class="mt-6" :actions="tabBriefs['rev-reps']?.actions" />
   </div>
 
   <!-- ═══ Margins ═══ -->
   <div v-if="activeTab === 'rev-margins'" class="space-y-6">
-    <!-- Headline KPIs -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <KpiCard label="Overall Margin" :percent="margins.overall_margin as number"
-        :sublabel="marginStory ? `${marginStory.avg.toFixed(1)}% avg over ${marginStory.months} months` : undefined" />
-      <KpiCard label="Gross Profit" :amount="margins.total_profit as number" :currency="props.currency"
-        :sublabel="`on ${money(margins.total_revenue as number)} net sales`" />
-      <KpiCard v-if="marginStory" :label="marginStory.latest.partial ? 'This Month (partial)' : 'This Month'" :percent="marginStory.latest.margin"
-        :sublabel="marginStory.deltaPp !== null ? `${deltaGlyph(marginStory.deltaPp)} ${Math.abs(marginStory.deltaPp).toFixed(1)}pp vs last month` : formatPeriod(marginStory.latest.period)" />
-      <KpiCard v-if="marginStory" label="Strongest Month" :percent="marginStory.best.margin"
-        :sublabel="formatPeriod(marginStory.best.period)" />
-    </div>
-
-    <!-- Narrative -->
-    <p v-if="marginStory" class="text-sm text-ink-gray-7 bg-surface-gray-1 rounded-lg p-4 leading-relaxed">
-      Blended gross margin is
-      <span class="font-semibold text-ink-gray-9">{{ pct(margins.overall_margin as number) }}</span>
-      on {{ money(margins.total_revenue as number) }} of net sales.
-      <template v-if="marginStory.deltaPp !== null">
-        It
-        <span :class="['font-semibold', deltaInk(marginStory.deltaPp)]">{{ marginStory.deltaPp >= 0 ? 'rose' : 'slipped' }} {{ Math.abs(marginStory.deltaPp).toFixed(1) }}pp</span>
-        last month to {{ pct(marginStory.latest.margin) }}.
-      </template>
-      It peaked at {{ pct(marginStory.best.margin) }} in {{ formatPeriod(marginStory.best.period) }}
-      and bottomed at {{ pct(marginStory.worst.margin) }} in {{ formatPeriod(marginStory.worst.period) }}.
-      <template v-if="(margins.uncosted_items_excluded as number) > 0">
-        {{ margins.uncosted_items_excluded }} item(s) still lack recorded cost ({{ money(margins.uncosted_revenue as number) }} revenue) and are held out of the rankings below.
-      </template>
+    <TabBrief :brief="tabBriefs['rev-margins']" />
+    <StatStrip :items="marginsStrip" :currency="props.currency" />
+    <p v-if="(margins.uncosted_items_excluded as number) > 0" class="text-sm text-ink-gray-6">
+      {{ margins.uncosted_items_excluded }} item(s) still lack recorded cost ({{ money(margins.uncosted_revenue as number) }} revenue) and are held out of the rankings below.
     </p>
+
 
     <!-- Margin trend chart -->
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -1227,7 +1382,7 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
         <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
       </SectionHeader>
       <div v-if="marginTrendConfig" class="mt-4 h-64 sm:h-72 lg:h-80">
-        <IntelligenceChart :config="marginTrendConfig" class="h-64 sm:h-72 lg:h-80" />
+        <IntelligenceChart :config="marginTrendConfig" :value-format="(v, series) => (series === 'Margin %' ? pct(v) : money(v))" class="h-64 sm:h-72 lg:h-80" />
       </div>
       <p v-else class="mt-4 text-center py-12 text-ink-gray-6 text-sm">No margin history available.</p>
     </div>
@@ -1255,7 +1410,10 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
             <tbody>
               <tr v-for="pg in marginGroups" :key="pg.item_group as string"
                 class="border-b border-outline-gray-1 hover:bg-surface-gray-1">
-                <td class="px-4 py-2 text-ink-gray-8">{{ pg.item_group || 'Uncategorized' }}</td>
+                <td class="px-4 py-2 text-ink-gray-8">
+                  {{ pg.item_group || 'Uncategorized' }}
+                  <Badge v-if="pg.item_group === ROOT_ITEM_GROUP" v-bind="severityBadge('medium')" label="taxonomy gap" size="sm" class="ml-2" />
+                </td>
                 <td class="px-4 py-2 text-right text-ink-gray-8 tnum">{{ money(pg.revenue as number) }}</td>
                 <td class="px-4 py-2 text-right text-ink-gray-7 tnum">{{ money(pg.gross_profit as number) }}</td>
                 <td class="px-4 py-2 text-right">
@@ -1278,24 +1436,24 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
       <!-- Protect / Fix leaderboards -->
       <div class="space-y-6">
         <div>
-          <SectionHeader variant="caption" title="Protect — Highest Margin"
+          <SectionHeader variant="caption" title="Protect: Highest Margin"
             hint="Top sellers by margin; guard their pricing and supply" :level="3" />
           <div class="mt-2 space-y-2">
             <div v-for="item in (margins.top_margin_items as Record<string, unknown>[])?.slice(0, 8)" :key="item.item_code as string"
               class="flex justify-between items-center gap-2 text-sm bg-surface-gray-1 rounded p-2">
-              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }} — {{ item.item_name }}</span>
+              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }}: {{ item.item_name }}</span>
               <span class="tnum text-ink-gray-6 shrink-0">{{ money(item.revenue as number) }}</span>
               <span class="font-bold text-ink-gray-9 tnum shrink-0 w-14 text-right">{{ pct(item.margin_pct as number) }}</span>
             </div>
           </div>
         </div>
         <div>
-          <SectionHeader variant="caption" title="Fix — Lowest Margin"
+          <SectionHeader variant="caption" title="Fix: Lowest Margin"
             hint="Sellers dragging the blended margin down" :level="3" />
           <div class="mt-2 space-y-2">
             <div v-for="item in (margins.low_margin_items as Record<string, unknown>[])?.slice(0, 8)" :key="item.item_code as string"
               class="flex justify-between items-center gap-2 text-sm bg-surface-gray-1 rounded p-2">
-              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }} — {{ item.item_name }}</span>
+              <span class="truncate flex-1 text-ink-gray-8" :title="`${item.item_code} - ${item.item_name}`">{{ item.item_code }}: {{ item.item_name }}</span>
               <span class="tnum text-ink-gray-6 shrink-0">{{ money(item.revenue as number) }}</span>
               <Badge v-bind="severityBadge(scoreSeverity(item.margin_pct as number, { good: 30, warn: 15 }))" :label="pct(item.margin_pct as number)" size="sm" class="shrink-0" />
             </div>
@@ -1303,31 +1461,53 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
         </div>
       </div>
     </div>
+    <TabActions :actions="tabBriefs['rev-margins']?.actions" />
   </div>
 
   <!-- ═══ Forecasts ═══ -->
   <div v-if="activeTab === 'rev-forecasts'">
-    <!-- Summary band -->
-    <div v-if="salesForecast" class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <KpiCard :label="`Forecast · Next ${forecastDays} Days`"
-        :amount="salesForecast.forecast_summary?.total_forecast ?? null" :currency="props.currency"
-        :sublabel="`${methodLabel} model`" />
-      <KpiCard label="Average / Day"
-        :amount="salesForecast.forecast_summary?.avg_daily_forecast ?? null" :currency="props.currency" />
-      <KpiCard label="Trend" :value="forecastTrendLabel" sublabel="direction of the projection" />
-      <KpiCard v-if="forecastReliability" label="Forecast Reliability" :value="forecastReliability.level"
-        :sublabel="`${forecastReliability.label} ${pct(forecastReliability.value)}`" />
-      <KpiCard v-else label="Forecast Reliability" value="—" />
+    <div class="mb-6 space-y-4">
+      <TabBrief :brief="tabBriefs['rev-forecasts']" />
+      <StatStrip v-if="salesForecast" :items="forecastStrip" :currency="props.currency" />
     </div>
     <p v-if="forecastStaleDays > 1" class="mb-6 text-sm text-ink-gray-6">
       The latest invoice is {{ forecastStaleDays }} days old, so the projection starts today rather than the day after the last sale.
     </p>
+    <div class="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <section v-if="modelHealth.length" class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
+        <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">Model health</h3>
+        <dl class="tnum divide-y divide-outline-gray-1 text-sm">
+          <div v-for="row in modelHealth" :key="row.label" class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-ink-gray-7">{{ row.label }}</dt>
+            <dd class="font-medium text-ink-gray-9">{{ row.value }}</dd>
+          </div>
+        </dl>
+      </section>
+      <section v-if="dailyForecastConfig" class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
+        <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">{{ forecastDays }}-day projection with confidence interval</h3>
+        <div class="p-4"><IntelligenceChart :config="dailyForecastConfig" :value-format="money" class="h-72" /></div>
+      </section>
+    </div>
+    <div class="mb-6">
+      <section v-if="scenarioRows.length" class="min-w-0 rounded-lg border border-outline-gray-1 bg-card">
+        <h3 class="border-b border-outline-gray-1 px-4 py-3 text-base font-semibold text-ink-gray-9">{{ forecastDays }}-day revenue scenarios</h3>
+        <ul class="divide-y divide-outline-gray-1">
+          <li v-for="s in scenarioRows" :key="s.name" class="flex items-center justify-between gap-3 px-4 py-3" :class="s.tint">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-ink-gray-9">{{ s.name }}</p>
+              <p class="text-xs text-ink-gray-7">{{ s.note }}</p>
+            </div>
+            <p class="tnum text-lg font-semibold text-ink-gray-9">{{ money(s.amount) }}</p>
+          </li>
+        </ul>
+      </section>
+    </div>
 
     <!-- Revenue trend & projection -->
     <div class="mb-6 bg-surface-white rounded-lg border border-outline-gray-1 p-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <SectionHeader variant="caption" title="Revenue Trend & Projection"
-          hint="Monthly revenue — the solid line is actual, the dashed line is the model’s projection" :level="3">
+          hint="Monthly revenue: the solid line is actual, the dashed line is the model's projection" :level="3">
           <template #actions><TrendingUp class="w-5 h-5 text-ink-gray-6" aria-hidden="true" /></template>
         </SectionHeader>
         <Button variant="subtle" theme="gray" :loading="isTraining === 'sales'" :disabled="!!isTraining" @click="trainForecasts('sales')">
@@ -1336,7 +1516,7 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
       </div>
       <p v-if="trainingStatus" class="mt-2 text-sm" :class="trainingOk ? 'text-ink-gray-8' : 'text-ink-red-4'">{{ trainingStatus }}</p>
       <div v-if="revenueProjectionConfig" class="mt-4 h-64 sm:h-72 lg:h-80">
-        <IntelligenceChart :config="revenueProjectionConfig" class="h-64 sm:h-72 lg:h-80" />
+        <IntelligenceChart :config="revenueProjectionConfig" :value-format="money" class="h-64 sm:h-72 lg:h-80" />
       </div>
       <div v-else-if="isLoadingDimensional" class="mt-4 text-center py-12 text-ink-gray-6">
         <Activity class="w-10 h-10 mx-auto opacity-40 mb-2 animate-pulse" aria-hidden="true" />
@@ -1347,12 +1527,6 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
         <p class="font-medium text-ink-gray-7">No forecast available yet</p>
         <p class="text-xs">Click “Retrain model” to generate projections</p>
       </div>
-      <p v-if="forecastReliability" class="mt-3 text-xs text-ink-gray-6 border-t border-outline-gray-1 pt-3">
-        <span class="font-medium text-ink-gray-7">Reliability: {{ forecastReliability.level }}.</span>
-        On a {{ forecastReliability.days }}-day held-out test the daily model missed by about
-        {{ pct(forecastReliability.value) }} on average ({{ forecastReliability.label }}). Treat projected
-        months as directional, not exact.
-      </p>
     </div>
 
     <!-- Dimensional forecast by product group -->
@@ -1459,27 +1633,21 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
         <p class="text-xs text-ink-gray-6">Click Refresh above to load dimensional forecast</p>
       </div>
     </div>
+
+    <TabActions class="mt-6" :actions="tabBriefs['rev-forecasts']?.actions" />
   </div>
 
   <!-- ═══ Attribution ═══ -->
   <div v-if="activeTab === 'rev-sources'" class="space-y-6">
-    <!-- Summary band -->
-    <div v-if="attributionSummary" class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <KpiCard label="Attributed Revenue" :value="money(attributionSummary.attributedRevenue)"
-        :sublabel="`${pct(attributionSummary.attributedPct)} of total revenue`" />
-      <KpiCard label="Lead Sources" :value="num(attributionSummary.sourceCount)" sublabel="excludes unattributed" />
-      <KpiCard label="Top Source" :value="attributionSummary.topSource"
-        :sublabel="money(attributionSummary.topSourceRevenue)" />
-      <KpiCard label="Quote Conversion" :percent="quotationAnalytics ? (quotationAnalytics.conversion_rate as number) : null"
-        sublabel="quotes won / total" />
-    </div>
+    <TabBrief :brief="sourcesBrief" />
+    <StatStrip :items="sourcesStrip" :currency="props.currency" />
 
     <!-- Revenue by lead source: chart + visible table -->
     <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
       <SectionHeader variant="caption" title="Revenue by Lead Source"
         hint="Revenue and gross profit attributed through the lead → invoice chain" :level="3" />
       <div v-if="attributionConfig" class="mt-4 h-56 sm:h-72 lg:h-80">
-        <IntelligenceChart :config="attributionConfig" class="h-56 sm:h-72 lg:h-80" />
+        <IntelligenceChart :config="attributionConfig" :value-format="money" class="h-56 sm:h-72 lg:h-80" />
       </div>
       <div v-if="attributionRows.length" class="mt-6 overflow-x-auto">
         <table class="w-full text-sm">
@@ -1532,8 +1700,8 @@ watch([() => props.activeTab, () => props.dateFilter], ([tab, filter]) => {
           @click="drillOpen('Quotations', { metric: 'quotations', bucket: 'all', period: props.dateFilter })" />
         <KpiCard label="Won" :value="num(quotationAnalytics.won as number)" :clickable="true"
           @click="drillOpen('Quotations won', { metric: 'quotations', bucket: 'won', period: props.dateFilter })" />
-        <KpiCard label="Pending" :value="num(quotationAnalytics.pending as number)" :clickable="true"
-          @click="drillOpen('Quotations pending', { metric: 'quotations', bucket: 'pending', period: props.dateFilter })" />
+        <KpiCard label="Open / Expired" :value="num(quotationAnalytics.pending as number)" :clickable="true"
+          @click="drillOpen('Quotations open or expired', { metric: 'quotations', bucket: 'pending', period: props.dateFilter })" />
         <KpiCard label="Lost" :value="num(quotationAnalytics.lost as number)" severity="high" :clickable="true"
           @click="drillOpen('Quotations lost', { metric: 'quotations', bucket: 'lost', period: props.dateFilter })" />
         <KpiCard label="Conversion" :percent="quotationAnalytics.conversion_rate as number" />

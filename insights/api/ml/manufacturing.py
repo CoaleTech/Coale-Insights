@@ -8,6 +8,7 @@ Manufacturing Intelligence API Endpoints
 import frappe
 from frappe import _
 from typing import Dict, Any
+from insights.api.ml.utils import parse_detail_filters
 from insights.api.response import success, error
 
 
@@ -21,7 +22,12 @@ def get_manufacturing_overview(period: str = "YTD") -> Dict[str, Any]:
         )
     
         result = _get_manufacturing_overview(period=period)
-        return success(result) if isinstance(result, dict) and "status" not in result else result
+        from insights.ml.tab_briefs import attach
+
+        return attach(
+            "insights_ml_manufacturing_overview",
+            success(result) if isinstance(result, dict) and "status" not in result else result,
+        )
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -100,8 +106,7 @@ def get_manufacturing_recommendations() -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_manufacturing_detail(metric: str, filters: str) -> dict:
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")

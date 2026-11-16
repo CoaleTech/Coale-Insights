@@ -14,7 +14,9 @@ import { computed } from 'vue'
 import { Badge } from 'frappe-ui'
 import { useIntelligenceDashboard } from '../composables/useIntelligenceDashboard'
 import SectionHeader from './SectionHeader.vue'
-import KpiCard from './KpiCard.vue'
+import TabBrief, { type Brief } from './TabBrief.vue'
+import TabActions from './TabActions.vue'
+import StatStrip, { type StatItem } from './StatStrip.vue'
 import { formatCount } from '../../utils/format'
 
 interface ScoredLead {
@@ -39,12 +41,20 @@ const leads = useIntelligenceDashboard<Record<string, unknown>>({
   cache: 'ml-lead-conversion',
 })
 
-const metrics = computed(() => (leads.data.value?.metrics ?? {}) as Record<string, number>)
+const brief = computed(() => leads.data.value?.brief as Brief | undefined)
 const training = computed(() => (leads.data.value?.training ?? {}) as Record<string, number>)
 const topLeads = computed<ScoredLead[]>(
   () => (leads.data.value?.top_open_leads ?? []) as ScoredLead[],
 )
 const bySource = computed<SourceRate[]>(() => (leads.data.value?.by_source ?? []) as SourceRate[])
+const strip = computed<StatItem[]>(() => [
+  { label: 'Closed Leads Learned From', value: training.value.closed_total ?? null, sublabel: training.value.months_back ? `created in last ${training.value.months_back} months` : undefined },
+  { label: 'Won', value: training.value.won ?? null },
+  { label: 'Lost', value: training.value.lost ?? null },
+  { label: 'Open Leads Scored', value: training.value.open_scored ?? null, sublabel: 'highest-ranked only' },
+  { label: 'Overall Win Rate', percent: (leads.data.value?.conversion_rate as number | undefined) ?? null },
+])
+const asOf = computed(() => leads.data.value?.generated_at as string | undefined)
 const state = computed(() => leads.data.value?.status as string | undefined)
 
 const BAND_THEME: Record<ScoredLead['band'], 'green' | 'orange' | 'gray'> = {
@@ -62,16 +72,15 @@ const BAND_THEME: Record<ScoredLead['band'], 'green' | 'orange' | 'gray'> = {
     </p>
 
     <template v-else-if="leads.hasData.value">
-      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard label="Model quality" :value="metrics.roc_auc" unit="% ROC-AUC" />
-        <KpiCard label="Precision" :percent="metrics.precision" />
-        <KpiCard label="Closed leads learned from" :value="training.closed_total" />
-        <KpiCard label="Open leads scored" :value="training.open_scored" />
+      <div class="space-y-5">
+        <TabBrief :brief="brief" :as-of="asOf" />
+        <StatStrip :items="strip" />
+        <TabActions class="mt-6" :actions="brief?.actions" />
       </div>
 
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-4">
         <div class="bg-surface-white border border-outline-gray-1 rounded-lg overflow-hidden">
-          <SectionHeader title="Highest-probability open leads" variant="caption" :level="3" />
+          <SectionHeader class="px-4 pt-4 pb-3" title="Highest-probability open leads" variant="caption" :level="3" />
           <table class="w-full text-sm">
             <thead class="border-y border-outline-gray-1 text-ink-gray-6">
               <tr>
@@ -92,7 +101,7 @@ const BAND_THEME: Record<ScoredLead['band'], 'green' | 'orange' | 'gray'> = {
                     {{ lead.territory }} · {{ lead.age_days }}d old
                   </p>
                 </td>
-                <td class="px-4 py-2 text-ink-gray-7">{{ lead.source }}</td>
+                <td class="px-4 py-2 text-ink-gray-7">{{ lead.source || 'No source' }}</td>
                 <td class="px-4 py-2 text-right">
                   <Badge :theme="BAND_THEME[lead.band]" variant="subtle">
                     {{ lead.win_probability }}%
@@ -104,7 +113,7 @@ const BAND_THEME: Record<ScoredLead['band'], 'green' | 'orange' | 'gray'> = {
         </div>
 
         <div class="bg-surface-white border border-outline-gray-1 rounded-lg overflow-hidden">
-          <SectionHeader title="Historical win rate by source" variant="caption" :level="3" />
+          <SectionHeader class="px-4 pt-4 pb-3" title="Historical win rate by source" variant="caption" :level="3" />
           <table class="w-full text-sm">
             <thead class="border-y border-outline-gray-1 text-ink-gray-6">
               <tr>
@@ -120,7 +129,7 @@ const BAND_THEME: Record<ScoredLead['band'], 'green' | 'orange' | 'gray'> = {
                 :key="row.source"
                 class="border-b border-outline-gray-1 last:border-0"
               >
-                <td class="px-4 py-2 text-ink-gray-9">{{ row.source }}</td>
+                <td class="px-4 py-2 text-ink-gray-9">{{ row.source || 'No source' }}</td>
                 <td class="px-4 py-2 text-right text-ink-gray-7 tabular-nums">
                   {{ formatCount(row.closed) }}
                 </td>

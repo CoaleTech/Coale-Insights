@@ -1,6 +1,6 @@
 <!-- Floating Chat Button -->
 <template>
-  <div class="fixed bottom-6 right-6 z-50">
+  <div class="fixed bottom-6 right-6 z-50 print:hidden">
     <!-- Chat Panel (Expanded) -->
     <transition
       enter-active-class="transition ease-out duration-200 motion-reduce:transition-none"
@@ -12,7 +12,10 @@
     >
       <div
         v-if="isOpen"
-        class="absolute bottom-16 right-0 w-96 h-[500px] bg-surface-white rounded-xl shadow-2xl border border-outline-gray-1 flex flex-col overflow-hidden"
+        role="region"
+        aria-label="AI assistant"
+        @keydown.esc="closeChat"
+        class="absolute bottom-16 right-0 w-96 max-w-[calc(100vw-3rem)] h-[500px] max-h-[calc(100vh-7rem)] bg-surface-white rounded-xl shadow-lg border border-outline-gray-1 flex flex-col overflow-hidden"
       >
         <!-- Header -->
         <div class="flex items-center justify-between px-4 py-3 bg-accent text-ink-white">
@@ -36,7 +39,8 @@
               <History class="w-4 h-4" />
             </button>
             <button
-              @click="isOpen = false"
+              @click="closeChat"
+              aria-label="Close chat"
               class="p-1.5 hover:bg-white-overlay-200 rounded-lg transition-colors motion-reduce:transition-none"
             >
               <X class="w-4 h-4" />
@@ -45,7 +49,7 @@
         </div>
 
         <!-- Session History Dropdown -->
-        <div v-if="showHistory" class="absolute top-14 right-4 w-72 bg-surface-white rounded-lg shadow-xl border border-outline-gray-1 z-10 max-h-64 overflow-y-auto">
+        <div v-if="showHistory" class="absolute top-14 right-4 w-72 max-w-[calc(100%-2rem)] bg-surface-white rounded-lg shadow-xl border border-outline-gray-1 z-10 max-h-64 overflow-y-auto">
           <div class="p-2 border-b border-outline-gray-1 bg-surface-gray-1">
             <span class="text-xs font-medium text-ink-gray-6">Recent Conversations</span>
           </div>
@@ -69,6 +73,9 @@
         <!-- Chat Messages -->
         <div
           ref="messagesContainer"
+          role="log"
+          aria-live="polite"
+          aria-label="Conversation"
           class="flex-1 overflow-y-auto p-4 space-y-4"
         >
           <!-- Welcome Message -->
@@ -99,29 +106,37 @@
           <template v-for="(message, index) in messages" :key="index">
             <!-- User Message -->
             <div v-if="message.role === 'user'" class="flex justify-end">
-              <div class="max-w-[80%] bg-accent text-ink-white rounded-2xl rounded-br-md px-4 py-2">
+              <div class="max-w-[80%] bg-accent text-ink-white rounded-lg rounded-br-sm px-4 py-2">
                 <p class="text-sm whitespace-pre-wrap">{{ message.content }}</p>
               </div>
             </div>
 
-            <!-- Assistant Message -->
+            <!-- Assistant / Error Message -->
             <div v-else class="flex justify-start">
-              <div class="max-w-[85%] bg-surface-gray-2 rounded-2xl rounded-bl-md px-4 py-2">
-                <div class="prose prose-sm max-w-none text-ink-gray-8" v-html="renderMarkdown(message.content)"></div>
-                <div v-if="message.metadata?.model_used" class="mt-2 pt-2 border-t border-outline-gray-1">
-                  <span class="text-xs text-ink-gray-6">{{ formatModelName(message.metadata.model_used) }}</span>
-                </div>
+              <div
+                class="max-w-[85%] rounded-lg rounded-bl-sm px-4 py-2"
+                :class="message.role === 'error'
+                  ? 'border border-outline-red-1 bg-surface-red-1'
+                  : 'bg-surface-gray-2'"
+              >
+                <p v-if="message.role === 'error'" class="text-sm text-neg">{{ message.content }}</p>
+                <template v-else>
+                  <div class="prose prose-sm max-w-none text-ink-gray-8" v-html="renderMarkdown(message.content)"></div>
+                  <div v-if="message.metadata?.model_used" class="mt-2 pt-2 border-t border-outline-gray-1">
+                    <span class="text-xs text-ink-gray-6">{{ formatModelName(message.metadata.model_used) }}</span>
+                  </div>
+                </template>
               </div>
             </div>
           </template>
 
           <!-- Typing Indicator -->
           <div v-if="isLoading" class="flex justify-start">
-            <div class="bg-surface-gray-2 rounded-2xl rounded-bl-md px-4 py-3">
+            <div class="bg-surface-gray-2 rounded-lg rounded-bl-sm px-4 py-3">
               <div class="flex items-center gap-1">
-                <span class="w-2 h-2 bg-muted-fill rounded-full animate-bounce motion-reduce:animate-none" style="animation-delay: 0ms"></span>
-                <span class="w-2 h-2 bg-muted-fill rounded-full animate-bounce motion-reduce:animate-none" style="animation-delay: 150ms"></span>
-                <span class="w-2 h-2 bg-muted-fill rounded-full animate-bounce motion-reduce:animate-none" style="animation-delay: 300ms"></span>
+                <span class="w-2 h-2 bg-muted-fill rounded-full animate-pulse motion-reduce:animate-none" style="animation-delay: 0ms"></span>
+                <span class="w-2 h-2 bg-muted-fill rounded-full animate-pulse motion-reduce:animate-none" style="animation-delay: 150ms"></span>
+                <span class="w-2 h-2 bg-muted-fill rounded-full animate-pulse motion-reduce:animate-none" style="animation-delay: 300ms"></span>
               </div>
             </div>
           </div>
@@ -168,12 +183,14 @@
               v-model="inputMessage"
               @keydown.enter.exact.prevent="sendMessage"
               placeholder="Ask about your data..."
+              aria-label="Ask about your data"
               rows="1"
-              class="flex-1 resize-none rounded-xl border border-outline-gray-1 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent max-h-32"
+              class="flex-1 resize-none rounded-lg border border-outline-gray-1 bg-surface-white text-ink-gray-9 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent max-h-32"
               :disabled="isLoading"
             />
             <button
               @click="sendMessage"
+              aria-label="Send message"
               :disabled="!inputMessage.trim() || isLoading"
               class="p-2.5 bg-accent text-ink-white rounded-xl hover:bg-accent-strong disabled:opacity-50 disabled:cursor-not-allowed transition-colors motion-reduce:transition-none"
             >
@@ -189,7 +206,10 @@
 
     <!-- Floating Button -->
     <button
+      ref="toggleBtn"
       @click="toggleChat"
+      :aria-label="isOpen ? 'Close AI assistant' : 'Open AI assistant'"
+      :aria-expanded="isOpen"
       :class="[
         'w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 border-2',
         isOpen 
@@ -254,6 +274,7 @@ const redirectSuggestion = ref<{target: string, reason: string} | null>(null)
 // Refs
 const messagesContainer = ref<HTMLElement | null>(null)
 const inputRef = ref<HTMLTextAreaElement | null>(null)
+const toggleBtn = ref<HTMLButtonElement | null>(null)
 
 // Computed
 /**
@@ -271,19 +292,14 @@ const storageKey = computed(() => `insights:chat:${props.dashboardType}:open`)
 
 // Initialize on mount
 onMounted(async () => {
-  // Restore panel state
+  // Restore panel state (not on narrow screens, where the panel covers the page)
   const savedState = localStorage.getItem(storageKey.value)
-  if (savedState === 'true') {
+  if (savedState === 'true' && window.innerWidth >= 768) {
     isOpen.value = true
   }
-  
-  // Load quick actions
+
+  // Restoring `isOpen` above fires the watcher below, which loads the session.
   await loadQuickActions()
-  
-  // Auto-load recent session when panel opens
-  if (isOpen.value) {
-    await loadRecentSession()
-  }
 })
 
 // Watch for panel open/close
@@ -305,6 +321,12 @@ watch(isOpen, async (newVal) => {
 function toggleChat() {
   isOpen.value = !isOpen.value
   hasNewMessage.value = false
+}
+
+// The panel unmounts on close, so hand focus back to the toggle instead of dropping it on <body>.
+function closeChat() {
+  isOpen.value = false
+  toggleBtn.value?.focus()
 }
 
 async function loadQuickActions() {
@@ -546,14 +568,14 @@ async function sendMessage() {
       // Add error message
       messages.value.push({
         role: 'assistant',
-        content: `Sorry, I encountered an error: ${response?.error || 'Unknown error'}. Please try again.`,
+        content: `Sorry, I encountered an error: ${(response?.error || 'Unknown error').replace(/\.+$/, '')}. Please try again.`,
         timestamp: new Date().toISOString()
       })
     }
   } catch (e: any) {
     messages.value.push({
-      role: 'assistant',
-      content: `Sorry, I couldn't process your request. ${e.message || 'Please try again.'}`,
+      role: 'error',
+      content: 'Could not send. Check your connection and try again.',
       timestamp: new Date().toISOString()
     })
   } finally {

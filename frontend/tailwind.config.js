@@ -73,6 +73,8 @@ export default {
 				'main-content': '768px',
 			},
 			screens: {
+				// Six KPI cards across need ~1400px: below it the exact nine-digit money figures truncate.
+				wide: '1400px',
 				standalone: {
 					raw: '(display-mode: standalone)',
 				},

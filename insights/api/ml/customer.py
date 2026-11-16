@@ -11,7 +11,7 @@ return in the same latency budget as any other Insights query.
 fans out across several of those chains and takes tens of seconds, so it is
 served from cache and recomputed by a background job, keyed per
 (date_filter, company); see `insights.api.ml.utils.cached_run`. Everything
-else here has no cache.
+else here has no cache, except `customer_360_detail` (10 minutes, per user).
 
 Names + kwarg signatures are preserved exactly so the frontend (which calls
 these by string through ``frappe.call``) keeps working.
@@ -24,6 +24,8 @@ import frappe
 
 from insights.api.ml.utils import (
     _scoped,
+    parse_detail_filters,
+    canonical_date_filter,
     cached_run,
     enqueue_dashboard_compute,
     is_cached,
@@ -92,6 +94,7 @@ def customer_intelligence(refresh: bool = False,
     caller now gets the same cache-or-`warming` contract.
     """
     frappe.has_permission("Customer", "read", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     from insights.ml.customer import compute_customer_intelligence
     return cached_run(
         lambda: run(lambda: compute_customer_intelligence(date_filter=date_filter, company=company),
@@ -111,6 +114,7 @@ def customer_intelligence_status(date_filter: str = "12m",
     endpoint is for callers that want to ask without fetching it.
     """
     frappe.has_permission("Customer", "read", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     ready = is_cached(f"insights_ml_customer_intelligence:{date_filter}:{company or 'all'}")
     return run(lambda: {"status": "ready" if ready else "warming",
                         "message": ("Customer intelligence is cached and ready"
@@ -137,6 +141,9 @@ def customer_360(customer_id: str, date_filter: str = "12m") -> Dict[str, Any]:
                "Customer 360")
 
 
+_CUSTOMER_360_TTL = 10 * 60
+
+
 @frappe.whitelist()
 def customer_360_detail(customer_id: str,
                         include_purchases: bool = True,
@@ -161,7 +168,19 @@ def customer_360_detail(customer_id: str,
             result.setdefault("revenue_basis", "net_of_tax")
         return result
 
-    return run(_with_currency, "Customer 360 detail")
+    # Synchronous (the detail page waits on it) and 4-13 s to compute, so a
+    # short per-user cache; a failure is never cached.
+    key = _scoped(
+        f"insights_ml_customer_360:{customer_id}:{include_purchases}:"
+        f"{include_recommendations}:{company}:{date_filter}"
+    )
+    cached = frappe.cache.get_value(key)
+    if cached is not None:
+        return cached
+    result = run(_with_currency, "Customer 360 detail")
+    if isinstance(result, dict) and result.get("status") == "success":
+        frappe.cache.set_value(key, result, expires_in_sec=_CUSTOMER_360_TTL)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -177,10 +196,14 @@ def purchase_patterns(top_percentile: int = 20,
     """
     frappe.has_permission("Customer", "read", throw=True)
     from insights.ml.customer import compute_purchase_patterns
-    return run(lambda: compute_purchase_patterns(top_percentile=int(top_percentile),
-                                                date_filter=date_filter,
-                                                company=company),
-               "Purchase patterns")
+    from insights.ml.tab_briefs import attach_lazy
+    from insights.ml.tab_briefs.customer import lazy_cust_patterns
+    return attach_lazy(
+        run(lambda: compute_purchase_patterns(top_percentile=int(top_percentile),
+                                              date_filter=date_filter,
+                                              company=company),
+            "Purchase patterns"),
+        lazy_cust_patterns, "cust-patterns")
 
 
 @frappe.whitelist()
@@ -278,6 +301,7 @@ def refresh_scores(date_filter: str = "12m", company: Optional[str] = None) -> D
     immediately.
     """
     frappe.has_permission("Customer", "write", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     enqueue_dashboard_compute(
         "insights.api.ml.customer_intelligence",
         {"date_filter": date_filter, "company": company},
@@ -390,8 +414,7 @@ def customer_variance(date_filter: str = "12m",
 def get_customer_detail(metric: str, filters: str) -> dict:
     from frappe import _
 
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
@@ -426,6 +449,47 @@ def get_customer_detail(metric: str, filters: str) -> dict:
             "total": frappe.db.count("Customer", filters=db_filters),
         }
 
+    if metric == "customer_revenue":
+        frappe.has_permission("Sales Invoice", throw=True)
+        db_filters = _in_window({"docstatus": 1, "is_return": 0}, default="12m")
+        if company:
+            db_filters["company"] = company
+        kw = dict(filters=db_filters, group_by="customer", ignore_permissions=False)
+        rows = frappe.get_list(
+            "Sales Invoice",
+            fields=["customer", {"SUM": "base_net_total", "as": "revenue"}, {"COUNT": "name", "as": "invoices"}],
+            order_by="revenue desc", start=start, page_length=page_size, **kw,
+        )
+        return {
+            "columns": [
+                {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Invoices", "fieldname": "invoices", "fieldtype": "Int"},
+                {"label": "Net Revenue", "fieldname": "revenue", "fieldtype": "Currency"},
+            ],
+            "rows": rows,
+            "total": len(frappe.get_list("Sales Invoice", pluck="customer", page_length=0, **kw)),
+        }
+
+    if metric == "customers_by_health":
+        frappe.has_permission("Customer", throw=True)
+        # Same cache entry the dashboard reads (keyed on the caller's company, not the user default).
+        payload = customer_intelligence(date_filter=date_filter or "12m", company=f.get("company"))
+        if payload.get("status") == "warming":
+            frappe.throw(_("Customer intelligence is still being computed. Try again shortly."))
+        custs = sorted(payload.get("data", {}).get("customers", []), key=lambda c: c["health_score"])
+        return {
+            "columns": [
+                {"label": "Customer", "fieldname": "customer_id", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
+                {"label": "Health Score", "fieldname": "health_score", "fieldtype": "Float"},
+                {"label": "Health Status", "fieldname": "health_status", "fieldtype": "Data"},
+                {"label": "Churn Risk", "fieldname": "churn_risk", "fieldtype": "Data"},
+                {"label": "Revenue to Date", "fieldname": "historical_clv", "fieldtype": "Currency"},
+            ],
+            "rows": custs[start:start + page_size],
+            "total": len(custs),
+        }
+
     if metric == "top_customers":
         frappe.has_permission("Sales Invoice", throw=True)
         # Revenue KPIs are submitted, non-return invoices in the window.
@@ -449,7 +513,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "base_net_total", "grand_total", "outstanding_amount"],
+            fields=["name", "customer", "posting_date", "base_net_total", "base_grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by=order_by,
             ignore_permissions=False,
         )
@@ -459,7 +523,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
-                {"label": "Total (incl. tax)", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total (incl. tax)", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
             ],
             "rows": rows,
@@ -562,7 +626,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "posting_date", "due_date", "base_net_total", "grand_total", "outstanding_amount", "status"],
+            fields=["name", "posting_date", "due_date", "base_net_total", "base_grand_total", "outstanding_amount", "status"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -572,7 +636,7 @@ def get_customer_detail(metric: str, filters: str) -> dict:
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Net Total", "fieldname": "base_net_total", "fieldtype": "Currency"},
-                {"label": "Total (incl. tax)", "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": "Total (incl. tax)", "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
             ],

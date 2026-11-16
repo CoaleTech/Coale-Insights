@@ -1,0 +1,3416 @@
+{
+ "base_currency": "INR",
+ "capital_planning": {
+  "asset_count": 4,
+  "capex_change_pct": -87.9,
+  "category_summary": [
+   {
+    "accumulated_depreciation": 0.0,
+    "asset_count": 2,
+    "category": "Furniture & Fixtures",
+    "gross_value": 289871.08,
+    "net_value": 260883.97
+   },
+   {
+    "accumulated_depreciation": 0.0,
+    "asset_count": 2,
+    "category": "Plant and Machinery 15%",
+    "gross_value": 42968.76,
+    "net_value": 17572.61
+   }
+  ],
+  "prior_year_capex": 841083.72,
+  "register_gross_assets": 332839.84,
+  "top_assets": [
+   {
+    "asset_name": "Furniture & Fixture",
+    "category": "Furniture & Fixtures",
+    "gross_value": 276858.58,
+    "name": "ACC-ASS-2026-00023-1",
+    "net_value": 249172.72,
+    "status": "Submitted"
+   },
+   {
+    "asset_name": "Air Conditioner -Cruise",
+    "category": "Plant and Machinery 15%",
+    "gross_value": 23046.88,
+    "name": "ACC-ASS-2026-00021",
+    "net_value": 5338.05,
+    "status": "Submitted"
+   },
+   {
+    "asset_name": "Air Conditioner - Media",
+    "category": "Plant and Machinery 15%",
+    "gross_value": 19921.88,
+    "name": "ACC-ASS-2026-00022",
+    "net_value": 12234.56,
+    "status": "Submitted"
+   },
+   {
+    "asset_name": "Hanging CPU & Keyboard Stand ",
+    "category": "Furniture & Fixtures",
+    "gross_value": 13012.5,
+    "name": "ACC-ASS-2026-00024",
+    "net_value": 11711.25,
+    "status": "Submitted"
+   }
+  ],
+  "total_accumulated_depreciation": 0.0,
+  "total_gross_assets": 1584298.12,
+  "total_net_assets": 1584298.12,
+  "upcoming_depreciation": [],
+  "ytd_capex": 101392.45
+ },
+ "cash_forecast": {
+  "avg_daily_flow": -12611.06,
+  "base_forecast": [
+   {
+    "balance": 357183.64,
+    "date": "2026-10-23",
+    "day": 1
+   },
+   {
+    "balance": -43550.73,
+    "date": "2026-10-24",
+    "day": 2
+   },
+   {
+    "balance": 47774.89,
+    "date": "2026-10-25",
+    "day": 3
+   },
+   {
+    "balance": -105159.48,
+    "date": "2026-10-26",
+    "day": 4
+   },
+   {
+    "balance": -961875.86,
+    "date": "2026-10-27",
+    "day": 5
+   },
+   {
+    "balance": -1207735.23,
+    "date": "2026-10-28",
+    "day": 6
+   },
+   {
+    "balance": -1550590.61,
+    "date": "2026-10-29",
+    "day": 7
+   },
+   {
+    "balance": -1703524.99,
+    "date": "2026-10-30",
+    "day": 8
+   },
+   {
+    "balance": -2012998.36,
+    "date": "2026-10-31",
+    "day": 9
+   },
+   {
+    "balance": -2591362.74,
+    "date": "2026-11-01",
+    "day": 10
+   },
+   {
+    "balance": -2434370.11,
+    "date": "2026-11-02",
+    "day": 11
+   },
+   {
+    "balance": -2451545.49,
+    "date": "2026-11-03",
+    "day": 12
+   },
+   {
+    "balance": -2418747.87,
+    "date": "2026-11-04",
+    "day": 13
+   },
+   {
+    "balance": -2597170.24,
+    "date": "2026-11-05",
+    "day": 14
+   },
+   {
+    "balance": -2750104.62,
+    "date": "2026-11-06",
+    "day": 15
+   },
+   {
+    "balance": -2942155.99,
+    "date": "2026-11-07",
+    "day": 16
+   },
+   {
+    "balance": -3090370.37,
+    "date": "2026-11-08",
+    "day": 17
+   },
+   {
+    "balance": -3474395.75,
+    "date": "2026-11-09",
+    "day": 18
+   },
+   {
+    "balance": -3540104.12,
+    "date": "2026-11-10",
+    "day": 19
+   },
+   {
+    "balance": -3693038.5,
+    "date": "2026-11-11",
+    "day": 20
+   },
+   {
+    "balance": -3904530.87,
+    "date": "2026-11-12",
+    "day": 21
+   },
+   {
+    "balance": -4057465.25,
+    "date": "2026-11-13",
+    "day": 22
+   },
+   {
+    "balance": -4210399.62,
+    "date": "2026-11-14",
+    "day": 23
+   },
+   {
+    "balance": -4363334.0,
+    "date": "2026-11-15",
+    "day": 24
+   },
+   {
+    "balance": -4516268.38,
+    "date": "2026-11-16",
+    "day": 25
+   },
+   {
+    "balance": -4718585.75,
+    "date": "2026-11-17",
+    "day": 26
+   },
+   {
+    "balance": -4871520.13,
+    "date": "2026-11-18",
+    "day": 27
+   },
+   {
+    "balance": -5024454.5,
+    "date": "2026-11-19",
+    "day": 28
+   },
+   {
+    "balance": -5177388.88,
+    "date": "2026-11-20",
+    "day": 29
+   },
+   {
+    "balance": -5412923.26,
+    "date": "2026-11-21",
+    "day": 30
+   },
+   {
+    "balance": -5018614.18,
+    "date": "2026-11-22",
+    "day": 31
+   },
+   {
+    "balance": -4624305.11,
+    "date": "2026-11-23",
+    "day": 32
+   },
+   {
+    "balance": -4229996.04,
+    "date": "2026-11-24",
+    "day": 33
+   },
+   {
+    "balance": -3835686.97,
+    "date": "2026-11-25",
+    "day": 34
+   },
+   {
+    "balance": -3441377.9,
+    "date": "2026-11-26",
+    "day": 35
+   },
+   {
+    "balance": -3047068.83,
+    "date": "2026-11-27",
+    "day": 36
+   },
+   {
+    "balance": -2652759.76,
+    "date": "2026-11-28",
+    "day": 37
+   },
+   {
+    "balance": -2258450.69,
+    "date": "2026-11-29",
+    "day": 38
+   },
+   {
+    "balance": -1864141.62,
+    "date": "2026-11-30",
+    "day": 39
+   },
+   {
+    "balance": -1469832.55,
+    "date": "2026-12-01",
+    "day": 40
+   },
+   {
+    "balance": -1075523.48,
+    "date": "2026-12-02",
+    "day": 41
+   },
+   {
+    "balance": -681214.41,
+    "date": "2026-12-03",
+    "day": 42
+   },
+   {
+    "balance": -286905.33,
+    "date": "2026-12-04",
+    "day": 43
+   },
+   {
+    "balance": 107403.74,
+    "date": "2026-12-05",
+    "day": 44
+   },
+   {
+    "balance": 501712.81,
+    "date": "2026-12-06",
+    "day": 45
+   },
+   {
+    "balance": 489101.74,
+    "date": "2026-12-07",
+    "day": 46
+   },
+   {
+    "balance": 476490.68,
+    "date": "2026-12-08",
+    "day": 47
+   },
+   {
+    "balance": 463879.62,
+    "date": "2026-12-09",
+    "day": 48
+   },
+   {
+    "balance": 451268.56,
+    "date": "2026-12-10",
+    "day": 49
+   },
+   {
+    "balance": 438657.49,
+    "date": "2026-12-11",
+    "day": 50
+   },
+   {
+    "balance": 426046.43,
+    "date": "2026-12-12",
+    "day": 51
+   },
+   {
+    "balance": 413435.37,
+    "date": "2026-12-13",
+    "day": 52
+   },
+   {
+    "balance": 400824.31,
+    "date": "2026-12-14",
+    "day": 53
+   },
+   {
+    "balance": 388213.24,
+    "date": "2026-12-15",
+    "day": 54
+   },
+   {
+    "balance": 375602.18,
+    "date": "2026-12-16",
+    "day": 55
+   },
+   {
+    "balance": 362991.12,
+    "date": "2026-12-17",
+    "day": 56
+   },
+   {
+    "balance": 350380.06,
+    "date": "2026-12-18",
+    "day": 57
+   },
+   {
+    "balance": 337768.99,
+    "date": "2026-12-19",
+    "day": 58
+   },
+   {
+    "balance": 325157.93,
+    "date": "2026-12-20",
+    "day": 59
+   },
+   {
+    "balance": 312546.87,
+    "date": "2026-12-21",
+    "day": 60
+   },
+   {
+    "balance": 299935.81,
+    "date": "2026-12-22",
+    "day": 61
+   },
+   {
+    "balance": 287324.74,
+    "date": "2026-12-23",
+    "day": 62
+   },
+   {
+    "balance": 274713.68,
+    "date": "2026-12-24",
+    "day": 63
+   },
+   {
+    "balance": 262102.62,
+    "date": "2026-12-25",
+    "day": 64
+   },
+   {
+    "balance": 249491.56,
+    "date": "2026-12-26",
+    "day": 65
+   },
+   {
+    "balance": 236880.49,
+    "date": "2026-12-27",
+    "day": 66
+   },
+   {
+    "balance": 224269.43,
+    "date": "2026-12-28",
+    "day": 67
+   },
+   {
+    "balance": 211658.37,
+    "date": "2026-12-29",
+    "day": 68
+   },
+   {
+    "balance": 199047.31,
+    "date": "2026-12-30",
+    "day": 69
+   },
+   {
+    "balance": 186436.24,
+    "date": "2026-12-31",
+    "day": 70
+   },
+   {
+    "balance": 173825.18,
+    "date": "2027-01-01",
+    "day": 71
+   },
+   {
+    "balance": 161214.12,
+    "date": "2027-01-02",
+    "day": 72
+   },
+   {
+    "balance": 148603.06,
+    "date": "2027-01-03",
+    "day": 73
+   },
+   {
+    "balance": 135991.99,
+    "date": "2027-01-04",
+    "day": 74
+   },
+   {
+    "balance": 123380.93,
+    "date": "2027-01-05",
+    "day": 75
+   },
+   {
+    "balance": 110769.87,
+    "date": "2027-01-06",
+    "day": 76
+   },
+   {
+    "balance": 98158.81,
+    "date": "2027-01-07",
+    "day": 77
+   },
+   {
+    "balance": 85547.74,
+    "date": "2027-01-08",
+    "day": 78
+   },
+   {
+    "balance": 72936.68,
+    "date": "2027-01-09",
+    "day": 79
+   },
+   {
+    "balance": 60325.62,
+    "date": "2027-01-10",
+    "day": 80
+   },
+   {
+    "balance": 47714.56,
+    "date": "2027-01-11",
+    "day": 81
+   },
+   {
+    "balance": 35103.49,
+    "date": "2027-01-12",
+    "day": 82
+   },
+   {
+    "balance": 22492.43,
+    "date": "2027-01-13",
+    "day": 83
+   },
+   {
+    "balance": 9881.37,
+    "date": "2027-01-14",
+    "day": 84
+   },
+   {
+    "balance": -2729.69,
+    "date": "2027-01-15",
+    "day": 85
+   },
+   {
+    "balance": -15340.76,
+    "date": "2027-01-16",
+    "day": 86
+   },
+   {
+    "balance": -27951.82,
+    "date": "2027-01-17",
+    "day": 87
+   },
+   {
+    "balance": -40562.88,
+    "date": "2027-01-18",
+    "day": 88
+   },
+   {
+    "balance": -53173.94,
+    "date": "2027-01-19",
+    "day": 89
+   },
+   {
+    "balance": -65785.01,
+    "date": "2027-01-20",
+    "day": 90
+   }
+  ],
+  "base_runway_days": 1,
+  "current_cash": 424273.02,
+  "end_of_period": {
+   "base": -65785.01,
+   "optimistic": 2510527.37,
+   "pessimistic": -2642097.38
+  },
+  "expected_ap_outflows": 19069276.4,
+  "expected_ar_inflows": 19714214.0,
+  "net_expected": 644937.6000000015,
+  "optimistic_forecast": [
+   {
+    "balance": 370601.52,
+    "date": "2026-10-23",
+    "day": 1
+   },
+   {
+    "balance": 50014.02,
+    "date": "2026-10-24",
+    "day": 2
+   },
+   {
+    "balance": 159604.77,
+    "date": "2026-10-25",
+    "day": 3
+   },
+   {
+    "balance": 37257.27,
+    "date": "2026-10-26",
+    "day": 4
+   },
+   {
+    "balance": -648115.83,
+    "date": "2026-10-27",
+    "day": 5
+   },
+   {
+    "balance": -844803.33,
+    "date": "2026-10-28",
+    "day": 6
+   },
+   {
+    "balance": -1119087.64,
+    "date": "2026-10-29",
+    "day": 7
+   },
+   {
+    "balance": -1241435.14,
+    "date": "2026-10-30",
+    "day": 8
+   },
+   {
+    "balance": -1489013.84,
+    "date": "2026-10-31",
+    "day": 9
+   },
+   {
+    "balance": -1951705.34,
+    "date": "2026-11-01",
+    "day": 10
+   },
+   {
+    "balance": -1763314.19,
+    "date": "2026-11-02",
+    "day": 11
+   },
+   {
+    "balance": -1777054.49,
+    "date": "2026-11-03",
+    "day": 12
+   },
+   {
+    "balance": -1737697.34,
+    "date": "2026-11-04",
+    "day": 13
+   },
+   {
+    "balance": -1880435.24,
+    "date": "2026-11-05",
+    "day": 14
+   },
+   {
+    "balance": -2002782.74,
+    "date": "2026-11-06",
+    "day": 15
+   },
+   {
+    "balance": -2156423.84,
+    "date": "2026-11-07",
+    "day": 16
+   },
+   {
+    "balance": -2274995.34,
+    "date": "2026-11-08",
+    "day": 17
+   },
+   {
+    "balance": -2582215.64,
+    "date": "2026-11-09",
+    "day": 18
+   },
+   {
+    "balance": -2634782.34,
+    "date": "2026-11-10",
+    "day": 19
+   },
+   {
+    "balance": -2757129.84,
+    "date": "2026-11-11",
+    "day": 20
+   },
+   {
+    "balance": -2926323.75,
+    "date": "2026-11-12",
+    "day": 21
+   },
+   {
+    "balance": -3048671.25,
+    "date": "2026-11-13",
+    "day": 22
+   },
+   {
+    "balance": -3171018.75,
+    "date": "2026-11-14",
+    "day": 23
+   },
+   {
+    "balance": -3293366.25,
+    "date": "2026-11-15",
+    "day": 24
+   },
+   {
+    "balance": -3415713.75,
+    "date": "2026-11-16",
+    "day": 25
+   },
+   {
+    "balance": -3577567.65,
+    "date": "2026-11-17",
+    "day": 26
+   },
+   {
+    "balance": -3699915.15,
+    "date": "2026-11-18",
+    "day": 27
+   },
+   {
+    "balance": -3822262.65,
+    "date": "2026-11-19",
+    "day": 28
+   },
+   {
+    "balance": -3944610.15,
+    "date": "2026-11-20",
+    "day": 29
+   },
+   {
+    "balance": -4133037.65,
+    "date": "2026-11-21",
+    "day": 30
+   },
+   {
+    "balance": -3659866.77,
+    "date": "2026-11-22",
+    "day": 31
+   },
+   {
+    "balance": -3186695.88,
+    "date": "2026-11-23",
+    "day": 32
+   },
+   {
+    "balance": -2713525.0,
+    "date": "2026-11-24",
+    "day": 33
+   },
+   {
+    "balance": -2240354.11,
+    "date": "2026-11-25",
+    "day": 34
+   },
+   {
+    "balance": -1767183.23,
+    "date": "2026-11-26",
+    "day": 35
+   },
+   {
+    "balance": -1294012.34,
+    "date": "2026-11-27",
+    "day": 36
+   },
+   {
+    "balance": -820841.46,
+    "date": "2026-11-28",
+    "day": 37
+   },
+   {
+    "balance": -347670.57,
+    "date": "2026-11-29",
+    "day": 38
+   },
+   {
+    "balance": 125500.31,
+    "date": "2026-11-30",
+    "day": 39
+   },
+   {
+    "balance": 598671.2,
+    "date": "2026-12-01",
+    "day": 40
+   },
+   {
+    "balance": 1071842.08,
+    "date": "2026-12-02",
+    "day": 41
+   },
+   {
+    "balance": 1545012.97,
+    "date": "2026-12-03",
+    "day": 42
+   },
+   {
+    "balance": 2018183.85,
+    "date": "2026-12-04",
+    "day": 43
+   },
+   {
+    "balance": 2491354.74,
+    "date": "2026-12-05",
+    "day": 44
+   },
+   {
+    "balance": 2964525.62,
+    "date": "2026-12-06",
+    "day": 45
+   },
+   {
+    "balance": 2954436.77,
+    "date": "2026-12-07",
+    "day": 46
+   },
+   {
+    "balance": 2944347.92,
+    "date": "2026-12-08",
+    "day": 47
+   },
+   {
+    "balance": 2934259.07,
+    "date": "2026-12-09",
+    "day": 48
+   },
+   {
+    "balance": 2924170.22,
+    "date": "2026-12-10",
+    "day": 49
+   },
+   {
+    "balance": 2914081.37,
+    "date": "2026-12-11",
+    "day": 50
+   },
+   {
+    "balance": 2903992.52,
+    "date": "2026-12-12",
+    "day": 51
+   },
+   {
+    "balance": 2893903.67,
+    "date": "2026-12-13",
+    "day": 52
+   },
+   {
+    "balance": 2883814.82,
+    "date": "2026-12-14",
+    "day": 53
+   },
+   {
+    "balance": 2873725.97,
+    "date": "2026-12-15",
+    "day": 54
+   },
+   {
+    "balance": 2863637.12,
+    "date": "2026-12-16",
+    "day": 55
+   },
+   {
+    "balance": 2853548.27,
+    "date": "2026-12-17",
+    "day": 56
+   },
+   {
+    "balance": 2843459.42,
+    "date": "2026-12-18",
+    "day": 57
+   },
+   {
+    "balance": 2833370.57,
+    "date": "2026-12-19",
+    "day": 58
+   },
+   {
+    "balance": 2823281.72,
+    "date": "2026-12-20",
+    "day": 59
+   },
+   {
+    "balance": 2813192.87,
+    "date": "2026-12-21",
+    "day": 60
+   },
+   {
+    "balance": 2803104.02,
+    "date": "2026-12-22",
+    "day": 61
+   },
+   {
+    "balance": 2793015.17,
+    "date": "2026-12-23",
+    "day": 62
+   },
+   {
+    "balance": 2782926.32,
+    "date": "2026-12-24",
+    "day": 63
+   },
+   {
+    "balance": 2772837.47,
+    "date": "2026-12-25",
+    "day": 64
+   },
+   {
+    "balance": 2762748.62,
+    "date": "2026-12-26",
+    "day": 65
+   },
+   {
+    "balance": 2752659.77,
+    "date": "2026-12-27",
+    "day": 66
+   },
+   {
+    "balance": 2742570.92,
+    "date": "2026-12-28",
+    "day": 67
+   },
+   {
+    "balance": 2732482.07,
+    "date": "2026-12-29",
+    "day": 68
+   },
+   {
+    "balance": 2722393.22,
+    "date": "2026-12-30",
+    "day": 69
+   },
+   {
+    "balance": 2712304.37,
+    "date": "2026-12-31",
+    "day": 70
+   },
+   {
+    "balance": 2702215.52,
+    "date": "2027-01-01",
+    "day": 71
+   },
+   {
+    "balance": 2692126.67,
+    "date": "2027-01-02",
+    "day": 72
+   },
+   {
+    "balance": 2682037.82,
+    "date": "2027-01-03",
+    "day": 73
+   },
+   {
+    "balance": 2671948.97,
+    "date": "2027-01-04",
+    "day": 74
+   },
+   {
+    "balance": 2661860.12,
+    "date": "2027-01-05",
+    "day": 75
+   },
+   {
+    "balance": 2651771.27,
+    "date": "2027-01-06",
+    "day": 76
+   },
+   {
+    "balance": 2641682.42,
+    "date": "2027-01-07",
+    "day": 77
+   },
+   {
+    "balance": 2631593.57,
+    "date": "2027-01-08",
+    "day": 78
+   },
+   {
+    "balance": 2621504.72,
+    "date": "2027-01-09",
+    "day": 79
+   },
+   {
+    "balance": 2611415.87,
+    "date": "2027-01-10",
+    "day": 80
+   },
+   {
+    "balance": 2601327.02,
+    "date": "2027-01-11",
+    "day": 81
+   },
+   {
+    "balance": 2591238.17,
+    "date": "2027-01-12",
+    "day": 82
+   },
+   {
+    "balance": 2581149.32,
+    "date": "2027-01-13",
+    "day": 83
+   },
+   {
+    "balance": 2571060.47,
+    "date": "2027-01-14",
+    "day": 84
+   },
+   {
+    "balance": 2560971.62,
+    "date": "2027-01-15",
+    "day": 85
+   },
+   {
+    "balance": 2550882.77,
+    "date": "2027-01-16",
+    "day": 86
+   },
+   {
+    "balance": 2540793.92,
+    "date": "2027-01-17",
+    "day": 87
+   },
+   {
+    "balance": 2530705.07,
+    "date": "2027-01-18",
+    "day": 88
+   },
+   {
+    "balance": 2520616.22,
+    "date": "2027-01-19",
+    "day": 89
+   },
+   {
+    "balance": 2510527.37,
+    "date": "2027-01-20",
+    "day": 90
+   }
+  ],
+  "optimistic_runway_days": 4,
+  "pessimistic_forecast": [
+   {
+    "balance": 343765.77,
+    "date": "2026-10-23",
+    "day": 1
+   },
+   {
+    "balance": -137115.48,
+    "date": "2026-10-24",
+    "day": 2
+   },
+   {
+    "balance": -64054.98,
+    "date": "2026-10-25",
+    "day": 3
+   },
+   {
+    "balance": -247576.23,
+    "date": "2026-10-26",
+    "day": 4
+   },
+   {
+    "balance": -1275635.88,
+    "date": "2026-10-27",
+    "day": 5
+   },
+   {
+    "balance": -1570667.14,
+    "date": "2026-10-28",
+    "day": 6
+   },
+   {
+    "balance": -1982093.59,
+    "date": "2026-10-29",
+    "day": 7
+   },
+   {
+    "balance": -2165614.84,
+    "date": "2026-10-30",
+    "day": 8
+   },
+   {
+    "balance": -2536982.89,
+    "date": "2026-10-31",
+    "day": 9
+   },
+   {
+    "balance": -3231020.14,
+    "date": "2026-11-01",
+    "day": 10
+   },
+   {
+    "balance": -3105426.04,
+    "date": "2026-11-02",
+    "day": 11
+   },
+   {
+    "balance": -3126036.49,
+    "date": "2026-11-03",
+    "day": 12
+   },
+   {
+    "balance": -3099798.39,
+    "date": "2026-11-04",
+    "day": 13
+   },
+   {
+    "balance": -3313905.24,
+    "date": "2026-11-05",
+    "day": 14
+   },
+   {
+    "balance": -3497426.49,
+    "date": "2026-11-06",
+    "day": 15
+   },
+   {
+    "balance": -3727888.14,
+    "date": "2026-11-07",
+    "day": 16
+   },
+   {
+    "balance": -3905745.4,
+    "date": "2026-11-08",
+    "day": 17
+   },
+   {
+    "balance": -4366575.85,
+    "date": "2026-11-09",
+    "day": 18
+   },
+   {
+    "balance": -4445425.9,
+    "date": "2026-11-10",
+    "day": 19
+   },
+   {
+    "balance": -4628947.15,
+    "date": "2026-11-11",
+    "day": 20
+   },
+   {
+    "balance": -4882738.0,
+    "date": "2026-11-12",
+    "day": 21
+   },
+   {
+    "balance": -5066259.25,
+    "date": "2026-11-13",
+    "day": 22
+   },
+   {
+    "balance": -5249780.5,
+    "date": "2026-11-14",
+    "day": 23
+   },
+   {
+    "balance": -5433301.75,
+    "date": "2026-11-15",
+    "day": 24
+   },
+   {
+    "balance": -5616823.0,
+    "date": "2026-11-16",
+    "day": 25
+   },
+   {
+    "balance": -5859603.86,
+    "date": "2026-11-17",
+    "day": 26
+   },
+   {
+    "balance": -6043125.11,
+    "date": "2026-11-18",
+    "day": 27
+   },
+   {
+    "balance": -6226646.36,
+    "date": "2026-11-19",
+    "day": 28
+   },
+   {
+    "balance": -6410167.61,
+    "date": "2026-11-20",
+    "day": 29
+   },
+   {
+    "balance": -6692808.86,
+    "date": "2026-11-21",
+    "day": 30
+   },
+   {
+    "balance": -6377361.6,
+    "date": "2026-11-22",
+    "day": 31
+   },
+   {
+    "balance": -6061914.35,
+    "date": "2026-11-23",
+    "day": 32
+   },
+   {
+    "balance": -5746467.09,
+    "date": "2026-11-24",
+    "day": 33
+   },
+   {
+    "balance": -5431019.83,
+    "date": "2026-11-25",
+    "day": 34
+   },
+   {
+    "balance": -5115572.58,
+    "date": "2026-11-26",
+    "day": 35
+   },
+   {
+    "balance": -4800125.32,
+    "date": "2026-11-27",
+    "day": 36
+   },
+   {
+    "balance": -4484678.06,
+    "date": "2026-11-28",
+    "day": 37
+   },
+   {
+    "balance": -4169230.81,
+    "date": "2026-11-29",
+    "day": 38
+   },
+   {
+    "balance": -3853783.55,
+    "date": "2026-11-30",
+    "day": 39
+   },
+   {
+    "balance": -3538336.29,
+    "date": "2026-12-01",
+    "day": 40
+   },
+   {
+    "balance": -3222889.04,
+    "date": "2026-12-02",
+    "day": 41
+   },
+   {
+    "balance": -2907441.78,
+    "date": "2026-12-03",
+    "day": 42
+   },
+   {
+    "balance": -2591994.52,
+    "date": "2026-12-04",
+    "day": 43
+   },
+   {
+    "balance": -2276547.27,
+    "date": "2026-12-05",
+    "day": 44
+   },
+   {
+    "balance": -1961100.01,
+    "date": "2026-12-06",
+    "day": 45
+   },
+   {
+    "balance": -1976233.28,
+    "date": "2026-12-07",
+    "day": 46
+   },
+   {
+    "balance": -1991366.56,
+    "date": "2026-12-08",
+    "day": 47
+   },
+   {
+    "balance": -2006499.83,
+    "date": "2026-12-09",
+    "day": 48
+   },
+   {
+    "balance": -2021633.11,
+    "date": "2026-12-10",
+    "day": 49
+   },
+   {
+    "balance": -2036766.38,
+    "date": "2026-12-11",
+    "day": 50
+   },
+   {
+    "balance": -2051899.66,
+    "date": "2026-12-12",
+    "day": 51
+   },
+   {
+    "balance": -2067032.93,
+    "date": "2026-12-13",
+    "day": 52
+   },
+   {
+    "balance": -2082166.21,
+    "date": "2026-12-14",
+    "day": 53
+   },
+   {
+    "balance": -2097299.48,
+    "date": "2026-12-15",
+    "day": 54
+   },
+   {
+    "balance": -2112432.76,
+    "date": "2026-12-16",
+    "day": 55
+   },
+   {
+    "balance": -2127566.03,
+    "date": "2026-12-17",
+    "day": 56
+   },
+   {
+    "balance": -2142699.31,
+    "date": "2026-12-18",
+    "day": 57
+   },
+   {
+    "balance": -2157832.58,
+    "date": "2026-12-19",
+    "day": 58
+   },
+   {
+    "balance": -2172965.86,
+    "date": "2026-12-20",
+    "day": 59
+   },
+   {
+    "balance": -2188099.13,
+    "date": "2026-12-21",
+    "day": 60
+   },
+   {
+    "balance": -2203232.41,
+    "date": "2026-12-22",
+    "day": 61
+   },
+   {
+    "balance": -2218365.68,
+    "date": "2026-12-23",
+    "day": 62
+   },
+   {
+    "balance": -2233498.96,
+    "date": "2026-12-24",
+    "day": 63
+   },
+   {
+    "balance": -2248632.23,
+    "date": "2026-12-25",
+    "day": 64
+   },
+   {
+    "balance": -2263765.51,
+    "date": "2026-12-26",
+    "day": 65
+   },
+   {
+    "balance": -2278898.78,
+    "date": "2026-12-27",
+    "day": 66
+   },
+   {
+    "balance": -2294032.06,
+    "date": "2026-12-28",
+    "day": 67
+   },
+   {
+    "balance": -2309165.33,
+    "date": "2026-12-29",
+    "day": 68
+   },
+   {
+    "balance": -2324298.61,
+    "date": "2026-12-30",
+    "day": 69
+   },
+   {
+    "balance": -2339431.88,
+    "date": "2026-12-31",
+    "day": 70
+   },
+   {
+    "balance": -2354565.16,
+    "date": "2027-01-01",
+    "day": 71
+   },
+   {
+    "balance": -2369698.43,
+    "date": "2027-01-02",
+    "day": 72
+   },
+   {
+    "balance": -2384831.71,
+    "date": "2027-01-03",
+    "day": 73
+   },
+   {
+    "balance": -2399964.98,
+    "date": "2027-01-04",
+    "day": 74
+   },
+   {
+    "balance": -2415098.26,
+    "date": "2027-01-05",
+    "day": 75
+   },
+   {
+    "balance": -2430231.53,
+    "date": "2027-01-06",
+    "day": 76
+   },
+   {
+    "balance": -2445364.81,
+    "date": "2027-01-07",
+    "day": 77
+   },
+   {
+    "balance": -2460498.08,
+    "date": "2027-01-08",
+    "day": 78
+   },
+   {
+    "balance": -2475631.36,
+    "date": "2027-01-09",
+    "day": 79
+   },
+   {
+    "balance": -2490764.63,
+    "date": "2027-01-10",
+    "day": 80
+   },
+   {
+    "balance": -2505897.91,
+    "date": "2027-01-11",
+    "day": 81
+   },
+   {
+    "balance": -2521031.18,
+    "date": "2027-01-12",
+    "day": 82
+   },
+   {
+    "balance": -2536164.46,
+    "date": "2027-01-13",
+    "day": 83
+   },
+   {
+    "balance": -2551297.73,
+    "date": "2027-01-14",
+    "day": 84
+   },
+   {
+    "balance": -2566431.01,
+    "date": "2027-01-15",
+    "day": 85
+   },
+   {
+    "balance": -2581564.28,
+    "date": "2027-01-16",
+    "day": 86
+   },
+   {
+    "balance": -2596697.56,
+    "date": "2027-01-17",
+    "day": 87
+   },
+   {
+    "balance": -2611830.83,
+    "date": "2027-01-18",
+    "day": 88
+   },
+   {
+    "balance": -2626964.11,
+    "date": "2027-01-19",
+    "day": 89
+   },
+   {
+    "balance": -2642097.38,
+    "date": "2027-01-20",
+    "day": 90
+   }
+  ],
+  "pessimistic_runway_days": 1,
+  "weekly_summary": [
+   {
+    "base_balance": -1550590.61,
+    "optimistic_balance": -1119087.64,
+    "pessimistic_balance": -1982093.59,
+    "week": 1
+   },
+   {
+    "base_balance": -2597170.24,
+    "optimistic_balance": -1880435.24,
+    "pessimistic_balance": -3313905.24,
+    "week": 2
+   },
+   {
+    "base_balance": -3904530.87,
+    "optimistic_balance": -2926323.75,
+    "pessimistic_balance": -4882738.0,
+    "week": 3
+   },
+   {
+    "base_balance": -5024454.5,
+    "optimistic_balance": -3822262.65,
+    "pessimistic_balance": -6226646.36,
+    "week": 4
+   },
+   {
+    "base_balance": -3441377.9,
+    "optimistic_balance": -1767183.23,
+    "pessimistic_balance": -5115572.58,
+    "week": 5
+   },
+   {
+    "base_balance": -681214.41,
+    "optimistic_balance": 1545012.97,
+    "pessimistic_balance": -2907441.78,
+    "week": 6
+   },
+   {
+    "base_balance": 451268.56,
+    "optimistic_balance": 2924170.22,
+    "pessimistic_balance": -2021633.11,
+    "week": 7
+   },
+   {
+    "base_balance": 362991.12,
+    "optimistic_balance": 2853548.27,
+    "pessimistic_balance": -2127566.03,
+    "week": 8
+   },
+   {
+    "base_balance": 274713.68,
+    "optimistic_balance": 2782926.32,
+    "pessimistic_balance": -2233498.96,
+    "week": 9
+   },
+   {
+    "base_balance": 186436.24,
+    "optimistic_balance": 2712304.37,
+    "pessimistic_balance": -2339431.88,
+    "week": 10
+   },
+   {
+    "base_balance": 98158.81,
+    "optimistic_balance": 2641682.42,
+    "pessimistic_balance": -2445364.81,
+    "week": 11
+   },
+   {
+    "base_balance": 9881.37,
+    "optimistic_balance": 2571060.47,
+    "pessimistic_balance": -2551297.73,
+    "week": 12
+   },
+   {
+    "base_balance": -65785.01,
+    "optimistic_balance": 2510527.37,
+    "pessimistic_balance": -2642097.38,
+    "week": 13
+   }
+  ]
+ },
+ "company": "company-3582cc",
+ "cost_structure": {
+  "figures": {
+   "electricity_cost": 9193.5,
+   "fixed_cost": null,
+   "gross_profit": 6967926.63,
+   "incentive_cost": 95700.0,
+   "marketing_cost": 0.0,
+   "net_profit": 3469659.400000006,
+   "rent_cost": 247500.0,
+   "revenue": 80149402.65,
+   "salary_cost": 472091.0,
+   "training_cost": 0.0
+  },
+  "overall_status": "good",
+  "period": {
+   "end": "2026-10-22",
+   "start": "2026-04-01"
+  },
+  "ratio_cards": [
+   {
+    "higher_is_better": true,
+    "ideal": 3.0,
+    "key": "gp_salary",
+    "name": "Gross Profit / Salary",
+    "recommendation": "Gross profit comfortably covers salary costs (14.76x, target \u22653.00x). Payroll is sustainable at current margins.",
+    "risky": 1.5,
+    "status": "good",
+    "unit": "x",
+    "value": 14.76
+   },
+   {
+    "higher_is_better": true,
+    "ideal": 1.0,
+    "key": "np_salary",
+    "name": "Net Profit / Salary",
+    "recommendation": "Net profit is 7.35x salary (target \u22651.00x) \u2014 payroll is well within what the business earns after all costs.",
+    "risky": 0.3,
+    "status": "good",
+    "unit": "x",
+    "value": 7.35
+   },
+   {
+    "higher_is_better": false,
+    "ideal": 0.5,
+    "key": "fixed_cost_np",
+    "name": "Fixed Cost / Net Profit",
+    "recommendation": "Not enough data to assess \u2014 no activity recorded against the underlying accounts for this period.",
+    "risky": 1.5,
+    "status": "unknown",
+    "unit": "x",
+    "value": null
+   },
+   {
+    "higher_is_better": false,
+    "ideal": 0.4,
+    "key": "fixed_cost_gp",
+    "name": "Fixed Cost / Gross Profit",
+    "recommendation": "Not enough data to assess \u2014 no activity recorded against the underlying accounts for this period.",
+    "risky": 0.8,
+    "status": "unknown",
+    "unit": "x",
+    "value": null
+   },
+   {
+    "higher_is_better": false,
+    "ideal": 8.0,
+    "key": "marketing",
+    "name": "Marketing Cost % of Revenue",
+    "recommendation": "Marketing spend is 0.0% of revenue (target \u22648.0%) \u2014 within a healthy range.",
+    "risky": 15.0,
+    "status": "good",
+    "unit": "%",
+    "value": 0.0
+   },
+   {
+    "higher_is_better": false,
+    "ideal": 3.0,
+    "key": "training",
+    "name": "Training & Development % of Revenue",
+    "recommendation": "Training & development spend is 0.0% of revenue (target \u22643.0%) \u2014 sustainable investment level.",
+    "risky": 6.0,
+    "status": "good",
+    "unit": "%",
+    "value": 0.0
+   },
+   {
+    "higher_is_better": false,
+    "ideal": 5.0,
+    "key": "incentive",
+    "name": "Incentives/Increment/Appraisal % of Revenue",
+    "recommendation": "Incentives, increments & appraisals cost 0.1% of revenue (target \u22645.0%) \u2014 compensation growth is in line with revenue.",
+    "risky": 10.0,
+    "status": "good",
+    "unit": "%",
+    "value": 0.12
+   },
+   {
+    "higher_is_better": false,
+    "ideal": 8.0,
+    "key": "rent",
+    "name": "Rent % of Revenue",
+    "recommendation": "Rent is 0.3% of revenue (target \u22648.0%) \u2014 occupancy cost is under control.",
+    "risky": 15.0,
+    "status": "good",
+    "unit": "%",
+    "value": 0.31
+   },
+   {
+    "higher_is_better": false,
+    "ideal": 3.0,
+    "key": "electricity",
+    "name": "Electricity % of Revenue",
+    "recommendation": "Electricity is 0.0% of revenue (target \u22643.0%) \u2014 utility cost is efficient.",
+    "risky": 6.0,
+    "status": "good",
+    "unit": "%",
+    "value": 0.01
+   }
+  ]
+ },
+ "executive_summary": {
+  "cash_balance": 424273.02,
+  "cash_runway_months": 0.1,
+  "debt_to_equity": null,
+  "ebitda_addbacks": {
+   "depreciation": 0.0,
+   "interest": 0.0
+  },
+  "ebitda_margin": 4.33,
+  "gross_margin": 8.7,
+  "gross_profit": 6967926.63,
+  "health_scores": {
+   "efficiency": 75,
+   "efficiency_status": "Good",
+   "liquidity": 30,
+   "liquidity_status": "Poor",
+   "profitability": 40,
+   "profitability_status": "Fair"
+  },
+  "key_insights": [
+   {
+    "category": "revenue",
+    "description": "Revenue declined 16.5% year-over-year",
+    "priority": "high",
+    "recommendation": "Investigate root causes and develop recovery plan",
+    "title": "Declining Revenue",
+    "type": "negative"
+   },
+   {
+    "category": "liquidity",
+    "description": "Only 0.1 months of cash runway",
+    "priority": "high",
+    "recommendation": "Secure additional funding or accelerate collections immediately",
+    "title": "Critical Cash Position",
+    "type": "negative"
+   }
+  ],
+  "kpis": [
+   {
+    "format": "currency",
+    "label": "Total Revenue",
+    "subtitle": "Year to Date",
+    "trend": -16.5,
+    "value": 80149402.65
+   },
+   {
+    "format": "currency",
+    "label": "Net Profit",
+    "subtitle": "4.3% margin",
+    "value": 3469659.400000006
+   },
+   {
+    "format": "currency",
+    "label": "EBITDA",
+    "subtitle": "4.3% margin",
+    "value": 3469659.400000006
+   },
+   {
+    "format": "percent",
+    "label": "Gross Margin",
+    "subtitle": "Revenue - COGS",
+    "value": 8.7
+   },
+   {
+    "format": "percent",
+    "label": "Revenue Growth",
+    "subtitle": "YoY",
+    "value": -16.497320938264405
+   },
+   {
+    "format": "currency",
+    "label": "Cash Position",
+    "subtitle": "0 months runway",
+    "value": 424273.02
+   },
+   {
+    "format": "percent",
+    "label": "ROE",
+    "subtitle": "No equity recorded",
+    "value": null
+   }
+  ],
+  "monthly_burn_rate": 7276958.173333333,
+  "monthly_trends": [
+   {
+    "expenses": 8959191.2,
+    "margin": 10.3,
+    "net_income": 1024621.6800000016,
+    "period": "2025-11",
+    "revenue": 9983812.88
+   },
+   {
+    "expenses": 13271915.059999999,
+    "margin": -3.1,
+    "net_income": -395629.0399999991,
+    "period": "2025-12",
+    "revenue": 12876286.02
+   },
+   {
+    "expenses": 10580144.3,
+    "margin": -1.5,
+    "net_income": -159069.06000000052,
+    "period": "2026-01",
+    "revenue": 10421075.24
+   },
+   {
+    "expenses": 13957188.96,
+    "margin": 1.6,
+    "net_income": 227416.2899999991,
+    "period": "2026-02",
+    "revenue": 14184605.25
+   },
+   {
+    "expenses": 20310439.520000003,
+    "margin": -2.7,
+    "net_income": -540538.3500000015,
+    "period": "2026-03",
+    "revenue": 19769901.17
+   },
+   {
+    "expenses": 16063593.350000001,
+    "margin": 8.2,
+    "net_income": 1432417.2399999984,
+    "period": "2026-04",
+    "revenue": 17496010.59
+   },
+   {
+    "expenses": 14950837.190000003,
+    "margin": 0.1,
+    "net_income": 11311.459999997169,
+    "period": "2026-05",
+    "revenue": 14962148.65
+   },
+   {
+    "expenses": 14886949.920000006,
+    "margin": 2.9,
+    "net_income": 445418.8299999945,
+    "period": "2026-06",
+    "revenue": 15332368.75
+   },
+   {
+    "expenses": 11689797.37,
+    "margin": 4.2,
+    "net_income": 508570.8800000008,
+    "period": "2026-07",
+    "revenue": 12198368.25
+   },
+   {
+    "expenses": 12557664.070000002,
+    "margin": 4.8,
+    "net_income": 638601.089999998,
+    "period": "2026-08",
+    "revenue": 13196265.16
+   },
+   {
+    "expenses": 6530901.350000001,
+    "margin": 6.2,
+    "net_income": 433339.89999999944,
+    "period": "2026-09",
+    "revenue": 6964241.25
+   }
+  ],
+  "net_margin": 4.33,
+  "prior_period_revenue": 95984228.95,
+  "prior_period_start": "2025-04-01",
+  "revenue_growth": -16.5,
+  "revenue_growth_yoy": -16.5,
+  "roa": 10.4,
+  "roe": null,
+  "total_assets": 33369739.64,
+  "total_equity": 0.0,
+  "total_liabilities": 28031878.990000002,
+  "ytd_cogs": 73222664.27000001,
+  "ytd_ebitda": 3469659.4,
+  "ytd_expenses": 76679743.25,
+  "ytd_net_income": 3469659.400000006,
+  "ytd_revenue": 80149402.65
+ },
+ "expense_breakdown": [
+  {
+   "amount": 73648657.27,
+   "category": "Cost of Goods Sold",
+   "percentage": 96.5
+  },
+  {
+   "amount": 756964.4,
+   "category": "Advertisment Exp",
+   "percentage": 1.0
+  },
+  {
+   "amount": 472091.0,
+   "category": "Salary",
+   "percentage": 0.6
+  },
+  {
+   "amount": 439139.01,
+   "category": "Software Exp",
+   "percentage": 0.6
+  },
+  {
+   "amount": 247500.0,
+   "category": "Office & Warehouse Rent Exp.",
+   "percentage": 0.3
+  },
+  {
+   "amount": 217380.0,
+   "category": "Carriage Inwards",
+   "percentage": 0.3
+  },
+  {
+   "amount": 168332.0,
+   "category": "Consulting Fees",
+   "percentage": 0.2
+  },
+  {
+   "amount": 154709.0,
+   "category": "Handling & Documentation Charges",
+   "percentage": 0.2
+  },
+  {
+   "amount": 122499.0,
+   "category": "Membership Fees",
+   "percentage": 0.2
+  },
+  {
+   "amount": 61700.0,
+   "category": "Commission on Sales",
+   "percentage": 0.1
+  }
+ ],
+ "expense_forecast": {
+  "forecast": [
+   {
+    "month": "2026-10",
+    "projected_amount": 6975944.02
+   },
+   {
+    "month": "2026-11",
+    "projected_amount": 5317654.53
+   },
+   {
+    "month": "2026-12",
+    "projected_amount": 3659365.05
+   }
+  ],
+  "history": [
+   {
+    "amount": 9658099.39,
+    "month": "2025-10"
+   },
+   {
+    "amount": 8959191.2,
+    "month": "2025-11"
+   },
+   {
+    "amount": 13271915.06,
+    "month": "2025-12"
+   },
+   {
+    "amount": 10580144.3,
+    "month": "2026-01"
+   },
+   {
+    "amount": 13957188.96,
+    "month": "2026-02"
+   },
+   {
+    "amount": 20310439.52,
+    "month": "2026-03"
+   },
+   {
+    "amount": 16063593.35,
+    "month": "2026-04"
+   },
+   {
+    "amount": 14950837.19,
+    "month": "2026-05"
+   },
+   {
+    "amount": 14886949.92,
+    "month": "2026-06"
+   },
+   {
+    "amount": 11689797.37,
+    "month": "2026-07"
+   },
+   {
+    "amount": 12557664.07,
+    "month": "2026-08"
+   },
+   {
+    "amount": 6530901.35,
+    "month": "2026-09"
+   }
+  ],
+  "method": "linear_trend",
+  "monthly_change": -1658289.48,
+  "note": "Projected from a linear trend over the last 6 complete months. Not seasonally adjusted.",
+  "status": "success",
+  "trend_direction": "falling",
+  "window_months": 6
+ },
+ "fiscal_year": {
+  "end_date": "2027-03-31",
+  "name": "2627",
+  "start_date": "2026-04-01"
+ },
+ "generated_at": "2026-10-22T14:43:03.375976",
+ "period_comparison": {
+  "mom": {
+   "current": {
+    "expenses": 0.0,
+    "is_partial": true,
+    "label": "Oct 2026",
+    "margin": null,
+    "net_income": 0.0,
+    "revenue": 0.0
+   },
+   "expense_change": null,
+   "net_income_change": null,
+   "prior": {
+    "expenses": 6530901.350000001,
+    "is_partial": false,
+    "label": "Sep 2026",
+    "margin": 6.2,
+    "net_income": 433339.89999999944,
+    "revenue": 6964241.25
+   },
+   "revenue_change": null
+  },
+  "period_data": {
+   "current_month": {
+    "expenses": 0.0,
+    "is_partial": true,
+    "label": "Oct 2026",
+    "margin": null,
+    "net_income": 0.0,
+    "revenue": 0.0
+   },
+   "current_quarter": {
+    "expenses": 0.0,
+    "is_partial": true,
+    "label": "Q4 2026",
+    "margin": null,
+    "net_income": 0.0,
+    "revenue": 0.0
+   },
+   "current_ytd": {
+    "expenses": 76679743.25,
+    "is_partial": false,
+    "label": "YTD FY26-27",
+    "margin": 4.3,
+    "net_income": 3469659.400000006,
+    "revenue": 80149402.65
+   },
+   "prior_month": {
+    "expenses": 6530901.350000001,
+    "is_partial": false,
+    "label": "Sep 2026",
+    "margin": 6.2,
+    "net_income": 433339.89999999944,
+    "revenue": 6964241.25
+   },
+   "prior_quarter": {
+    "expenses": 30778362.79,
+    "is_partial": false,
+    "label": "Q3 2026",
+    "margin": 4.9,
+    "net_income": 1580511.870000001,
+    "revenue": 32358874.66
+   },
+   "prior_ytd": {
+    "expenses": 93356038.07,
+    "is_partial": false,
+    "label": "YTD FY25-26",
+    "margin": 2.7,
+    "net_income": 2628190.88000001,
+    "revenue": 95984228.95
+   }
+  },
+  "qoq": {
+   "current": {
+    "expenses": 0.0,
+    "is_partial": true,
+    "label": "Q4 2026",
+    "margin": null,
+    "net_income": 0.0,
+    "revenue": 0.0
+   },
+   "expense_change": null,
+   "net_income_change": null,
+   "prior": {
+    "expenses": 30778362.79,
+    "is_partial": false,
+    "label": "Q3 2026",
+    "margin": 4.9,
+    "net_income": 1580511.870000001,
+    "revenue": 32358874.66
+   },
+   "revenue_change": null
+  },
+  "summary": [
+   {
+    "comparison": "Month over Month",
+    "expense_change": null,
+    "net_income_change": null,
+    "revenue_change": null
+   },
+   {
+    "comparison": "Quarter over Quarter",
+    "expense_change": null,
+    "net_income_change": null,
+    "revenue_change": null
+   },
+   {
+    "comparison": "Year over Year",
+    "expense_change": -17.9,
+    "net_income_change": 32.0,
+    "revenue_change": -16.5
+   }
+  ],
+  "yoy": {
+   "current": {
+    "expenses": 76679743.25,
+    "is_partial": false,
+    "label": "YTD FY26-27",
+    "margin": 4.3,
+    "net_income": 3469659.400000006,
+    "revenue": 80149402.65
+   },
+   "expense_change": -17.9,
+   "net_income_change": 32.0,
+   "prior": {
+    "expenses": 93356038.07,
+    "is_partial": false,
+    "label": "YTD FY25-26",
+    "margin": 2.7,
+    "net_income": 2628190.88000001,
+    "revenue": 95984228.95
+   },
+   "revenue_change": -16.5
+  }
+ },
+ "ratio_trends": {
+  "benchmarks": {
+   "asset_turnover": 1.2,
+   "debt_to_equity": 1.5,
+   "dscr": 1.25,
+   "ebitda_margin": 15.0,
+   "gross_margin": 35.0,
+   "interest_coverage": 3.0,
+   "net_margin": 10.0,
+   "roa": 8.0,
+   "roe": 15.0,
+   "working_capital_turnover": 4.0
+  },
+  "current_ratios": {
+   "asset_turnover": 0.68,
+   "debt_to_equity": null,
+   "dscr": null,
+   "ebitda": 1004414.89,
+   "ebitda_margin": 4.4,
+   "gross_margin": 7.5,
+   "interest_coverage": null,
+   "net_margin": 4.4,
+   "period": "Q4 2026",
+   "roa": 3.0,
+   "roe": null,
+   "working_capital_turnover": 1.59
+  },
+  "ratio_cards": [
+   {
+    "benchmark": 35.0,
+    "name": "Gross Margin",
+    "status": "warning",
+    "value": 7.5
+   },
+   {
+    "benchmark": 10.0,
+    "name": "Net Margin",
+    "status": "warning",
+    "value": 4.4
+   },
+   {
+    "benchmark": 15.0,
+    "name": "ROE",
+    "status": "unavailable",
+    "value": null
+   },
+   {
+    "benchmark": 8.0,
+    "name": "ROA",
+    "status": "warning",
+    "value": 3.0
+   },
+   {
+    "benchmark": 1.5,
+    "name": "Debt/Equity",
+    "status": "unavailable",
+    "value": null
+   },
+   {
+    "benchmark": 1.2,
+    "name": "Asset Turnover",
+    "status": "warning",
+    "value": 0.68
+   },
+   {
+    "benchmark": 15.0,
+    "name": "EBITDA Margin",
+    "status": "warning",
+    "value": 4.4
+   },
+   {
+    "benchmark": 4.0,
+    "name": "Working Capital Turnover",
+    "status": "warning",
+    "value": 1.59
+   },
+   {
+    "benchmark": 3.0,
+    "name": "Interest Coverage",
+    "status": "unavailable",
+    "value": null
+   },
+   {
+    "benchmark": 1.25,
+    "name": "DSCR",
+    "status": "unavailable",
+    "value": null
+   }
+  ],
+  "trends": [
+   {
+    "asset_turnover": 0.58,
+    "debt_to_equity": null,
+    "dscr": null,
+    "ebitda": 970812.63,
+    "ebitda_margin": 7.6,
+    "gross_margin": 8.6,
+    "interest_coverage": null,
+    "net_margin": 7.6,
+    "period": "Q1 2025",
+    "roa": 4.4,
+    "roe": null,
+    "working_capital_turnover": 1.39
+   },
+   {
+    "asset_turnover": 0.01,
+    "debt_to_equity": null,
+    "dscr": null,
+    "ebitda": -1183004.27,
+    "ebitda_margin": -413.9,
+    "gross_margin": 8.4,
+    "interest_coverage": null,
+    "net_margin": -413.9,
+    "period": "Q2 2025",
+    "roa": -5.2,
+    "roe": null,
+    "working_capital_turnover": 0.04
+   },
+   {
+    "asset_turnover": 1.81,
+    "debt_to_equity": null,
+    "dscr": 10.0,
+    "ebitda": 463708.86,
+    "ebitda_margin": 1.0,
+    "gross_margin": 7.9,
+    "interest_coverage": 20.0,
+    "net_margin": 1.0,
+    "period": "Q3 2025",
+    "roa": 1.8,
+    "roe": null,
+    "working_capital_turnover": 5.66
+   },
+   {
+    "asset_turnover": 1.58,
+    "debt_to_equity": null,
+    "dscr": null,
+    "ebitda": 2664702.23,
+    "ebitda_margin": 6.7,
+    "gross_margin": 9.3,
+    "interest_coverage": null,
+    "net_margin": 6.7,
+    "period": "Q4 2025",
+    "roa": 10.6,
+    "roe": null,
+    "working_capital_turnover": 4.17
+   },
+   {
+    "asset_turnover": 1.29,
+    "debt_to_equity": null,
+    "dscr": null,
+    "ebitda": -627140.08,
+    "ebitda_margin": -1.9,
+    "gross_margin": 9.8,
+    "interest_coverage": null,
+    "net_margin": -1.9,
+    "period": "Q1 2026",
+    "roa": -2.5,
+    "roe": null,
+    "working_capital_turnover": 3.47
+   },
+   {
+    "asset_turnover": 1.53,
+    "debt_to_equity": null,
+    "dscr": 2.2,
+    "ebitda": 2412229.45,
+    "ebitda_margin": 4.6,
+    "gross_margin": 9.5,
+    "interest_coverage": 2.2,
+    "net_margin": 2.5,
+    "period": "Q2 2026",
+    "roa": 3.8,
+    "roe": null,
+    "working_capital_turnover": 4.07
+   },
+   {
+    "asset_turnover": 1.2,
+    "debt_to_equity": null,
+    "dscr": null,
+    "ebitda": 987042.06,
+    "ebitda_margin": 2.4,
+    "gross_margin": 7.6,
+    "interest_coverage": null,
+    "net_margin": 2.4,
+    "period": "Q3 2026",
+    "roa": 2.8,
+    "roe": null,
+    "working_capital_turnover": 3.13
+   },
+   {
+    "asset_turnover": 0.68,
+    "debt_to_equity": null,
+    "dscr": null,
+    "ebitda": 1004414.89,
+    "ebitda_margin": 4.4,
+    "gross_margin": 7.5,
+    "interest_coverage": null,
+    "net_margin": 4.4,
+    "period": "Q4 2026",
+    "roa": 3.0,
+    "roe": null,
+    "working_capital_turnover": 1.59
+   }
+  ]
+ },
+ "scenario_analysis": {
+  "baseline": {
+   "expenses": 76679743.25,
+   "margin": 4.3,
+   "net_after_tax": 2602244.5500000045,
+   "net_income": 3469659.400000006,
+   "revenue": 80149402.65,
+   "tax": 867414.8500000015
+  },
+  "break_even": {
+   "contribution_margin": 42.6,
+   "current_revenue": 80149402.65,
+   "fixed_cost_basis": "assumed_40pct",
+   "fixed_costs": 30671897.3,
+   "margin_of_safety": 10.2,
+   "revenue": 72004163.9676362
+  },
+  "monte_carlo": {
+   "simulations": 1000,
+   "revenue_volatility": 26.0,
+   "expense_volatility": 27.4,
+   "percentiles": {
+    "p5": -44956874.581311725,
+    "p10": -37146871.199180275,
+    "p25": -18578390.4016338,
+    "p50": 1790404.4925829656,
+    "p75": 17517820.119918026,
+    "p90": 30743944.82453405,
+    "p95": 38393789.47880521
+   },
+   "mean": -935287.9928764437,
+   "std": 25942222.384029932,
+   "probability_of_loss": 47.4,
+   "probability_exceed_base": 48.5,
+   "histogram": [
+    {
+     "bin_start": -86199908.77268659,
+     "bin_end": -78527641.94237968,
+     "count": 1,
+     "probability": 0.1
+    },
+    {
+     "bin_start": -78527641.94237968,
+     "bin_end": -70855375.1120728,
+     "count": 4,
+     "probability": 0.4
+    },
+    {
+     "bin_start": -70855375.1120728,
+     "bin_end": -63183108.28176589,
+     "count": 8,
+     "probability": 0.8
+    },
+    {
+     "bin_start": -63183108.28176589,
+     "bin_end": -55510841.451459,
+     "count": 15,
+     "probability": 1.5
+    },
+    {
+     "bin_start": -55510841.451459,
+     "bin_end": -47838574.6211521,
+     "count": 13,
+     "probability": 1.3
+    },
+    {
+     "bin_start": -47838574.6211521,
+     "bin_end": -40166307.7908452,
+     "count": 37,
+     "probability": 3.6999999999999997
+    },
+    {
+     "bin_start": -40166307.7908452,
+     "bin_end": -32494040.960538305,
+     "count": 46,
+     "probability": 4.6
+    },
+    {
+     "bin_start": -32494040.960538305,
+     "bin_end": -24821774.13023141,
+     "count": 65,
+     "probability": 6.5
+    },
+    {
+     "bin_start": -24821774.13023141,
+     "bin_end": -17149507.299924508,
+     "count": 72,
+     "probability": 7.199999999999999
+    },
+    {
+     "bin_start": -17149507.299924508,
+     "bin_end": -9477240.46961762,
+     "count": 86,
+     "probability": 8.6
+    },
+    {
+     "bin_start": -9477240.46961762,
+     "bin_end": -1804973.6393107176,
+     "count": 102,
+     "probability": 10.2
+    },
+    {
+     "bin_start": -1804973.6393107176,
+     "bin_end": 5867293.190996185,
+     "count": 126,
+     "probability": 12.6
+    },
+    {
+     "bin_start": 5867293.190996185,
+     "bin_end": 13539560.021303073,
+     "count": 118,
+     "probability": 11.799999999999999
+    },
+    {
+     "bin_start": 13539560.021303073,
+     "bin_end": 21211826.851609975,
+     "count": 95,
+     "probability": 9.5
+    },
+    {
+     "bin_start": 21211826.851609975,
+     "bin_end": 28884093.681916863,
+     "count": 96,
+     "probability": 9.6
+    },
+    {
+     "bin_start": 28884093.681916863,
+     "bin_end": 36556360.512223765,
+     "count": 58,
+     "probability": 5.800000000000001
+    },
+    {
+     "bin_start": 36556360.512223765,
+     "bin_end": 44228627.34253067,
+     "count": 30,
+     "probability": 3.0
+    },
+    {
+     "bin_start": 44228627.34253067,
+     "bin_end": 51900894.17283757,
+     "count": 15,
+     "probability": 1.5
+    },
+    {
+     "bin_start": 51900894.17283757,
+     "bin_end": 59573161.00314446,
+     "count": 10,
+     "probability": 1.0
+    },
+    {
+     "bin_start": 59573161.00314446,
+     "bin_end": 67245427.83345136,
+     "count": 3,
+     "probability": 0.3
+    }
+   ],
+   "named_scenarios": [
+    {
+     "name": "Best Case (P95)",
+     "description": "95th percentile outcome",
+     "net_income": 38393789.47880521,
+     "probability": 5
+    },
+    {
+     "name": "Optimistic (P75)",
+     "description": "75th percentile outcome",
+     "net_income": 17517820.119918026,
+     "probability": 25
+    },
+    {
+     "name": "Base Case (P50)",
+     "description": "Median expected outcome",
+     "net_income": 1790404.4925829656,
+     "probability": 50
+    },
+    {
+     "name": "Pessimistic (P25)",
+     "description": "25th percentile outcome",
+     "net_income": -18578390.4016338,
+     "probability": 25
+    },
+    {
+     "name": "Worst Case (P5)",
+     "description": "5th percentile outcome",
+     "net_income": -44956874.581311725,
+     "probability": 5
+    }
+   ]
+  },
+  "sensitivity": {
+   "expense_changes": [
+    -20,
+    -10,
+    0,
+    10,
+    20
+   ],
+   "revenue_changes": [
+    -30,
+    -20,
+    -10,
+    0,
+    10,
+    20,
+    30
+   ],
+   "scenarios": [
+    {
+     "expense_change": -20,
+     "expenses": 61343794.6,
+     "margin": -9.3,
+     "net_after_tax": -5239212.744999997,
+     "net_income": -5239212.744999997,
+     "revenue": 56104581.855000004,
+     "revenue_change": -30
+    },
+    {
+     "expense_change": -10,
+     "expenses": 69011768.925,
+     "margin": -23.0,
+     "net_after_tax": -12907187.069999993,
+     "net_income": -12907187.069999993,
+     "revenue": 56104581.855000004,
+     "revenue_change": -30
+    },
+    {
+     "expense_change": 0,
+     "expenses": 76679743.25,
+     "margin": -36.7,
+     "net_after_tax": -20575161.394999996,
+     "net_income": -20575161.394999996,
+     "revenue": 56104581.855000004,
+     "revenue_change": -30
+    },
+    {
+     "expense_change": 10,
+     "expenses": 84347717.575,
+     "margin": -50.3,
+     "net_after_tax": -28243135.72,
+     "net_income": -28243135.72,
+     "revenue": 56104581.855000004,
+     "revenue_change": -30
+    },
+    {
+     "expense_change": 20,
+     "expenses": 92015691.89999999,
+     "margin": -64.0,
+     "net_after_tax": -35911110.04499999,
+     "net_income": -35911110.04499999,
+     "revenue": 56104581.855000004,
+     "revenue_change": -30
+    },
+    {
+     "expense_change": -20,
+     "expenses": 61343794.6,
+     "margin": 4.3,
+     "net_after_tax": 2081795.6400000025,
+     "net_income": 2775727.5200000033,
+     "revenue": 64119522.120000005,
+     "revenue_change": -20
+    },
+    {
+     "expense_change": -10,
+     "expenses": 69011768.925,
+     "margin": -7.6,
+     "net_after_tax": -4892246.804999992,
+     "net_income": -4892246.804999992,
+     "revenue": 64119522.120000005,
+     "revenue_change": -20
+    },
+    {
+     "expense_change": 0,
+     "expenses": 76679743.25,
+     "margin": -19.6,
+     "net_after_tax": -12560221.129999995,
+     "net_income": -12560221.129999995,
+     "revenue": 64119522.120000005,
+     "revenue_change": -20
+    },
+    {
+     "expense_change": 10,
+     "expenses": 84347717.575,
+     "margin": -31.5,
+     "net_after_tax": -20228195.455,
+     "net_income": -20228195.455,
+     "revenue": 64119522.120000005,
+     "revenue_change": -20
+    },
+    {
+     "expense_change": 20,
+     "expenses": 92015691.89999999,
+     "margin": -43.5,
+     "net_after_tax": -27896169.779999986,
+     "net_income": -27896169.779999986,
+     "revenue": 64119522.120000005,
+     "revenue_change": -20
+    },
+    {
+     "expense_change": -20,
+     "expenses": 61343794.6,
+     "margin": 15.0,
+     "net_after_tax": 8093000.838750003,
+     "net_income": 10790667.785000004,
+     "revenue": 72134462.385,
+     "revenue_change": -10
+    },
+    {
+     "expense_change": -10,
+     "expenses": 69011768.925,
+     "margin": 4.3,
+     "net_after_tax": 2342020.0950000063,
+     "net_income": 3122693.4600000083,
+     "revenue": 72134462.385,
+     "revenue_change": -10
+    },
+    {
+     "expense_change": 0,
+     "expenses": 76679743.25,
+     "margin": -6.3,
+     "net_after_tax": -4545280.864999995,
+     "net_income": -4545280.864999995,
+     "revenue": 72134462.385,
+     "revenue_change": -10
+    },
+    {
+     "expense_change": 10,
+     "expenses": 84347717.575,
+     "margin": -16.9,
+     "net_after_tax": -12213255.189999998,
+     "net_income": -12213255.189999998,
+     "revenue": 72134462.385,
+     "revenue_change": -10
+    },
+    {
+     "expense_change": 20,
+     "expenses": 92015691.89999999,
+     "margin": -27.6,
+     "net_after_tax": -19881229.514999986,
+     "net_income": -19881229.514999986,
+     "revenue": 72134462.385,
+     "revenue_change": -10
+    },
+    {
+     "expense_change": -20,
+     "expenses": 61343794.6,
+     "margin": 23.5,
+     "net_after_tax": 14104206.037500003,
+     "net_income": 18805608.050000004,
+     "revenue": 80149402.65,
+     "revenue_change": 0
+    },
+    {
+     "expense_change": -10,
+     "expenses": 69011768.925,
+     "margin": 13.9,
+     "net_after_tax": 8353225.293750007,
+     "net_income": 11137633.725000009,
+     "revenue": 80149402.65,
+     "revenue_change": 0
+    },
+    {
+     "expense_change": 0,
+     "expenses": 76679743.25,
+     "margin": 4.3,
+     "net_after_tax": 2602244.5500000045,
+     "net_income": 3469659.400000006,
+     "revenue": 80149402.65,
+     "revenue_change": 0
+    },
+    {
+     "expense_change": 10,
+     "expenses": 84347717.575,
+     "margin": -5.2,
+     "net_after_tax": -4198314.924999997,
+     "net_income": -4198314.924999997,
+     "revenue": 80149402.65,
+     "revenue_change": 0
+    },
+    {
+     "expense_change": 20,
+     "expenses": 92015691.89999999,
+     "margin": -14.8,
+     "net_after_tax": -11866289.249999985,
+     "net_income": -11866289.249999985,
+     "revenue": 80149402.65,
+     "revenue_change": 0
+    },
+    {
+     "expense_change": -20,
+     "expenses": 61343794.6,
+     "margin": 30.4,
+     "net_after_tax": 20115411.236250006,
+     "net_income": 26820548.315000005,
+     "revenue": 88164342.915,
+     "revenue_change": 10
+    },
+    {
+     "expense_change": -10,
+     "expenses": 69011768.925,
+     "margin": 21.7,
+     "net_after_tax": 14364430.492500007,
+     "net_income": 19152573.99000001,
+     "revenue": 88164342.915,
+     "revenue_change": 10
+    },
+    {
+     "expense_change": 0,
+     "expenses": 76679743.25,
+     "margin": 13.0,
+     "net_after_tax": 8613449.748750005,
+     "net_income": 11484599.665000007,
+     "revenue": 88164342.915,
+     "revenue_change": 10
+    },
+    {
+     "expense_change": 10,
+     "expenses": 84347717.575,
+     "margin": 4.3,
+     "net_after_tax": 2862469.0050000027,
+     "net_income": 3816625.3400000036,
+     "revenue": 88164342.915,
+     "revenue_change": 10
+    },
+    {
+     "expense_change": 20,
+     "expenses": 92015691.89999999,
+     "margin": -4.4,
+     "net_after_tax": -3851348.9849999845,
+     "net_income": -3851348.9849999845,
+     "revenue": 88164342.915,
+     "revenue_change": 10
+    },
+    {
+     "expense_change": -20,
+     "expenses": 61343794.6,
+     "margin": 36.2,
+     "net_after_tax": 26126616.435000002,
+     "net_income": 34835488.580000006,
+     "revenue": 96179283.18,
+     "revenue_change": 20
+    },
+    {
+     "expense_change": -10,
+     "expenses": 69011768.925,
+     "margin": 28.2,
+     "net_after_tax": 20375635.691250008,
+     "net_income": 27167514.25500001,
+     "revenue": 96179283.18,
+     "revenue_change": 20
+    },
+    {
+     "expense_change": 0,
+     "expenses": 76679743.25,
+     "margin": 20.3,
+     "net_after_tax": 14624654.947500005,
+     "net_income": 19499539.930000007,
+     "revenue": 96179283.18,
+     "revenue_change": 20
+    },
+    {
+     "expense_change": 10,
+     "expenses": 84347717.575,
+     "margin": 12.3,
+     "net_after_tax": 8873674.203750003,
+     "net_income": 11831565.605000004,
+     "revenue": 96179283.18,
+     "revenue_change": 20
+    },
+    {
+     "expense_change": 20,
+     "expenses": 92015691.89999999,
+     "margin": 4.3,
+     "net_after_tax": 3122693.460000012,
+     "net_income": 4163591.280000016,
+     "revenue": 96179283.18,
+     "revenue_change": 20
+    },
+    {
+     "expense_change": -20,
+     "expenses": 61343794.6,
+     "margin": 41.1,
+     "net_after_tax": 32137821.633750007,
+     "net_income": 42850428.845000006,
+     "revenue": 104194223.44500001,
+     "revenue_change": 30
+    },
+    {
+     "expense_change": -10,
+     "expenses": 69011768.925,
+     "margin": 33.8,
+     "net_after_tax": 26386840.890000008,
+     "net_income": 35182454.52000001,
+     "revenue": 104194223.44500001,
+     "revenue_change": 30
+    },
+    {
+     "expense_change": 0,
+     "expenses": 76679743.25,
+     "margin": 26.4,
+     "net_after_tax": 20635860.146250006,
+     "net_income": 27514480.195000008,
+     "revenue": 104194223.44500001,
+     "revenue_change": 30
+    },
+    {
+     "expense_change": 10,
+     "expenses": 84347717.575,
+     "margin": 19.0,
+     "net_after_tax": 14884879.402500004,
+     "net_income": 19846505.870000005,
+     "revenue": 104194223.44500001,
+     "revenue_change": 30
+    },
+    {
+     "expense_change": 20,
+     "expenses": 92015691.89999999,
+     "margin": 11.7,
+     "net_after_tax": 9133898.658750013,
+     "net_income": 12178531.545000017,
+     "revenue": 104194223.44500001,
+     "revenue_change": 30
+    }
+   ]
+  }
+ },
+ "status": "success",
+ "thirteen_week_forecast": {
+  "cache_expires": "2026-10-23T14:42:57.605855",
+  "currency": "INR",
+  "current_cash": 424273.02,
+  "generated_at": "2026-10-22T14:42:57.605848",
+  "min_cash_threshold": 0,
+  "opening_balance": 683637.02,
+  "payroll_detection": {
+   "avg_interval_days": 30.8,
+   "confidence": 0.95,
+   "day_of_month": 31,
+   "detected": true,
+   "entries_analyzed": 31,
+   "frequency": "monthly",
+   "next_date": "2026-10-30",
+   "typical_amount": 16500.0
+  },
+  "scenarios": {
+   "base_ending_balance": 16588176.82,
+   "base_min_balance": 8156158.72,
+   "quick_actions": [],
+   "scenarios": [
+    {
+     "description": "What if customer payments are delayed by 2 weeks?",
+     "ending_balance": 16588176.82,
+     "icon": "clock",
+     "id": "ar_delay_2w",
+     "impact": 0.0,
+     "min_balance": 3389476.57,
+     "name": "AR Collections Delayed 2 Weeks",
+     "risk_level": "medium",
+     "type": "risk",
+     "weeks_below_threshold": 0
+    },
+    {
+     "description": "What if we improve collections by 20%?",
+     "ending_balance": 19452704.87,
+     "icon": "trending-up",
+     "id": "ar_improve_20",
+     "impact": 2864528.0500000007,
+     "min_balance": 9039487.87,
+     "name": "AR Collections +20%",
+     "risk_level": "low",
+     "type": "opportunity",
+     "weeks_below_threshold": 0
+    },
+    {
+     "description": "What if we pay suppliers 1 week early for discounts?",
+     "ending_balance": 16588176.82,
+     "icon": "fast-forward",
+     "id": "ap_accelerate",
+     "impact": 0.0,
+     "min_balance": 7861158.72,
+     "name": "AP Payments Accelerated",
+     "risk_level": "low",
+     "type": "decision",
+     "weeks_below_threshold": 0
+    },
+    {
+     "description": "What if we negotiate extended payment terms?",
+     "ending_balance": 16588176.82,
+     "icon": "pause",
+     "id": "ap_delay_2w",
+     "impact": 0.0,
+     "min_balance": 9724755.72,
+     "name": "AP Payments Delayed 2 Weeks",
+     "risk_level": "low",
+     "type": "opportunity",
+     "weeks_below_threshold": 0
+    },
+    {
+     "description": "Stress test: What if revenue drops 30%?",
+     "ending_balance": 12291384.74,
+     "icon": "alert-triangle",
+     "id": "revenue_drop_30",
+     "impact": -4296792.08,
+     "min_balance": 6831165.0,
+     "name": "Revenue Drop 30%",
+     "risk_level": "high",
+     "type": "risk",
+     "weeks_below_threshold": 0
+    },
+    {
+     "description": "What if operating costs increase 20%?",
+     "ending_balance": 14619476.86,
+     "icon": "trending-up",
+     "id": "opex_increase_20",
+     "impact": -1968699.960000001,
+     "min_balance": 7992100.39,
+     "name": "Operating Expenses +20%",
+     "risk_level": "medium",
+     "type": "risk",
+     "weeks_below_threshold": 0
+    },
+    {
+     "description": "Optimistic: Better collections, delayed AP, lower costs",
+     "ending_balance": 20437054.85,
+     "icon": "sun",
+     "id": "best_case",
+     "impact": 3848878.030000001,
+     "min_balance": 10690114.04,
+     "name": "Best Case Scenario",
+     "risk_level": "low",
+     "type": "opportunity",
+     "weeks_below_threshold": 0
+    },
+    {
+     "description": "Pessimistic: Poor collections, delayed payments, higher costs",
+     "ending_balance": 10322684.78,
+     "icon": "cloud-rain",
+     "id": "worst_case",
+     "impact": -6265492.040000001,
+     "min_balance": 3061359.91,
+     "name": "Worst Case Scenario",
+     "risk_level": "high",
+     "type": "risk",
+     "weeks_below_threshold": 0
+    }
+   ],
+   "threshold": 0
+  },
+  "summary": {
+   "avg_weekly_inflow": 1958808.6,
+   "avg_weekly_outflow": 1024764.4,
+   "ending_cash": 16588176.82,
+   "minimum_balance": 5379646.37,
+   "minimum_balance_date": "2026-10-19",
+   "minimum_balance_week": 1,
+   "net_cash_flow": 11208530.45,
+   "total_inflows": 23505703.25,
+   "total_outflows": 12297172.8,
+   "weeks_below_threshold": 0
+  },
+  "variance_analysis": {
+   "has_variance_data": false,
+   "insights": [],
+   "summary": {},
+   "weekly_details": [],
+   "weeks_analyzed": 0
+  },
+  "weeks": [
+   {
+    "below_threshold": false,
+    "closing_balance": 424273.02,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 0,
+     "total": 0
+    },
+    "is_actual": true,
+    "is_current": false,
+    "is_forecast": false,
+    "net_flow": -259364.0,
+    "opening_balance": 683637.02,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 259364.0,
+     "payroll": 0,
+     "taxes": 0,
+     "total": 259364.0
+    },
+    "variance": null,
+    "week_end": "2026-10-18",
+    "week_label": "This Week",
+    "week_number": 0,
+    "week_start": "2026-10-12"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 5379646.37,
+    "inflows": {
+     "ar_collections": 5391573.75,
+     "other_receipts": 765255.25,
+     "total": 6156829.0
+    },
+    "is_actual": true,
+    "is_current": true,
+    "is_forecast": false,
+    "net_flow": 4955373.35,
+    "opening_balance": 424273.02,
+    "outflows": {
+     "ap_payments": 381164.0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 1201455.65
+    },
+    "variance": null,
+    "week_end": "2026-10-25",
+    "week_label": "Next Week",
+    "week_number": 1,
+    "week_start": "2026-10-19"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 8156158.72,
+    "inflows": {
+     "ar_collections": 4416645.75,
+     "other_receipts": 765255.25,
+     "total": 5181901.0
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": 2776512.35,
+    "opening_balance": 5379646.37,
+    "outflows": {
+     "ap_payments": 1568597.0,
+     "operating_expenses": 820291.65,
+     "payroll": 16500.0,
+     "taxes": 0.0,
+     "total": 2405388.65
+    },
+    "variance": null,
+    "week_end": "2026-11-01",
+    "week_label": "Oct 26",
+    "week_number": 2,
+    "week_start": "2026-10-26"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 13089301.07,
+    "inflows": {
+     "ar_collections": 5283178.75,
+     "other_receipts": 765255.25,
+     "total": 6048434.0
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": 4933142.35,
+    "opening_balance": 8156158.72,
+    "outflows": {
+     "ap_payments": 295000.0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 1115291.65
+    },
+    "variance": null,
+    "week_end": "2026-11-08",
+    "week_label": "Nov 02",
+    "week_number": 3,
+    "week_start": "2026-11-02"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 17248487.42,
+    "inflows": {
+     "ar_collections": 4622815.75,
+     "other_receipts": 765255.25,
+     "total": 5388071.0
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": 4159186.35,
+    "opening_balance": 13089301.07,
+    "outflows": {
+     "ap_payments": 408593.0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 1228884.65
+    },
+    "variance": null,
+    "week_end": "2026-11-15",
+    "week_label": "Nov 09",
+    "week_number": 4,
+    "week_start": "2026-11-09"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 17061468.02,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -187019.4,
+    "opening_balance": 17248487.42,
+    "outflows": {
+     "ap_payments": 131983.0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 952274.65
+    },
+    "variance": null,
+    "week_end": "2026-11-22",
+    "week_label": "Nov 16",
+    "week_number": 5,
+    "week_start": "2026-11-16"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16989931.62,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -71536.4,
+    "opening_balance": 17061468.02,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 16500.0,
+     "taxes": 0.0,
+     "total": 836791.65
+    },
+    "variance": null,
+    "week_end": "2026-11-29",
+    "week_label": "Nov 23",
+    "week_number": 6,
+    "week_start": "2026-11-23"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16934895.22,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -55036.4,
+    "opening_balance": 16989931.62,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 820291.65
+    },
+    "variance": null,
+    "week_end": "2026-12-06",
+    "week_label": "Nov 30",
+    "week_number": 7,
+    "week_start": "2026-11-30"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16879858.82,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -55036.4,
+    "opening_balance": 16934895.22,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 820291.65
+    },
+    "variance": null,
+    "week_end": "2026-12-13",
+    "week_label": "Dec 07",
+    "week_number": 8,
+    "week_start": "2026-12-07"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16824822.42,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -55036.4,
+    "opening_balance": 16879858.82,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 820291.65
+    },
+    "variance": null,
+    "week_end": "2026-12-20",
+    "week_label": "Dec 14",
+    "week_number": 9,
+    "week_start": "2026-12-14"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16769786.02,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -55036.4,
+    "opening_balance": 16824822.42,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 820291.65
+    },
+    "variance": null,
+    "week_end": "2026-12-27",
+    "week_label": "Dec 21",
+    "week_number": 10,
+    "week_start": "2026-12-21"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16698249.62,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -71536.4,
+    "opening_balance": 16769786.02,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 16500.0,
+     "taxes": 0.0,
+     "total": 836791.65
+    },
+    "variance": null,
+    "week_end": "2027-01-03",
+    "week_label": "Dec 28",
+    "week_number": 11,
+    "week_start": "2026-12-28"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16643213.22,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -55036.4,
+    "opening_balance": 16698249.62,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 820291.65
+    },
+    "variance": null,
+    "week_end": "2027-01-10",
+    "week_label": "Jan 04",
+    "week_number": 12,
+    "week_start": "2027-01-04"
+   },
+   {
+    "below_threshold": false,
+    "closing_balance": 16588176.82,
+    "inflows": {
+     "ar_collections": 0,
+     "other_receipts": 765255.25,
+     "total": 765255.25
+    },
+    "is_actual": false,
+    "is_current": false,
+    "is_forecast": true,
+    "net_flow": -55036.4,
+    "opening_balance": 16643213.22,
+    "outflows": {
+     "ap_payments": 0,
+     "operating_expenses": 820291.65,
+     "payroll": 0,
+     "taxes": 0.0,
+     "total": 820291.65
+    },
+    "variance": null,
+    "week_end": "2027-01-17",
+    "week_label": "Jan 11",
+    "week_number": 13,
+    "week_start": "2027-01-11"
+   }
+  ]
+ },
+ "working_capital": {
+  "cash": 10245769.13,
+  "cash_conversion_cycle": 9.8,
+  "current_ratio": 1.9,
+  "dio": 3.8,
+  "dpo": 58.7,
+  "dso": 64.7,
+  "inventory": 1025945.9299999997,
+  "quick_ratio": 1.84,
+  "receivables": 18929784.0,
+  "total_current_assets": 30201499.060000002,
+  "total_current_liabilities": 15863972.75,
+  "trends": [
+   {
+    "current_assets": 21232502.800000004,
+    "current_liabilities": 11591005.45,
+    "current_ratio": 1.83,
+    "period": "2025-11",
+    "working_capital": 9641497.350000005
+   },
+   {
+    "current_assets": 22205155.050000004,
+    "current_liabilities": 12404271.19,
+    "current_ratio": 1.79,
+    "period": "2025-12",
+    "working_capital": 9800883.860000005
+   },
+   {
+    "current_assets": 21469787.640000004,
+    "current_liabilities": 11565368.969999999,
+    "current_ratio": 1.86,
+    "period": "2026-01",
+    "working_capital": 9904418.670000006
+   },
+   {
+    "current_assets": 22387825.570000004,
+    "current_liabilities": 13122174.729999999,
+    "current_ratio": 1.71,
+    "period": "2026-02",
+    "working_capital": 9265650.840000005
+   },
+   {
+    "current_assets": 24498107.100000005,
+    "current_liabilities": 15552617.319999998,
+    "current_ratio": 1.58,
+    "period": "2026-03",
+    "working_capital": 8945489.780000007
+   },
+   {
+    "current_assets": 31035587.110000007,
+    "current_liabilities": 18107507.72,
+    "current_ratio": 1.71,
+    "period": "2026-04",
+    "working_capital": 12928079.390000008
+   },
+   {
+    "current_assets": 31737315.840000007,
+    "current_liabilities": 18996411.06,
+    "current_ratio": 1.67,
+    "period": "2026-05",
+    "working_capital": 12740904.780000009
+   },
+   {
+    "current_assets": 33156985.980000008,
+    "current_liabilities": 20218434.66,
+    "current_ratio": 1.64,
+    "period": "2026-06",
+    "working_capital": 12938551.320000008
+   },
+   {
+    "current_assets": 31938655.000000007,
+    "current_liabilities": 18552266.17,
+    "current_ratio": 1.72,
+    "period": "2026-07",
+    "working_capital": 13386388.830000006
+   },
+   {
+    "current_assets": 28889683.610000007,
+    "current_liabilities": 15480434.140000002,
+    "current_ratio": 1.87,
+    "period": "2026-08",
+    "working_capital": 13409249.470000004
+   },
+   {
+    "current_assets": 30544879.060000006,
+    "current_liabilities": 16207352.750000002,
+    "current_ratio": 1.88,
+    "period": "2026-09",
+    "working_capital": 14337526.310000004
+   },
+   {
+    "current_assets": 30201499.060000006,
+    "current_liabilities": 15863972.750000002,
+    "current_ratio": 1.9,
+    "period": "2026-10",
+    "working_capital": 14337526.310000004
+   }
+  ],
+  "working_capital": 14337526.310000002
+ }
+}

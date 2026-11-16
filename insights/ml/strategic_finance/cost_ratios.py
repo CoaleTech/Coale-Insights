@@ -203,47 +203,47 @@ _RECOMMENDATIONS = {
     "gp_salary": {
         "good": "Gross profit comfortably covers salary costs ({value}, target \u2265{ideal}). Payroll is sustainable at current margins.",
         "moderate": "Gross profit covers salary at {value}, below the {ideal} target but above the {risky} risk line. Watch margin trends before adding headcount.",
-        "risky": "Gross profit only covers salary {value}, under the {risky} risk threshold. Salary is consuming too much of gross margin \u2014 review pricing, COGS, or staffing levels before the next hire or increment.",
+        "risky": "Gross profit only covers salary {value}, under the {risky} risk threshold. Salary is consuming too much of gross margin: review pricing, COGS, or staffing levels before the next hire or increment.",
     },
     "np_salary": {
-        "good": "Net profit is {value} salary (target \u2265{ideal}) \u2014 payroll is well within what the business earns after all costs.",
-        "moderate": "Net profit covers salary at {value}, below the {ideal} target. Profitability is thin relative to payroll \u2014 monitor before further pay increases.",
-        "risky": "Net profit covers salary only {value}, below the {risky} risk line. The business is not generating enough bottom-line profit to sustain current payroll \u2014 freeze increments and review cost structure.",
+        "good": "Net profit is {value} salary (target \u2265{ideal}): payroll is well within what the business earns after all costs.",
+        "moderate": "Net profit covers salary at {value}, below the {ideal} target. Profitability is thin relative to payroll: monitor before further pay increases.",
+        "risky": "Net profit covers salary only {value}, below the {risky} risk line. The business is not generating enough bottom-line profit to sustain current payroll: freeze increments and review cost structure.",
     },
     "fixed_cost_np": {
-        "good": "Fixed costs are {value} net profit (target \u2264{ideal}) \u2014 overhead is well covered by earnings.",
-        "moderate": "Fixed costs are {value} net profit, above the {ideal} target. Overhead is starting to crowd out profit \u2014 review recurring commitments.",
-        "risky": "Fixed costs are {value} net profit, above the {risky} risk line. Overhead is disproportionate to earnings \u2014 renegotiate leases/contracts or grow margin before adding fixed commitments.",
+        "good": "Fixed costs are {value} net profit (target \u2264{ideal}): overhead is well covered by earnings.",
+        "moderate": "Fixed costs are {value} net profit, above the {ideal} target. Overhead is starting to crowd out profit: review recurring commitments.",
+        "risky": "Fixed costs are {value} net profit, above the {risky} risk line. Overhead is disproportionate to earnings: renegotiate leases/contracts or grow margin before adding fixed commitments.",
     },
     "fixed_cost_gp": {
-        "good": "Fixed costs are {value} gross profit (target \u2264{ideal}) \u2014 healthy buffer between overhead and gross margin.",
+        "good": "Fixed costs are {value} gross profit (target \u2264{ideal}): healthy buffer between overhead and gross margin.",
         "moderate": "Fixed costs are {value} gross profit, above the {ideal} target. Gross margin is being eroded by overhead faster than ideal.",
-        "risky": "Fixed costs are {value} gross profit, above the {risky} risk line. Overhead is consuming most of the gross margin \u2014 cut discretionary fixed spend or raise prices.",
+        "risky": "Fixed costs are {value} gross profit, above the {risky} risk line. Overhead is consuming most of the gross margin: cut discretionary fixed spend or raise prices.",
     },
     "marketing": {
-        "good": "Marketing spend is {value} of revenue (target \u2264{ideal}) \u2014 within a healthy range.",
+        "good": "Marketing spend is {value} of revenue (target \u2264{ideal}): within a healthy range.",
         "moderate": "Marketing spend is {value} of revenue, above the {ideal} target. Review channel ROI before the next campaign.",
-        "risky": "Marketing spend is {value} of revenue, above the {risky} risk line. Spend is outpacing what revenue supports \u2014 audit campaign ROI and reallocate budget to the best-converting channels.",
+        "risky": "Marketing spend is {value} of revenue, above the {risky} risk line. Spend is outpacing what revenue supports: audit campaign ROI and reallocate budget to the best-converting channels.",
     },
     "training": {
-        "good": "Training & development spend is {value} of revenue (target \u2264{ideal}) \u2014 sustainable investment level.",
+        "good": "Training & development spend is {value} of revenue (target \u2264{ideal}): sustainable investment level.",
         "moderate": "Training spend is {value} of revenue, above the {ideal} target. Confirm the training calendar is tied to measurable skill or output gains.",
         "risky": "Training spend is {value} of revenue, above the {risky} risk line. Re-scope the training budget against actual ROI before committing further spend.",
     },
     "incentive": {
-        "good": "Incentives, increments & appraisals cost {value} of revenue (target \u2264{ideal}) \u2014 compensation growth is in line with revenue.",
+        "good": "Incentives, increments & appraisals cost {value} of revenue (target \u2264{ideal}): compensation growth is in line with revenue.",
         "moderate": "Incentive/increment spend is {value} of revenue, above the {ideal} target. Tie the next appraisal cycle to performance metrics before approving further increases.",
-        "risky": "Incentive/increment spend is {value} of revenue, above the {risky} risk line. Compensation growth is outpacing revenue \u2014 freeze discretionary increments until margins recover.",
+        "risky": "Incentive/increment spend is {value} of revenue, above the {risky} risk line. Compensation growth is outpacing revenue: freeze discretionary increments until margins recover.",
     },
     "rent": {
-        "good": "Rent is {value} of revenue (target \u2264{ideal}) \u2014 occupancy cost is under control.",
+        "good": "Rent is {value} of revenue (target \u2264{ideal}): occupancy cost is under control.",
         "moderate": "Rent is {value} of revenue, above the {ideal} target. Evaluate space utilisation before the next lease renewal.",
-        "risky": "Rent is {value} of revenue, above the {risky} risk line. Occupancy cost is a significant drag \u2014 renegotiate the lease or consider relocating/downsizing.",
+        "risky": "Rent is {value} of revenue, above the {risky} risk line. Occupancy cost is a significant drag: renegotiate the lease or consider relocating/downsizing.",
     },
     "electricity": {
-        "good": "Electricity is {value} of revenue (target \u2264{ideal}) \u2014 utility cost is efficient.",
+        "good": "Electricity is {value} of revenue (target \u2264{ideal}): utility cost is efficient.",
         "moderate": "Electricity is {value} of revenue, above the {ideal} target. Audit peak-demand usage and equipment efficiency.",
-        "risky": "Electricity is {value} of revenue, above the {risky} risk line. Utility cost is eating into margin \u2014 investigate an energy audit or tariff renegotiation.",
+        "risky": "Electricity is {value} of revenue, above the {risky} risk line. Utility cost is eating into margin: investigate an energy audit or tariff renegotiation.",
     },
 }
 
@@ -261,7 +261,7 @@ def _build_card(
             "key": key, "name": name, "value": None,
             "ideal": ideal, "risky": risky, "unit": unit,
             "higher_is_better": higher_is_better, "status": "unknown",
-            "recommendation": "Not enough data to assess \u2014 no activity recorded against the underlying accounts for this period.",
+            "recommendation": "Not enough data to assess: no activity recorded against the underlying accounts for this period.",
         }
     status = _classify(value, ideal, risky, higher_is_better)
     recommendation = _RECOMMENDATIONS[key][status].format(
@@ -297,7 +297,7 @@ def calculate_cost_structure_ratios(intelligence) -> Dict[str, Any]:
     revenue, gross_profit, net_profit = _revenue_and_profit(company, fy_start, today, intelligence)
 
     salary_kw     = _parse_keywords(getattr(settings, "salary_cost_keywords",     None), ["Salary", "Payroll", "Wages"])
-    marketing_kw  = _parse_keywords(getattr(settings, "marketing_cost_keywords",  None), ["Marketing", "Advertising", "Promotion", "Branding"])
+    marketing_kw  = _parse_keywords(getattr(settings, "marketing_cost_keywords",  None), ["Marketing", "Advert", "Promotion", "Branding"])
     training_kw   = _parse_keywords(getattr(settings, "training_cost_keywords",   None), ["Training", "Development", "Learning"])
     incentive_kw  = _parse_keywords(getattr(settings, "incentive_cost_keywords",  None), ["Incentive", "Bonus", "Commission", "Appraisal", "Increment"])
     rent_kw       = _parse_keywords(getattr(settings, "rent_cost_keywords",       None), ["Rent", "Lease"])

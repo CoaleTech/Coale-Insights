@@ -48,7 +48,7 @@ import frappe
 import ibis
 from frappe import _
 
-from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.ibis_source import company_filter, default_company, t, with_paid_date
 
 # Hard floors: no per-customer history -> neutral component; no paid
 # invoices at all -> the customer is genuinely unknown, score everything
@@ -209,7 +209,7 @@ class PaymentPrediction:
         """
         si = t("Sales Invoice")
         closed = si.filter(si.docstatus == 1, si.outstanding_amount == 0)
-        closed = company_filter(closed, self.company)
+        closed = with_paid_date(company_filter(closed, self.company))
         # MariaDB DATEDIFF on dates, returning NULL on null inputs.
         closed = closed.mutate(
             credit_days=ibis.ifelse(
@@ -218,9 +218,9 @@ class PaymentPrediction:
                 closed.due_date.cast("date").delta(closed.posting_date.cast("date"), unit="day"),
             ),
             days_to_pay=ibis.ifelse(
-                closed.modified.isnull() | closed.posting_date.isnull(),
+                closed.paid_date.isnull() | closed.posting_date.isnull(),
                 ibis.null(),
-                closed.modified.cast("date").delta(closed.posting_date.cast("date"), unit="day"),
+                closed.paid_date.delta(closed.posting_date.cast("date"), unit="day"),
             ),
         )
         closed = closed.mutate(

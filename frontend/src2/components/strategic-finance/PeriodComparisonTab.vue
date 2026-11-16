@@ -15,7 +15,7 @@
     <!-- Partial period: the current month/quarter is still open, so changes are withheld -->
     <div v-if="currentPeriodData?.is_partial" class="flex items-center gap-2 text-sm text-ink-gray-6">
       <Badge label="Partial period" variant="subtle" theme="orange" size="sm" />
-      <span>{{ currentPeriodData.current_label }} is still in progress; changes vs {{ currentPeriodData.prior_label }} are not shown.</span>
+      <span>{{ currentPeriodData.current_label }} {{ currentPeriodData.current_revenue || currentPeriodData.current_expenses ? 'is still in progress' : 'has no postings yet' }}; changes vs {{ currentPeriodData.prior_label }} are not shown.</span>
     </div>
 
     <!-- Comparison Summary Cards -->
@@ -229,7 +229,12 @@ const periodTabs = [
   { label: 'Year-over-Year' },
 ]
 const periodKeys = ['mom', 'qoq', 'yoy'] as const
-const selectedPeriodIndex = ref(0)
+// Open on the first comparison that is not partial, so the default view never
+// shows a current period of zero for a month that has no activity yet.
+const isPartialPeriod = (p?: PeriodComparison) => !!(p?.is_partial ?? p?.current?.is_partial)
+const selectedPeriodIndex = ref(
+  Math.max(periodKeys.findIndex((k) => !isPartialPeriod(props.data?.[k])), 0),
+)
 const selectedPeriod = computed(() => periodKeys[selectedPeriodIndex.value])
 const selectedPeriodLabel = computed(() => periodTabs[selectedPeriodIndex.value]?.label || '')
 
@@ -247,6 +252,8 @@ const currentPeriodData = computed(() => {
   const pct = (v: number | null | undefined) => (isPartial ? null : (v ?? null))
   // Margin is meaningless on zero revenue: show it as absent, not 0.0%.
   const margin = (m: PeriodMetrics) => (m.revenue ? (m.margin ?? null) : null)
+  // bps come from the unrounded margin: the payload's `margin` is rounded to 0.1%, up to 10 bps off.
+  const exactMargin = (m: PeriodMetrics) => ((m.net_income ?? 0) / (m.revenue || 1)) * 100
   const curMargin = margin(current)
   const priorMargin = margin(prior)
   return {
@@ -262,7 +269,7 @@ const currentPeriodData = computed(() => {
     revenue_change: pct(periodData.revenue_change),
     expense_change: pct(periodData.expense_change),
     profit_change: pct(periodData.net_income_change),
-    margin_change: isPartial || curMargin === null || priorMargin === null ? null : curMargin - priorMargin,
+    margin_change: isPartial || curMargin === null || priorMargin === null ? null : exactMargin(current) - exactMargin(prior),
     current_label: current.label || 'Current',
     prior_label: prior.label || 'Prior',
     insights: periodData.insights,

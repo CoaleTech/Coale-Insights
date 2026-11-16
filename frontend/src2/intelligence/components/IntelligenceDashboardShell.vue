@@ -34,7 +34,7 @@
 	</div>
 
 	<div v-else-if="error" class="flex flex-1 items-center justify-center p-6">
-		<div class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
+		<div role="alert" class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
 			<TriangleAlert class="mx-auto mb-3 h-8 w-8 text-neg" aria-hidden="true" />
 			<p class="font-medium text-ink-gray-8">Could not load {{ subject }}</p>
 			<p class="mt-1 text-sm text-ink-gray-6">{{ error }}</p>
@@ -48,7 +48,7 @@
 		<!-- Overridable: a dashboard whose first screen is not a KPI strip should
 		     describe its own shape rather than flash the wrong one. -->
 		<slot name="skeleton">
-			<div class="grid grid-cols-2 gap-4 p-6 md:grid-cols-3 lg:grid-cols-6">
+			<div class="grid grid-cols-2 gap-4 p-6 md:grid-cols-3 wide:grid-cols-6">
 				<KpiCard v-for="n in kpiCount" :key="n" label="" value="" loading />
 			</div>
 			<div class="space-y-3 p-6">
@@ -66,7 +66,7 @@
 		a dead "no data" page.
 	-->
 	<div v-else-if="warming" class="flex flex-1 items-center justify-center p-6">
-		<div class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
+		<div role="status" class="max-w-md rounded-lg border border-outline-gray-1 bg-surface-white p-8 text-center">
 			<Loader2 class="mx-auto mb-3 h-8 w-8 text-ink-gray-5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
 			<p class="font-medium text-ink-gray-8">Preparing {{ subject }}</p>
 			<p class="mt-1 text-sm text-ink-gray-6">

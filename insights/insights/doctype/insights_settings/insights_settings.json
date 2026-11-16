@@ -753,7 +753,7 @@
    "label": "Salary / Payroll Account Keywords"
   },
   {
-   "default": "Marketing\nAdvertising\nPromotion\nBranding",
+   "default": "Marketing\nAdvert\nPromotion\nBranding",
    "fieldname": "marketing_cost_keywords",
    "fieldtype": "Small Text",
    "label": "Marketing Account Keywords"

@@ -57,7 +57,8 @@ class ExecutiveReports:
             return f"custom:{self.current_month_start}:{self.today}"
         if period == "QTD":
             return f"custom:{self.current_quarter_start}:{self.today}"
-        return "ytd"
+        from insights.ml.hr_intelligence import _period_start_date
+        return f"custom:{_period_start_date('YTD')}:{self.today}"
     
     def generate_daily_executive_report(self) -> Dict[str, Any]:
         """Generate daily executive summary report"""
@@ -390,21 +391,21 @@ class ExecutiveReports:
             sales_metrics = sales_data.get("summary", {}) or sales_data.get("revenue_metrics", {})
             if sales_metrics:
                 revenue = sales_metrics.get("total_revenue", 0)
-                summary_points.append(f"Daily revenue: {self.currency} {revenue:,.0f}")
+                summary_points.append(f"MTD revenue: {self.currency} {revenue:,.0f}")
             
             # Financial status
             fin_data = report_data.get("financial", {})
             if fin_data:
                 cash_flow = fin_data.get("cash_flow", {})
                 if cash_flow:
-                    net_flow = cash_flow.get("net_burn_rate", 0)
+                    net_flow = -(cash_flow.get("net_burn_rate") or 0)
                     summary_points.append(f"Net cash flow: {self.currency} {net_flow:,.0f}")
             
             # Manufacturing efficiency
             mfg_data = report_data.get("manufacturing", {})
             oee_data = mfg_data.get("oee_analysis", {})
-            if oee_data:
-                oee_score = oee_data.get("oee_score_pct", 0)
+            if oee_data.get("oee_score_pct") is not None:
+                oee_score = oee_data["oee_score_pct"]
                 summary_points.append(f"Manufacturing OEE: {oee_score}%")
             
             # Create summary
@@ -440,13 +441,13 @@ class ExecutiveReports:
             if fin_data:
                 cash_flow = fin_data.get("cash_flow", {})
                 if cash_flow:
-                    net_flow = cash_flow.get("net_burn_rate", 0)
+                    net_flow = -(cash_flow.get("net_burn_rate") or 0)
                     summary_points.append(f"Net cash flow: {self.currency} {net_flow:,.0f}")
 
             mfg_data = report_data.get("manufacturing", {})
             oee_data = mfg_data.get("oee_analysis", {})
-            if oee_data and "oee_score_pct" in oee_data:
-                oee_score = oee_data.get("oee_score_pct", 0)
+            if oee_data.get("oee_score_pct") is not None:
+                oee_score = oee_data["oee_score_pct"]
                 summary_points.append(f"Manufacturing OEE: {oee_score}%")
 
             if summary_points:
@@ -481,13 +482,13 @@ class ExecutiveReports:
             if fin_data:
                 cash_flow = fin_data.get("cash_flow", {})
                 if cash_flow:
-                    net_flow = cash_flow.get("net_burn_rate", 0)
+                    net_flow = -(cash_flow.get("net_burn_rate") or 0)
                     summary_points.append(f"Net cash flow: {self.currency} {net_flow:,.0f}")
 
             mfg_data = report_data.get("manufacturing", {})
             oee_data = mfg_data.get("oee_analysis", {})
-            if oee_data and "oee_score_pct" in oee_data:
-                oee_score = oee_data.get("oee_score_pct", 0)
+            if oee_data.get("oee_score_pct") is not None:
+                oee_score = oee_data["oee_score_pct"]
                 summary_points.append(f"Manufacturing OEE: {oee_score}%")
 
             if summary_points:
@@ -508,7 +509,7 @@ class ExecutiveReports:
                 "business_health_score": 0,
                 "revenue": 0,
                 "cash_flow": 0,
-                "oee_score": 0,
+                "oee_score": None,
                 "lead_count": 0,
                 "employee_count": 0,
                 "critical_alerts": 0
@@ -528,12 +529,12 @@ class ExecutiveReports:
             fin_data = report_data.get("financial", {})
             if fin_data:
                 cash_flow = fin_data.get("cash_flow", {})
-                key_metrics["cash_flow"] = cash_flow.get("net_burn_rate", 0)
+                key_metrics["cash_flow"] = -(cash_flow.get("net_burn_rate") or 0)
             
             mfg_data = report_data.get("manufacturing", {})
             if mfg_data:
                 oee_data = mfg_data.get("oee_analysis", {})
-                key_metrics["oee_score"] = oee_data.get("oee_score_pct", 0)
+                key_metrics["oee_score"] = oee_data.get("oee_score_pct")
             
             mkt_data = report_data.get("marketing", {})
             if mkt_data:
@@ -545,6 +546,8 @@ class ExecutiveReports:
                 headcount = hr_data.get("headcount_metrics", {})
                 key_metrics["employee_count"] = headcount.get("total_employees", 0)
             
+            if key_metrics["oee_score"] is None:
+                del key_metrics["oee_score"]
             return key_metrics
             
         except Exception as e:
@@ -573,7 +576,7 @@ class ExecutiveReports:
             fin_data = report_data.get("financial", {})
             cash_flow = fin_data.get("cash_flow", {})
             if cash_flow:
-                net_flow = cash_flow.get("net_burn_rate", 0)
+                net_flow = -(cash_flow.get("net_burn_rate") or 0)
                 if net_flow < 0:
                     alerts.append({
                         "priority": "high",
@@ -585,8 +588,8 @@ class ExecutiveReports:
             # Check manufacturing efficiency
             mfg_data = report_data.get("manufacturing", {})
             oee_data = mfg_data.get("oee_analysis", {})
-            if oee_data:
-                oee_score = oee_data.get("oee_score_pct", 0)
+            if oee_data.get("oee_score_pct") is not None:
+                oee_score = oee_data["oee_score_pct"]
                 if oee_score < 60:
                     alerts.append({
                         "priority": "medium",
@@ -751,7 +754,7 @@ class ExecutiveReports:
                         risks.append("Revenue declining month-over-month")
 
             cash_flow = fin.get("cash_flow", {})
-            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            net_burn = -(cash_flow.get("net_burn_rate") or 0) or 0
             if net_burn < 0:
                 risks.append(f"Negative cash flow: {self.currency} {net_burn:,.0f}")
             elif net_burn > 0:
@@ -795,7 +798,7 @@ class ExecutiveReports:
 
             fin = report_data.get("financial", {})
             cash_flow = fin.get("cash_flow", {})
-            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            net_burn = -(cash_flow.get("net_burn_rate") or 0) or 0
             if net_burn < 0:
                 recommendations.append(f"Review receivables and payables: negative cash flow {self.currency} {net_burn:,.0f}")
 
@@ -966,7 +969,7 @@ class ExecutiveReports:
                     revenue_growth = ((latest - prior) / prior) * 100
 
             cash_flow = fin.get("cash_flow", {})
-            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            net_burn = -(cash_flow.get("net_burn_rate") or 0) or 0
 
             def categorize(growth: float, margin: Optional[float]) -> str:
                 if growth > 10:
@@ -1098,7 +1101,7 @@ class ExecutiveReports:
         try:
             fin = report_data.get("financial", {})
             cash_flow = fin.get("cash_flow", {})
-            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            net_burn = -(cash_flow.get("net_burn_rate") or 0) or 0
             fin_overview = fin.get("overview", {})
             ytd_profit = fin_overview.get("ytd_profit", 0) or 0
 
@@ -1156,7 +1159,7 @@ class ExecutiveReports:
 
             fin = report_data.get("financial", {})
             cash_flow = fin.get("cash_flow", {})
-            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            net_burn = -(cash_flow.get("net_burn_rate") or 0) or 0
 
             if revenue_growth > 10 and prod_growth >= 0 and net_burn >= 0:
                 outlook = "positive"
@@ -1200,7 +1203,7 @@ class ExecutiveReports:
             ytd_profit = fin_overview.get("ytd_profit", 0) or 0
             net_margin = fin_overview.get("net_margin")
             cash_flow = fin.get("cash_flow", {})
-            net_burn = cash_flow.get("net_burn_rate", 0) or 0
+            net_burn = -(cash_flow.get("net_burn_rate") or 0) or 0
 
             mfg = report_data.get("manufacturing", {})
             oee = mfg.get("oee_analysis", {})

@@ -207,14 +207,11 @@ class AIModelRouter:
         # Optimize prompt based on model capabilities
         optimized_prompt = self._optimize_prompt(task.query, model, task.context)
         
-        response = client.query(
-            prompt=optimized_prompt,
-            model=model.value,
-            max_tokens=self._get_max_tokens(model),
-            temperature=0.1 if task.complexity == TaskComplexity.COMPLEX else 0.3
-        )
-        
-        return response
+        if not client.is_available():
+            raise RuntimeError(f"AI provider '{client.provider_name}' is not enabled or out of quota. Configure it in Insights Settings.")
+
+        # Providers pick their own model list; the tier only shapes the prompt.
+        return client.generate_response(optimized_prompt)
     
     def _optimize_prompt(self, query: str, model: ModelType, context: Dict[str, Any]) -> str:
         """Optimize prompt based on model capabilities"""

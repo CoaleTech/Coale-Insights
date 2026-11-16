@@ -58,7 +58,7 @@
          as a row with the badge trailing. -->
     <div
       class="flex min-w-0 gap-2"
-      :class="variant === 'tile' ? 'flex-col items-center' : 'items-start justify-between'"
+      :class="variant === 'tile' ? 'flex-col items-center' : 'flex-wrap items-start justify-between'"
     >
       <span class="min-w-0 text-sm text-ink-gray-6">{{ label }}</span>
       <!--
@@ -99,7 +99,8 @@
     </span>
     <span
       v-else
-      class="tnum block truncate text-2xl font-semibold leading-tight text-ink-gray-9"
+      class="tnum block text-2xl font-semibold leading-tight text-ink-gray-9"
+      :class="isMoney || isPercent ? 'truncate' : 'break-words'"
       :title="exactValue"
     >
       <!-- Sighted readers get the compact figure that fits; assistive tech gets
@@ -122,7 +123,7 @@
       <span v-if="formattedTarget" class="tnum shrink-0 text-sm text-ink-gray-5">
         Target {{ formattedTarget }}
       </span>
-      <span v-if="sublabel" class="min-w-0 truncate text-sm text-ink-gray-6">{{ sublabel }}</span>
+      <span v-if="sublabel" class="min-w-0 break-words text-sm text-ink-gray-6">{{ sublabel }}</span>
     </div>
 
     <!--

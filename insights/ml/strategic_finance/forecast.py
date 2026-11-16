@@ -96,7 +96,9 @@ def forecast_cash_flow(intelligence) -> Dict[str, Any]:
     # Calculate average daily flow
     if historical:
         daily_flows = [float(h.net_flow or 0) for h in historical]
-        avg_daily_flow = float(np.mean(daily_flows)) if daily_flows else 0
+        # Per calendar day of the window, not per day that happened to have a
+        # ledger entry (which overstated the daily rate by ~1.7x here).
+        avg_daily_flow = sum(daily_flows) / 90
         std_daily_flow = float(np.std(daily_flows)) if len(daily_flows) > 1 else abs(avg_daily_flow) * 0.3
     else:
         avg_daily_flow = 0
@@ -255,8 +257,8 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
     )
     opening_balance = current_cash - historical_net_flow
 
-    for week_num in range(14):  # -1 (historical) to 12 (forecast) = 14 weeks total
-        week_start = current_week_start + timedelta(weeks=week_num - 1)
+    for week_num in range(-1, 13):  # -1 = last week (actuals), 0 = current, 1-12 = forecast
+        week_start = current_week_start + timedelta(weeks=week_num)
         week_end = week_start + timedelta(days=6)
         week_key = week_start.strftime('%Y-%m-%d')
 
@@ -304,7 +306,7 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
         net_flow = inflows.get('total', 0) - outflows.get('total', 0)
 
         # Calculate opening balance for this week
-        if week_num == 0:
+        if week_num == -1:
             week_opening = opening_balance
         else:
             week_opening = weeks[-1]['closing_balance'] if weeks else opening_balance
@@ -359,6 +361,9 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
     total_inflows = sum(w['inflows']['total'] for w in future_weeks)
     total_outflows = sum(w['outflows']['total'] for w in future_weeks)
     ending_cash = weeks[-1]['closing_balance'] if weeks else current_cash
+    # Totals above cover forecast weeks only, so the headline opening balance is
+    # where the first of them opens: opening + inflows - outflows = ending.
+    forecast_opening = future_weeks[0]['opening_balance'] if future_weeks else current_cash
 
     min_balance_week = min(all_weeks, key=lambda w: w['closing_balance']) if all_weeks else None
     weeks_below_threshold = sum(1 for w in all_weeks if w['below_threshold'])
@@ -370,7 +375,7 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
     variance_analysis = generate_variance_analysis(intelligence, weeks)
 
     return {
-        'opening_balance': round(opening_balance, 2),
+        'opening_balance': round(forecast_opening, 2),
         'current_cash': round(current_cash, 2),
         'min_cash_threshold': round(min_cash_threshold, 2),
         'currency': intelligence.base_currency,
@@ -386,7 +391,8 @@ def generate_thirteen_week_forecast(intelligence, min_cash_threshold: float = 0)
             'net_cash_flow': round(total_inflows - total_outflows, 2),
             'ending_cash': round(ending_cash, 2),
             'minimum_balance': round(min_balance_week['closing_balance'], 2) if min_balance_week else current_cash,
-            'minimum_balance_week': min_balance_week['week_number'] if min_balance_week else 0,
+            # 1-based position in the 13-week window (current week = week 1)
+            'minimum_balance_week': min_balance_week['week_number'] + 1 if min_balance_week else 0,
             'minimum_balance_date': min_balance_week['week_start'] if min_balance_week else str(today),
             'weeks_below_threshold': weeks_below_threshold,
             'avg_weekly_inflow': round(total_inflows / len(future_weeks), 2) if future_weeks else 0,

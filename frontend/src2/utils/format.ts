@@ -221,6 +221,13 @@ export function formatDateShort(value: string | null | undefined): string {
 	return d.toLocaleDateString(DATE_LOCALE, { month: 'short', day: 'numeric' })
 }
 
+/** Month key `2026-04` as `Apr 2026`. Local-time parse so no timezone rolls it back a month. */
+export function formatMonth(value: string | null | undefined): string {
+	const d = parse(value && /^\d{4}-\d{2}$/.test(value) ? `${value}-01T00:00:00` : value)
+	if (!d) return NO_VALUE
+	return d.toLocaleDateString(DATE_LOCALE, { month: 'short', year: 'numeric' })
+}
+
 /**
  * Relative age for recency lists such as chat history, where "2h ago" is what
  * the reader actually wants. Falls back to the absolute form once relative

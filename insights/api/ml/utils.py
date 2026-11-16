@@ -55,6 +55,7 @@ from frappe import _
 from frappe.utils import add_months
 
 from insights.api.response import error, success
+from insights.ml.tab_briefs import attach
 
 # How long a computed payload stays servable. `refresh_dashboard_caches`
 # rewrites it every hour, so this is only the backstop for a bench whose
@@ -149,6 +150,80 @@ def run(fn: Callable[[], object], label: str) -> dict:
     return success(data=result)
 
 
+# Connections a forked child replaced. Held for the life of the child so the
+# parent's sockets are never closed from here: dropping the last reference to
+# a MariaDB connection sends COM_QUIT down the descriptor both processes share.
+_ORPHANED: list = []
+
+
+def fork_map(thunks: list[Callable[[], object]]) -> list:
+    """Run independent zero-argument callables at once, one forked child each,
+    and return their results in order.
+
+    A dashboard that fans out to eight pipelines (the executive rollup) is
+    Python-bound per pipeline, so threads gain nothing; processes do. Each
+    child opens its own database connection and ibis connection and returns
+    its result pickled down a pipe. A child's exception is re-raised here.
+
+    Runs serially when there is nothing to overlap, under tests (a child cannot
+    see the test's uncommitted rows), or inside a web request.
+    """
+    import os
+    import pickle
+
+    if len(thunks) < 2 or frappe.flags.in_test or _in_request():
+        return [fn() for fn in thunks]
+
+    # macOS aborts a forked child that first-imports a library touching
+    # CoreFoundation (pyarrow, pandas); load them here so the child inherits them.
+    import numpy  # noqa: F401
+    import pandas  # noqa: F401
+    import pyarrow  # noqa: F401
+
+    children = []
+    for fn in thunks:
+        read_fd, write_fd = os.pipe()
+        pid = os.fork()
+        if pid == 0:  # child: never returns
+            status = 1
+            try:
+                os.close(read_fd)
+                _ORPHANED.extend([frappe.local.db, getattr(frappe.local, "insights_ml_ibis_conn", None)])
+                frappe.connect(set_admin_as_user=False)
+                frappe.local.insights_ml_ibis_conn = None
+                frappe.local.insights_ml_executed = frappe.local.insights_gl_ledger = None
+                try:
+                    payload = ("ok", fn())
+                except Exception:
+                    payload = ("error", frappe.get_traceback())
+                try:
+                    data = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+                except Exception:
+                    data = pickle.dumps(("error", frappe.get_traceback()))
+                with os.fdopen(write_fd, "wb") as pipe:
+                    pipe.write(data)
+                status = 0
+            finally:
+                os._exit(status)
+        os.close(write_fd)
+        children.append((pid, read_fd))
+
+    results, failure = [], None
+    for pid, read_fd in children:
+        with os.fdopen(read_fd, "rb") as pipe:
+            try:
+                kind, value = pickle.load(pipe)
+            except EOFError:
+                kind, value = "error", "child died without a result"
+        os.waitpid(pid, 0)
+        if kind == "error":
+            failure = failure or value
+        results.append(value)
+    if failure:
+        raise RuntimeError(f"parallel branch failed:\n{failure}")
+    return results
+
+
 def _scoped(cache_key: str) -> str:
     """Cache keys are per-user.
 
@@ -221,6 +296,9 @@ def _compute(fn: Callable[[], dict]) -> dict:
     from insights.api.ml.ibis_source import use_pyarrow_materialization
 
     use_pyarrow_materialization()
+    # Per-compute memos: a warm_all pass must not serve one endpoint's rows to the next.
+    frappe.local.insights_ml_executed = frappe.local.insights_gp_line_cache = None
+    frappe.local.insights_gl_ledger = None
 
     with threadpoolctl.threadpool_limits(1):
         return fn()
@@ -254,7 +332,7 @@ def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = CACHE_TTL) -> 
             if cached is not None:
                 return cached
 
-        result = _compute(fn)
+        result = attach(cache_key, _compute(fn))
         if isinstance(result, dict) and result.get("status") == "success":
             frappe.cache.set_value(key, result, expires_in_sec=ttl)
         return result
@@ -267,7 +345,7 @@ def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = CACHE_TTL) -> 
     # at, and -- because every poll would carry `refresh` again -- would never
     # stop asking for a fresh compute.
     if cached is not None and not _refresh_requested():
-        return cached
+        return _flag_recompute(cached, key)
 
     if _refresh_requested():
         # Someone who can see the error and asks anyway gets a fresh retry
@@ -276,8 +354,17 @@ def cached_run(fn: Callable[[], dict], cache_key: str, ttl: int = CACHE_TTL) -> 
 
     failure = _ensure_compute(key)
     if cached is not None:
-        return cached
+        return _flag_recompute(cached, key)
     return error(failure) if failure else {"status": "warming"}
+
+
+def _flag_recompute(cached: dict, key: str) -> dict:
+    """Mark a cached payload `refreshing` while a newer one is being computed, so a
+    Refresh click can wait for it instead of leaving the old numbers on screen."""
+    attempt = frappe.cache.hget(_ATTEMPT_KEY, key)
+    if isinstance(cached, dict) and isinstance(attempt, dict) and _attempt_in_flight(attempt):
+        return {**cached, "refreshing": True}
+    return cached
 
 
 def is_cached(cache_key: str) -> bool:
@@ -629,6 +716,37 @@ def parse_custom_range(period: str | None) -> tuple[datetime, datetime] | None:
     except ValueError:
         return None
     return None if end < start else (start, end)
+
+
+_PRESET_FILTER_RE = re.compile(r"^(all|ytd|\d{1,3}[dmy])$")
+
+
+def canonical_date_filter(date_filter: str | None) -> str:
+    """`date_filter` if it is a preset or a valid custom range, else ``"12m"``
+    (what `parse_date_filter` would use anyway). Endpoints put the value in
+    their cache key, and every distinct key is a background compute that the
+    hourly warm pass then keeps refreshing, so free-form text must not reach it."""
+    if date_filter and (_PRESET_FILTER_RE.match(date_filter) or parse_custom_range(date_filter)):
+        return date_filter
+    return "12m"
+
+
+def canonical_period(period: str | None) -> str:
+    """`period` if it is MTD/QTD/YTD/TTM or a valid custom range, else ``"TTM"``
+    (what HR's and Marketing's resolvers fall through to). The `period` twin of
+    `canonical_date_filter`: same reason, it keeps free-form text out of cache keys."""
+    if period in ("MTD", "QTD", "YTD", "TTM") or parse_custom_range(period):
+        return str(period)
+    return "TTM"
+
+
+def parse_detail_filters(filters: str) -> tuple[dict, int]:
+    """Drill-down endpoints' shared input handling: the ``filters`` JSON must be
+    an object; returns ``(filters_without_page, page)`` with ``page`` clamped to >= 1."""
+    f = frappe.parse_json(filters) or {}
+    if not isinstance(f, dict):
+        frappe.throw(_("filters must be an object"), frappe.ValidationError)
+    return f, max(1, frappe.utils.cint(f.pop("page", 1)))
 
 
 def parse_date_filter(date_filter: str = "12m") -> tuple[datetime | None, datetime | None]:

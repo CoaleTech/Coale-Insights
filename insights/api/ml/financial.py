@@ -17,7 +17,9 @@ from __future__ import annotations
 from typing import Any, Dict
 
 import frappe
-from insights.api.ml.utils import cached_run, run
+from frappe.query_builder.functions import Sum
+from frappe.utils import flt, nowdate
+from insights.api.ml.utils import cached_run, canonical_date_filter, parse_detail_filters, run
 
 
 @frappe.whitelist()
@@ -25,6 +27,7 @@ def financial_intelligence(refresh: bool = False, date_filter: str = "12m") -> D
     """Comprehensive financial intelligence: served from cache, recomputed in
     the background per date_filter."""
     frappe.has_permission("GL Entry", "read", throw=True)
+    date_filter = canonical_date_filter(date_filter)
     from insights.ml.financial_intelligence import FinancialIntelligence
     return cached_run(
         lambda: run(
@@ -106,8 +109,7 @@ def get_forex_exposure() -> Dict[str, Any]:
 @frappe.whitelist()
 def get_finance_detail(metric: str, filters: str) -> dict:
     from frappe import _
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
@@ -120,7 +122,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "due_date", "grand_total", "outstanding_amount", "currency"],
+            fields=["name", "customer", "customer_name", "posting_date", "due_date", "grand_total", "outstanding_amount", "currency"],
             start=start, page_length=page_size, order_by="outstanding_amount desc",
             ignore_permissions=False,
         )
@@ -128,6 +130,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Total", "fieldname": "grand_total", "fieldtype": "Currency"},
@@ -146,7 +149,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "due_date", "grand_total", "outstanding_amount"],
+            fields=["name", "customer", "customer_name", "posting_date", "due_date", "grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by="due_date asc",
             ignore_permissions=False,
         )
@@ -154,6 +157,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": "Invoice", "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": "Customer", "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
+                {"label": "Name", "fieldname": "customer_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
@@ -170,7 +174,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Purchase Invoice",
             filters=db_filters,
-            fields=["name", "supplier", "posting_date", "due_date", "grand_total", "outstanding_amount"],
+            fields=["name", "supplier", "supplier_name", "posting_date", "due_date", "grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by="outstanding_amount desc",
             ignore_permissions=False,
         )
@@ -178,6 +182,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": "Bill", "fieldname": "name", "fieldtype": "Link", "options": "Purchase Invoice"},
                 {"label": "Supplier", "fieldname": "supplier", "fieldtype": "Link", "options": "Supplier"},
+                {"label": "Name", "fieldname": "supplier_name", "fieldtype": "Data"},
                 {"label": "Date", "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": "Due Date", "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": "Outstanding", "fieldname": "outstanding_amount", "fieldtype": "Currency"},
@@ -186,15 +191,21 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "total": frappe.db.count("Purchase Invoice", filters=db_filters),
         }
 
-    if metric == "cash_accounts":
+    if metric in ("cash_accounts", "working_capital_components"):
         frappe.has_permission("Account", throw=True)
-        # Same set _calculate_cash_flow uses: Bank/Cash by account_type, plus
-        # Fixed Deposit accounts (no core account_type for FD, name-matched).
+        frappe.has_permission("GL Entry", throw=True)
+        # cash_accounts = what _calculate_cash_flow counts: Bank/Cash by account_type plus
+        # Fixed Deposit accounts (no core account_type for FD, name-matched). Working
+        # capital adds the Receivable/Payable/Stock accounts its figures are built from.
+        # Its card is as of today; the Cash Position card includes future-dated postings.
+        is_wc = metric == "working_capital_components"
         acct_filters = [["is_group", "=", 0]]
         if company:
             acct_filters.append(["company", "=", company])
+        if f.get("account"):  # one row clicked on the Cash tab
+            acct_filters.append(["name", "=", f["account"]])
         acct_or_filters = [
-            ["account_type", "in", ["Cash", "Bank"]],
+            ["account_type", "in", ["Cash", "Bank", "Receivable", "Payable", "Stock"] if is_wc else ["Cash", "Bank"]],
             ["account_name", "like", "fixed deposit%"],
         ]
         rows = frappe.get_list(
@@ -205,48 +216,34 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             start=start, page_length=page_size, order_by="account_name asc",
             ignore_permissions=False,
         )
+        GL = frappe.qb.DocType("GL Entry")
+        names = [r["name"] for r in rows]
+        bal = {}
+        if names:
+            q = (
+                frappe.qb.from_(GL)
+                .select(GL.account, Sum(GL.debit - GL.credit))
+                .where((GL.account.isin(names)) & (GL.is_cancelled == 0))
+            )
+            if is_wc:
+                q = q.where(GL.posting_date <= nowdate())
+            bal = dict(q.groupby(GL.account).run())
+        for r in rows:
+            r["balance"] = flt(bal.get(r["name"]))
+            r["account_type"] = r["account_type"] or "Fixed Deposit"
         return {
             "columns": [
                 {"label": "Account", "fieldname": "name", "fieldtype": "Link", "options": "Account"},
                 {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
                 {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
                 {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
+                {"label": "Balance (Dr − Cr)" if is_wc else "Balance", "fieldname": "balance", "fieldtype": "Currency"},
             ],
             "rows": rows,
             "total": frappe.get_list(
                 "Account", filters=acct_filters, or_filters=acct_or_filters,
                 fields=[{"COUNT": "name", "as": "c"}],
             )[0].c,
-        }
-
-    if metric == "working_capital_components":
-        frappe.has_permission("Account", throw=True)
-        # The accounts the working-capital figures are built from. No or_filters
-        # here, unlike cash_accounts above: one `in` clause is a plain filter, so
-        # `frappe.db.count` can express the total and there is no need to pluck
-        # every matching name to length it.
-        db_filters = {
-            "is_group": 0,
-            "account_type": ("in", ["Receivable", "Payable", "Stock", "Bank", "Cash"]),
-        }
-        if company:
-            db_filters["company"] = company
-        rows = frappe.get_list(
-            "Account",
-            filters=db_filters,
-            fields=["name", "account_name", "account_type", "account_currency"],
-            start=start, page_length=page_size, order_by="account_name asc",
-            ignore_permissions=False,
-        )
-        return {
-            "columns": [
-                {"label": "Account", "fieldname": "name", "fieldtype": "Link", "options": "Account"},
-                {"label": "Account Name", "fieldname": "account_name", "fieldtype": "Data"},
-                {"label": "Type", "fieldname": "account_type", "fieldtype": "Data"},
-                {"label": "Currency", "fieldname": "account_currency", "fieldtype": "Data"},
-            ],
-            "rows": rows,
-            "total": frappe.db.count("Account", filters=db_filters),
         }
 
     if metric == "cost_structure_accounts":
@@ -323,11 +320,13 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             if not party or not isinstance(party, str):
                 frappe.throw(_("{0} is required").format(_(party_field.title())), frappe.ValidationError)
             db_filters[party_field] = party
+            if is_ar:  # the tile lists overdue customers, so the drill lists their overdue invoices
+                db_filters["due_date"] = ("<", frappe.utils.today())
             order_by = "outstanding_amount desc"
         rows = frappe.get_list(
             doctype,
             filters=db_filters,
-            fields=["name", party_field, "posting_date", "due_date", "grand_total", "outstanding_amount"],
+            fields=["name", party_field, f"{party_field}_name", "posting_date", "due_date", "grand_total", "outstanding_amount"],
             start=start, page_length=page_size, order_by=order_by,
             ignore_permissions=False,
         )
@@ -335,6 +334,7 @@ def get_finance_detail(metric: str, filters: str) -> dict:
             "columns": [
                 {"label": _("Invoice") if is_ar else _("Bill"), "fieldname": "name", "fieldtype": "Link", "options": doctype},
                 {"label": _(party_field.title()), "fieldname": party_field, "fieldtype": "Link", "options": party_field.title()},
+                {"label": _("Name"), "fieldname": f"{party_field}_name", "fieldtype": "Data"},
                 {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date"},
                 {"label": _("Due Date"), "fieldname": "due_date", "fieldtype": "Date"},
                 {"label": _("Total"), "fieldname": "grand_total", "fieldtype": "Currency"},

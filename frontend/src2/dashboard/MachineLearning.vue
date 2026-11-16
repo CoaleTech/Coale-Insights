@@ -153,7 +153,7 @@ const STATE_LABEL: Record<ModelRow['state'], string> = {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1 overflow-y-auto">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1 overflow-y-auto">
     <header
       class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col flex-wrap items-start gap-3 sm:flex-row sm:items-center sm:justify-between"
     >

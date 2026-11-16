@@ -45,11 +45,15 @@ watch(
 	},
 )
 
+// ISO dates compare lexicographically; an inverted range would otherwise reach
+// the server, which silently falls back to the default 12 months.
 watch([customStart, customEnd], ([start, end]) => {
-	if (customMode.value && start && end) {
+	if (customMode.value && start && end && start <= end) {
 		emit('update:modelValue', encodeCustomRange({ start, end }))
 	}
 })
+
+const inverted = computed(() => !!(customStart.value && customEnd.value && customStart.value > customEnd.value))
 
 const selectedValue = computed({
   get: () => (customMode.value ? CUSTOM_RANGE_VALUE : props.modelValue),
@@ -101,6 +105,9 @@ const selectedValue = computed({
         :min="customStart || undefined"
         class="min-h-11 w-auto shrink-0 rounded-md border border-outline-gray-2 bg-surface-white px-3 py-1.5 text-sm text-ink-gray-7 hover:border-outline-gray-3 focus:outline-none focus:ring-2 focus:ring-outline-gray-3 sm:min-h-0"
       />
+      <p v-if="inverted" role="alert" class="w-full text-xs text-neg">
+        End date must be on or after the start date.
+      </p>
     </template>
   </div>
 </template>

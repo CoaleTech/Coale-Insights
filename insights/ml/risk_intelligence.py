@@ -29,7 +29,13 @@ import frappe
 import ibis
 from frappe import _
 
-from insights.api.ml.ibis_source import company_filter, default_company, t
+from insights.api.ml.ibis_source import (
+    company_filter,
+    default_company,
+    gl_ledger,
+    t,
+    with_paid_date,
+)
 
 # Risk-score thresholds (0-100). Same as the original class.
 RISK_THRESHOLDS = {
@@ -80,6 +86,41 @@ def _risk_color(category: str) -> str:
     )
 
 
+def _risk_verdict(
+    credit_score: float,
+    cashflow_score: float,
+    operational_score: float,
+    compliance_score: float,
+    aggregate_score: float,
+    alerts: list[dict],
+) -> str:
+    """Server-computed verdict string for the dashboard hero title.
+
+    Deterministic: names the component with the largest weighted contribution,
+    the overall risk category, and any critical alerts needing immediate action.
+    Was a client-side computed string (``riskDriver``); moved here so the logic
+    lives in one place, can be tested, and can't drift from the payload data.
+    """
+    components = [
+        ("Credit", credit_score, WEIGHTS["credit"]),
+        ("Cash Flow", cashflow_score, WEIGHTS["cashflow"]),
+        ("Operational", operational_score, WEIGHTS["operational"]),
+        ("Compliance", compliance_score, WEIGHTS["compliance"]),
+    ]
+    top_name, top_score, _ = max(components, key=lambda c: c[1] * c[2])
+    category = _risk_category(aggregate_score)
+    critical = sum(1 for a in alerts if a.get("severity") == "critical")
+    verdict = (
+        f"{top_name} is the primary driver"
+        f" ({top_score:.0f}/100, {_risk_category(top_score)})"
+        f" · {category} overall"
+    )
+    if critical:
+        suffix = "alerts" if critical > 1 else "alert"
+        verdict += f" · {critical} critical {suffix}"
+    return verdict
+
+
 def _months_ago(months: int):
     return (datetime.now() - timedelta(days=months * 30)).date()
 
@@ -99,10 +140,22 @@ def run_risk_intelligence(refresh: bool = False) -> dict:
         company = default_company()
         base_currency = _base_currency(company)
 
-        overview = _overview(company)
+        # Hoist the four component scores so _overview and _analyze_cashflow_risk
+        # can share them without re-running the same queries.
+        credit_score = _aggregate_credit_risk(company)
+        cashflow_score = _aggregate_cashflow_risk(company)
+        operational_score = _aggregate_operational_risk()
+        compliance_score = _aggregate_compliance_risk(company)
+
+        overview = _overview(company, credit_score, cashflow_score, operational_score, compliance_score)
         credit_risk = _analyze_credit_risk(company)
         payables_risk = _analyze_payables_risk(company)
-        cashflow_risk = _analyze_cashflow_risk(company)
+        cashflow_risk = _analyze_cashflow_risk(
+            company,
+            cashflow_score=cashflow_score,
+            total_receivables=credit_risk["total_outstanding"],
+            total_payables=payables_risk["total_outstanding"],
+        )
         operational_risk = _analyze_operational_risk(company)
         compliance_risk = _analyze_compliance_risk(company)
         predictive_analytics = _generate_predictive_analytics(company)
@@ -169,15 +222,16 @@ def _days_diff_sql(date_col):
 # ── Overview ────────────────────────────────────────────────────────────────
 
 
-def _overview(company: str | None) -> dict:
+def _overview(
+    company: str | None,
+    credit_score: float,
+    cashflow_score: float,
+    operational_score: float,
+    compliance_score: float,
+) -> dict:
     total_customers = _scalar_count("Customer")
     total_suppliers = _scalar_count("Supplier")
-    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
-
-    credit_score = _aggregate_credit_risk(company)
-    cashflow_score = _aggregate_cashflow_risk(company)
-    operational_score = _aggregate_operational_risk()
-    compliance_score = _aggregate_compliance_risk(company)
+    total_items = _active_sku_count()
 
     aggregate_score = (
         credit_score * WEIGHTS["credit"]
@@ -192,6 +246,10 @@ def _overview(company: str | None) -> dict:
     return {
         "aggregate_risk_score": round(float(aggregate_score), 1),
         "aggregate_risk_category": _risk_category(aggregate_score),
+        "risk_verdict": _risk_verdict(
+            credit_score, cashflow_score, operational_score,
+            compliance_score, aggregate_score, alerts,
+        ),
         "risk_components": {
             "credit_risk": {"score": credit_score, "category": _risk_category(credit_score)},
             "cashflow_risk": {"score": cashflow_score, "category": _risk_category(cashflow_score)},
@@ -261,7 +319,7 @@ def _top_alerts(company: str | None) -> list[dict]:
                 "customer": cust,
                 "overdue_days": 60,
                 "title": f"Overdue Customer: {names.get(cust) or cust}",
-                "description": f"Outstanding: {_plain_money(out, base_cur)}",
+                "description": f"Overdue more than 60 days: {_plain_money(out, base_cur)}",
                 "action": "Review credit limit and payment terms",
                 # The same figure as a number. ``description`` is a formatted
                 # string, so a table could only right-align these by parsing
@@ -319,7 +377,7 @@ def _risk_matrix(
     (currency fluctuation, security breach) were dropped rather than left
     fabricated -- see TODOS.md.
     """
-    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+    total_items = _active_sku_count()
     stockout_ratio = (_stockout_count() / total_items * 100.0) if total_items else 0.0
     supplier_share = _top_supplier_share()
 
@@ -413,7 +471,7 @@ def _aggregate_cashflow_risk(company: str | None) -> float:
 
 
 def _aggregate_operational_risk() -> float:
-    total_items = _scalar_count("Item", filters={"is_stock_item": 1})
+    total_items = _active_sku_count()
     if not total_items:
         return 0.0
     stockout_items = _stockout_count()
@@ -815,11 +873,23 @@ def _aging_buckets_payables(company: str | None) -> list[dict]:
 # ── Cash flow ───────────────────────────────────────────────────────────────
 
 
-def _analyze_cashflow_risk(company: str | None) -> dict:
+def _analyze_cashflow_risk(
+    company: str | None,
+    *,
+    cashflow_score: float | None = None,
+    total_receivables: float | None = None,
+    total_payables: float | None = None,
+) -> dict:
+    """Cashflow risk detail sub-dict.
+
+    ``cashflow_score``, ``total_receivables``, and ``total_payables`` are
+    passed in from ``run_risk_intelligence`` (which already computed them for
+    ``_overview``) to avoid re-running the same queries. The three fields were
+    absent from the previous return dict, leaving the Cash Flow Risk tab
+    without its component score and the exposure detail without the
+    receivables/payables totals that credit_risk and payables_risk already held.
+    """
     overdue_days_trend = _overdue_days_trend(company)
-    # Compute cash once; avoids a duplicate _gl_balance_for_account_types call
-    # when the caller (run_risk_intelligence) also requests current_cash_position
-    # through _aggregate_cashflow_risk → _current_cash_position.
     cash = _current_cash_position(company)
 
     # Working capital: current_assets - current_liabilities.
@@ -835,6 +905,12 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
     concentration = _customer_concentration(company)
     top_customer_share = concentration[0]["revenue_share"] if concentration else 0.0
 
+    net_exposure = (
+        total_receivables - total_payables
+        if total_receivables is not None and total_payables is not None
+        else None
+    )
+
     return {
         "overdue_days_trend": overdue_days_trend,
         "exposure_trend": _exposure_trend(company),
@@ -844,6 +920,17 @@ def _analyze_cashflow_risk(company: str | None) -> dict:
         "customer_concentration": concentration,
         "top_customer_share": top_customer_share,
         "cash_forecast": _forecast_cash_flow(company),
+        # Fields added 2026-10: were absent from the sub-dict, so the Cash
+        # Flow Risk tab had no component score and no receivables/payables
+        # totals to display. The score lived only in overview.risk_components;
+        # the totals lived only in credit_risk/payables_risk.
+        "cashflow_score": cashflow_score,
+        "total_receivables": total_receivables,
+        "total_payables": total_payables,
+        "net_exposure": net_exposure,
+        # Stable aliases so old field names continue to work in cached payloads.
+        "cash_position": cash,
+        "net_working_capital": working_capital,
     }
 
 
@@ -869,20 +956,11 @@ def _exposure_trend(company: str | None) -> list[dict]:
     -- 13 output rows do not justify a window function, and the running total
     must begin at the first entry ever posted, not at the window's cutoff.
     """
-    gle = t("GL Entry")
-    a = t("Account")
-    a_filtered = a.filter(
-        a.account_type.isin(["Receivable", "Payable"]), a.is_group == 0
-    )
-    q = gle.join(a_filtered, gle.account == a_filtered.name).filter(
-        gle.is_cancelled == 0
-    )
-    if company:
-        q = q.filter(gle.company == company)
+    gl = gl_ledger(company)
     df = (
-        q.mutate(month=gle.posting_date.truncate("M"))
-        .group_by(["month", "account_type"])
-        .aggregate(net=(gle.debit.fill_null(0) - gle.credit.fill_null(0)).sum())
+        gl.filter(gl.account_type.isin(["Receivable", "Payable"]))
+        .group_by([gl.posting_date.truncate("M").name("month"), gl.account_type])
+        .aggregate(net=(gl.debit.fill_null(0) - gl.credit.fill_null(0)).sum())
         .order_by("month")
         .execute()
     )
@@ -913,24 +991,25 @@ def _overdue_days_trend(company: str | None) -> list[dict]:
     si = t("Sales Invoice")
     cutoff = _months_ago(HISTORY_MONTHS)
     today = ibis.literal(datetime.now().date()).cast("date")
-    q = company_filter(
-        si.filter(si.docstatus == 1, si.posting_date >= cutoff), company
-    )
-    # Same sign-inversion fix as the credit-risk aggregates above:
-    # `today - due_date` so positive means days past due. The downstream
-    # trend chart expects positive values for late-paying periods.
+    q = with_paid_date(company_filter(
+        si.filter(si.docstatus == 1, si.is_return == 0, si.posting_date >= cutoff), company
+    ))
+    # Days late per invoice: settled invoices by the day they were paid, open
+    # ones by today, never below zero. Measuring `today - due_date` for every
+    # invoice, paid or not, made older months look hundreds of days "overdue".
+    settled_on = ibis.ifelse(q.outstanding_amount == 0, q.paid_date, today)
     days_overdue = ibis.ifelse(
-        si.due_date.isnull(),
+        q.due_date.isnull(),
         ibis.null(),
-        today.delta(si.due_date.cast("date"), unit="day"),
+        ibis.greatest(settled_on.delta(q.due_date.cast("date"), unit="day"), 0),
     )
     df = (
-        q.mutate(month=si.posting_date.truncate("M"), days=days_overdue)
+        q.mutate(month=q.posting_date.truncate("M"), days=days_overdue)
         .group_by("month")
         .aggregate(
             avg_days_overdue=days_overdue.mean(),
-            monthly_sales=si.grand_total.sum(),
-            month_end_outstanding=si.outstanding_amount.sum(),
+            monthly_sales=q.grand_total.sum(),
+            month_end_outstanding=q.outstanding_amount.sum(),
         )
         .order_by("month")
         .execute()
@@ -1011,13 +1090,9 @@ def _inventory_risks() -> list[dict]:
     (``actual_qty * valuation_rate``), so no extra join is needed.
     """
     item = t("Item")
-    bin_ = t("Bin")
     items = item.filter(item.is_stock_item == 1).select(item.name, item.item_group)
-    bins = bin_.group_by(bin_.item_code).aggregate(
-        actual_qty=bin_.actual_qty.sum(),
-        stock_value=bin_.stock_value.sum(),
-    )
-    joined = items.left_join(bins, items.name == bins.item_code).select(
+    bins = _active_bins()
+    joined = items.join(bins, items.name == bins.item_code).select(
         items.name, items.item_group, bins.actual_qty, bins.stock_value
     )
     mutated = joined.mutate(stockout=joined.actual_qty.fill_null(0) <= 0)
@@ -1050,59 +1125,52 @@ def _inventory_risks() -> list[dict]:
 
 
 def _supplier_performance(company: str | None) -> list[dict]:
-    pi = t("Purchase Invoice")
-    s = t("Supplier")
-    cutoff = _months_ago(HISTORY_MONTHS)
-    q = company_filter(pi.filter(pi.docstatus == 1, pi.posting_date >= cutoff), company)
-    delay = ibis.ifelse(
-        pi.due_date.isnull() | pi.posting_date.isnull(),
-        ibis.null(),
-        pi.posting_date.cast("date").delta(pi.due_date.cast("date"), unit="day"),
+    """Delivery reliability per supplier from Purchase Orders and their receipts.
+
+    Delay = first submitted Purchase Receipt date minus the PO due date; a PO not
+    yet received counts as late by its days past due, and one not yet due is left
+    out (the same population the Procurement on-time rate uses). Purchase Invoice
+    posting vs due date, used before, is the credit period and was always early.
+    """
+    rows = frappe.db.sql(
+        """
+        SELECT po.supplier, s.supplier_name,
+            SUM(po.docstatus = 1) AS total_orders,
+            SUM(IF(po.docstatus = 1, po.base_grand_total, 0)) AS total_value,
+            AVG(IF(po.docstatus = 1 AND po.schedule_date IS NOT NULL
+                   AND (r.first_pr IS NOT NULL OR po.schedule_date < CURDATE()),
+                   DATEDIFF(COALESCE(r.first_pr, CURDATE()), po.schedule_date), NULL)) AS avg_delay_days,
+            SUM(po.docstatus = 2) AS cancelled_orders
+        FROM `tabPurchase Order` po
+        LEFT JOIN `tabSupplier` s ON s.name = po.supplier
+        LEFT JOIN (
+            SELECT pri.purchase_order, MIN(pr.posting_date) AS first_pr
+            FROM `tabPurchase Receipt Item` pri
+            JOIN `tabPurchase Receipt` pr ON pr.name = pri.parent AND pr.docstatus = 1
+            GROUP BY pri.purchase_order
+        ) r ON r.purchase_order = po.name
+        WHERE po.docstatus IN (1, 2) AND po.transaction_date >= %(cutoff)s
+            AND (%(company)s IS NULL OR po.company = %(company)s)
+        GROUP BY po.supplier, s.supplier_name
+        HAVING total_orders > 5
+        ORDER BY total_value DESC LIMIT 20
+        """,
+        {"cutoff": _months_ago(HISTORY_MONTHS), "company": company},
+        as_dict=True,
     )
-    cancelled = (pi.status == "Cancelled").cast("int")
-    df = (
-        q.group_by(pi.supplier)
-        .aggregate(
-            total_orders=q.count(),
-            total_value=pi.grand_total.sum(),
-            avg_delay_days=delay.mean(),
-            cancelled_orders=cancelled.sum(),
-        )
-        .order_by(ibis.desc("total_value"))
-        .limit(20)
-        .execute()
-    )
-    # Filter to total_orders > 5 (HAVING-equivalent) in Python on the small result.
-    df = df[df["total_orders"] > 5]
-    supplier_names = {
-        r["name"]: r["supplier_name"]
-        for r in frappe.get_all(
-            "Supplier",
-            fields=["name", "supplier_name"],
-            filters={"name": ["in", df["supplier"].dropna().tolist()]}
-            if not df.empty
-            else {},
-        )
-    }
     out: list[dict] = []
-    for r in df.to_dict(orient="records"):
-        supp = r.get("supplier")
-        if not supp:
-            continue
-        delay_avg = float(r.get("avg_delay_days") or 0)
-        delay_factor = max(0.0, delay_avg) / 30.0
-        cancel_rate = (
-            float(r.get("cancelled_orders") or 0) / float(r.get("total_orders") or 1)
-        )
-        score = min(100.0, delay_factor * 50.0 + cancel_rate * 50.0)
+    for r in rows:
+        delay_avg = None if r.avg_delay_days is None else round(float(r.avg_delay_days), 1)
+        cancel_rate = float(r.cancelled_orders or 0) / float((r.total_orders or 0) + (r.cancelled_orders or 0))
+        score = min(100.0, max(0.0, delay_avg or 0.0) / 30.0 * 50.0 + cancel_rate * 50.0)
         out.append(
             {
-                "supplier": supp,
-                "supplier_name": supplier_names.get(supp, supp),
-                "total_orders": int(r.get("total_orders") or 0),
-                "total_value": float(r.get("total_value") or 0),
-                "avg_delay_days": round(delay_avg, 1),
-                "cancelled_orders": int(r.get("cancelled_orders") or 0),
+                "supplier": r.supplier,
+                "supplier_name": r.supplier_name or r.supplier,
+                "total_orders": int(r.total_orders or 0),
+                "total_value": float(r.total_value or 0),
+                "avg_delay_days": delay_avg,
+                "cancelled_orders": int(r.cancelled_orders or 0),
                 "reliability_risk_score": round(score, 1),
                 "risk_category": _risk_category(score),
             }
@@ -1247,47 +1315,56 @@ def _generate_predictive_analytics(company: str | None) -> dict:
 
 
 def _forecast_cash_flow(company: str | None) -> dict:
-    """Moving-average cash-flow forecast over the next 30 days. Computed
-    on the small (one row per day for ~6 months) daily series that
-    Ibis pulls; no sklearn / no Prophet."""
-    gle = t("GL Entry")
-    a = t("Account")
+    """Moving-average cash forecast over the next 30 days: today's book cash
+    balance plus the average daily net cash flow of the last 30 days of
+    ledger activity (calendar days, so quiet days count as zero), trended by
+    the last week's pace. Cash is Bank + Cash + Fixed Deposit, matching the
+    Cash Position everywhere else. No sklearn / no Prophet."""
+    import pandas as pd
+
+    gl = gl_ledger(company)
+    today = datetime.now().date()
     cutoff = _months_ago(6)
-    a_filtered = a.filter(a.account_type.isin(["Cash", "Bank"]))
-    q = gle.join(a_filtered, gle.account == a_filtered.name).filter(
-        gle.is_cancelled == 0,
-        gle.posting_date >= cutoff,
+    df = (
+        gl.filter(
+            gl.account_type.isin(["Cash", "Bank"]) | gl.account_name.lower().like("fixed deposit%"),
+            gl.posting_date >= cutoff,
+            gl.posting_date <= today,
+        )
+        .select(
+            posting_date=gl.posting_date,
+            amount=gl.debit.fill_null(0) - gl.credit.fill_null(0),
+        )
+        .execute()
     )
-    if company:
-        q = q.filter(gle.company == company)
-    df = q.select(
-        posting_date=gle.posting_date,
-        amount=gle.debit.fill_null(0) - gle.credit.fill_null(0),
-    ).execute()
-    if df.empty or len(df) < 7:
+    if df.empty or df["posting_date"].nunique() < 7:
         return {
             "status": "insufficient_data",
             "message": _("Need at least 7 days of cash flow data"),
         }
 
-    df = df.sort_values("posting_date")
-    values = df["amount"].astype(float).tolist()
-    dates = df["posting_date"].tolist()
-    recent_avg = sum(values[-30:]) / min(30, len(values[-30:]))
-    weekly_avg = sum(values[-7:]) / min(7, len(values[-7:]))
-    trend = (weekly_avg - recent_avg) / recent_avg if recent_avg else 0.0
+    df["posting_date"] = pd.to_datetime(df["posting_date"])
+    daily = df.groupby("posting_date")["amount"].sum().astype(float)
+    daily = daily.reindex(pd.date_range(daily.index.min(), daily.index.max()), fill_value=0.0)
+    values = daily.tolist()
+    recent_avg = sum(values[-30:]) / min(30, len(values))
+    weekly_avg = sum(values[-7:]) / min(7, len(values))
+    trend = (weekly_avg - recent_avg) / abs(recent_avg) if recent_avg else 0.0
 
     forecast = []
-    base_date = dates[-1] if dates else datetime.now().date()
+    balance = _current_cash_position(company)
+    opening = balance
     for i in range(1, 31):
-        d = base_date + timedelta(days=i)
-        predicted = recent_avg * (1 + trend * (i / 30.0))
+        d = today + timedelta(days=i)
+        balance += recent_avg * (1 + trend * (i / 30.0))
+        # ±15 % of the movement so far, symmetric around the projected balance.
+        band = abs(balance - opening) * 0.15
         forecast.append(
             {
                 "ds": d.strftime("%Y-%m-%d"),
-                "yhat": round(float(predicted), 2),
-                "yhat_lower": round(float(predicted * 0.85), 2),
-                "yhat_upper": round(float(predicted * 1.15), 2),
+                "yhat": round(float(balance), 2),
+                "yhat_lower": round(float(balance - band), 2),
+                "yhat_upper": round(float(balance + band), 2),
             }
         )
     return {
@@ -1354,17 +1431,17 @@ def _predict_payment_delays(company: str | None) -> dict:
     """Customers whose paid invoices have a high average days-to-pay."""
     si = t("Sales Invoice")
     cutoff = _months_ago(HISTORY_MONTHS)
-    q = company_filter(
+    q = with_paid_date(company_filter(
         si.filter(si.docstatus == 1, si.outstanding_amount == 0, si.posting_date >= cutoff),
         company,
-    )
+    ))
     delay = ibis.ifelse(
-        si.modified.isnull() | si.due_date.isnull(),
+        q.paid_date.isnull() | q.due_date.isnull(),
         ibis.null(),
-        si.modified.cast("date").delta(si.due_date.cast("date"), unit="day"),
+        q.paid_date.delta(q.due_date.cast("date"), unit="day"),
     )
     df = (
-        q.group_by(si.customer)
+        q.group_by(q.customer)
         .aggregate(
             avg_delay=delay.mean(),
             delay_stddev=delay.std(),
@@ -1506,20 +1583,19 @@ def _early_warnings(cash_forecast: dict, company: str | None = None) -> list[dic
 
 
 def _gl_balance_for_account_types(account_types: list[str], company: str | None) -> float:
-    """Sum of (debit - credit) for leaf accounts of the given types."""
-    gle = t("GL Entry")
-    a = t("Account")
-    a_filtered = a.filter(a.account_type.isin(account_types), a.is_group == 0)
-    q = (
-        gle.join(a_filtered, gle.account == a_filtered.name)
-        .filter(gle.is_cancelled == 0)
-    )
-    if company:
-        q = q.filter(gle.company == company)
-    net = gle.debit.fill_null(0) - gle.credit.fill_null(0)
+    """Sum of (debit - credit) for leaf accounts of the given types.
+
+    Fixed-deposit accounts count as cash, by name, the same way the Finance
+    dashboard's cash position does; they are not typed Bank on this ledger.
+    """
+    gl = gl_ledger(company)
+    match = gl.account_type.isin(account_types)
+    if "Cash" in account_types:
+        match = match | gl.account_name.lower().like("fixed deposit%")
+    net = gl.debit.fill_null(0) - gl.credit.fill_null(0)
     if account_types == ["Payable", "Tax"]:
-        net = gle.credit.fill_null(0) - gle.debit.fill_null(0)
-    val = q.aggregate(v=net.sum()).execute().iloc[0]["v"] or 0
+        net = gl.credit.fill_null(0) - gl.debit.fill_null(0)
+    val = gl.filter(match).aggregate(v=net.sum()).execute().iloc[0]["v"] or 0
     return float(val)
 
 
@@ -1527,24 +1603,32 @@ def _current_cash_position(company: str | None) -> float:
     return _gl_balance_for_account_types(["Cash", "Bank"], company)
 
 
-def _stockout_count() -> int:
-    """Count of stock items whose total quantity across every warehouse
-    is <= 0.
-
-    Previously an inner join of raw ``Bin`` rows to ``Item``, counting
-    matched rows with ``actual_qty <= 0`` directly -- an item with empty
-    stock in 3 warehouses was counted 3 times (over-count), while an item
-    with no ``Bin`` row at all (never stocked) was never counted at all
-    (under-count), since the inner join drops it. Bin is pre-aggregated
-    per item first, then left-joined, so every stock item is counted at
-    most once -- consistent with ``_inventory_risks``.
-    """
-    item = t("Item")
+def _active_bins():
+    """Per-item Bin totals over *active* SKUs only -- the Inventory dashboard's
+    definition (any non-zero actual/reserved/ordered qty). The item master
+    holds hundreds of catalogue items that never carried stock; counting those
+    as "stockouts" read 96.7% here against 56.2% on Inventory."""
     bin_ = t("Bin")
-    bins = bin_.group_by(bin_.item_code).aggregate(actual_qty=bin_.actual_qty.sum())
-    joined = item.filter(item.is_stock_item == 1).left_join(bins, item.name == bins.item_code)
-    count_result = joined.filter(joined.actual_qty.fill_null(0) <= 0).count().execute()
-    return int(count_result)
+    active = bin_.filter((bin_.actual_qty != 0) | (bin_.reserved_qty != 0) | (bin_.ordered_qty != 0))
+    return active.group_by(active.item_code).aggregate(
+        actual_qty=active.actual_qty.sum(), stock_value=active.stock_value.sum()
+    )
+
+
+def _active_sku_count() -> int:
+    item = t("Item")
+    bins = _active_bins()
+    joined = item.filter(item.is_stock_item == 1).join(bins, item.name == bins.item_code)
+    return int(joined.count().execute())
+
+
+def _stockout_count() -> int:
+    """Active SKUs whose total quantity across every warehouse is <= 0. Bin is
+    pre-aggregated per item, so each SKU is counted once."""
+    item = t("Item")
+    bins = _active_bins()
+    joined = item.filter(item.is_stock_item == 1).join(bins, item.name == bins.item_code)
+    return int(joined.filter(joined.actual_qty <= 0).count().execute())
 
 
 def _top_supplier_share() -> float:

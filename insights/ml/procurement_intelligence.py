@@ -263,8 +263,10 @@ class ProcurementIntelligence:
         # semi-join: after a semi-join the right-side relation is no
         # longer in scope, so a `.filter(PI.posting_date >= ...)` here
         # would raise "they belong to another relation". Every category is
-        # fetched (a few dozen rows) so pct_of_total divides by the
-        # whole-window item total, not the top-15 sum.
+        # fetched (a few dozen rows); pct_of_total is computed against
+        # total_spend (PI.base_grand_total total) so figures reconcile to
+        # the KPI strip. Items assigned to the root Item Group ("All Item
+        # Groups") are uncategorised; they are labelled explicitly.
         categories = (
             PII.join(pi_win, PII.parent == pi_win.name, how="semi")
             .select(PII.item_code, PII.base_amount, PII.parent)
@@ -275,13 +277,16 @@ class ProcurementIntelligence:
             .execute()
             .pipe(_to_records)
         )
-        total_cat = sum(float(c.get("spend") or 0) for c in categories)
+        # Root item group in ERPNext is the catch-all parent (parent_item_group="").
+        # Items assigned directly to it are uncategorised; label them so, and
+        # compute pct_of_total against total_spend not the category sub-sum.
+        root_grp = frappe.db.get_value("Item Group", {"parent_item_group": ""}, "name") or "All Item Groups"
         by_category = [
             {
-                "category": c.get("item_group") or "Uncategorized",
+                "category": "Uncategorised" if (c.get("item_group") or root_grp) == root_grp else (c.get("item_group") or "Uncategorised"),
                 "spend": c.get("spend"),
                 "invoice_count": c.get("invoice_count"),
-                "pct_of_total": _pct(c.get("spend"), total_cat),
+                "pct_of_total": _pct(c.get("spend"), total_spend),
             }
             for c in categories[:15]
         ]
@@ -655,6 +660,7 @@ class ProcurementIntelligence:
             overdue_po_count=PO.name.count(
                 where=(PO.schedule_date < today)
                 & (~PO.status.isin(["Completed", "Cancelled", "Closed"]))
+                & (PO.per_received < 100)
             ),
         ).execute()
         total_po_count = int(po_volume_agg["total_po_count"].iloc[0]) if len(po_volume_agg) else 0
@@ -1007,9 +1013,10 @@ class ProcurementIntelligence:
             .execute()
             .pipe(_to_records)
         )
+        root_grp = frappe.db.get_value("Item Group", {"parent_item_group": ""}, "name") or "All Item Groups"
         category_forecast = [
             {
-                "category": c.get("item_group") or "Uncategorized",
+                "category": "Uncategorised" if (c.get("item_group") or root_grp) == root_grp else (c.get("item_group") or "Uncategorised"),
                 "avg_monthly_spend": round(float(c["total_12m"] or 0) / 12, 2),
                 "forecast_3m": round(float(c["total_12m"] or 0) / 12 * 3, 2),
             }

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { Breadcrumbs, Button, call } from 'frappe-ui'
 import { apiCall } from '../helpers/api'
-import { Brain, Send, RefreshCw, Sparkles, TrendingUp, AlertTriangle, Lightbulb, Loader2, MessageSquare, X } from 'lucide-vue-next'
-import { ref, onMounted, nextTick } from 'vue'
+import { Brain, DollarSign, Factory, Loader2, MessageSquare, Package, Send, ShoppingCart, TrendingUp, Users } from 'lucide-vue-next'
+import { type Component, ref, onMounted, nextTick } from 'vue'
 import { createToast } from '../helpers/toasts'
 
 interface Message {
@@ -21,8 +21,7 @@ interface ModuleInsight {
 	name: string
 	title: string
 	description: string
-	icon: string
-	color: string
+	icon: Component
 }
 
 const messages = ref<Message[]>([])
@@ -41,12 +40,12 @@ const suggestions = [
 ]
 
 const erpNextModules: ModuleInsight[] = [
-	{ name: 'financial', title: 'Financial Analytics', description: 'Revenue, expenses, cash flow', icon: '💰', color: 'bg-surface-green-1 hover:bg-surface-green-2' },
-	{ name: 'sales', title: 'Sales Intelligence', description: 'Customer trends, sales performance', icon: '📈', color: 'bg-surface-blue-1 hover:bg-surface-blue-2' },
-	{ name: 'procurement', title: 'Procurement Analytics', description: 'Supplier performance, costs', icon: '🛒', color: 'bg-surface-violet-1' },
-	{ name: 'inventory', title: 'Inventory Insights', description: 'Stock levels, turnover rates', icon: '📦', color: 'bg-surface-orange-1' },
-	{ name: 'production', title: 'Production Analytics', description: 'Efficiency, resource planning', icon: '🏭', color: 'bg-surface-violet-1' },
-	{ name: 'customer', title: 'Customer Intelligence', description: 'Lead conversion, customer journey', icon: '👥', color: 'bg-surface-pink-1' }
+	{ name: 'financial', title: 'Financial Analytics', description: 'Revenue, expenses, cash flow', icon: DollarSign },
+	{ name: 'sales', title: 'Sales Intelligence', description: 'Customer trends, sales performance', icon: TrendingUp },
+	{ name: 'procurement', title: 'Procurement Analytics', description: 'Supplier performance, costs', icon: ShoppingCart },
+	{ name: 'inventory', title: 'Inventory Insights', description: 'Stock levels, turnover rates', icon: Package },
+	{ name: 'production', title: 'Production Analytics', description: 'Efficiency, resource planning', icon: Factory },
+	{ name: 'customer', title: 'Customer Intelligence', description: 'Lead conversion, customer journey', icon: Users },
 ]
 
 const recentInsights = ref<{id: string, title: string, time: string}[]>([])
@@ -73,14 +72,14 @@ async function askQuestion(question: string) {
 	scrollToBottom()
 	
 	try {
-		const response = await apiCall('insights.api.ai_insights.get_ai_insights', {
+		const response = await apiCall<any>('insights.api.ai_insights.get_ai_insights', {
 			query: question,
 			complexity: selectedComplexity.value
 		})
 		
 		messages.value.push({
 			type: 'ai',
-			content: response.response?.content || 'I received your question but couldn\'t generate a response.',
+			content: response.response?.content || response.error || 'I received your question but couldn\'t generate a response.',
 			metadata: {
 				model_used: response.model_used,
 				processing_time: response.processing_time,
@@ -129,10 +128,11 @@ async function getBIInsights(module: string) {
 			if (recentInsights.value.length > 5) {
 				recentInsights.value.pop()
 			}
-		} else if (response?.ai_insights?.error) {
+		} else {
+			const ai = response?.ai_insights
 			messages.value.push({
 				type: 'ai',
-				content: `Error getting ${module} insights: ${response.ai_insights.error}`,
+				content: ai?.error ? `Error getting ${module} insights: ${ai.error}` : (ai?.message || 'No insights were returned.'),
 				timestamp: new Date()
 			})
 		}
@@ -166,15 +166,23 @@ function clearChat() {
 	messages.value = []
 }
 
-onMounted(() => {
+const aiOnline = ref(false)
+
+onMounted(async () => {
 	document.title = 'AI Insights | Insights'
+	try {
+		const s = await call('insights.ai.openrouter_client.get_ai_status')
+		aiOnline.value = !!(s?.enabled && s?.configured)
+	} catch {
+		aiOnline.value = false
+	}
 })
 </script>
 
 <template>
 	<div class="flex h-full flex-col bg-surface-white">
 		<!-- Header -->
-		<header class="flex h-14 items-center justify-between border-b px-6 py-3">
+	<header class="flex items-center justify-between border-b border-outline-gray-1 px-6 py-3">
 			<div>
 				<h1 class="text-xl font-semibold text-ink-gray-9 flex items-center gap-2">
 					<Brain class="h-6 w-6 text-accent" />
@@ -184,8 +192,8 @@ onMounted(() => {
 			</div>
 			<div class="flex items-center gap-3">
 				<div class="flex items-center gap-1 text-sm text-ink-gray-6">
-					<div class="w-2 h-2 rounded-full bg-pos-fill"></div>
-					<span>AI Online</span>
+					<div class="w-2 h-2 rounded-full" :class="aiOnline ? 'bg-pos-fill' : 'bg-surface-gray-4'"></div>
+					<span>{{ aiOnline ? 'AI Online' : 'AI not configured' }}</span>
 				</div>
 				<Button v-if="messages.length > 0" variant="outline" size="sm" @click="clearChat">
 					Clear Chat
@@ -258,13 +266,14 @@ onMounted(() => {
 				<div class="border-t p-4">
 					<div class="flex gap-3">
 						<div class="flex-1">
-							<textarea
-								v-model="currentQuestion"
-								@keydown.enter="handleEnter"
-								placeholder="Ask a question about your business data..."
-							class="w-full p-3 border border-outline-gray-2 rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent resize-none text-sm"
-								rows="2"
-							></textarea>
+						<FormControl
+							type="textarea"
+							variant="outline"
+							v-model="currentQuestion"
+							@keydown.enter="handleEnter"
+							placeholder="Ask a question about your business data..."
+							:rows="2"
+						/>
 						</div>
 						<div class="flex flex-col gap-2">
 							<Button
@@ -278,14 +287,16 @@ onMounted(() => {
 								</template>
 								Send
 							</Button>
-							<select
+							<FormControl
 								v-model="selectedComplexity"
-							class="px-3 py-2 border border-outline-gray-2 rounded-md text-sm"
-							>
-								<option value="simple">Simple</option>
-								<option value="medium">Medium</option>
-								<option value="complex">Complex</option>
-							</select>
+								type="select"
+								size="sm"
+								:options="[
+									{ label: 'Simple', value: 'simple' },
+									{ label: 'Medium', value: 'medium' },
+									{ label: 'Complex', value: 'complex' },
+								]"
+							/>
 						</div>
 					</div>
 				</div>
@@ -296,20 +307,19 @@ onMounted(() => {
 				<h3 class="text-lg font-medium text-ink-gray-9 mb-4">Quick Insights</h3>
 				
 				<div class="space-y-3">
-					<div
-						v-for="module in erpNextModules"
-						:key="module.name"
-					:class="['rounded-lg p-4 border border-outline-gray-1 cursor-pointer transition-all', module.color, 'motion-reduce:transition-none']"
-						@click="getBIInsights(module.name)"
-					>
-						<div class="flex items-center justify-between">
-							<div>
-								<h4 class="font-medium text-ink-gray-9">{{ module.title }}</h4>
-								<p class="text-sm text-ink-gray-6">{{ module.description }}</p>
-							</div>
-							<div class="text-2xl">{{ module.icon }}</div>
-						</div>
+				<button
+					v-for="module in erpNextModules"
+					:key="module.name"
+					type="button"
+					class="flex w-full items-center gap-3 rounded border border-outline-gray-1 bg-surface-white p-3 text-left hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
+					@click="getBIInsights(module.name)"
+				>
+					<component :is="module.icon" class="h-4 w-4 shrink-0 text-ink-gray-6" stroke-width="1.5" />
+					<div class="min-w-0">
+						<h4 class="text-sm font-medium text-ink-gray-9">{{ module.title }}</h4>
+						<p class="text-xs text-ink-gray-6">{{ module.description }}</p>
 					</div>
+				</button>
 				</div>
 
 				<!-- Recent Insights -->

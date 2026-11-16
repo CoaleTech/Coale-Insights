@@ -170,6 +170,15 @@ _LAZY_MAP = {
     "lead_conversion": ("insights.api.ml.model_ops", "lead_conversion"),
     "gl_anomalies": ("insights.api.ml.model_ops", "gl_anomalies"),
     "get_ml_detail": ("insights.api.ml.model_ops", "get_ml_detail"),
+    # ------------------------------------------------------------------ marketing / CRM
+    # `utils._DASHBOARD_ENDPOINTS` references `insights.api.ml.get_marketing_overview`
+    # (the short form) which resolves via this lazy map; the full canonical path
+    # `insights.api.ml.marketing.get_marketing_overview` is also what the frontend uses.
+    "get_marketing_overview": ("insights.api.ml.marketing", "get_marketing_overview"),
+    "get_crm_detail": ("insights.api.ml.marketing", "get_crm_detail"),
+    "source_metrics": ("insights.api.ml.marketing", "source_metrics"),
+    "cost_per_lead": ("insights.api.ml.marketing", "cost_per_lead"),
+    "territory_leads": ("insights.api.ml.marketing", "territory_leads"),
     # `predictive` removed 2026-08-10: AdvancedPredictiveAnalyticsEngine trained on
     # simulated history, all 8 endpoints had already been reduced to
     # {"status": "not_implemented"} stubs, and nothing in the frontend called any

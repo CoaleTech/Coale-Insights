@@ -1,0 +1,2551 @@
+{
+ "data": {
+  "base_currency": "INR",
+  "company": "company-3582cc",
+  "date_filter": "12m",
+  "forecasts": {
+   "avg_monthly_spend": 14371723.03,
+   "category_forecast": [
+    {
+     "avg_monthly_spend": 9129189.24,
+     "category": "All Item Groups",
+     "forecast_3m": 27387567.71
+    },
+    {
+     "avg_monthly_spend": 853598.83,
+     "category": "Detergent & Cosmetic",
+     "forecast_3m": 2560796.5
+    },
+    {
+     "avg_monthly_spend": 505489.58,
+     "category": "Food & Beverages , Cleaning, Industrial",
+     "forecast_3m": 1516468.75
+    },
+    {
+     "avg_monthly_spend": 503286.89,
+     "category": "Services",
+     "forecast_3m": 1509860.66
+    },
+    {
+     "avg_monthly_spend": 471047.92,
+     "category": "Agriculture",
+     "forecast_3m": 1413143.75
+    },
+    {
+     "avg_monthly_spend": 141873.33,
+     "category": "Raw Material",
+     "forecast_3m": 425620.0
+    },
+    {
+     "avg_monthly_spend": 47104.33,
+     "category": "Products",
+     "forecast_3m": 141313.0
+    },
+    {
+     "avg_monthly_spend": 25091.67,
+     "category": "Agriculture soil base",
+     "forecast_3m": 75275.0
+    },
+    {
+     "avg_monthly_spend": 22407.92,
+     "category": "Cosmetic",
+     "forecast_3m": 67223.75
+    },
+    {
+     "avg_monthly_spend": 6606.22,
+     "category": "Fix Assets",
+     "forecast_3m": 19818.66
+    }
+   ],
+   "forecasts": [
+    {
+     "period": "2026-11",
+     "predicted_spend": 13945448.55
+    },
+    {
+     "period": "2026-12",
+     "predicted_spend": 13860726.52
+    },
+    {
+     "period": "2027-01",
+     "predicted_spend": 13776004.5
+    }
+   ],
+   "historical": [
+    {
+     "partial": false,
+     "period": "2025-01",
+     "spend": 13974389.72
+    },
+    {
+     "partial": false,
+     "period": "2025-02",
+     "spend": 14857942.2
+    },
+    {
+     "partial": false,
+     "period": "2025-03",
+     "spend": 15773531.58
+    },
+    {
+     "partial": false,
+     "period": "2025-04",
+     "spend": 14968797.64
+    },
+    {
+     "partial": false,
+     "period": "2025-05",
+     "spend": 17113386.32
+    },
+    {
+     "partial": false,
+     "period": "2025-06",
+     "spend": 16442120.74
+    },
+    {
+     "partial": false,
+     "period": "2025-07",
+     "spend": 18435643.76
+    },
+    {
+     "partial": false,
+     "period": "2025-08",
+     "spend": 18489701.02
+    },
+    {
+     "partial": false,
+     "period": "2025-09",
+     "spend": 12964094.9
+    },
+    {
+     "partial": false,
+     "period": "2025-10",
+     "spend": 10887646.51
+    },
+    {
+     "partial": false,
+     "period": "2025-11",
+     "spend": 9943354.1
+    },
+    {
+     "partial": false,
+     "period": "2025-12",
+     "spend": 14479821.84
+    },
+    {
+     "partial": false,
+     "period": "2026-01",
+     "spend": 11140927.0
+    },
+    {
+     "partial": false,
+     "period": "2026-02",
+     "spend": 16404336.3
+    },
+    {
+     "partial": false,
+     "period": "2026-03",
+     "spend": 22098337.94
+    },
+    {
+     "partial": false,
+     "period": "2026-04",
+     "spend": 17080867.4
+    },
+    {
+     "partial": false,
+     "period": "2026-05",
+     "spend": 17164562.83
+    },
+    {
+     "partial": false,
+     "period": "2026-06",
+     "spend": 17014513.58
+    },
+    {
+     "partial": false,
+     "period": "2026-07",
+     "spend": 13641897.42
+    },
+    {
+     "partial": false,
+     "period": "2026-08",
+     "spend": 14163804.38
+    },
+    {
+     "partial": false,
+     "period": "2026-09",
+     "spend": 7164692.58
+    },
+    {
+     "partial": true,
+     "period": "2026-10",
+     "spend": 0.0
+    }
+   ],
+   "status": "success",
+   "trend_amount": 84722.02,
+   "trend_direction": "down"
+  },
+  "generated_at": "2026-10-22T14:43:31.903347",
+  "period": {
+   "end": "2026-10-22",
+   "start": "2025-10-22"
+  },
+  "price_intelligence": {
+   "items_analyzed": 120,
+   "price_increases": [
+    {
+     "avg_rate": 93.1875,
+     "item_code": "LLPGNIP",
+     "item_group": "All Item Groups",
+     "item_name": "Light Liquid Paraffin Oil",
+     "last_rate": 142.0,
+     "max_rate": 142.0,
+     "min_rate": 71.25,
+     "potential_savings": 72030.0,
+     "price_range_pct": 75.9,
+     "price_variance_pct": 52.4,
+     "purchase_count": 8
+    },
+    {
+     "avg_rate": 53.8,
+     "item_code": "AOSTGLIQ",
+     "item_group": "All Item Groups",
+     "item_name": "ALFODET L-46 (AOS Liquid)",
+     "last_rate": 81.0,
+     "max_rate": 81.0,
+     "min_rate": 29.35,
+     "potential_savings": 127945.75,
+     "price_range_pct": 96.0,
+     "price_variance_pct": 50.6,
+     "purchase_count": 12
+    },
+    {
+     "avg_rate": 79.45,
+     "item_code": "CAPB50G",
+     "item_group": "All Item Groups",
+     "item_name": "Ginamide BI In 50Kg Carboys",
+     "last_rate": 117.0,
+     "max_rate": 117.0,
+     "min_rate": 71.5,
+     "potential_savings": 24375.0,
+     "price_range_pct": 57.3,
+     "price_variance_pct": 47.3,
+     "purchase_count": 10
+    },
+    {
+     "avg_rate": 16.415,
+     "item_code": "FeSH",
+     "item_group": "All Item Groups",
+     "item_name": "Ferrous Sulphate",
+     "last_rate": 24.0,
+     "max_rate": 26.0,
+     "min_rate": 5.0,
+     "potential_savings": 3932962.5,
+     "price_range_pct": 127.9,
+     "price_variance_pct": 46.2,
+     "purchase_count": 19
+    },
+    {
+     "avg_rate": 30.05,
+     "item_code": "AMSPTIN",
+     "item_group": "All Item Groups",
+     "item_name": "Ammonium Sulphate",
+     "last_rate": 42.0,
+     "max_rate": 42.0,
+     "min_rate": 25.0,
+     "potential_savings": 381200.0,
+     "price_range_pct": 56.6,
+     "price_variance_pct": 39.8,
+     "purchase_count": 20
+    },
+    {
+     "avg_rate": 50.0,
+     "item_code": "SAAT25",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Acetate Anhydrous",
+     "last_rate": 68.0,
+     "max_rate": 68.0,
+     "min_rate": 44.0,
+     "potential_savings": 2400.0,
+     "price_range_pct": 48.0,
+     "price_variance_pct": 36.0,
+     "purchase_count": 4
+    },
+    {
+     "avg_rate": 136.2,
+     "item_code": "NP95SV",
+     "item_group": "All Item Groups",
+     "item_name": "NP:9.5",
+     "last_rate": 182.5,
+     "max_rate": 182.5,
+     "min_rate": 123.5,
+     "potential_savings": 3275.0,
+     "price_range_pct": 43.3,
+     "price_variance_pct": 34.0,
+     "purchase_count": 5
+    },
+    {
+     "avg_rate": 172.375,
+     "item_code": "TEASVL",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Tri Ethanol Amine",
+     "last_rate": 229.5,
+     "max_rate": 258.0,
+     "min_rate": 98.5,
+     "potential_savings": 14775.0,
+     "price_range_pct": 92.5,
+     "price_variance_pct": 33.1,
+     "purchase_count": 4
+    },
+    {
+     "avg_rate": 25.875,
+     "item_code": "STSATCR",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Thiosulphate - Crystal",
+     "last_rate": 34.0,
+     "max_rate": 34.0,
+     "min_rate": 12.25,
+     "potential_savings": 1347812.5,
+     "price_range_pct": 84.1,
+     "price_variance_pct": 31.4,
+     "purchase_count": 12
+    },
+    {
+     "avg_rate": 70.47222222222223,
+     "item_code": "MEGTRIL",
+     "item_group": "All Item Groups",
+     "item_name": "Mono Ethylene Glycol (MEG)",
+     "last_rate": 90.0,
+     "max_rate": 94.0,
+     "min_rate": 48.75,
+     "potential_savings": 485587.5,
+     "price_range_pct": 64.2,
+     "price_variance_pct": 27.7,
+     "purchase_count": 18
+    }
+   ],
+   "price_increases_count": 82,
+   "price_variance_items": [
+    {
+     "avg_rate": 46.51923076923077,
+     "item_code": "DMHFU50",
+     "item_group": "All Item Groups",
+     "item_name": "Dextrose Monohydrate",
+     "last_rate": 49.0,
+     "max_rate": 49.0,
+     "min_rate": 45.0,
+     "potential_savings": 35700.0,
+     "price_range_pct": 8.6,
+     "price_variance_pct": 5.3,
+     "purchase_count": 51
+    },
+    {
+     "avg_rate": 81.59666666666666,
+     "item_code": "CAMTCH",
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "item_name": "Citric Acid Monohydrate",
+     "last_rate": 94.0,
+     "max_rate": 101.0,
+     "min_rate": 60.0,
+     "potential_savings": 1041225.0,
+     "price_range_pct": 50.2,
+     "price_variance_pct": 15.2,
+     "purchase_count": 45
+    },
+    {
+     "avg_rate": 139.62790697674419,
+     "item_code": "GLYCPGD",
+     "item_group": "All Item Groups",
+     "item_name": "Glycerine",
+     "last_rate": 140.0,
+     "max_rate": 183.0,
+     "min_rate": 109.0,
+     "potential_savings": 555500.0,
+     "price_range_pct": 53.0,
+     "price_variance_pct": 0.3,
+     "purchase_count": 43
+    },
+    {
+     "avg_rate": 33.20348837209303,
+     "item_code": "KCL97TIND",
+     "item_group": "All Item Groups",
+     "item_name": "Potassium Chloride (Tech. Grade)",
+     "last_rate": 34.5,
+     "max_rate": 54.0,
+     "min_rate": 29.5,
+     "potential_savings": 1042300.0,
+     "price_range_pct": 73.8,
+     "price_variance_pct": 3.9,
+     "purchase_count": 43
+    },
+    {
+     "avg_rate": 160.6942105263158,
+     "item_code": "SLES70GD",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Godrej SLES P24 270 (Paste 70%)",
+     "last_rate": 178.0,
+     "max_rate": 186.0,
+     "min_rate": 133.5,
+     "potential_savings": 921717.0,
+     "price_range_pct": 32.7,
+     "price_variance_pct": 10.8,
+     "purchase_count": 37
+    },
+    {
+     "avg_rate": 87.93,
+     "item_code": "CAATCH",
+     "item_group": "All Item Groups",
+     "item_name": "Citric Acid Anhydrous",
+     "last_rate": 107.0,
+     "max_rate": 125.0,
+     "min_rate": 65.5,
+     "potential_savings": 2331975.0,
+     "price_range_pct": 67.7,
+     "price_variance_pct": 21.7,
+     "purchase_count": 35
+    },
+    {
+     "avg_rate": 29.4796875,
+     "item_code": "SBCFT",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Bicarbonate (Food Grade)",
+     "last_rate": 29.5,
+     "max_rate": 32.75,
+     "min_rate": 28.5,
+     "potential_savings": 15540.0,
+     "price_range_pct": 14.4,
+     "price_variance_pct": 0.1,
+     "purchase_count": 32
+    },
+    {
+     "avg_rate": 127.3103448275862,
+     "item_code": "SADG",
+     "item_group": "All Item Groups",
+     "item_name": "Stearic Acid - Distric",
+     "last_rate": 135.0,
+     "max_rate": 141.0,
+     "min_rate": 111.0,
+     "potential_savings": 227525.0,
+     "price_range_pct": 23.6,
+     "price_variance_pct": 6.0,
+     "purchase_count": 29
+    },
+    {
+     "avg_rate": 52.92857142857143,
+     "item_code": "MC25R",
+     "item_group": "All Item Groups",
+     "item_name": "Malto Dextrin",
+     "last_rate": 57.0,
+     "max_rate": 57.0,
+     "min_rate": 48.0,
+     "potential_savings": 9600.0,
+     "price_range_pct": 17.0,
+     "price_variance_pct": 7.7,
+     "purchase_count": 28
+    },
+    {
+     "avg_rate": 44.66851851851852,
+     "item_code": "CSFTDCM",
+     "item_group": "All Item Groups",
+     "item_name": "Caustic Soda Flakes",
+     "last_rate": 42.2,
+     "max_rate": 53.0,
+     "min_rate": 42.2,
+     "potential_savings": 35780.0,
+     "price_range_pct": 24.2,
+     "price_variance_pct": -5.5,
+     "purchase_count": 27
+    },
+    {
+     "avg_rate": 160.18269230769232,
+     "item_code": "SLES70BD",
+     "item_group": "All Item Groups",
+     "item_name": "TEXAPON N-70 T",
+     "last_rate": 173.0,
+     "max_rate": 184.0,
+     "min_rate": 132.5,
+     "potential_savings": 294631.25,
+     "price_range_pct": 32.2,
+     "price_variance_pct": 8.0,
+     "purchase_count": 26
+    },
+    {
+     "avg_rate": 38.645833333333336,
+     "item_code": "LGFR",
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "item_name": "Liquid Glucose",
+     "last_rate": 42.0,
+     "max_rate": 42.0,
+     "min_rate": 37.5,
+     "potential_savings": 8400.0,
+     "price_range_pct": 11.6,
+     "price_variance_pct": 8.7,
+     "purchase_count": 24
+    },
+    {
+     "avg_rate": 76.85416666666667,
+     "item_code": "SLES28GC",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Godrej SLES L - 24",
+     "last_rate": 85.0,
+     "max_rate": 93.0,
+     "min_rate": 66.0,
+     "potential_savings": 173575.0,
+     "price_range_pct": 35.1,
+     "price_variance_pct": 10.6,
+     "purchase_count": 24
+    },
+    {
+     "avg_rate": 148.32608695652175,
+     "item_code": "PGTCH",
+     "item_group": "All Item Groups",
+     "item_name": "Propylene Glycol (Tech. Grade)",
+     "last_rate": 161.0,
+     "max_rate": 217.0,
+     "min_rate": 85.0,
+     "potential_savings": 964275.0,
+     "price_range_pct": 89.0,
+     "price_variance_pct": 8.5,
+     "purchase_count": 23
+    },
+    {
+     "avg_rate": 133.38095238095238,
+     "item_code": "GLYTI",
+     "item_group": "All Item Groups",
+     "item_name": "Glycerine",
+     "last_rate": 142.0,
+     "max_rate": 168.0,
+     "min_rate": 107.0,
+     "potential_savings": 539000.0,
+     "price_range_pct": 45.7,
+     "price_variance_pct": 6.5,
+     "purchase_count": 21
+    },
+    {
+     "avg_rate": 48.04545454545455,
+     "item_code": "SORIPG",
+     "item_group": "All Item Groups",
+     "item_name": "Sorbitol 70%",
+     "last_rate": 54.0,
+     "max_rate": 54.0,
+     "min_rate": 46.0,
+     "potential_savings": 15900.0,
+     "price_range_pct": 16.7,
+     "price_variance_pct": 12.4,
+     "purchase_count": 21
+    },
+    {
+     "avg_rate": 57.17045454545455,
+     "item_code": "TRO50IC",
+     "item_group": "All Item Groups",
+     "item_name": "Sulphonated Castor Oil - 50%",
+     "last_rate": 60.0,
+     "max_rate": 60.0,
+     "min_rate": 55.5,
+     "potential_savings": 111750.0,
+     "price_range_pct": 7.9,
+     "price_variance_pct": 4.9,
+     "purchase_count": 21
+    },
+    {
+     "avg_rate": 30.05,
+     "item_code": "AMSPTIN",
+     "item_group": "All Item Groups",
+     "item_name": "Ammonium Sulphate",
+     "last_rate": 42.0,
+     "max_rate": 42.0,
+     "min_rate": 25.0,
+     "potential_savings": 381200.0,
+     "price_range_pct": 56.6,
+     "price_variance_pct": 39.8,
+     "purchase_count": 20
+    },
+    {
+     "avg_rate": 92.2375,
+     "item_code": "EATGNFC",
+     "item_group": "All Item Groups",
+     "item_name": "Ethyl Acetate",
+     "last_rate": 112.0,
+     "max_rate": 124.0,
+     "min_rate": 75.25,
+     "potential_savings": 96285.0,
+     "price_range_pct": 52.9,
+     "price_variance_pct": 21.4,
+     "purchase_count": 20
+    },
+    {
+     "avg_rate": 138.5,
+     "item_code": "IPADEP",
+     "item_group": "All Item Groups",
+     "item_name": "Iso Propyl Alcohol",
+     "last_rate": 153.0,
+     "max_rate": 210.0,
+     "min_rate": 94.0,
+     "potential_savings": 285040.0,
+     "price_range_pct": 83.8,
+     "price_variance_pct": 10.5,
+     "purchase_count": 20
+    }
+   ],
+   "total_potential_savings": 21479945.5,
+   "volatile_items": [
+    {
+     "avg_rate": 154.1875,
+     "item_code": "MEK",
+     "item_group": "All Item Groups",
+     "item_name": "Methyl Ethyl Ketone (MEK)",
+     "last_rate": 188.0,
+     "max_rate": 340.0,
+     "min_rate": 98.0,
+     "potential_savings": 135960.0,
+     "price_range_pct": 157.0,
+     "price_variance_pct": 21.9,
+     "purchase_count": 8
+    },
+    {
+     "avg_rate": 16.415,
+     "item_code": "FeSH",
+     "item_group": "All Item Groups",
+     "item_name": "Ferrous Sulphate",
+     "last_rate": 24.0,
+     "max_rate": 26.0,
+     "min_rate": 5.0,
+     "potential_savings": 3932962.5,
+     "price_range_pct": 127.9,
+     "price_variance_pct": 46.2,
+     "purchase_count": 19
+    },
+    {
+     "avg_rate": 85.75,
+     "item_code": "DMFSAU",
+     "item_group": "All Item Groups",
+     "item_name": "Dimethyl Formamide 200KG (Saudi Arabia)",
+     "last_rate": 100.0,
+     "max_rate": 149.0,
+     "min_rate": 61.5,
+     "potential_savings": 519850.0,
+     "price_range_pct": 102.0,
+     "price_variance_pct": 16.6,
+     "purchase_count": 8
+    },
+    {
+     "avg_rate": 53.8,
+     "item_code": "AOSTGLIQ",
+     "item_group": "All Item Groups",
+     "item_name": "ALFODET L-46 (AOS Liquid)",
+     "last_rate": 81.0,
+     "max_rate": 81.0,
+     "min_rate": 29.35,
+     "potential_savings": 127945.75,
+     "price_range_pct": 96.0,
+     "price_variance_pct": 50.6,
+     "purchase_count": 12
+    },
+    {
+     "avg_rate": 172.375,
+     "item_code": "TEASVL",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Tri Ethanol Amine",
+     "last_rate": 229.5,
+     "max_rate": 258.0,
+     "min_rate": 98.5,
+     "potential_savings": 14775.0,
+     "price_range_pct": 92.5,
+     "price_variance_pct": 33.1,
+     "purchase_count": 4
+    },
+    {
+     "avg_rate": 35.145833333333336,
+     "item_code": "HPTNPL",
+     "item_group": "All Item Groups",
+     "item_name": "Hydrogen Peroxide 50%",
+     "last_rate": 42.0,
+     "max_rate": 56.5,
+     "min_rate": 25.0,
+     "potential_savings": 55800.0,
+     "price_range_pct": 89.6,
+     "price_variance_pct": 19.5,
+     "purchase_count": 12
+    },
+    {
+     "avg_rate": 148.32608695652175,
+     "item_code": "PGTCH",
+     "item_group": "All Item Groups",
+     "item_name": "Propylene Glycol (Tech. Grade)",
+     "last_rate": 161.0,
+     "max_rate": 217.0,
+     "min_rate": 85.0,
+     "potential_savings": 964275.0,
+     "price_range_pct": 89.0,
+     "price_variance_pct": 8.5,
+     "purchase_count": 23
+    },
+    {
+     "avg_rate": 25.875,
+     "item_code": "STSATCR",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Thiosulphate - Crystal",
+     "last_rate": 34.0,
+     "max_rate": 34.0,
+     "min_rate": 12.25,
+     "potential_savings": 1347812.5,
+     "price_range_pct": 84.1,
+     "price_variance_pct": 31.4,
+     "purchase_count": 12
+    },
+    {
+     "avg_rate": 138.5,
+     "item_code": "IPADEP",
+     "item_group": "All Item Groups",
+     "item_name": "Iso Propyl Alcohol",
+     "last_rate": 153.0,
+     "max_rate": 210.0,
+     "min_rate": 94.0,
+     "potential_savings": 285040.0,
+     "price_range_pct": 83.8,
+     "price_variance_pct": 10.5,
+     "purchase_count": 20
+    },
+    {
+     "avg_rate": 170.0,
+     "item_code": "IPIA25",
+     "item_group": "All Item Groups",
+     "item_name": "Iso Propyl Alcohol ",
+     "last_rate": 160.0,
+     "max_rate": 240.0,
+     "min_rate": 100.0,
+     "potential_savings": 11000.0,
+     "price_range_pct": 82.4,
+     "price_variance_pct": -5.9,
+     "purchase_count": 5
+    }
+   ]
+  },
+  "purchase_analytics": {
+   "avg_grn_to_invoice_days": 0.1,
+   "avg_mr_to_po_days": null,
+   "avg_po_to_grn_days": 1.1,
+   "monthly_trend": [
+    {
+     "avg_po_value": 120345.0,
+     "partial": true,
+     "period": "2025-10",
+     "po_count": 28.0,
+     "po_value": 3369660.0
+    },
+    {
+     "avg_po_value": 82734.913135593,
+     "partial": false,
+     "period": "2025-11",
+     "po_count": 118.0,
+     "po_value": 9762719.75
+    },
+    {
+     "avg_po_value": 109794.2,
+     "partial": false,
+     "period": "2025-12",
+     "po_count": 134.0,
+     "po_value": 14712422.8
+    },
+    {
+     "avg_po_value": 84086.18351145,
+     "partial": false,
+     "period": "2026-01",
+     "po_count": 131.0,
+     "po_value": 11015290.04
+    },
+    {
+     "avg_po_value": 121938.972222222,
+     "partial": false,
+     "period": "2026-02",
+     "po_count": 144.0,
+     "po_value": 17559212.0
+    },
+    {
+     "avg_po_value": 130117.006329114,
+     "partial": false,
+     "period": "2026-03",
+     "po_count": 158.0,
+     "po_value": 20558487.0
+    },
+    {
+     "avg_po_value": 137945.160526316,
+     "partial": false,
+     "period": "2026-04",
+     "po_count": 114.0,
+     "po_value": 15725748.3
+    },
+    {
+     "avg_po_value": 108519.548251748,
+     "partial": false,
+     "period": "2026-05",
+     "po_count": 143.0,
+     "po_value": 15518295.4
+    },
+    {
+     "avg_po_value": 113990.220408163,
+     "partial": false,
+     "period": "2026-06",
+     "po_count": 147.0,
+     "po_value": 16756562.4
+    },
+    {
+     "avg_po_value": 107758.097014925,
+     "partial": false,
+     "period": "2026-07",
+     "po_count": 134.0,
+     "po_value": 14439585.0
+    },
+    {
+     "avg_po_value": 112993.768347826,
+     "partial": false,
+     "period": "2026-08",
+     "po_count": 115.0,
+     "po_value": 12994283.36
+    },
+    {
+     "avg_po_value": 137226.125,
+     "partial": false,
+     "period": "2026-09",
+     "po_count": 56.0,
+     "po_value": 7684663.0
+    },
+    {
+     "avg_po_value": null,
+     "partial": true,
+     "period": "2026-10",
+     "po_count": 0,
+     "po_value": 0.0
+    }
+   ],
+   "overdue_po_count": 30,
+   "pending_count": 30,
+   "pending_pos": [
+    {
+     "days_pending": 586.0,
+     "grand_total": 1418478.0,
+     "name": "JKM/PO/2425/01140-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "transaction_date": "2025-03-15"
+    },
+    {
+     "days_pending": 574.0,
+     "grand_total": 2631400.0,
+     "name": "JKM/PO/2425/01177",
+     "status": "To Receive",
+     "supplier": "supplier-b018b6",
+     "transaction_date": "2025-03-27"
+    },
+    {
+     "days_pending": 567.0,
+     "grand_total": 1445500.0,
+     "name": "PO252612-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "transaction_date": "2025-04-03"
+    },
+    {
+     "days_pending": 566.0,
+     "grand_total": 212105.0,
+     "name": "PO252619",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-5ff4a9",
+     "transaction_date": "2025-04-04"
+    },
+    {
+     "days_pending": 563.0,
+     "grand_total": 66552.0,
+     "name": "PO252624",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-dcf634",
+     "transaction_date": "2025-04-07"
+    },
+    {
+     "days_pending": 537.0,
+     "grand_total": 1003000.0,
+     "name": "PO2526120",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-aa3351",
+     "transaction_date": "2025-05-03"
+    },
+    {
+     "days_pending": 527.0,
+     "grand_total": 796500.0,
+     "name": "PO2526164",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-aa3351",
+     "transaction_date": "2025-05-13"
+    },
+    {
+     "days_pending": 520.0,
+     "grand_total": 8024.0,
+     "name": "PO2526199",
+     "status": "To Bill",
+     "supplier": "supplier-ca22d5",
+     "transaction_date": "2025-05-20"
+    },
+    {
+     "days_pending": 507.0,
+     "grand_total": 1451400.0,
+     "name": "PO2526253",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-13375a",
+     "transaction_date": "2025-06-02"
+    },
+    {
+     "days_pending": 474.0,
+     "grand_total": 445450.0,
+     "name": "PO2526404",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "transaction_date": "2025-07-05"
+    },
+    {
+     "days_pending": 451.0,
+     "grand_total": 161070.0,
+     "name": "PO2526507",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-827ef2",
+     "transaction_date": "2025-07-28"
+    },
+    {
+     "days_pending": 451.0,
+     "grand_total": 1327500.0,
+     "name": "PO2526512",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-1badda",
+     "transaction_date": "2025-07-28"
+    },
+    {
+     "days_pending": 444.0,
+     "grand_total": 402675.0,
+     "name": "PO2526557",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "transaction_date": "2025-08-04"
+    },
+    {
+     "days_pending": 352.0,
+     "grand_total": 87910.0,
+     "name": "PO2526890",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-dcf634",
+     "transaction_date": "2025-11-04"
+    },
+    {
+     "days_pending": 325.0,
+     "grand_total": 696200.0,
+     "name": "PO25261004-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-4448b5",
+     "transaction_date": "2025-12-01"
+    },
+    {
+     "days_pending": 318.0,
+     "grand_total": 68949.0,
+     "name": "PO25261035",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-a2acd3",
+     "transaction_date": "2025-12-08"
+    },
+    {
+     "days_pending": 273.0,
+     "grand_total": 761100.0,
+     "name": "PO25261231",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-1badda",
+     "transaction_date": "2026-01-22"
+    },
+    {
+     "days_pending": 243.0,
+     "grand_total": 348100.0,
+     "name": "PO25261371",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-4d5316",
+     "transaction_date": "2026-02-21"
+    },
+    {
+     "days_pending": 226.0,
+     "grand_total": 708000.0,
+     "name": "PO25261455",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-4d5316",
+     "transaction_date": "2026-03-10"
+    },
+    {
+     "days_pending": 210.0,
+     "grand_total": 82305.0,
+     "name": "PO25261540-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-9e2ef8",
+     "transaction_date": "2026-03-26"
+    }
+   ],
+   "pending_value": 15974584.0,
+   "po_status_summary": [
+    {
+     "count": 8.0,
+     "status": "Closed",
+     "value": 1953945.0
+    },
+    {
+     "count": 1397.0,
+     "status": "Completed",
+     "value": 153538054.05
+    },
+    {
+     "count": 2.0,
+     "status": "To Bill",
+     "value": 426865.0
+    },
+    {
+     "count": 1.0,
+     "status": "To Receive",
+     "value": 92925.0
+    },
+    {
+     "count": 14.0,
+     "status": "To Receive and Bill",
+     "value": 4085140.0
+    }
+   ],
+   "total_po_count": 1422
+  },
+  "risk_analysis": {
+   "overdue_count": 297,
+   "overdue_invoices": [
+    {
+     "days_overdue": 453.0,
+     "due_date": "2025-07-26",
+     "grand_total": 110475.0,
+     "name": "PI2526989",
+     "outstanding_amount": 16387.0,
+     "posting_date": "2025-07-26",
+     "supplier": "supplier-cdcb6d"
+    },
+    {
+     "days_overdue": 294.0,
+     "due_date": "2026-01-01",
+     "grand_total": 1500.0,
+     "name": "PI25262712",
+     "outstanding_amount": 1500.0,
+     "posting_date": "2026-01-01",
+     "supplier": "supplier-5e4454"
+    },
+    {
+     "days_overdue": 290.0,
+     "due_date": "2026-01-05",
+     "grand_total": 1500.0,
+     "name": "PI25262676",
+     "outstanding_amount": 1500.0,
+     "posting_date": "2026-01-05",
+     "supplier": "supplier-5e4454"
+    },
+    {
+     "days_overdue": 253.0,
+     "due_date": "2026-02-11",
+     "grand_total": 1250.0,
+     "name": "PI25262992",
+     "outstanding_amount": 1250.0,
+     "posting_date": "2026-02-11",
+     "supplier": "supplier-5e4454"
+    },
+    {
+     "days_overdue": 171.0,
+     "due_date": "2026-05-04",
+     "grand_total": 202410.0,
+     "name": "PI2627292",
+     "outstanding_amount": 31140.0,
+     "posting_date": "2026-05-04",
+     "supplier": "supplier-07a165"
+    },
+    {
+     "days_overdue": 167.0,
+     "due_date": "2026-05-08",
+     "grand_total": 3245.0,
+     "name": "PI2627563-2",
+     "outstanding_amount": 55.0,
+     "posting_date": "2026-05-08",
+     "supplier": "supplier-652883"
+    },
+    {
+     "days_overdue": 166.0,
+     "due_date": "2026-05-09",
+     "grand_total": 150.0,
+     "name": "PI2627333",
+     "outstanding_amount": 150.0,
+     "posting_date": "2026-05-09",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 166.0,
+     "due_date": "2026-05-09",
+     "grand_total": 100.0,
+     "name": "PI2627334",
+     "outstanding_amount": 100.0,
+     "posting_date": "2026-05-09",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 159.0,
+     "due_date": "2026-05-16",
+     "grand_total": 500.0,
+     "name": "PI2627399",
+     "outstanding_amount": 500.0,
+     "posting_date": "2026-05-16",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 157.0,
+     "due_date": "2026-05-18",
+     "grand_total": 200.0,
+     "name": "PI2627418",
+     "outstanding_amount": 200.0,
+     "posting_date": "2026-05-18",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 157.0,
+     "due_date": "2026-05-18",
+     "grand_total": 300.0,
+     "name": "PI2627419",
+     "outstanding_amount": 300.0,
+     "posting_date": "2026-05-18",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 157.0,
+     "due_date": "2026-05-18",
+     "grand_total": 450.0,
+     "name": "PI2627420",
+     "outstanding_amount": 450.0,
+     "posting_date": "2026-05-18",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 157.0,
+     "due_date": "2026-05-18",
+     "grand_total": 150.0,
+     "name": "PI2627421",
+     "outstanding_amount": 150.0,
+     "posting_date": "2026-05-18",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 157.0,
+     "due_date": "2026-05-18",
+     "grand_total": 100.0,
+     "name": "PI2627422",
+     "outstanding_amount": 100.0,
+     "posting_date": "2026-05-18",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 156.0,
+     "due_date": "2026-05-19",
+     "grand_total": 4209.53,
+     "name": "PI2627725-4",
+     "outstanding_amount": 2269.86,
+     "posting_date": "2026-05-19",
+     "supplier": "supplier-d48684"
+    },
+    {
+     "days_overdue": 155.0,
+     "due_date": "2026-05-20",
+     "grand_total": 100.0,
+     "name": "PI2627480",
+     "outstanding_amount": 100.0,
+     "posting_date": "2026-05-20",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 152.0,
+     "due_date": "2026-05-23",
+     "grand_total": 100.0,
+     "name": "PI2627478",
+     "outstanding_amount": 100.0,
+     "posting_date": "2026-05-23",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 147.0,
+     "due_date": "2026-05-28",
+     "grand_total": 100.0,
+     "name": "PI2627549",
+     "outstanding_amount": 100.0,
+     "posting_date": "2026-05-28",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 146.0,
+     "due_date": "2026-05-29",
+     "grand_total": 150.0,
+     "name": "PI2627547",
+     "outstanding_amount": 150.0,
+     "posting_date": "2026-05-29",
+     "supplier": "supplier-c4bf40"
+    },
+    {
+     "days_overdue": 146.0,
+     "due_date": "2026-05-29",
+     "grand_total": 150.0,
+     "name": "PI2627548",
+     "outstanding_amount": 150.0,
+     "posting_date": "2026-05-29",
+     "supplier": "supplier-c4bf40"
+    }
+   ],
+   "payment_exposure": [
+    {
+     "earliest_due": "2026-07-31",
+     "invoice_count": 17.0,
+     "outstanding": 3396940.0,
+     "supplier": "supplier-871157",
+     "supplier_name": "supplier_name-003027"
+    },
+    {
+     "earliest_due": "2026-07-15",
+     "invoice_count": 3.0,
+     "outstanding": 1337943.0,
+     "supplier": "supplier-9ca1aa",
+     "supplier_name": "supplier_name-5c4c47"
+    },
+    {
+     "earliest_due": "2026-07-04",
+     "invoice_count": 5.0,
+     "outstanding": 1241656.0,
+     "supplier": "supplier-4448b5",
+     "supplier_name": "supplier_name-479371"
+    },
+    {
+     "earliest_due": "2026-09-16",
+     "invoice_count": 2.0,
+     "outstanding": 1051380.0,
+     "supplier": "supplier-7fcaba",
+     "supplier_name": "supplier_name-89009c"
+    },
+    {
+     "earliest_due": "2026-09-09",
+     "invoice_count": 4.0,
+     "outstanding": 1051380.0,
+     "supplier": "supplier-5fe1ab",
+     "supplier_name": "supplier_name-85c1c0"
+    },
+    {
+     "earliest_due": "2026-09-21",
+     "invoice_count": 6.0,
+     "outstanding": 969960.0,
+     "supplier": "supplier-6ede03",
+     "supplier_name": "supplier_name-977f32"
+    },
+    {
+     "earliest_due": "2026-09-09",
+     "invoice_count": 2.0,
+     "outstanding": 897120.0,
+     "supplier": "supplier-03ee09",
+     "supplier_name": "supplier_name-571a09"
+    },
+    {
+     "earliest_due": "2026-09-18",
+     "invoice_count": 3.0,
+     "outstanding": 814200.0,
+     "supplier": "supplier-4d5316",
+     "supplier_name": "supplier_name-2fb2c8"
+    },
+    {
+     "earliest_due": "2026-06-17",
+     "invoice_count": 37.0,
+     "outstanding": 787338.0,
+     "supplier": "supplier-2417f8",
+     "supplier_name": "supplier_name-f5e58e"
+    },
+    {
+     "earliest_due": "2026-09-05",
+     "invoice_count": 4.0,
+     "outstanding": 743507.0,
+     "supplier": "supplier-dcf634",
+     "supplier_name": "supplier_name-d9c86d"
+    },
+    {
+     "earliest_due": "2026-10-05",
+     "invoice_count": 6.0,
+     "outstanding": 552086.0,
+     "supplier": "supplier-5438d3",
+     "supplier_name": "supplier_name-b027a4"
+    },
+    {
+     "earliest_due": "2026-10-08",
+     "invoice_count": 3.0,
+     "outstanding": 526988.0,
+     "supplier": "supplier-2e3533",
+     "supplier_name": "supplier_name-6065a7"
+    },
+    {
+     "earliest_due": "2026-09-17",
+     "invoice_count": 2.0,
+     "outstanding": 520616.0,
+     "supplier": "supplier-1c1db3",
+     "supplier_name": "supplier_name-80fec6"
+    },
+    {
+     "earliest_due": "2026-09-17",
+     "invoice_count": 6.0,
+     "outstanding": 429468.0,
+     "supplier": "supplier-e30b5f",
+     "supplier_name": "supplier_name-c5d5a9"
+    },
+    {
+     "earliest_due": "2026-10-02",
+     "invoice_count": 1.0,
+     "outstanding": 391731.0,
+     "supplier": "supplier-b938b1",
+     "supplier_name": "supplier_name-f3e130"
+    }
+   ],
+   "risk_components": {
+    "concentration": 0.0,
+    "overdue": 3.0,
+    "single_source": 9.2
+   },
+   "risk_score": 12.2,
+   "single_source_count": 75,
+   "single_source_items": [
+    {
+     "item_code": "TRO50IC",
+     "item_group": "All Item Groups",
+     "item_name": "Sulphonated Castor Oil - 50%",
+     "only_supplier": "SR00216",
+     "supplier_count": 1,
+     "total_spend": 4551750.0
+    },
+    {
+     "item_code": "CuS24TP",
+     "item_group": "All Item Groups",
+     "item_name": "Copper Sulphate Powder - 24%",
+     "only_supplier": "SR00127",
+     "supplier_count": 1,
+     "total_spend": 3446500.0
+    },
+    {
+     "item_code": "SAJO9M",
+     "item_group": "All Item Groups",
+     "item_name": "Stearic Acid Jocil 9M",
+     "only_supplier": "SR00132",
+     "supplier_count": 1,
+     "total_spend": 2640120.0
+    },
+    {
+     "item_code": "HSFTCH25N",
+     "item_group": "All Item Groups",
+     "item_name": "Super F Humate Shiny Flakes",
+     "only_supplier": "SR00050",
+     "supplier_count": 1,
+     "total_spend": 2443675.0
+    },
+    {
+     "item_code": "CuSEP",
+     "item_group": "All Item Groups",
+     "item_name": "Copper Sulphate Powder",
+     "only_supplier": "SR00127",
+     "supplier_count": 1,
+     "total_spend": 2169000.0
+    },
+    {
+     "item_code": "AMSPTIN",
+     "item_group": "All Item Groups",
+     "item_name": "Ammonium Sulphate",
+     "only_supplier": "SR00337",
+     "supplier_count": 1,
+     "total_spend": 2037450.0
+    },
+    {
+     "item_code": "SLES70BD",
+     "item_group": "All Item Groups",
+     "item_name": "TEXAPON N-70 T",
+     "only_supplier": "SR00448",
+     "supplier_count": 1,
+     "total_spend": 1571268.75
+    },
+    {
+     "item_code": "MSTL50",
+     "item_group": "Agriculture",
+     "item_name": "Maize Starch Powder (Technical)",
+     "only_supplier": "SR00255",
+     "supplier_count": 1,
+     "total_spend": 1365000.0
+    },
+    {
+     "item_code": "MGCL225",
+     "item_group": "Raw Material",
+     "item_name": "Magnesium Chloride Hexahydrate Flakes",
+     "only_supplier": "SR00742",
+     "supplier_count": 1,
+     "total_spend": 1359600.0
+    },
+    {
+     "item_code": "SLES28GC",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Godrej SLES L - 24",
+     "only_supplier": "SR00054",
+     "supplier_count": 1,
+     "total_spend": 1242775.0
+    },
+    {
+     "item_code": "PHOSAP",
+     "item_group": "All Item Groups",
+     "item_name": "Phosphorous Acid 99%",
+     "only_supplier": "SR00821",
+     "supplier_count": 1,
+     "total_spend": 1117000.0
+    },
+    {
+     "item_code": "MSTH",
+     "item_group": "All Item Groups",
+     "item_name": "Maize Starch  (Technical Grade)",
+     "only_supplier": "SR00192",
+     "supplier_count": 1,
+     "total_spend": 1050000.0
+    },
+    {
+     "item_code": "PHOAP",
+     "item_group": "All Item Groups",
+     "item_name": "Phosphorous Acid 99%",
+     "only_supplier": "SR00013",
+     "supplier_count": 1,
+     "total_spend": 1040000.0
+    },
+    {
+     "item_code": "CMFIS",
+     "item_group": "All Item Groups",
+     "item_name": "Calcium Formate",
+     "only_supplier": "SR00940",
+     "supplier_count": 1,
+     "total_spend": 993000.0
+    },
+    {
+     "item_code": "SBZFG25",
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "item_name": "Sodium Benzoate (Food Grade)",
+     "only_supplier": "SR00097",
+     "supplier_count": 1,
+     "total_spend": 968500.0
+    },
+    {
+     "item_code": "SLSGLIQG",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "GINOPOL L 24 (SLS Liquid 32%)",
+     "only_supplier": "SR00054",
+     "supplier_count": 1,
+     "total_spend": 843885.0
+    },
+    {
+     "item_code": "SLES28GD",
+     "item_group": "All Item Groups",
+     "item_name": "Godrej SLES L - 24",
+     "only_supplier": "SR00054",
+     "supplier_count": 1,
+     "total_spend": 680501.25
+    },
+    {
+     "item_code": "MGOH2",
+     "item_group": "All Item Groups",
+     "item_name": "Magnesium Hydroxide",
+     "only_supplier": "SR00020",
+     "supplier_count": 1,
+     "total_spend": 677000.0
+    },
+    {
+     "item_code": "EXHE",
+     "item_group": "Services",
+     "item_name": "Exhibition Expenses",
+     "only_supplier": "SR00554",
+     "supplier_count": 1,
+     "total_spend": 542750.0
+    },
+    {
+     "item_code": "BLAPO",
+     "item_group": "All Item Groups",
+     "item_name": "Butyl Acetate",
+     "only_supplier": "SR00229",
+     "supplier_count": 1,
+     "total_spend": 531720.0
+    }
+   ],
+   "single_source_value": 42714077.5,
+   "supplier_concentration": [
+    {
+     "concentration_pct": 7.8,
+     "risk_level": "Low",
+     "spend": 12726419.5,
+     "supplier": "supplier-dcf634",
+     "supplier_name": "supplier_name-d9c86d",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 4.3,
+     "risk_level": "Low",
+     "spend": 6985305.0,
+     "supplier": "supplier-4448b5",
+     "supplier_name": "supplier_name-479371",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 4.2,
+     "risk_level": "Low",
+     "spend": 6910670.0,
+     "supplier": "supplier-9ca1aa",
+     "supplier_name": "supplier_name-5c4c47",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 4.1,
+     "risk_level": "Low",
+     "spend": 6666071.0,
+     "supplier": "supplier-1badda",
+     "supplier_name": "supplier_name-49cec2",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 3.8,
+     "risk_level": "Low",
+     "spend": 6205916.0,
+     "supplier": "supplier-4d5316",
+     "supplier_name": "supplier_name-2fb2c8",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 3.4,
+     "risk_level": "Low",
+     "spend": 5505755.0,
+     "supplier": "supplier-871157",
+     "supplier_name": "supplier_name-003027",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 3.2,
+     "risk_level": "Low",
+     "spend": 5292926.5,
+     "supplier": "supplier-e30b5f",
+     "supplier_name": "supplier_name-c5d5a9",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 3.2,
+     "risk_level": "Low",
+     "spend": 5192540.0,
+     "supplier": "supplier-9c24df",
+     "supplier_name": "supplier_name-7e66b1",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 3.0,
+     "risk_level": "Low",
+     "spend": 4873400.0,
+     "supplier": "supplier-03ee09",
+     "supplier_name": "supplier_name-571a09",
+     "total_spend": 163338146.37
+    },
+    {
+     "concentration_pct": 2.9,
+     "risk_level": "Low",
+     "spend": 4694513.0,
+     "supplier": "supplier-2417f8",
+     "supplier_name": "supplier_name-f5e58e",
+     "total_spend": 163338146.37
+    }
+   ],
+   "total_outstanding": 19069276.4
+  },
+  "spend_overview": {
+   "by_category": [
+    {
+     "category": "All Item Groups",
+     "invoice_count": 1220.0,
+     "pct_of_total": 77.9,
+     "spend": 109550270.85
+    },
+    {
+     "category": "Detergent & Cosmetic",
+     "invoice_count": 117.0,
+     "pct_of_total": 7.3,
+     "spend": 10243186.0
+    },
+    {
+     "category": "Food & Beverages , Cleaning, Industrial",
+     "invoice_count": 89.0,
+     "pct_of_total": 4.3,
+     "spend": 6065875.0
+    },
+    {
+     "category": "Services",
+     "invoice_count": 1568.0,
+     "pct_of_total": 4.3,
+     "spend": 6039442.62
+    },
+    {
+     "category": "Agriculture",
+     "invoice_count": 36.0,
+     "pct_of_total": 4.0,
+     "spend": 5652575.0
+    },
+    {
+     "category": "Raw Material",
+     "invoice_count": 14.0,
+     "pct_of_total": 1.2,
+     "spend": 1702480.0
+    },
+    {
+     "category": "Products",
+     "invoice_count": 8.0,
+     "pct_of_total": 0.4,
+     "spend": 565252.0
+    },
+    {
+     "category": "Agriculture soil base",
+     "invoice_count": 8.0,
+     "pct_of_total": 0.2,
+     "spend": 301100.0
+    },
+    {
+     "category": "Cosmetic",
+     "invoice_count": 7.0,
+     "pct_of_total": 0.2,
+     "spend": 268895.0
+    },
+    {
+     "category": "Fix Assets",
+     "invoice_count": 3.0,
+     "pct_of_total": 0.1,
+     "spend": 79274.64
+    },
+    {
+     "category": "Detergent",
+     "invoice_count": 3.0,
+     "pct_of_total": 0.1,
+     "spend": 77294.5
+    },
+    {
+     "category": "Consumable",
+     "invoice_count": 16.0,
+     "pct_of_total": 0.0,
+     "spend": 49708.78
+    },
+    {
+     "category": "Fixed Assets",
+     "invoice_count": 7.0,
+     "pct_of_total": 0.0,
+     "spend": 35498.81
+    },
+    {
+     "category": "Furniture",
+     "invoice_count": 2.0,
+     "pct_of_total": 0.0,
+     "spend": 20000.0
+    }
+   ],
+   "invoice_count": 3038,
+   "monthly_trend": [
+    {
+     "invoice_count": 51.0,
+     "partial": true,
+     "period": "2025-10",
+     "spend": 3041031.0,
+     "supplier_count": 33.0
+    },
+    {
+     "invoice_count": 266.0,
+     "partial": false,
+     "period": "2025-11",
+     "spend": 9943354.1,
+     "supplier_count": 73.0
+    },
+    {
+     "invoice_count": 307.0,
+     "partial": false,
+     "period": "2025-12",
+     "spend": 14479821.84,
+     "supplier_count": 78.0
+    },
+    {
+     "invoice_count": 282.0,
+     "partial": false,
+     "period": "2026-01",
+     "spend": 11140927.0,
+     "supplier_count": 77.0
+    },
+    {
+     "invoice_count": 302.0,
+     "partial": false,
+     "period": "2026-02",
+     "spend": 16404336.3,
+     "supplier_count": 92.0
+    },
+    {
+     "invoice_count": 334.0,
+     "partial": false,
+     "period": "2026-03",
+     "spend": 22098337.94,
+     "supplier_count": 93.0
+    },
+    {
+     "invoice_count": 266.0,
+     "partial": false,
+     "period": "2026-04",
+     "spend": 17080867.4,
+     "supplier_count": 89.0
+    },
+    {
+     "invoice_count": 292.0,
+     "partial": false,
+     "period": "2026-05",
+     "spend": 17164562.83,
+     "supplier_count": 81.0
+    },
+    {
+     "invoice_count": 296.0,
+     "partial": false,
+     "period": "2026-06",
+     "spend": 17014513.58,
+     "supplier_count": 98.0
+    },
+    {
+     "invoice_count": 285.0,
+     "partial": false,
+     "period": "2026-07",
+     "spend": 13641897.42,
+     "supplier_count": 93.0
+    },
+    {
+     "invoice_count": 259.0,
+     "partial": false,
+     "period": "2026-08",
+     "spend": 14163804.38,
+     "supplier_count": 87.0
+    },
+    {
+     "invoice_count": 98.0,
+     "partial": false,
+     "period": "2026-09",
+     "spend": 7164692.58,
+     "supplier_count": 44.0
+    },
+    {
+     "invoice_count": 0,
+     "partial": true,
+     "period": "2026-10",
+     "spend": 0.0,
+     "supplier_count": 0
+    }
+   ],
+   "prior_period_growth": 8.3,
+   "supplier_count": 293,
+   "top_suppliers": [
+    {
+     "invoice_count": 110.0,
+     "pct_of_total": 7.8,
+     "spend": 12726419.5,
+     "supplier": "supplier-dcf634",
+     "supplier_name": "supplier_name-d9c86d"
+    },
+    {
+     "invoice_count": 20.0,
+     "pct_of_total": 4.3,
+     "spend": 6985305.0,
+     "supplier": "supplier-4448b5",
+     "supplier_name": "supplier_name-479371"
+    },
+    {
+     "invoice_count": 11.0,
+     "pct_of_total": 4.2,
+     "spend": 6910670.0,
+     "supplier": "supplier-9ca1aa",
+     "supplier_name": "supplier_name-5c4c47"
+    },
+    {
+     "invoice_count": 18.0,
+     "pct_of_total": 4.1,
+     "spend": 6666071.0,
+     "supplier": "supplier-1badda",
+     "supplier_name": "supplier_name-49cec2"
+    },
+    {
+     "invoice_count": 21.0,
+     "pct_of_total": 3.8,
+     "spend": 6205916.0,
+     "supplier": "supplier-4d5316",
+     "supplier_name": "supplier_name-2fb2c8"
+    },
+    {
+     "invoice_count": 53.0,
+     "pct_of_total": 3.4,
+     "spend": 5505755.0,
+     "supplier": "supplier-871157",
+     "supplier_name": "supplier_name-003027"
+    },
+    {
+     "invoice_count": 25.0,
+     "pct_of_total": 3.2,
+     "spend": 5292926.5,
+     "supplier": "supplier-e30b5f",
+     "supplier_name": "supplier_name-c5d5a9"
+    },
+    {
+     "invoice_count": 29.0,
+     "pct_of_total": 3.2,
+     "spend": 5192540.0,
+     "supplier": "supplier-9c24df",
+     "supplier_name": "supplier_name-7e66b1"
+    },
+    {
+     "invoice_count": 9.0,
+     "pct_of_total": 3.0,
+     "spend": 4873400.0,
+     "supplier": "supplier-03ee09",
+     "supplier_name": "supplier_name-571a09"
+    },
+    {
+     "invoice_count": 133.0,
+     "pct_of_total": 2.9,
+     "spend": 4694513.0,
+     "supplier": "supplier-2417f8",
+     "supplier_name": "supplier_name-f5e58e"
+    }
+   ],
+   "total_spend": 163338146.37
+  },
+  "status": "success",
+  "supplier_performance": {
+   "all_suppliers": [
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 100.0,
+     "po_count": 22,
+     "quality_rate": 100.0,
+     "supplier": "supplier-0ef6ad",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-5c43f3",
+     "total_value": 1741444.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 98.3,
+     "po_count": 10,
+     "quality_rate": 100.0,
+     "supplier": "supplier-26fdb5",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-125736",
+     "total_value": 807563.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 96.7,
+     "po_count": 8,
+     "quality_rate": 100.0,
+     "supplier": "supplier-fdabbe",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-0f7127",
+     "total_value": 939820.0
+    },
+    {
+     "avg_lead_time": 0.2,
+     "on_time_rate": 100.0,
+     "overall_score": 96.0,
+     "po_count": 16,
+     "quality_rate": 100.0,
+     "supplier": "supplier-a9b41d",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-16d827",
+     "total_value": 1035935.0
+    },
+    {
+     "avg_lead_time": 0.1,
+     "on_time_rate": 92.9,
+     "overall_score": 95.2,
+     "po_count": 42,
+     "quality_rate": 100.0,
+     "supplier": "supplier-9e2ef8",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-e346dd",
+     "total_value": 2668110.75
+    },
+    {
+     "avg_lead_time": 0.1,
+     "on_time_rate": 92.3,
+     "overall_score": 94.9,
+     "po_count": 26,
+     "quality_rate": 100.0,
+     "supplier": "supplier-d9d929",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-630fbb",
+     "total_value": 1854096.0
+    },
+    {
+     "avg_lead_time": 0.1,
+     "on_time_rate": 91.7,
+     "overall_score": 94.7,
+     "po_count": 24,
+     "quality_rate": 100.0,
+     "supplier": "supplier-e30b5f",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-c5d5a9",
+     "total_value": 5292927.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 94.2,
+     "po_count": 5,
+     "quality_rate": 100.0,
+     "supplier": "supplier-6dc049",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-5db283",
+     "total_value": 1106953.0
+    },
+    {
+     "avg_lead_time": 0.2,
+     "on_time_rate": 93.5,
+     "overall_score": 93.4,
+     "po_count": 138,
+     "quality_rate": 100.0,
+     "supplier": "supplier-2417f8",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-f5e58e",
+     "total_value": 4701915.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 93.3,
+     "po_count": 4,
+     "quality_rate": 100.0,
+     "supplier": "supplier-7fcaba",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-89009c",
+     "total_value": 1650584.0
+    },
+    {
+     "avg_lead_time": 0.2,
+     "on_time_rate": 92.3,
+     "overall_score": 92.9,
+     "po_count": 26,
+     "quality_rate": 100.0,
+     "supplier": "supplier-569562",
+     "supplier_group": "Distributor",
+     "supplier_name": "supplier_name-cd68cf",
+     "total_value": 708626.8
+    },
+    {
+     "avg_lead_time": 0.2,
+     "on_time_rate": 91.7,
+     "overall_score": 92.7,
+     "po_count": 60,
+     "quality_rate": 100.0,
+     "supplier": "supplier-9b6a0c",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-e551c2",
+     "total_value": 2414666.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 92.5,
+     "po_count": 3,
+     "quality_rate": 100.0,
+     "supplier": "supplier-4d37ce",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-a1b760",
+     "total_value": 1336055.0
+    },
+    {
+     "avg_lead_time": 0.3,
+     "on_time_rate": 94.6,
+     "overall_score": 91.8,
+     "po_count": 93,
+     "quality_rate": 100.0,
+     "supplier": "supplier-ecc72f",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-2c4ca9",
+     "total_value": 2749794.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 91.7,
+     "po_count": 2,
+     "quality_rate": 100.0,
+     "supplier": "supplier-a47f60",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-020126",
+     "total_value": 1076750.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 91.7,
+     "po_count": 2,
+     "quality_rate": 100.0,
+     "supplier": "supplier-8ca688",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-491f7a",
+     "total_value": 915680.0
+    },
+    {
+     "avg_lead_time": 0.3,
+     "on_time_rate": 90.7,
+     "overall_score": 90.3,
+     "po_count": 54,
+     "quality_rate": 100.0,
+     "supplier": "supplier-871157",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-003027",
+     "total_value": 5676380.0
+    },
+    {
+     "avg_lead_time": 0.3,
+     "on_time_rate": 89.5,
+     "overall_score": 89.8,
+     "po_count": 19,
+     "quality_rate": 100.0,
+     "supplier": "supplier-ca22d5",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-27f708",
+     "total_value": 733178.0
+    },
+    {
+     "avg_lead_time": 0.1,
+     "on_time_rate": 87.5,
+     "overall_score": 89.7,
+     "po_count": 8,
+     "quality_rate": 100.0,
+     "supplier": "supplier-757d43",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-5b3ada",
+     "total_value": 3908308.0
+    },
+    {
+     "avg_lead_time": 0.3,
+     "on_time_rate": 89.2,
+     "overall_score": 89.7,
+     "po_count": 74,
+     "quality_rate": 100.0,
+     "supplier": "supplier-dd08a1",
+     "supplier_group": "Distributor",
+     "supplier_name": "supplier_name-e4dc08",
+     "total_value": 3198607.0
+    },
+    {
+     "avg_lead_time": 0.3,
+     "on_time_rate": 90.9,
+     "overall_score": 89.5,
+     "po_count": 11,
+     "quality_rate": 100.0,
+     "supplier": "supplier-5fe1ab",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-85c1c0",
+     "total_value": 1234310.0
+    },
+    {
+     "avg_lead_time": 0.5,
+     "on_time_rate": 100.0,
+     "overall_score": 85.8,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-ae6621",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-d2e95f",
+     "total_value": 1844305.0
+    },
+    {
+     "avg_lead_time": 0.6,
+     "on_time_rate": 100.0,
+     "overall_score": 84.7,
+     "po_count": 8,
+     "quality_rate": 100.0,
+     "supplier": "supplier-03ee09",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-571a09",
+     "total_value": 4873399.8
+    },
+    {
+     "avg_lead_time": 0.3,
+     "on_time_rate": 80.0,
+     "overall_score": 84.3,
+     "po_count": 10,
+     "quality_rate": 100.0,
+     "supplier": "supplier-02fe12",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-8b797e",
+     "total_value": 911494.0
+    },
+    {
+     "avg_lead_time": 0.7,
+     "on_time_rate": 92.3,
+     "overall_score": 82.9,
+     "po_count": 104,
+     "quality_rate": 100.0,
+     "supplier": "supplier-dcf634",
+     "supplier_group": "Raw Material",
+     "supplier_name": "supplier_name-d9c86d",
+     "total_value": 12744828.0
+    },
+    {
+     "avg_lead_time": 0.6,
+     "on_time_rate": 80.8,
+     "overall_score": 80.3,
+     "po_count": 26,
+     "quality_rate": 100.0,
+     "supplier": "supplier-a2acd3",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-b1baaf",
+     "total_value": 1168986.0
+    },
+    {
+     "avg_lead_time": 0.2,
+     "on_time_rate": 75.0,
+     "overall_score": 79.3,
+     "po_count": 4,
+     "quality_rate": 100.0,
+     "supplier": "supplier-e09934",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-a56d9b",
+     "total_value": 1308384.0
+    },
+    {
+     "avg_lead_time": 0.6,
+     "on_time_rate": 80.0,
+     "overall_score": 78.3,
+     "po_count": 10,
+     "quality_rate": 100.0,
+     "supplier": "supplier-5438d3",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-b027a4",
+     "total_value": 710241.0
+    },
+    {
+     "avg_lead_time": 0.7,
+     "on_time_rate": 75.0,
+     "overall_score": 76.0,
+     "po_count": 12,
+     "quality_rate": 100.0,
+     "supplier": "supplier-b938b1",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-f3e130",
+     "total_value": 2938466.0
+    },
+    {
+     "avg_lead_time": 0.9,
+     "on_time_rate": 84.6,
+     "overall_score": 74.8,
+     "po_count": 13,
+     "quality_rate": 96.6,
+     "supplier": "supplier-6ede03",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-977f32",
+     "total_value": 1825165.0
+    },
+    {
+     "avg_lead_time": 1.0,
+     "on_time_rate": 84.2,
+     "overall_score": 73.7,
+     "po_count": 19,
+     "quality_rate": 100.0,
+     "supplier": "supplier-1c1db3",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-80fec6",
+     "total_value": 2259169.0
+    },
+    {
+     "avg_lead_time": 2.0,
+     "on_time_rate": 81.2,
+     "overall_score": 72.5,
+     "po_count": 16,
+     "quality_rate": 100.0,
+     "supplier": "supplier-4448b5",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-479371",
+     "total_value": 7333405.0
+    },
+    {
+     "avg_lead_time": 1.3,
+     "on_time_rate": 85.7,
+     "overall_score": 70.1,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-d24fe4",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-b04d80",
+     "total_value": 2852668.0
+    },
+    {
+     "avg_lead_time": 2.8,
+     "on_time_rate": 66.7,
+     "overall_score": 66.7,
+     "po_count": 27,
+     "quality_rate": 100.0,
+     "supplier": "supplier-9c24df",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-7e66b1",
+     "total_value": 5570540.0
+    },
+    {
+     "avg_lead_time": 1.0,
+     "on_time_rate": 66.7,
+     "overall_score": 66.7,
+     "po_count": 12,
+     "quality_rate": 100.0,
+     "supplier": "supplier-aa3351",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-48bbfc",
+     "total_value": 1233736.0
+    },
+    {
+     "avg_lead_time": 5.7,
+     "on_time_rate": 64.7,
+     "overall_score": 65.9,
+     "po_count": 17,
+     "quality_rate": 100.0,
+     "supplier": "supplier-4d5316",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-2fb2c8",
+     "total_value": 6894446.0
+    },
+    {
+     "avg_lead_time": 10.7,
+     "on_time_rate": 64.3,
+     "overall_score": 65.7,
+     "po_count": 14,
+     "quality_rate": 100.0,
+     "supplier": "supplier-1badda",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-49cec2",
+     "total_value": 7046621.0
+    },
+    {
+     "avg_lead_time": 3.2,
+     "on_time_rate": 63.6,
+     "overall_score": 64.6,
+     "po_count": 11,
+     "quality_rate": 100.0,
+     "supplier": "supplier-9ca1aa",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-5c4c47",
+     "total_value": 6910670.0
+    },
+    {
+     "avg_lead_time": 1.6,
+     "on_time_rate": 71.4,
+     "overall_score": 64.4,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-827ef2",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-530dc8",
+     "total_value": 2043288.0
+    },
+    {
+     "avg_lead_time": 2.2,
+     "on_time_rate": 71.4,
+     "overall_score": 64.4,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-8a7cb8",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-943018",
+     "total_value": 1846110.0
+    },
+    {
+     "avg_lead_time": 0.7,
+     "on_time_rate": 42.9,
+     "overall_score": 59.0,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-2e3533",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-6065a7",
+     "total_value": 1394760.0
+    },
+    {
+     "avg_lead_time": 1.8,
+     "on_time_rate": 50.0,
+     "overall_score": 56.7,
+     "po_count": 8,
+     "quality_rate": 100.0,
+     "supplier": "supplier-c10a37",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-4dad81",
+     "total_value": 3115341.4
+    },
+    {
+     "avg_lead_time": 1.1,
+     "on_time_rate": 44.4,
+     "overall_score": 55.3,
+     "po_count": 9,
+     "quality_rate": 100.0,
+     "supplier": "supplier-01b552",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-a232ea",
+     "total_value": 841547.0
+    },
+    {
+     "avg_lead_time": 3.2,
+     "on_time_rate": 50.0,
+     "overall_score": 53.3,
+     "po_count": 4,
+     "quality_rate": 100.0,
+     "supplier": "supplier-72197d",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-a1f1ac",
+     "total_value": 798860.0
+    },
+    {
+     "avg_lead_time": 8.0,
+     "on_time_rate": 50.0,
+     "overall_score": 51.7,
+     "po_count": 2,
+     "quality_rate": 100.0,
+     "supplier": "supplier-4a1215",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-5b91ef",
+     "total_value": 1825460.0
+    },
+    {
+     "avg_lead_time": 1.5,
+     "on_time_rate": 6.7,
+     "overall_score": 42.7,
+     "po_count": 15,
+     "quality_rate": 100.0,
+     "supplier": "supplier-9fd3bc",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-15b097",
+     "total_value": 1016329.04
+    },
+    {
+     "avg_lead_time": 6.1,
+     "on_time_rate": 0.0,
+     "overall_score": 35.8,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-e2ceef",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-afc6db",
+     "total_value": 1142830.0
+    },
+    {
+     "avg_lead_time": 6.1,
+     "on_time_rate": 0.0,
+     "overall_score": 35.8,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-499e06",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-9d979b",
+     "total_value": 732308.0
+    },
+    {
+     "avg_lead_time": 1.2,
+     "on_time_rate": 0.0,
+     "overall_score": 34.2,
+     "po_count": 5,
+     "quality_rate": 100.0,
+     "supplier": "supplier-449e6e",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-3b9aad",
+     "total_value": 1675600.0
+    },
+    {
+     "avg_lead_time": 26.4,
+     "on_time_rate": 0.0,
+     "overall_score": 32.5,
+     "po_count": 3,
+     "quality_rate": 100.0,
+     "supplier": "supplier-17d348",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-c06f06",
+     "total_value": 1604328.0
+    }
+   ],
+   "avg_lead_time": 1.1,
+   "avg_on_time_rate": 74.6,
+   "avg_quality_rate": 99.9,
+   "avg_score": 76.3,
+   "bottom_performers": [
+    {
+     "avg_lead_time": 26.4,
+     "on_time_rate": 0.0,
+     "overall_score": 32.5,
+     "po_count": 3,
+     "quality_rate": 100.0,
+     "supplier": "supplier-17d348",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-c06f06",
+     "total_value": 1604328.0
+    },
+    {
+     "avg_lead_time": 1.2,
+     "on_time_rate": 0.0,
+     "overall_score": 34.2,
+     "po_count": 5,
+     "quality_rate": 100.0,
+     "supplier": "supplier-449e6e",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-3b9aad",
+     "total_value": 1675600.0
+    },
+    {
+     "avg_lead_time": 6.1,
+     "on_time_rate": 0.0,
+     "overall_score": 35.8,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-e2ceef",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-afc6db",
+     "total_value": 1142830.0
+    },
+    {
+     "avg_lead_time": 6.1,
+     "on_time_rate": 0.0,
+     "overall_score": 35.8,
+     "po_count": 7,
+     "quality_rate": 100.0,
+     "supplier": "supplier-499e06",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-9d979b",
+     "total_value": 732308.0
+    },
+    {
+     "avg_lead_time": 1.5,
+     "on_time_rate": 6.7,
+     "overall_score": 42.7,
+     "po_count": 15,
+     "quality_rate": 100.0,
+     "supplier": "supplier-9fd3bc",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-15b097",
+     "total_value": 1016329.04
+    }
+   ],
+   "quality_status": "success",
+   "top_performers": [
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 100.0,
+     "po_count": 22,
+     "quality_rate": 100.0,
+     "supplier": "supplier-0ef6ad",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-5c43f3",
+     "total_value": 1741444.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 98.3,
+     "po_count": 10,
+     "quality_rate": 100.0,
+     "supplier": "supplier-26fdb5",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-125736",
+     "total_value": 807563.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 96.7,
+     "po_count": 8,
+     "quality_rate": 100.0,
+     "supplier": "supplier-fdabbe",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-0f7127",
+     "total_value": 939820.0
+    },
+    {
+     "avg_lead_time": 0.2,
+     "on_time_rate": 100.0,
+     "overall_score": 96.0,
+     "po_count": 16,
+     "quality_rate": 100.0,
+     "supplier": "supplier-a9b41d",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-16d827",
+     "total_value": 1035935.0
+    },
+    {
+     "avg_lead_time": 0.1,
+     "on_time_rate": 92.9,
+     "overall_score": 95.2,
+     "po_count": 42,
+     "quality_rate": 100.0,
+     "supplier": "supplier-9e2ef8",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-e346dd",
+     "total_value": 2668110.75
+    },
+    {
+     "avg_lead_time": 0.1,
+     "on_time_rate": 92.3,
+     "overall_score": 94.9,
+     "po_count": 26,
+     "quality_rate": 100.0,
+     "supplier": "supplier-d9d929",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-630fbb",
+     "total_value": 1854096.0
+    },
+    {
+     "avg_lead_time": 0.1,
+     "on_time_rate": 91.7,
+     "overall_score": 94.7,
+     "po_count": 24,
+     "quality_rate": 100.0,
+     "supplier": "supplier-e30b5f",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-c5d5a9",
+     "total_value": 5292927.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 94.2,
+     "po_count": 5,
+     "quality_rate": 100.0,
+     "supplier": "supplier-6dc049",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-5db283",
+     "total_value": 1106953.0
+    },
+    {
+     "avg_lead_time": 0.2,
+     "on_time_rate": 93.5,
+     "overall_score": 93.4,
+     "po_count": 138,
+     "quality_rate": 100.0,
+     "supplier": "supplier-2417f8",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-f5e58e",
+     "total_value": 4701915.0
+    },
+    {
+     "avg_lead_time": 0.0,
+     "on_time_rate": 100.0,
+     "overall_score": 93.3,
+     "po_count": 4,
+     "quality_rate": 100.0,
+     "supplier": "supplier-7fcaba",
+     "supplier_group": null,
+     "supplier_name": "supplier_name-89009c",
+     "total_value": 1650584.0
+    }
+   ],
+   "total_suppliers": 50
+  }
+ },
+ "status": "success"
+}

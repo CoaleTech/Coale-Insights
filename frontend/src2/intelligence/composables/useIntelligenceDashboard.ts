@@ -129,6 +129,9 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
   // had no way to recover from the UI at all, ever (verified live against
   // the marketing-crm-intelligence "Could not load CRM data" incident).
   let pendingRefresh = false
+  // A Refresh was answered with the cached payload while a newer one computes:
+  // keep polling (without `refresh`, which would re-queue) until it lands.
+  let awaitingFresh = false
   function clearPollTimer() {
     if (pollTimer) {
       clearTimeout(pollTimer)
@@ -165,6 +168,7 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
     }),
     onSuccess: (raw: unknown) => {
       const decoded = readInsightsEnvelope(raw)
+      const userRefresh = pendingRefresh || awaitingFresh
       // A 200 carrying `{status: "error"}` is still a failure the user must see.
       // A 200 carrying `{status: "not_implemented"}` one level down (inside
       // `decoded.data`) is an honest stub, not a failure and not real data —
@@ -185,6 +189,11 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
 
       pendingRefresh = false
       resetRetries()
+      awaitingFresh = userRefresh && Boolean(decoded.refreshing)
+      if (awaitingFresh) {
+        refreshing.value = true
+        scheduleRefetch(WARMING_POLL_MS)
+      }
       if (decoded.warming) {
         scheduleRefetch(WARMING_POLL_MS)
       }
@@ -199,6 +208,7 @@ export function useIntelligenceDashboard<T = Record<string, unknown>>(
         return
       }
       pendingRefresh = false
+      awaitingFresh = false
       resetRetries()
       const { permission, message } = readFrappeError(e, 'Could not load this dashboard')
       isPermissionError.value = permission

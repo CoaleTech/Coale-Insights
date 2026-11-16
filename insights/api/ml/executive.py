@@ -34,6 +34,7 @@ from typing import Any, Dict, List, Optional
 import frappe
 from frappe import _
 
+from insights.api.ml.utils import parse_detail_filters
 from insights.api.response import error, success
 
 # Each department's rollup surfaces a different doctype's data. The
@@ -545,21 +546,27 @@ def get_executive_detail(metric: str, filters: str) -> dict:
     Frappe ValidationError on an unknown metric. Permission is gated
     per metric on the doctype that holds the data.
     """
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
 
     if metric == "revenue_invoices":
         frappe.has_permission("Sales Invoice", "read", throw=True)
-        db_filters = {"docstatus": 1}
+        # Same basis as the "Revenue 12m" card (executive_intelligence._trend_sparklines):
+        # trailing 12 months, submitted, credit notes excluded, tax-exclusive.
+        from insights.api.ml.utils import parse_date_filter
+
+        win_start, _end = parse_date_filter("12m")
+        db_filters = {"docstatus": 1, "is_return": 0}
+        if win_start:
+            db_filters["posting_date"] = (">=", win_start.date())
         if company:
             db_filters["company"] = company
         rows = frappe.get_list(
             "Sales Invoice",
             filters=db_filters,
-            fields=["name", "customer", "posting_date", "grand_total"],
+            fields=["name", "customer", "posting_date", "base_net_total"],
             start=start, page_length=page_size, order_by="posting_date desc",
             ignore_permissions=False,
         )
@@ -568,7 +575,7 @@ def get_executive_detail(metric: str, filters: str) -> dict:
                 {"label": _("Invoice"), "fieldname": "name", "fieldtype": "Link", "options": "Sales Invoice"},
                 {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": _("Date"), "fieldname": "posting_date", "fieldtype": "Date"},
-                {"label": _("Total"), "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": _("Net Total"), "fieldname": "base_net_total", "fieldtype": "Currency"},
             ],
             "rows": rows,
             "total": frappe.db.count("Sales Invoice", filters=db_filters),
@@ -603,7 +610,7 @@ def get_executive_detail(metric: str, filters: str) -> dict:
         rows = frappe.get_list(
             "Sales Order",
             filters=db_filters,
-            fields=["name", "customer", "transaction_date", "grand_total", "status"],
+            fields=["name", "customer", "transaction_date", "base_grand_total", "status"],
             start=start, page_length=page_size, order_by="transaction_date desc",
             ignore_permissions=False,
         )
@@ -612,7 +619,7 @@ def get_executive_detail(metric: str, filters: str) -> dict:
                 {"label": _("Order"), "fieldname": "name", "fieldtype": "Link", "options": "Sales Order"},
                 {"label": _("Customer"), "fieldname": "customer", "fieldtype": "Link", "options": "Customer"},
                 {"label": _("Date"), "fieldname": "transaction_date", "fieldtype": "Date"},
-                {"label": _("Total"), "fieldname": "grand_total", "fieldtype": "Currency"},
+                {"label": _("Total"), "fieldname": "base_grand_total", "fieldtype": "Currency"},
                 {"label": _("Status"), "fieldname": "status", "fieldtype": "Data"},
             ],
             "rows": rows,

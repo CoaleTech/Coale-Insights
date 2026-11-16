@@ -162,23 +162,58 @@ class ManufacturingIntelligence:
                 filters={"docstatus": 1, "status": ("in", ["Pending", "Partially Ordered"])},
             )
 
+            # Server-computed verdict string + severity for the UI banner.
+            # Deterministic from real payload fields; honest when no data.
+            pend = int(pending_material_requests or 0)
+            open_orders = max(0, total_orders - completed_orders)
+            if total_orders == 0:
+                if pend:
+                    ph = (
+                        f"No Work Orders recorded, {pend} pending material "
+                        f"request{'s' if pend != 1 else ''} need action"
+                    )
+                    ph_sev = "medium"
+                else:
+                    ph = "No production data. Configure BOMs and Work Orders to start tracking"
+                    ph_sev = "none"
+            elif completion_rate is not None:
+                if completion_rate > 90:
+                    ph = (
+                        f"Production on track: {completion_rate:.0f}% completion rate, "
+                        f"{completed_orders} of {total_orders} work orders done"
+                    )
+                    ph_sev = "low"
+                elif completion_rate > 80:
+                    ph = (
+                        f"Production good: {completion_rate:.0f}%, "
+                        f"{open_orders} order{'s' if open_orders != 1 else ''} still in progress"
+                    )
+                    ph_sev = "low"
+                else:
+                    ph = (
+                        f"Production needs attention: {completion_rate:.0f}% completion rate, "
+                        f"{open_orders} of {total_orders} work orders outstanding"
+                    )
+                    ph_sev = "high"
+            else:
+                ph = (
+                    f"{total_orders} work order{'s' if total_orders != 1 else ''} on record, "
+                    f"completion rate not computable"
+                )
+                ph_sev = "medium"
+
             return {
                 "total_work_orders": total_orders,
                 "completed_orders": completed_orders,
-                "open_work_orders": max(0, total_orders - completed_orders),
+                "open_work_orders": open_orders,
                 "completion_rate_pct": round(completion_rate, 2) if completion_rate is not None else None,
                 "total_production_qty": total_qty_produced,
                 "planned_production_qty": total_qty_planned,
                 "quantity_achievement_pct": round(quantity_achievement, 2) if quantity_achievement is not None else None,
                 "monthly_growth_rate": round(growth_rate, 2),
                 "pending_material_requests": pending_material_requests,
-                # Health label is meaningless when completion_rate has no
-                # denominator to be measured against (None, not a real 0).
-                "production_health": (
-                    "excellent" if completion_rate > 90
-                    else "good" if completion_rate > 80
-                    else "needs_improvement"
-                ) if completion_rate is not None else None,
+                "production_health": ph,
+                "production_health_severity": ph_sev,
             }
         except Exception as e:
             logger.error(f"Error analyzing production metrics: {e}")

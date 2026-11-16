@@ -48,6 +48,7 @@ from insights.api.ml.ibis_source import (
     line_cogs,
     sle_cost,
     t,
+    with_paid_date,
 )
 
 
@@ -493,21 +494,18 @@ def compute_customer_intelligence(
         df["overdue_count"] = 0
 
     # Real avg days-to-pay per customer, from fully-closed invoices in the
-    # period: days between `posting_date` and `modified` -- the same
-    # definition `payment_prediction.py._fetch_customer_history` uses for
-    # the whole book (closest signal to "date it was fully paid" without a
-    # dedicated payment-date column here). Previously this column never
-    # existed here, so `_composite_health_score` silently fell back to a
-    # flat 30-day/50-score default for every customer -- "Payment Score"
-    # never actually reflected anyone's payment behaviour. Fixed 2026-08-17.
+    # period: days between `posting_date` and the last Payment Entry
+    # (`with_paid_date`), the same definition `payment_prediction.py` uses.
+    # Without it `_composite_health_score` fell back to a flat 30-day/50-score
+    # default for every customer.
     import ibis
 
-    closed_si = si.filter(si.outstanding_amount == 0)
+    closed_si = with_paid_date(si.filter(si.outstanding_amount == 0))
     closed_si = closed_si.mutate(
         days_to_pay=ibis.ifelse(
-            closed_si.modified.isnull() | closed_si.posting_date.isnull(),
+            closed_si.paid_date.isnull() | closed_si.posting_date.isnull(),
             ibis.null(),
-            closed_si.modified.cast("date").delta(closed_si.posting_date.cast("date"), unit="day"),
+            closed_si.paid_date.delta(closed_si.posting_date.cast("date"), unit="day"),
         )
     )
     dtp_per_customer = closed_si.group_by(closed_si.customer).aggregate(
@@ -599,10 +597,12 @@ def compute_customer_intelligence(
     df["purchase_frequency"] = df["order_count"] / df["lifespan_months"]
     df["recency_days"] = df["last_purchase"].apply(lambda x: (as_of_date - x).days)
 
-    # predicted 12-month CLV = orders/month * 12 * AOV, adjusted by tenure
+    # predicted 12-month CLV = run-rate over the WHOLE tenure (first purchase to
+    # today) x 12 x AOV, adjusted by tenure. Not the first-to-last span: that
+    # projects a one-off or long-dormant customer to keep buying at its old rate.
     df["tenure_months"] = df["first_purchase"].apply(lambda x: (as_of_date - x).days) / 30.44
     df["tenure_factor"] = (df["tenure_months"] / 24).clip(upper=1.5)
-    df["predicted_12m_clv"] = df["purchase_frequency"] * 12 * df["avg_order_value"]
+    df["predicted_12m_clv"] = df["order_count"] / df["tenure_months"].clip(lower=1) * 12 * df["avg_order_value"]
     df["adjusted_predicted_clv"] = df["predicted_12m_clv"] * df["tenure_factor"]
     df["total_clv"] = df["historical_clv"] + df["adjusted_predicted_clv"]
 
@@ -944,25 +944,63 @@ def _geographic_analysis(df, company, start, end):
 
 
 def _pareto_analysis(df):
-    """Top-N contribution to total revenue. Pure-Python sort, no ML."""
+    """Top-N contribution to total revenue. Pure-Python sort, no ML.
+
+    The ``pareto_curve`` previously returned only the top-50 customers (≈8.6%
+    of 581), so the long tail was absent and the 80% threshold crossing was
+    the final point rather than an annotated milestone. Now returns the full
+    581-customer curve downsampled to ≤100 evenly-spaced points plus the
+    exact 80%-revenue threshold crossing, keeping the payload growth small
+    (~10 → ~18 KB).
+
+    Curve point format changed from
+        ``{customer_name, historical_clv, cumulative_percent}``
+    to
+        ``{customer_pct, cumulative_percent}``
+    (``customer_pct`` = x-axis position as % of all customers; removes the
+    per-customer name/CLV that were unused by the frontend and added noise).
+    ``pareto_80_threshold_pct`` is the customer-percent where cumulative
+    revenue first crosses 80%, exposed as a convenience for the SVG annotation.
+    """
     if df.empty or float(df["historical_clv"].sum()) == 0:
         return {
             "total_customers": 0, "total_revenue": 0.0, "top_80_percent_customers": 0,
             "top_10_percent_contribute": 0, "top_20_percent_contribute": 0,
-            "top_customers": [], "pareto_curve": [],
+            "top_customers": [], "pareto_curve": [], "pareto_80_threshold_pct": 0.0,
         }
-    sorted_df = df.sort_values("historical_clv", ascending=False).copy()
+    sorted_df = df.sort_values("historical_clv", ascending=False).reset_index(drop=True)
     total_revenue = float(sorted_df["historical_clv"].sum())
     sorted_df["cumulative_revenue"] = sorted_df["historical_clv"].cumsum()
     sorted_df["cumulative_percent"] = (sorted_df["cumulative_revenue"] / total_revenue * 100) if total_revenue else 0
-    top_80 = sorted_df[sorted_df["cumulative_percent"] <= 80]
-    top_80_pct = round((len(top_80) / len(sorted_df) * 100) if len(sorted_df) else 0, 1)
-    n_10 = max(1, int(len(sorted_df) * 0.10))
-    n_20 = max(1, int(len(sorted_df) * 0.20))
+    n = len(sorted_df)
+    sorted_df["customer_pct"] = [(i + 1) / n * 100 for i in range(n)]
+    n_10 = max(1, int(n * 0.10))
+    n_20 = max(1, int(n * 0.20))
     top_10_revenue = float(sorted_df.head(n_10)["historical_clv"].sum())
     top_20_revenue = float(sorted_df.head(n_20)["historical_clv"].sum())
+    # 80% threshold: first customer whose cumulative revenue >= 80%
+    crossing_mask = sorted_df["cumulative_percent"] >= 80
+    threshold_idx = int(crossing_mask.idxmax()) if crossing_mask.any() else n - 1
+    threshold_customer_pct = round(float(sorted_df.loc[threshold_idx, "customer_pct"]), 2)
+    # Fewest customers whose revenue reaches 80%: same crossing the chart marks.
+    top_80_pct = round(threshold_customer_pct, 1)
+    # Downsample: ≤100 evenly-spaced positions + the threshold crossing
+    if n <= 100:
+        indices = list(range(n))
+    else:
+        step = (n - 1) / 99
+        idx_set = {round(i * step) for i in range(100)}
+        idx_set.add(threshold_idx)
+        indices = sorted(idx_set)
+    pareto_curve = [
+        {
+            "customer_pct": round(float(sorted_df.loc[i, "customer_pct"]), 2),
+            "cumulative_percent": round(float(sorted_df.loc[i, "cumulative_percent"]), 2),
+        }
+        for i in indices
+    ]
     return {
-        "total_customers": int(len(sorted_df)),
+        "total_customers": int(n),
         "total_revenue": total_revenue,
         "top_80_percent_customers": top_80_pct,
         "top_10_percent_contribute": round((top_10_revenue / total_revenue * 100) if total_revenue else 0, 1),
@@ -971,7 +1009,8 @@ def _pareto_analysis(df):
             "customer", "customer_name", "historical_clv", "order_count",
             "avg_order_value", "clv_tier", "health_status"
         ]].assign(cumulative_percent=sorted_df.head(20)["cumulative_percent"]).to_dict("records"),
-        "pareto_curve": sorted_df[["customer_name", "historical_clv", "cumulative_percent"]].head(50).to_dict("records"),
+        "pareto_curve": pareto_curve,
+        "pareto_80_threshold_pct": threshold_customer_pct,
     }
 
 
@@ -1026,6 +1065,11 @@ def _cohort_analysis(start, end, company):
         return {"cohort_retention": [], "average_retention": {}, "cohort_count": 0}
     cohort_sizes = cohort_pivot.iloc[:, 0].replace(0, 1)
     retention = cohort_pivot.div(cohort_sizes, axis=0) * 100
+    # A cohort has not reached a month past the last month with any activity;
+    # that cell is unknown, not 0%, and must not drag the averages down.
+    last_ord = int(txn_ord.max())
+    reachable = [last_ord - pd.Period(i, freq="M").ordinal for i in retention.index]
+    retention = retention.where(retention.columns.values[None, :] <= pd.Series(reachable).values[:, None])
 
     cohort_result = []
     for idx, row in retention.iterrows():
@@ -1033,10 +1077,10 @@ def _cohort_analysis(start, end, company):
         cohort_result.append({
             "cohort": str(idx),
             "size": size,
-            "retention": {int(k): round(float(v), 1) for k, v in row.items()
+            "retention": {str(int(k)): round(float(v), 1) for k, v in row.items()
                           if not (isinstance(v, float) and math.isnan(v))},
         })
-    avg_retention = {int(k): round(float(v), 1) for k, v in retention.mean().items()
+    avg_retention = {str(int(k)): round(float(v), 1) for k, v in retention.mean().items()
                      if not (isinstance(v, float) and math.isnan(v))}
     return {
         "cohort_retention": cohort_result[-12:],
@@ -1228,8 +1272,10 @@ def compute_customer_360(customer_id: str,
     response = {"status": "success", "customer": _to_native(customer),
                 "base_currency": _base_currency(company)}
     if include_purchases:
-        response["purchase_history"] = _get_customer_purchase_history(customer_id)
-        response["purchase_patterns"] = _analyze_customer_purchase_patterns(response["purchase_history"])
+        history = _get_customer_purchase_history(customer_id)
+        # Patterns use every invoice; the table shows the latest 50.
+        response["purchase_patterns"] = _analyze_customer_purchase_patterns(history)
+        response["purchase_history"] = history[:50]
     if include_recommendations:
         response["cross_sell"] = _cross_sell_for_one_customer(customer_id, company=company)
         # `_score_one_customer_row` / `_blank_customer_row` both hardcode
@@ -1252,19 +1298,19 @@ def _customer_rfm(customer_id: str, date_filter: str, company: Optional[str]):
 def _customer_avg_days_to_pay(customer_id: str, company: Optional[str]):
     """Real average days-to-pay for one customer, from fully-closed
     (`outstanding_amount == 0`) invoices: days between `posting_date` and
-    `modified` -- same definition `payment_prediction.py` uses for the
-    whole book. Returns `None` when the customer has no closed invoices
+    the last Payment Entry's posting date (`with_paid_date`). Returns `None` when
+    the customer has no closed invoices
     yet -- callers must treat that as "unknown", not "paid instantly".
     """
     import ibis
 
     si = _si_base(company, customer=customer_id)
-    si = si.filter(si.outstanding_amount == 0)
+    si = with_paid_date(si.filter(si.outstanding_amount == 0))
     si = si.mutate(
         days_to_pay=ibis.ifelse(
-            si.modified.isnull() | si.posting_date.isnull(),
+            si.paid_date.isnull() | si.posting_date.isnull(),
             ibis.null(),
-            si.modified.cast("date").delta(si.posting_date.cast("date"), unit="day"),
+            si.paid_date.delta(si.posting_date.cast("date"), unit="day"),
         )
     )
     row = si.aggregate(avg_days_to_pay=si.days_to_pay.mean()).execute().iloc[0]
@@ -1454,7 +1500,7 @@ def _score_one_customer_row(row, cust, as_of_date, company=None):
     recency_days = (as_of_date - last_purchase).days
     tenure_months = max(0.0, ((as_of_date - first_purchase).days / 30.44))
 
-    predicted_12m = purchase_frequency * 12 * avg_order_value
+    predicted_12m = order_count / max(1.0, tenure_months) * 12 * avg_order_value
     tenure_factor = min(tenure_months / 24.0, 1.5)
     adjusted_predicted = predicted_12m * tenure_factor
     total_clv = historical_clv + adjusted_predicted
@@ -1588,7 +1634,7 @@ def _score_one_customer_row(row, cust, as_of_date, company=None):
 
 
 def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
-    """Top-50 invoices for the customer. One SQL query, plain dicts so the
+    """All invoices for the customer, newest first. One SQL query, plain dicts so the
     JSON envelope is straightforward.
     """
     SI = frappe.qb.DocType("Sales Invoice")
@@ -1607,7 +1653,6 @@ def _get_customer_purchase_history(customer_id: str) -> List[Dict[str, Any]]:
         )
         .where((SI.customer == customer_id) & (SI.docstatus == 1) & (SI.is_return == 0))
         .orderby(SI.posting_date, order=frappe.qb.desc)
-        .limit(50)
         .run(as_dict=True)
     )
     for r in rows:
@@ -2105,7 +2150,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
     if not profit.empty:
         profit["gross_profit"] = profit["gross_profit"].astype(float)
         profit["line_revenue"] = profit["line_revenue"].astype(float)
-        profit["margin_pct"] = 0.0
+        profit["margin_pct"] = None
         nonzero = profit["line_revenue"] > 0
         profit.loc[nonzero, "margin_pct"] = (
             profit.loc[nonzero, "gross_profit"] / profit.loc[nonzero, "line_revenue"] * 100
@@ -2149,7 +2194,7 @@ def compute_customer_scorecard(date_filter: str = "12m",
     merged = base.merge(profit, on="customer", how="left")
     merged = merged.merge(consistency, on="customer", how="left")
     merged = merged.fillna({
-        "gross_profit": 0.0, "margin_pct": 0.0,
+        "gross_profit": 0.0,
         "months_active": 0, "consistency_score": 0.0, "avg_monthly_spend": 0.0,
     })
     merged["months_active"] = merged["months_active"].astype(int)
@@ -2168,6 +2213,16 @@ def compute_customer_scorecard(date_filter: str = "12m",
 _DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 _MONTH_ORDER = ["January", "February", "March", "April", "May", "June",
                 "July", "August", "September", "October", "November", "December"]
+
+
+def _fiscal_start_month() -> int:
+    """Start month (1-12) of the newest Fiscal Year record; January if none."""
+    fy = frappe.qb.DocType("Fiscal Year")
+    row = (
+        frappe.qb.from_(fy).select(fy.year_start_date)
+        .orderby(fy.year_start_date, order=frappe.qb.desc).limit(1).run()
+    )
+    return row[0][0].month if row else 1
 
 
 def compute_purchase_patterns(top_percentile: int = 20,
@@ -2203,8 +2258,11 @@ def compute_purchase_patterns(top_percentile: int = 20,
         return {"status": "success", "message": _("No transaction data"), "patterns": None}
     df["net_total"] = df["net_total"].astype(float)
 
+    fy_start = _fiscal_start_month()
+    month_order = _MONTH_ORDER[fy_start - 1:] + _MONTH_ORDER[:fy_start - 1]
+
     def _quarter(d):
-        return (d.month - 1) // 3 + 1
+        return ((d.month - fy_start) % 12) // 3 + 1
 
     df["posting_date"] = pd.to_datetime(df["posting_date"])
     df["day_name"] = df["posting_date"].dt.day_name()
@@ -2239,7 +2297,7 @@ def compute_purchase_patterns(top_percentile: int = 20,
         total_revenue=("net_total", "sum"),
         avg_order_value=("net_total", "mean"),
         gross_profit=("gross_profit", "sum"),
-    ).reindex(_MONTH_ORDER).fillna(0).reset_index()
+    ).reindex(month_order).fillna(0).reset_index()
     month_analysis["total_revenue"] = month_analysis["total_revenue"].round(2)
     month_analysis["avg_order_value"] = month_analysis["avg_order_value"].round(2)
     month_analysis["gross_profit"] = month_analysis["gross_profit"].round(2)
@@ -2249,7 +2307,9 @@ def compute_purchase_patterns(top_percentile: int = 20,
         total_revenue=("net_total", "sum"),
         avg_order_value=("net_total", "mean"),
     ).fillna(0).reset_index()
-    quarter_names = {1: "Q1 (Jan-Mar)", 2: "Q2 (Apr-Jun)", 3: "Q3 (Jul-Sep)", 4: "Q4 (Oct-Dec)"}
+    quarter_names = {
+        q: f"Q{q} ({month_order[(q - 1) * 3][:3]}-{month_order[(q - 1) * 3 + 2][:3]})" for q in range(1, 5)
+    }
 
     peak_day = day_analysis.loc[day_analysis["total_revenue"].idxmax(), "day_name"] if not day_analysis.empty else None
     peak_month = month_analysis.loc[month_analysis["total_revenue"].idxmax(), "month_name"] if not month_analysis.empty else None

@@ -38,3 +38,14 @@ class TestPlainEquality(FrappeTestCase):
         si = t("Sales Invoice")
         got = si.filter((si.company == company) & (si.docstatus == 1)).count().execute()
         self.assertEqual(int(got), frappe.db.count("Sales Invoice", {"company": company, "docstatus": 1}))
+
+
+class TestGpLinesEmptyWindow(FrappeTestCase):
+    def test_empty_window_posting_date_compares_to_a_date(self):
+        from datetime import date
+
+        from insights.api.ml.ibis_source import cached_gp_lines, default_company
+
+        df = cached_gp_lines(date(2099, 1, 1), date(2099, 1, 31), default_company())
+        self.assertEqual(len(df), 0)
+        self.assertEqual(len(df[df["posting_date"] >= date(2099, 1, 1)]), 0)

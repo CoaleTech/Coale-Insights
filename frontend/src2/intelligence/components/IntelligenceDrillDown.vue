@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import type { DrillDownColumn } from '../composables/useDrillDown'
-import { Lock, Inbox } from 'lucide-vue-next'
+import { formatDate, formatPercent } from '../../utils/format'
+import { Lock, Inbox, ChevronLeft, ChevronRight } from 'lucide-vue-next'
+import { watch } from 'vue'
 
 const props = defineProps<{
   show: boolean
@@ -22,6 +24,15 @@ const emit = defineEmits<{
   'retry': []
 }>()
 
+// headless-ui's own restore does not fire here (focus lands on <body> after close), and
+// its focus-trap cleanup runs after `after-leave`, so wait two frames; same race and fix
+// as the drawer in App.vue.
+let opener: HTMLElement | null = null
+watch(() => props.show, (open) => { if (open) opener = document.activeElement as HTMLElement | null })
+function restoreFocus() {
+  requestAnimationFrame(() => requestAnimationFrame(() => opener?.isConnected && opener.focus()))
+}
+
 const pageSize = 50
 
 function rangeStart() { return (props.page - 1) * pageSize + 1 }
@@ -35,11 +46,13 @@ function cellValue(row: Record<string, unknown>, col: DrillDownColumn): string {
   if (col.fieldtype === 'Currency') {
     return new Intl.NumberFormat(undefined, { style: 'decimal', minimumFractionDigits: 2 }).format(Number(val))
   }
-  if (col.fieldtype === 'Date') {
-    // Rows carry arbitrary DocType columns, so the value is genuinely unknown
-    // here; Date wants a string or number.
-    return new Date(String(val)).toLocaleDateString()
+  if (col.fieldtype === 'Percent') return formatPercent(Number(val))
+  if (col.fieldtype === 'Float') {
+    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(Number(val))
   }
+  // Rows carry arbitrary DocType columns, so the value is genuinely unknown
+  // here; formatDate wants a string.
+  if (col.fieldtype === 'Date') return formatDate(String(val))
   return String(val)
 }
 
@@ -62,6 +75,7 @@ function erpnextLink(col: DrillDownColumn, row: Record<string, unknown>): string
 <template>
   <Dialog
     :options="{ title, size: '5xl' }"
+    @after-leave="restoreFocus"
     :model-value="show"
     @update:model-value="emit('update:show', $event)"
   >
@@ -129,11 +143,14 @@ function erpnextLink(col: DrillDownColumn, row: Record<string, unknown>): string
               </tbody>
             </table>
           </div>
+          <p class="flex-shrink-0 border-t px-4 py-1 text-center text-xs text-ink-gray-6 sm:hidden">
+            Swipe sideways for all {{ columns.length }} columns
+          </p>
 
           <div class="flex flex-shrink-0 items-center justify-between border-t bg-surface-white px-4 py-2 text-sm text-ink-gray-6">
-            <Button variant="subtle" size="sm" :disabled="isPrevDisabled()" @click="emit('prev-page')">← Prev</Button>
+            <Button variant="subtle" size="sm" label="Prev" :disabled="isPrevDisabled()" @click="emit('prev-page')"><template #prefix><ChevronLeft class="h-4 w-4" aria-hidden="true" /></template></Button>
             <span>Showing {{ rangeStart() }}–{{ rangeEnd() }} of {{ total }} records</span>
-            <Button variant="subtle" size="sm" :disabled="isNextDisabled()" @click="emit('next-page')">Next →</Button>
+            <Button variant="subtle" size="sm" label="Next" :disabled="isNextDisabled()" @click="emit('next-page')"><template #suffix><ChevronRight class="h-4 w-4" aria-hidden="true" /></template></Button>
           </div>
         </template>
 

@@ -8,7 +8,7 @@
 				which is the step needed before anyone can act on it.
 			-->
 			<div
-				class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1 cursor-pointer hover:bg-surface-gray-1 transition-colors"
+				class="bg-surface-white rounded-lg p-4 border border-outline-gray-1 cursor-pointer hover:bg-surface-gray-1 transition-colors"
 				:tabindex="0"
 				role="button"
 				@click="drillDown.open(finEndpoint, 'Foreign Currency Accounts', { metric: 'forex_exposure' })"
@@ -21,20 +21,20 @@
 					{{ formatCurrency(Math.abs(data.net_exposure_base || 0), currency) }}
 				</div>
 				<div class="text-sm text-ink-gray-6">
-					{{ (data.net_exposure_base || 0) >= 0 ? 'Long (Net Receivable)' : 'Short (Net Payable)' }}
+					{{ !data.net_exposure_base ? 'No open position' : data.net_exposure_base > 0 ? 'Long (Net Receivable)' : 'Short (Net Payable)' }}
 				</div>
 			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
+			<div class="bg-surface-white rounded-lg p-4 border border-outline-gray-1">
 				<div class="text-sm text-ink-gray-6">Foreign Receivables</div>
 				<div class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data.total_receivable_base || 0, currency) }}</div>
 				<div class="text-sm text-ink-gray-6">In base currency ({{ currency }})</div>
 			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
+			<div class="bg-surface-white rounded-lg p-4 border border-outline-gray-1">
 				<div class="text-sm text-ink-gray-6">Foreign Payables</div>
 				<div class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data.total_payable_base || 0, currency) }}</div>
 				<div class="text-sm text-ink-gray-6">In base currency ({{ currency }})</div>
 			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
+			<div class="bg-surface-white rounded-lg p-4 border border-outline-gray-1">
 				<div class="text-sm text-ink-gray-6">Unrealized P&L</div>
 				<div class="text-xl font-bold"
 					 :class="deltaInk(data.net_unrealized, { higherIsBetter: true })">
@@ -45,7 +45,7 @@
 		</div>
 
 		<!-- Exposure by Currency -->
-		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Forex Exposure by Currency" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full" v-if="data.exposure_summary?.length">
@@ -92,7 +92,7 @@
 		</div>
 
 		<!-- At-Risk Invoices -->
-		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" :title="`At-Risk Foreign Currency Invoices (${data.at_risk_invoices?.length || 0})`" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full" v-if="data.at_risk_invoices?.length">
@@ -138,6 +138,37 @@
 				</div>
 			</div>
 		</div>
+
+		<!-- Realised forex gain / loss, from settled foreign currency entries -->
+		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+			<SectionHeader variant="caption" title="Realised Forex Gain / Loss · Last 12 Months" :level="3" />
+			<div class="mt-4 overflow-x-auto">
+				<table class="min-w-full" v-if="data.realized_forex_trend?.length">
+					<thead>
+						<tr class="bg-surface-gray-1">
+							<th scope="col" class="px-4 py-3 text-left text-xs font-medium text-ink-gray-6 uppercase">Period</th>
+							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Gain</th>
+							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Loss</th>
+							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Net</th>
+						</tr>
+					</thead>
+					<tbody class="divide-y divide-outline-gray-1">
+						<tr v-for="row in data.realized_forex_trend" :key="row.period">
+							<td class="px-4 py-3 text-sm text-ink-gray-9">{{ formatPeriod(row.period) }}</td>
+							<td class="px-4 py-3 text-right text-sm text-ink-gray-9">{{ formatCurrency(row.forex_gain, currency) }}</td>
+							<td class="px-4 py-3 text-right text-sm text-ink-gray-9">{{ formatCurrency(row.forex_loss, currency) }}</td>
+							<td class="px-4 py-3 text-right text-sm font-bold"
+								:class="deltaInk(row.forex_gain - row.forex_loss, { higherIsBetter: true })">
+								{{ formatCurrency(row.forex_gain - row.forex_loss, currency) }}
+							</td>
+						</tr>
+					</tbody>
+				</table>
+				<div v-else class="text-center py-8 text-ink-gray-6">
+					No realised forex entries in this period
+				</div>
+			</div>
+		</div>
 	</div>
 </template>
 
@@ -146,7 +177,7 @@ import { Badge } from 'frappe-ui'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
 import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { deltaInk, severityBadge } from '../../utils/status'
-import { formatForeignCurrency, formatDate } from './format'
+import { formatForeignCurrency, formatDate, formatPeriod } from './format'
 import { formatMoney as formatCurrency } from '../../utils/format'
 import type { ForexData } from './types'
 

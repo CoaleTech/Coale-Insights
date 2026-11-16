@@ -1,20 +1,12 @@
 <template>
   <div class="budget-variance-tab">
 
-    <!-- Controls Bar -->
-    <div class="flex items-center justify-between mb-6">
-      <div>
-        <h2 class="text-lg font-semibold text-ink-gray-9">Budget Variance Analysis</h2>
-        <p class="text-sm text-ink-gray-6 mt-0.5">
-          Budget variance analysis and forecasting insights
-        </p>
-      </div>
-      <div class="flex items-center space-x-3">
-        <Button @click="exportReport" variant="subtle" theme="gray" size="sm">
-          <template #prefix><Download class="w-4 h-4" /></template>
-          Export
-        </Button>
-      </div>
+    <!-- Export button — heading removed; TabBrief above provides context -->
+    <div class="flex justify-end mb-6">
+      <Button @click="exportReport" variant="subtle" theme="gray" size="sm" :disabled="!hasData || data?.has_budget === false || !!error || isPermissionError">
+        <template #prefix><Download class="w-4 h-4" /></template>
+        Export
+      </Button>
     </div>
 
     <!-- Loading State: skeleton cards rather than page-blocking spinner -->
@@ -134,7 +126,7 @@
         <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-5">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-sm font-medium text-ink-gray-6">Budget Utilization</p>
+              <p class="text-sm font-medium text-ink-gray-6">Budget Utilization (to date)</p>
               <p class="text-2xl font-bold mt-1 text-ink-gray-9">
                 {{ formatPercentage(budgetData?.summary?.budget_utilization || 0) }}
               </p>
@@ -221,6 +213,7 @@
             v-if="monthlyVarianceChart"
             class="h-48"
             :config="monthlyVarianceChart"
+            :value-format="(v) => formatMoney(v, currency)"
           />
           <div v-else class="h-48 flex items-center justify-center text-ink-gray-6">
             <div class="text-center">

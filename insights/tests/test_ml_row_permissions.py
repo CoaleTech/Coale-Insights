@@ -27,7 +27,7 @@ import unittest
 import frappe
 import ibis
 
-from insights.api.ml.ibis_source import t
+from insights.api.ml.ibis_source import gl_ledger, t
 from insights.api.ml.permissions import (
     DASHBOARD_DOCTYPES,
     _permitted_readers,
@@ -252,6 +252,25 @@ class MLRowPermissions(unittest.TestCase):
                     readable_parent,
                     f"{child} resolved as readable for {user} with no readable parent",
                 )
+
+    def test_gl_ledger_copies_only_the_rows_the_user_may_read(self):
+        """`gl_ledger` materialises the ledger once per compute, so it must be
+        built from the permissioned `t()` expressions, never the bare table,
+        and never be served from one user's copy to another."""
+        for user in ["Administrator", *self.users[:6]]:
+            self._as(user)
+            frappe.local.insights_gl_ledger = None
+            gle, acc = t("GL Entry"), t("Account")
+            joined = gle.join(acc, gle["account"] == acc["name"])
+            joined = joined.filter(
+                (joined["is_cancelled"] == 0) & (joined["voucher_type"] != "Period Closing Voucher")
+            )
+            expected = joined.count().execute()
+            self.assertEqual(
+                gl_ledger(None).count().execute(),
+                expected,
+                f"{user}'s ledger copy holds a different row set than the permitted GL Entry rows",
+            )
 
 
 if __name__ == "__main__":

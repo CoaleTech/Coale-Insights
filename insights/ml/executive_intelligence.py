@@ -277,29 +277,58 @@ def _load_marketing(period: str) -> Dict[str, Any]:
 # ────────────────────────────────────────────────────────────────────────────
 
 
-def _financial_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
+def _gl_period_pnl(period: str) -> tuple[float, float]:
+    """(revenue, profit) summed from the ledger over `period`'s window:
+    Income minus Expense, cancelled entries and period-closing vouchers
+    excluded -- the same basis as FinancialIntelligence's ytd_* scalars."""
+    import ibis
+
+    from insights.api.ml.ibis_source import gl_ledger
+    from insights.ml.hr_intelligence import _period_end_date, _period_start_date
+
+    gl = gl_ledger(_company())
+    j = gl.filter(
+        (gl["posting_date"] >= _period_start_date(period))
+        & (gl["posting_date"] <= _period_end_date(period))
+    )
+    row = j.aggregate(
+        income=ibis.ifelse(j["root_type"] == "Income", j["credit"] - j["debit"], 0).sum(),
+        expense=ibis.ifelse(j["root_type"] == "Expense", j["debit"] - j["credit"], 0).sum(),
+    ).execute().iloc[0]
+    income, expense = float(row["income"] or 0), float(row["expense"] or 0)
+    return income, income - expense
+
+
+def _financial_kpis(data: Dict[str, Any], period: str = "YTD") -> Dict[str, Any]:
     if data.get("error"):
         return _unavailable("Financial")
     try:
-        # FinancialIntelligence().train() returns an overview dict with
-        # mtd_revenue / mtd_profit / ytd_revenue / ytd_profit keys per the
-        # rewritten module. We treat MTD figures as the headline KPI (the
-        # dashboard's period selector can re-roll to a different period
-        # later; this is a sensible default for an empty-data site too).
+        # FinancialIntelligence computes two fixed P&L windows: current calendar
+        # month (mtd_*) and fiscal year to date (ytd_*). Those two answer the
+        # MTD and YTD pickers exactly; QTD, TTM and custom ranges are summed
+        # straight from the ledger over the selected window instead of
+        # silently showing the fiscal-YTD figure under a different picker.
         overview = data.get("overview", {}) or {}
-        mtd_revenue = _f(overview.get("mtd_revenue"))
-        mtd_profit = _f(overview.get("mtd_profit"))
-        net_margin = (mtd_profit / mtd_revenue * 100) if mtd_revenue else 0.0
+        if period == "MTD":
+            rev = _f(overview.get("mtd_revenue"))
+            profit = _f(overview.get("mtd_profit"))
+            suffix = "MTD"
+        elif period == "YTD":
+            rev = _f(overview.get("ytd_revenue"))
+            profit = _f(overview.get("ytd_profit"))
+            suffix = "YTD"
+        else:
+            rev, profit = _gl_period_pnl(period)
+            suffix = period if period in ("QTD", "TTM") else _("Range")
+        rev_label = _("Revenue ({0})").format(suffix)
+        margin_label = _("Net Margin ({0})").format(suffix)
+        # No revenue in the window means no margin, not a 0% margin.
+        net_margin = (profit / rev * 100) if rev else None
 
-        # Cash runway: reuse the burn-rate figure FinancialIntelligence already
-        # computed (cash / net outflow -- how long the balance lasts if the
-        # current spend pace continues). When net burn is non-positive (the
-        # site is cash-flow positive) FinancialIntelligence returns
-        # `runway_months=None`; surface an "unavailable" KPI then so the
-        # number doesn't lie.
         cash_flow = data.get("cash_flow", {}) or {}
-        raw_runway = _f(cash_flow.get("runway_months"))
-        burn_positive = raw_runway > 0
+        raw_runway = cash_flow.get("runway_months")
+        burn_positive = raw_runway is not None  # None = no net burn; 0 = overdrawn (ranks red)
+        raw_runway = _f(raw_runway)
         if burn_positive:
             runway_weeks = round(raw_runway * 4.33, 1)
             runway_kpi = _kpi(
@@ -319,13 +348,15 @@ def _financial_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
             )
         return {
             "revenue": _kpi(
-                mtd_revenue, label=_("Revenue (MTD)"), format="currency",
+                rev, label=rev_label, format="currency",
                 target=0, variance_pct=None,
-                extra={"rag_status": _rag(mtd_revenue, green=1, amber=0)},
+                extra={"rag_status": _rag(rev, green=1, amber=0)},
             ),
             "net_margin": _kpi(
-                round(net_margin, 2), label=_("Net Margin %"), format="percentage",
-                target=10.0, variance_pct=net_margin - 10.0,
+                None if net_margin is None else round(net_margin, 2),
+                label=margin_label, format="percentage",
+                target=10.0,
+                variance_pct=None if net_margin is None else net_margin - 10.0,
                 rag=_rag(net_margin, green=10, amber=5),
             ),
             "cash_runway": runway_kpi,
@@ -345,10 +376,8 @@ def _sales_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
         fulfillment = data.get("fulfillment", {}) or {}
 
         mom_growth = _f(summary.get("mom_growth", comparisons.get("mom_growth")))
-        yoy_growth = _f(summary.get("yoy_growth", comparisons.get("yoy_growth")))
         overall_margin = _f(summary.get("overall_margin", margins.get("overall_margin")))
-        # Prefer MoM as the headline growth KPI; fall back to YoY if MoM is 0.
-        growth_rate = mom_growth if mom_growth else yoy_growth
+        growth_rate = mom_growth
         # AOV from revenue metrics
         rev_metrics = data.get("revenue_metrics", {}) or {}
         pipeline_value = _f(rev_metrics.get("total_revenue", summary.get("total_revenue")))
@@ -366,7 +395,7 @@ def _sales_kpis(data: Dict[str, Any]) -> Dict[str, Any]:
                 rag=_rag(overall_margin, green=25, amber=15),
             ),
             "pipeline_value": _kpi(
-                pipeline_value, label=_("Revenue (12m)"), format="currency",
+                pipeline_value, label=_("Sales Revenue (period)"), format="currency",
                 target=0, variance_pct=None,
                 extra={"rag_status": _rag(pipeline_value, green=1, amber=0)},
             ),
@@ -438,7 +467,7 @@ def _operations_kpis(inv: Dict[str, Any], proc: Dict[str, Any]) -> Dict[str, Any
         # SKUs out of stock, which is the opposite of what the data says.
         out_of_stock = _f(stock.get("out_of_stock_count"))
         if total_items > 0 and out_of_stock > 0:
-            stockout_pct = round((out_of_stock / total_items) * 100, 1)
+            stockout_pct = round((out_of_stock / total_items) * 100 + 1e-9, 1)  # half up: 36/64 = 56.3, as the other pages show
             out["stockout_rate"] = _kpi(
                 stockout_pct, label=_("Stockout Rate %"), format="percentage",
                 target=2.0, variance_pct=stockout_pct - 2.0,
@@ -758,6 +787,13 @@ def _trend_sparklines(period: str) -> Dict[str, List[float]]:
             .execute()
         )
         trends["revenue"] = [float(v or 0) for v in rev["total"].tolist()]
+        trends["revenue_12m"] = round(sum(trends["revenue"]), 2)
+        # Month labels for the revenue hero chart (Variant C); safe strftime
+        # on date/Timestamp/str — whatever ibis materialises for a truncated date.
+        trends["revenue_months"] = [
+            m.strftime("%b '%y") if hasattr(m, "strftime") else str(m)[:7]
+            for m in rev["month"].tolist()
+        ]
     except Exception as e:
         frappe.log_error(f"Executive: revenue trend failed: {e}", "Executive Intelligence")
         trends["revenue"] = []
@@ -1023,17 +1059,23 @@ def get_executive_summary(period: str = "YTD") -> Dict[str, Any]:
     would look like a valid payload to ``cached_run`` and get cached for
     a full day.
     """
-    sales = _load_sales(period)
-    customer = _load_customer(period)
-    inventory = _load_inventory(period)
-    procurement = _load_procurement(period)
-    financial = _load_financial(period)
-    risk = _load_risk(period)
-    hr = _load_hr(period)
-    manufacturing = _load_manufacturing(period)
+    from insights.api.ml.utils import fork_map
+
+    sales, customer, inventory, procurement, financial, risk, hr, manufacturing = fork_map(
+        [
+            lambda: _load_sales(period),
+            lambda: _load_customer(period),
+            lambda: _load_inventory(period),
+            lambda: _load_procurement(period),
+            lambda: _load_financial(period),
+            lambda: _load_risk(period),
+            lambda: _load_hr(period),
+            lambda: _load_manufacturing(period),
+        ]
+    )
 
     kpis: Dict[str, Any] = {
-        "financial": _financial_kpis(financial),
+        "financial": _financial_kpis(financial, period),
         "sales": _sales_kpis(sales),
         "customer": _customer_kpis(customer),
         "operations": _operations_kpis(inventory, procurement),

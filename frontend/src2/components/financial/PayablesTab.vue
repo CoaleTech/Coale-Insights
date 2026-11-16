@@ -1,47 +1,71 @@
 <template>
 	<div class="space-y-6">
 		<!-- AP Summary -->
-		<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Total Outstanding</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data.total_outstanding, currency) }}</div>
-				<div v-if="glBalanceDiffers(data.gl_balance, data.total_outstanding)" class="text-xs text-ink-gray-6">
-					GL balance {{ formatCurrency(data.gl_balance, currency) }}
+		<div class="grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
+			<KpiCard
+				label="Total Outstanding"
+				:amount="data.total_outstanding"
+				:currency="currency"
+				:sublabel="glBalanceDiffers(data.gl_balance, data.total_outstanding) ? `GL balance ${formatCurrency(data.gl_balance, currency)}` : undefined"
+			/>
+			<KpiCard
+				label="Days Payable Outstanding"
+				:value="formatDays(data.current_dpo)"
+			/>
+			<KpiCard
+				label="Invoice Count"
+				:value="data.invoice_count ?? null"
+			/>
+			<KpiCard
+				label="Avg Overdue Days"
+				:value="formatDays(data.avg_overdue_days)"
+			/>
+			<KpiCard
+				label="Avg Invoice Age"
+				:value="formatDays(data.avg_open_payable_age_days)"
+			/>
+			<KpiCard
+				label="90+ Days Overdue"
+				:amount="get90PlusOverdue(data.aging_buckets)"
+				:currency="currency"
+				:severity="get90PlusOverdue(data.aging_buckets) > 0 ? 'high' : undefined"
+				:clickable="true"
+				@click="open90Plus"
+			/>
+		</div>
+
+		<!-- 7-day cash adequacy bridge + concentration: arithmetic on payload fields only -->
+		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+			<div v-if="bridge" class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+				<SectionHeader variant="caption" title="7-Day Cash Adequacy Bridge" hint="Liquid cash and fixed deposits against invoices due within 7 days" :level="3" />
+				<div class="mt-4 space-y-3">
+					<div v-for="row in bridge.rows" :key="row.label" class="grid grid-cols-[9rem_1fr_auto] sm:grid-cols-[12rem_1fr_auto] items-center gap-3 text-sm">
+						<span class="text-ink-gray-7">{{ row.label }}</span>
+						<div class="h-3 bg-surface-gray-2 rounded-full overflow-hidden" role="img" :aria-label="`${row.label}: ${row.text}`">
+							<div :class="['h-full rounded-full', row.fill]" :style="{ width: `${row.pct}%` }" />
+						</div>
+						<span class="tnum text-right font-medium text-ink-gray-9">{{ row.text }}</span>
+					</div>
 				</div>
+				<p class="mt-4 text-sm" :class="bridge.gap > 0 ? 'text-ink-red-3' : 'text-ink-gray-7'">
+					{{ bridge.note }}
+				</p>
 			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Days Payable Outstanding</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatDays(data.current_dpo) }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Invoice Count</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ data.invoice_count }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Avg Overdue Days</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatDays(data.avg_overdue_days) }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Avg Invoice Age</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatDays(data.avg_open_payable_age_days) }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
-				 role="button"
-				 tabindex="0"
-				 @click="open90Plus"
-				 @keydown.enter="open90Plus"
-				 @keydown.space.prevent="open90Plus">
-				<div class="text-sm text-ink-gray-6">90+ Days Overdue</div>
-				<div class="text-xl font-bold" :class="deltaInk(-1, { higherIsBetter: true })">
-					{{ formatCurrency(get90PlusOverdue(data.aging_buckets), currency) }}
-				</div>
+			<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+				<SectionHeader variant="caption" title="AP Concentration and Aging Health" :level="3" />
+				<dl class="mt-4 space-y-3 text-sm">
+					<div v-for="f in concentration" :key="f.label" class="flex items-baseline justify-between gap-4">
+						<dt class="text-ink-gray-7">{{ f.label }}</dt>
+						<dd class="tnum text-right font-medium text-ink-gray-9">{{ f.value }}</dd>
+					</div>
+				</dl>
 			</div>
 		</div>
 
 		<!-- Aging Analysis -->
-		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Accounts Payable Aging" :level="3" />
-			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-44 sm:h-52 lg:h-56" :config="apAgingConfig" />
+			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-80" :config="apAgingConfig" :value-format="(v) => formatCurrency(v, currency)" />
 			<table v-if="data.aging_buckets?.length" class="sr-only">
 				<caption>Accounts payable by aging bucket</caption>
 				<thead>
@@ -63,7 +87,7 @@
 
 		<!-- Due soon + schedule -->
 		<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-			<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+			<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 				<SectionHeader variant="caption" title="Due Soon" :level="3" />
 				<div v-if="data.upcoming_payments?.length" class="mt-4 overflow-x-auto max-h-72 overflow-y-auto">
 					<table class="min-w-full">
@@ -91,7 +115,7 @@
 				<div v-else class="mt-4 py-4 text-center text-sm text-ink-gray-6">No bills falling due soon</div>
 			</div>
 
-			<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+			<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 				<SectionHeader variant="caption" title="Payment Schedule" :level="3" />
 				<div v-if="data.payment_schedule?.length" class="mt-4 overflow-x-auto">
 					<table class="min-w-full">
@@ -118,7 +142,7 @@
 		</div>
 
 		<!-- Top Creditors -->
-		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Top Outstanding Suppliers" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full">
@@ -153,19 +177,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
+import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
-import { deltaInk } from '../../utils/status'
 import { themeColor } from '../../utils/chartTheme'
 import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { formatDate, formatDays, get90PlusOverdue, glBalanceDiffers } from './format'
-import { formatMoney as formatCurrency } from '../../utils/format'
-import type { PayablesData, TopSupplierRow } from './types'
+import { formatMoney as formatCurrency, formatPercent, NO_VALUE } from '../../utils/format'
+import type { CashFlowData, PayablesData, TopSupplierRow } from './types'
 
 const props = defineProps<{
 	data: PayablesData
 	currency: string
 	finEndpoint: string
 	drillDown: ReturnType<typeof useDrillDown>
+	cashFlow?: CashFlowData
 }>()
 
 const apAgingConfig = computed(() => ({
@@ -178,6 +203,56 @@ const apAgingConfig = computed(() => ({
 	yAxis: { title: props.currency, yMin: 0 },
 	series: [{ name: 'Amount', type: 'bar' as const, color: themeColor('--app-warn-fill') }],
 }))
+
+const bridge = computed(() => {
+	const cash = props.cashFlow
+	if (cash?.liquid_cash == null || !Number.isFinite(Number(cash.liquid_cash))) return null
+	const liquid = Number(cash.liquid_cash)
+	const fd = Number(cash.fd_balance) || 0
+	const due = (props.data.upcoming_payments ?? [])
+		.filter(b => b.days_until_due <= 7)
+		.reduce((s, b) => s + Number(b.outstanding_amount), 0)
+	const net = liquid + fd - due
+	const gap = Math.max(due - liquid, 0)
+	const scale = Math.max(Math.abs(liquid), fd, due, Math.abs(net)) || 1
+	const money = (n: number) => formatCurrency(n, props.currency)
+	const row = (label: string, amount: number, fill: string, text: string) => ({
+		label, fill, text, pct: Math.min(Math.abs(amount) / scale * 100, 100),
+	})
+	return {
+		gap,
+		rows: [
+			row('Liquid cash', liquid, liquid >= 0 ? 'bg-pos-fill' : 'bg-neg-fill', money(liquid)),
+			row('Fixed deposits', fd, 'bg-muted-fill', money(fd)),
+			row('Due within 7 days', due, 'bg-warn-fill', `-${money(due)}`),
+			row('Net after 7-day payments', net, net >= 0 ? 'bg-pos-fill' : 'bg-neg-fill', money(net)),
+		],
+		note: gap > 0
+			? `Payments due within 7 days exceed liquid cash by ${money(gap)}. After counting fixed deposits the net is ${money(net)}.`
+			: `Liquid cash covers the ${money(due)} due within 7 days.`,
+	}
+})
+
+const concentration = computed(() => {
+	const d = props.data
+	const total = Number(d.total_outstanding)
+	const top = d.top_suppliers?.[0]
+	const bucket = [...(d.aging_buckets ?? [])].sort((a, b) => Number(b.amount) - Number(a.amount))[0]
+	const share = (n: number) => (total > 0 ? formatPercent(n / total * 100) : NO_VALUE)
+	return [
+		{ label: 'Days payable outstanding', value: formatDays(d.current_dpo) },
+		{ label: 'Average open invoice age', value: formatDays(d.avg_open_payable_age_days) },
+		{ label: 'Average overdue days', value: formatDays(d.avg_overdue_days) },
+		{
+			label: top ? `Largest supplier: ${top.supplier_name || top.supplier}` : 'Largest supplier',
+			value: top ? `${formatCurrency(top.total_outstanding, props.currency)} (${share(Number(top.total_outstanding))} of AP, ${top.invoice_count} invoices)` : NO_VALUE,
+		},
+		{
+			label: bucket ? `Largest aging bucket: ${bucket.bucket}` : 'Largest aging bucket',
+			value: bucket ? `${formatCurrency(bucket.amount, props.currency)} (${share(Number(bucket.amount))} of AP)` : NO_VALUE,
+		},
+	]
+})
 
 const open90Plus = () =>
 	props.drillDown.open(props.finEndpoint, 'Overdue 90+ Days AP', { metric: 'overdue_ap_90' })

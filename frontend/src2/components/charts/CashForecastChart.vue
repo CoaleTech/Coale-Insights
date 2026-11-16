@@ -2,7 +2,7 @@
   <div class="w-full h-full">
     <div v-if="hasData" class="space-y-2">
       <!-- frappe-ui AxisChart: three area series, one per scenario -->
-      <IntelligenceChart class="h-48 sm:h-56 lg:h-64" :config="axisConfig" />
+      <IntelligenceChart class="h-48 sm:h-56 lg:h-64" :config="axisConfig" :value-format="formatCurrency" hide-legend />
 
       <!-- Accessible text equivalent for screen readers (canvas is invisible to AT) -->
       <table class="sr-only">
@@ -69,6 +69,8 @@ import IntelligenceChart from '../../intelligence/components/IntelligenceChart.v
 
 import { computed } from 'vue'
 import { themeColor } from '../../utils/chartTheme'
+import { useCurrency } from '../../composables/useCurrency'
+import { formatMoney } from '../../utils/format'
 
 interface ForecastPoint {
   date: string
@@ -80,38 +82,37 @@ interface Props {
   base: ForecastPoint[]
   optimistic: ForecastPoint[]
   pessimistic: ForecastPoint[]
-  currency?: string
 }
 
-const props = withDefaults(defineProps<Props>(), { currency: 'KES' })
+const props = defineProps<Props>()
+
+// Company currency from the server. This chart used to default to 'KES' (en-KE), so the
+// screen-reader table announced Kenyan shillings on an INR site.
+const currency = useCurrency('')
 
 const hasData = computed(() => props.base?.length > 0)
 
-// Show every 7th day for cleaner display (weekly)
+// Show every 7th day for cleaner display (weekly), plus the last day: 90 days is
+// not a whole number of weeks, so the sample alone would stop at day 84 and the
+// chart would end short of the "Day 90" tiles and the weekly summary table (W13).
 const displayData = computed(() => {
-  if (!props.base?.length) return []
-  const result = []
-  for (let i = 6; i < props.base.length; i += 7) {
-    result.push({
-      label: props.base[i].date,
-      shortLabel: `W${Math.ceil((i + 1) / 7)}`,
-      base: props.base[i].balance,
-      optimistic: props.optimistic?.[i]?.balance ?? props.base[i].balance,
-      pessimistic: props.pessimistic?.[i]?.balance ?? props.base[i].balance,
-    })
-  }
-  return result
+  const n = props.base?.length ?? 0
+  if (!n) return []
+  const days: number[] = []
+  for (let i = 6; i < n; i += 7) days.push(i)
+  if (days.at(-1) !== n - 1) days.push(n - 1)
+  return days.map(i => ({
+    label: props.base[i].date,
+    shortLabel: `W${Math.ceil((i + 1) / 7)}`,
+    base: props.base[i].balance,
+    optimistic: props.optimistic?.[i]?.balance ?? props.base[i].balance,
+    pessimistic: props.pessimistic?.[i]?.balance ?? props.base[i].balance,
+  }))
 })
 
-const lastOptimistic = computed(() =>
-  displayData.value.length ? displayData.value[displayData.value.length - 1].optimistic : 0
-)
-const lastBase = computed(() =>
-  displayData.value.length ? displayData.value[displayData.value.length - 1].base : 0
-)
-const lastPessimistic = computed(() =>
-  displayData.value.length ? displayData.value[displayData.value.length - 1].pessimistic : 0
-)
+const lastOptimistic = computed(() => props.optimistic?.at(-1)?.balance ?? props.base?.at(-1)?.balance ?? 0)
+const lastBase = computed(() => props.base?.at(-1)?.balance ?? 0)
+const lastPessimistic = computed(() => props.pessimistic?.at(-1)?.balance ?? props.base?.at(-1)?.balance ?? 0)
 
 /**
  * AxisChart config. Three area series so the fill bands are visible; `showDataPoints: false`
@@ -154,19 +155,6 @@ const axisConfig = computed(() => ({
   ],
 }))
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: props.currency,
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value)
-
-const formatCompact = (value: number) => {
-  const absValue = Math.abs(value)
-  const sign = value < 0 ? '-' : ''
-  if (absValue >= 1_000_000) return `${sign}${(absValue / 1_000_000).toFixed(1)}M`
-  if (absValue >= 1_000) return `${sign}${(absValue / 1_000).toFixed(0)}K`
-  return sign + absValue.toFixed(0)
-}
+const formatCurrency = (value: number | null | undefined) => formatMoney(value, currency.value)
+const formatCompact = (value: number) => formatMoney(value, currency.value, { compact: true })
 </script>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { graphic } from 'echarts/core'
 import { getColors } from '../colors'
+import { themeColor } from '../../utils/chartTheme'
 import BaseChart from './BaseChart.vue'
 import { computed } from 'vue'
 
@@ -10,7 +11,7 @@ const color = computed(() => props.color || getColors()[0])
 const gradient = computed(() => {
 	return new graphic.LinearGradient(0, 0, 0, 1, [
 		{ offset: 0, color: color.value },
-		{ offset: 1, color: '#fff' },
+		{ offset: 1, color: themeColor('--app-canvas') },
 	])
 })
 </script>

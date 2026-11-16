@@ -58,6 +58,23 @@ def _period_root_type_breakdown(company: str, start: str, end: str,
 
 
 
+def _simulate_revenue_expenses(base_revenue, base_expenses, rev_volatility, exp_volatility,
+                               rho, period_months, num_simulations):
+    """Draw revenue and expenses for a period of `period_months`.
+
+    The volatilities are month-to-month, while the bases are period totals:
+    independent months make a total's relative spread shrink with 1/sqrt(months).
+    The two series are drawn together at correlation `rho` (COGS follows sales)
+    rather than independently, which overstated the spread of net income many times."""
+    import numpy as np
+    spread = 1 / np.sqrt(period_months)
+    z = np.random.multivariate_normal([0, 0], [[1, rho], [rho, 1]], num_simulations)
+    return (
+        base_revenue * (1 + rev_volatility * spread * z[:, 0]),
+        base_expenses * (1 + exp_volatility * spread * z[:, 1]),
+    )
+
+
 def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     """Generate scenario analysis with sensitivity and Monte Carlo"""
     import numpy as np
@@ -140,6 +157,7 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
         .where(gle.posting_date.between(twelve_months_ago, last_month_end))
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
+        .where(gle.voucher_type != "Period Closing Voucher")
         .groupby(month_expr)
         .run(as_dict=True)
     )
@@ -152,12 +170,50 @@ def generate_scenario_analysis(intelligence) -> Dict[str, Any]:
     else:
         rev_volatility = 0.15  # Default 15% volatility
 
-    exp_volatility = rev_volatility * 0.7  # Expenses less volatile
+    # Expense volatility: computed from actual GL expense history over the same
+    # 12-month window. The previous code used `rev_volatility * 0.7` — a fixed
+    # multiplier that produced a fabricated figure (~18%) instead of the real
+    # value (~27% on this bench), severely underestimating expense risk in the
+    # Monte Carlo. Falls back to `rev_volatility * 0.7` only when there is
+    # insufficient history to compute it.
+    monthly_expenses = (
+        frappe.qb.from_(gle)
+        .join(acc)
+        .on(gle.account == acc.name)
+        .select(
+            month_expr,
+            Abs(Sum(gle.debit - gle.credit)).as_("expenses"),
+        )
+        .where(acc.root_type == "Expense")
+        .where(gle.posting_date.between(twelve_months_ago, last_month_end))
+        .where(gle.company == intelligence.company)
+        .where(gle.is_cancelled == 0)
+        .where(gle.voucher_type != "Period Closing Voucher")
+        .groupby(month_expr)
+        .run(as_dict=True)
+    )
+    if monthly_expenses and len(monthly_expenses) > 1:
+        exp_values = [float(r.expenses or 0) for r in monthly_expenses]
+        exp_mean = np.mean(exp_values)
+        exp_std = np.std(exp_values)
+        exp_volatility = exp_std / exp_mean if exp_mean > 0 else (rev_volatility * 0.7)
+    else:
+        exp_volatility = rev_volatility * 0.7  # fallback when insufficient history
 
-    # Run simulations
+    # Monthly volatilities vs fiscal-YTD totals, and correlated draws: see
+    # `_simulate_revenue_expenses`.
+    period_months = max(((getdate(today) - getdate(fy_start)).days + 1) / 30.4375, 1)
+    rev_by_month = {r.period: float(r.revenue or 0) for r in monthly_revenues or []}
+    exp_by_month = {r.period: float(r.expenses or 0) for r in monthly_expenses or []}
+    shared = sorted(rev_by_month.keys() & exp_by_month.keys())
+    rho = 0.0
+    if len(shared) > 2:
+        rho = float(np.corrcoef([rev_by_month[m] for m in shared], [exp_by_month[m] for m in shared])[0, 1])
+        rho = rho if np.isfinite(rho) else 0.0
     np.random.seed(42)  # For reproducibility
-    simulated_revenues = np.random.normal(base_revenue, base_revenue * rev_volatility, num_simulations)
-    simulated_expenses = np.random.normal(base_expenses, base_expenses * exp_volatility, num_simulations)
+    simulated_revenues, simulated_expenses = _simulate_revenue_expenses(
+        base_revenue, base_expenses, rev_volatility, exp_volatility, rho, period_months, num_simulations
+    )
     simulated_net_income = simulated_revenues - simulated_expenses
     simulated_net_after_tax = np.where(
         simulated_net_income > 0,
@@ -271,6 +327,17 @@ def _fy_label(start, end) -> str:
     return f"FY{start.year % 100:02d}-{end.year % 100:02d}" if end.year != start.year else f"FY{start.year}"
 
 
+def _quarter_label(q_start, fy_start) -> str:
+    """'Q2 FY26-27' for a fiscal year that starts on a calendar-quarter boundary
+    (April here); calendar naming only if the year starts mid-quarter, where
+    calendar quarters would not be fiscal quarters."""
+    if fy_start.month % 3 != 1:
+        return f"Q{(q_start.month - 1) // 3 + 1} {q_start.year}"
+    year = q_start.year if q_start.month >= fy_start.month else q_start.year - 1
+    start = fy_start.replace(year=year, day=1)
+    return f"Q{(q_start.month - fy_start.month) % 12 // 3 + 1} {_fy_label(start, add_months(start, 12) - timedelta(days=1))}"
+
+
 def build_periods(today, fy_start, fy_end) -> Dict[str, Dict[str, Any]]:
     """Period windows (date objects) keyed like `period_data`. `partial` marks
     a still-open current period that started <15 days ago. The prior quarter
@@ -285,10 +352,10 @@ def build_periods(today, fy_start, fy_end) -> Dict[str, Dict[str, Any]]:
                           "partial": (today - month_start).days < 15},
         "prior_month": {"start": pm_start, "end": month_start - timedelta(days=1), "label": pm_start.strftime('%b %Y'),
                         "partial": False},
-        "current_quarter": {"start": q_start, "end": today, "label": f"Q{(today.month - 1) // 3 + 1} {today.year}",
+        "current_quarter": {"start": q_start, "end": today, "label": _quarter_label(q_start, fy_start),
                             "partial": (today - q_start).days < 15},
         "prior_quarter": {"start": pq_start, "end": q_start - timedelta(days=1),
-                          "label": f"Q{(pq_start.month - 1) // 3 + 1} {pq_start.year}", "partial": False},
+                          "label": _quarter_label(pq_start, fy_start), "partial": False},
         "current_ytd": {"start": fy_start, "end": today, "label": f"YTD {_fy_label(fy_start, fy_end)}",
                         "partial": False},
         "prior_ytd": {"start": pfy_start, "end": add_months(today, -12), "label": f"YTD {_fy_label(pfy_start, pfy_end)}",

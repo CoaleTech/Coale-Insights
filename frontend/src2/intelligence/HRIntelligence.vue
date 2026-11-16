@@ -12,7 +12,7 @@ import {
   severityBadge, deltaInk, deltaGlyph, ragSeverity, scoreSeverity,
   type Severity,
 } from '../utils/status'
-import { formatCount, formatMoney, formatPercent } from '../utils/format'
+import { formatCount, formatMoney, formatPercent, NO_VALUE } from '../utils/format'
 import { FISCAL_PERIOD_RANGES } from '../utils/dateRangePresets'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
@@ -21,6 +21,9 @@ import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import KpiCard from './components/KpiCard.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
 import SectionHeader from './components/SectionHeader.vue'
+import TabBrief, { type Brief } from './components/TabBrief.vue'
+import TabActions from './components/TabActions.vue'
+import StatStrip, { type StatItem } from './components/StatStrip.vue'
 import SkeletonBlock from './components/SkeletonBlock.vue'
 
 // ─── Payload interfaces (confirmed against insights/ml/hr_intelligence.py) ───
@@ -33,6 +36,8 @@ interface HeadcountMetrics {
   growth_rate_pct?: number
   turnover_rate_pct?: number
   hire_rate_pct?: number
+  /** Employees on the books the day before the period starts, counted from joining/relieving dates. */
+  opening_headcount?: number
   largest_department?: string
   smallest_department?: string
   department_count?: number
@@ -159,6 +164,18 @@ interface HRRecommendation {
   impact?: string  // [INFERENCE] not in Python source; guarded by v-if in template
 }
 
+
+/** Item in the synthesised "Needs Attention" rail on the Overview tab.
+ *  Derived client-side from payload fields; every field used comes from
+ *  a server-computed value, not a client heuristic. */
+interface AttentionItem {
+  severity: Severity
+  badge: string
+  category: string
+  title: string
+  description: string
+  actions: string[]
+}
 /** Row in workforce_composition.employment_type_distribution.
  *  API returns employment_type or type (both optional; exactly one is present). */
 interface EmploymentTypeRow {
@@ -187,6 +204,7 @@ interface HRPayload {
   generated_at?: string
   /** Company reporting currency. Sent so payroll figures are never labelled by a literal. */
   base_currency?: string
+  tab_briefs?: Record<string, Brief>
   company?: string
   headcount_metrics?: HeadcountMetrics
   attrition_metrics?: AttritionMetrics
@@ -213,12 +231,63 @@ const period = ref('TTM')
 
 const tabIndex = ref(0)
 const tabs = [
-  { label: 'Workforce Overview' },
-  { label: 'Attrition & Retention' },
-  { label: 'Payroll & Compensation' },
-  { label: 'Department Health' },
-  { label: 'Workforce Planning' },
+  { id: 'overview', label: 'Workforce Overview' },
+  { id: 'attrition', label: 'Attrition & Retention' },
+  { id: 'payroll', label: 'Payroll & Compensation' },
+  { id: 'department', label: 'Department Health' },
+  { id: 'planning', label: 'Workforce Planning' },
 ]
+const activeTab = computed(() => tabs[tabIndex.value]?.id ?? 'overview')
+const tabBriefs = computed(() => data.value?.tab_briefs ?? {})
+const attritionStrip = computed<StatItem[]>(() => {
+  const am = data.value?.attrition_metrics
+  const rate = am?.attrition_rate_pct
+  return [
+    { label: 'Attrition Rate', percent: rate ?? null },
+    { label: 'Total Exits', value: am?.total_exits ?? null },
+    { label: 'Voluntary Exits', value: am?.voluntary_exits ?? null },
+    { label: 'Involuntary Exits', value: am?.involuntary_exits ?? null },
+    { label: 'Retention Rate', percent: rate == null ? null : 100 - rate },
+    { label: 'Predicted Attrition', percent: data.value?.attrition_risk?.predicted_attrition_rate ?? null, sublabel: 'next period' },
+  ]
+})
+// No Salary Slips: show the dash, not a zero that reads as a real payroll of nothing.
+const payrollMissing = computed(() => data.value?.payroll_metrics?.payroll_efficiency === 'no_data')
+const payrollStrip = computed<StatItem[]>(() => {
+  const pm = data.value?.payroll_metrics
+  const gap = payrollMissing.value
+  return [
+    { label: 'Total Payroll', amount: gap ? null : pm?.total_payroll_cost ?? null },
+    { label: 'Avg Salary', amount: gap ? null : pm?.average_salary ?? null },
+    { label: 'Cost Per Employee', amount: gap ? null : pm?.cost_per_employee ?? null },
+    { label: 'Deduction Rate', percent: gap ? null : pm?.deduction_rate_pct ?? null },
+  ]
+})
+const departmentStrip = computed<StatItem[]>(() => {
+  const dm = data.value?.department_health?.department_metrics
+  if (!dm) return []
+  const named = Object.keys(dm).filter(d => d !== '(Unassigned)')
+  const total = data.value?.headcount_metrics?.total_employees ?? null
+  const big = data.value?.department_health?.largest_department
+  return [
+    { label: 'Named Departments', value: named.length },
+    { label: 'Unassigned', value: dm['(Unassigned)']?.headcount ?? 0, sublabel: total == null ? undefined : `of ${total} employees` },
+    { label: 'Largest Department', value: big ? big.split(' - ')[0] : null, sublabel: big && dm[big] ? `${dm[big].headcount} employees` : undefined },
+    { label: 'Single-Person Departments', value: named.filter(d => dm[d].headcount === 1).length, sublabel: `of ${named.length} named` },
+  ]
+})
+const planningStrip = computed<StatItem[]>(() => {
+  const hf = data.value?.hiring_forecast
+  const urgency = hf?.hiring_urgency
+  return [
+    { label: 'Total Hiring Need', value: hf?.total_hiring_need ?? null },
+    { label: 'Projected Exits', value: hf?.projected_exits_next_quarter ?? null, sublabel: 'next quarter' },
+    { label: 'Growth-Based Hires', value: hf?.growth_based_hiring ?? null },
+    { label: 'Current Attrition', percent: data.value?.attrition_metrics?.attrition_rate_pct ?? null },
+    { label: 'Predicted Attrition', percent: data.value?.attrition_risk?.predicted_attrition_rate ?? null, sublabel: 'next period' },
+    { label: 'Hiring Urgency', value: urgency ? urgency.charAt(0).toUpperCase() + urgency.slice(1) : null },
+  ]
+})
 
 const params = computed(() => ({ period: period.value as string }))
 
@@ -241,19 +310,26 @@ const {
     cache: 'hr-intelligence',
   })
 
-// Computed KPIs
+// Computed KPIs — 4 cards matching the skeleton `:kpi-count="4"`.
 const kpis = computed(() => {
   if (!data.value) return []
   const hc = data.value.headcount_metrics ?? ({} as HeadcountMetrics)
   const att = data.value.attrition_metrics ?? ({} as AttritionMetrics)
-  const pay = data.value.payroll_metrics ?? ({} as PayrollMetrics)
+  const atm = data.value.attendance_metrics ?? ({} as AttendanceMetrics)
   const eng = data.value.engagement_indicators ?? ({} as EngagementIndicators)
+  const total = hc.total_employees ?? 0
 
   return [
     {
       label: 'Total Headcount',
       value: formatCount(hc.total_employees),
-      sublabel: `${hc.new_hires || 0} new hires, ${hc.exits || 0} exits`,
+      // Show absolute counts (not just rates) so each figure is interpretable
+      // with a tiny population where one person moves the rate ~9 pp.
+      sublabel: [
+        hc.new_hires != null ? `↑${hc.new_hires} hires` : null,
+        hc.exits != null ? `↓${hc.exits} exits` : null,
+        hc.net_growth != null ? `${(hc.net_growth ?? 0) >= 0 ? '+' : ''}${hc.net_growth} net` : null,
+      ].filter(Boolean).join(' · ') || undefined,
       delta: hc.growth_rate_pct || undefined,
       deltaHigherIsBetter: true,
       drillable: true,
@@ -262,28 +338,40 @@ const kpis = computed(() => {
     {
       label: 'Attrition Rate',
       value: formatPercent(att.attrition_rate_pct),
-      sublabel: `${formatCount(att.total_exits)} exits (${formatCount(att.voluntary_exits)} voluntary)`,
+      // "X of Y" denominator: with only ~11 employees, a percent-only display
+      // is misleading — one exit is 9 pp. Show the absolute count and total.
+      sublabel: att.total_exits != null
+        ? `${att.total_exits} of ${total} exits · ${att.involuntary_exits ? `${formatPercent(att.involuntary_rate_pct)} involuntary` : 'reasons not recorded'}`
+        : undefined,
       delta: att.attrition_change || undefined,
-      // Higher attrition is worse
       deltaHigherIsBetter: false,
       severity: scoreSeverity(att.attrition_rate_pct, { good: 10, warn: 15, higherIsBetter: false }) as Severity,
-      // `get_hr_detail`'s `recent_exits` branch mirrors this exact
-      // definition (relieving_date in period, or status=Left with the date
-      // never filled in), so the drill-down list reconciles with this count.
       drillable: true,
       metric: 'recent_exits',
     },
     {
-      label: 'Avg. Salary',
-      value: formatCurrency(pay.average_salary),
-      sublabel: pay.payroll_data_note || `Total: ${formatCurrency(pay.total_payroll_cost)}`,
+      // Avg. Salary moved out of the KPI strip (no payroll data this period).
+      // Attendance Rate is more actionable at a glance and drives the
+      // engagement score; salary now appears in the hero sub-metrics row.
+      label: 'Attendance Rate',
+      value: atm.total_attendance_records === 0 ? NO_VALUE : formatPercent(atm.attendance_rate_pct),
+      sublabel: atm.total_attendance_records === 0
+        ? 'No attendance records in this period'
+        : atm.total_attendance_records != null
+          ? `${atm.present_days ?? 0} present of ${atm.total_attendance_records} records`
+          : undefined,
+      severity: atm.total_attendance_records === 0
+        ? 'none'
+        : scoreSeverity(atm.attendance_rate_pct, { good: 92, warn: 85, higherIsBetter: true }) as Severity,
       drillable: false,
       metric: undefined,
     },
     {
       label: 'Engagement Score',
       value: `${formatCount(eng.engagement_score)}/100`,
-      sublabel: eng.engagement_level || undefined,
+      sublabel: eng.key_indicators?.retention_contribution != null
+        ? `Retention contribution ${eng.key_indicators.retention_contribution}/40`
+        : (eng.engagement_level || undefined),
       severity: scoreSeverity(eng.engagement_score, { good: 75, warn: 50, higherIsBetter: true }) as Severity,
       drillable: false,
       metric: undefined,
@@ -333,18 +421,154 @@ function riskLevelSeverity(level: string | undefined): Severity {
   return ragSeverity('green')
 }
 
-/** Map hiring urgency to Severity. */
-function urgencySeverity(urgency: string | undefined): Severity {
-  if (urgency === 'high') return 'critical'
-  if (urgency === 'medium') return 'medium'
-  return 'low'
-}
-
 /** Map compensation pay-equity status to Severity. Binary because the
  *  server only reports 'good' vs anything else (e.g. 'needs_review'). */
 function payEquitySeverity(status: string | undefined): Severity {
   return status === 'good' ? 'low' : 'medium'
 }
+
+// ─── Variant C: hero waterfall + attention rail ───────────────────────────
+
+const attendanceMetrics = computed(() => data.value?.attendance_metrics ?? ({} as AttendanceMetrics))
+
+/** Opening headcount as counted by the server (falls back to closing minus net change). */
+const openingHeadcount = computed(() => {
+  const hc = data.value?.headcount_metrics ?? ({} as HeadcountMetrics)
+  return hc.opening_headcount ?? (hc.total_employees ?? 0) - ((hc.new_hires ?? 0) - (hc.exits ?? 0))
+})
+
+/** Hires that reach the closing count. A hire who is now Inactive has no leaving date, so is in neither bar. */
+const hiresCounted = computed(() => {
+  const hc = data.value?.headcount_metrics ?? ({} as HeadcountMetrics)
+  return (hc.total_employees ?? 0) - openingHeadcount.value + (hc.exits ?? 0)
+})
+const hiresInactive = computed(() => (data.value?.headcount_metrics?.new_hires ?? 0) - hiresCounted.value)
+
+const flowPeriodLabel = computed(() => FISCAL_PERIOD_RANGES.find(o => o.value === period.value)?.label ?? 'Selected Period')
+
+/** Tallest bar in the waterfall (Opening or Closing). */
+const peakHc = computed(() =>
+  Math.max(openingHeadcount.value, data.value?.headcount_metrics?.total_employees ?? 0),
+)
+
+/** Minimum headcount reached during the period (bottom of the exit bar). */
+const floorHc = computed(() =>
+  Math.max(0, openingHeadcount.value - (data.value?.headcount_metrics?.exits ?? 0)),
+)
+
+const maxDeptCount = computed(() =>
+  (data.value?.workforce_composition?.department_distribution ?? []).reduce(
+    (m, r) => Math.max(m, r.count), 1,
+  ),
+)
+
+const maxEmpTypeCount = computed(() =>
+  (data.value?.workforce_composition?.employment_type_distribution ?? []).reduce(
+    (m, r) => Math.max(m, r.count), 1,
+  ),
+)
+
+/** Bar height as a percentage of the chart container (0–100, integer). */
+function hcPct(count: number | null | undefined): number {
+  if (!peakHc.value || count == null || !Number.isFinite(count)) return 0
+  return Math.max(0, Math.min(100, Math.round((count / peakHc.value) * 100)))
+}
+
+/** Badge text colour for the attention rail.
+ *  `text-ink-amber-3` fails AA in light mode so high severity uses --app-warn via style. */
+function attentionBadgeStyle(severity: Severity): Record<string, string> {
+  if (severity === 'critical') return { color: 'var(--app-neg)' }
+  if (severity === 'high') return { color: 'var(--app-warn)' }
+  return {}
+}
+
+/** Synthesised "Needs Attention" items derived entirely from server payload fields.
+ *  Each title uses a value the backend already computed; no client-side verdicts. */
+const attentionItems = computed<AttentionItem[]>(() => {
+  if (!data.value) return []
+  const hcm = data.value.headcount_metrics ?? ({} as HeadcountMetrics)
+  const att = data.value.attrition_metrics ?? ({} as AttritionMetrics)
+  const atm = data.value.attendance_metrics ?? ({} as AttendanceMetrics)
+  const pay = data.value.payroll_metrics ?? ({} as PayrollMetrics)
+  const hiring = data.value.hiring_forecast ?? ({} as HiringForecast)
+  const wc = data.value.workforce_composition ?? ({} as WorkforceComposition)
+  const eng = data.value.engagement_indicators ?? ({} as EngagementIndicators)
+  const risk = data.value.attrition_risk ?? ({} as AttritionRisk)
+  const total = hcm.total_employees ?? 0
+
+  const items: AttentionItem[] = []
+
+  if ((att.attrition_rate_pct ?? 0) > 15) {
+    const exits = att.total_exits ?? 0
+    const invol = att.involuntary_exits ?? 0
+    items.push({
+      severity: 'critical',
+      badge: 'CRITICAL',
+      category: 'RETENTION',
+      title: `Address ${formatPercent(att.attrition_rate_pct)} Attrition Rate`,
+      description: `${exits} exit${exits !== 1 ? 's' : ''}${invol ? ` (${invol} involuntary)` : ''}, above industry average. Risk score ${risk.risk_score ?? 0}/100; predicted ${formatPercent(risk.predicted_attrition_rate)} next period.`,
+      actions: ['Conduct exit interviews immediately', 'Implement retention bonuses', 'Employee satisfaction survey', 'Review management practices'],
+    })
+  }
+
+  if ((atm.attendance_rate_pct ?? 0) < 92 && (atm.attendance_rate_pct ?? 0) > 0) {
+    const absent = atm.absent_days ?? 0
+    const totalRecs = atm.total_attendance_records ?? 0
+    items.push({
+      severity: 'high',
+      badge: 'SERIOUS',
+      category: 'ENGAGEMENT',
+      title: `Improve ${formatPercent(atm.attendance_rate_pct)} Attendance Rate`,
+      description: `${absent} absent of ${totalRecs} records. Attendance drives only ${eng.key_indicators?.attendance_contribution ?? 0}/40 of engagement score.`,
+      actions: ['Review attendance policy', 'Address work-life balance', 'Consider flexible working'],
+    })
+  }
+
+  if (pay.payroll_efficiency === 'no_data') {
+    items.push({
+      severity: 'medium',
+      badge: 'DATA GAP',
+      category: 'PAYROLL',
+      title: 'No Salary Slip Records',
+      description: `Compensation analysis is unavailable this period. ${pay.payroll_data_note ?? 'Avg. salary and total payroll show as "–"'}.`,
+      actions: ['Verify Salary Slip setup in HRMS', 'Confirm payroll period alignment'],
+    })
+  }
+
+  const hirNeed = hiring.total_hiring_need ?? 0
+  if (hirNeed > 0) {
+    const unassigned = wc.department_distribution?.find(d => d.department === '(Unassigned)')?.count ?? 0
+    items.push({
+      severity: 'low',
+      badge: 'WATCH',
+      category: 'WORKFORCE PLANNING',
+      title: `${hirNeed} Hire${hirNeed !== 1 ? 's' : ''} Projected Q+1`,
+      description: `${hiring.hiring_urgency === 'high' ? 'High urgency.' : 'Normal urgency.'} ${unassigned ? `${unassigned} employee${unassigned !== 1 ? 's' : ''} currently unassigned to a department.` : ''}`.trim(),
+      actions: unassigned
+        ? ['Assign unassigned employees to departments', 'Plan for projected exit']
+        : ['Plan for projected exit'],
+    })
+  }
+
+  // Composition health — always shown as a positive closing item.
+  const genderRatios = wc.gender_ratios ?? {}
+  const diversityScore = wc.diversity_score ?? 0
+  const genderSummary = Object.entries(genderRatios)
+    .map(([g, p]) => `${g.charAt(0).toUpperCase() + g.slice(1)} ${p}%`)
+    .join(', ')
+  const leaveApps = data.value.leave_metrics?.total_leave_applications ?? 0
+  const avgLeave = data.value.leave_metrics?.average_days_per_application ?? 0
+  items.push({
+    severity: 'none',
+    badge: 'OK',
+    category: 'COMPOSITION',
+    title: 'Balance & Diversity Healthy',
+    description: `${genderSummary}. Diversity score ${diversityScore} ${wc.composition_balance ?? ''}. Leave pattern healthy (${leaveApps} app${leaveApps !== 1 ? 's' : ''}, ${avgLeave.toFixed(1)}d avg).`,
+    actions: [],
+  })
+
+  return items.slice(0, 5)
+})
 
 /**
  * Currency comes from the payload, never a literal.
@@ -366,7 +590,7 @@ function handleChatNavigation(path: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <header class="bg-surface-white border-b px-6 py-4">
       <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -392,6 +616,7 @@ function handleChatNavigation(path: string) {
       :has-data="hasData"
       subject="HR data"
       permission-hint="Ask an administrator for Employee read access."
+      :kpi-count="4"
       @retry="retry"
     >
       <!-- Four, not the default six: matching the real strip below so the
@@ -407,7 +632,7 @@ function handleChatNavigation(path: string) {
       </template>
 
       <!-- KPI Cards -->
-      <div class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div v-if="activeTab === 'overview'" class="p-6 grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard
           v-for="kpi in kpis"
           :key="kpi.label"
@@ -431,141 +656,287 @@ function handleChatNavigation(path: string) {
       <!-- Tab content -->
       <div class="p-6">
 
-        <!-- Workforce Overview -->
-        <div v-show="tabIndex === 0" class="space-y-6">
-          <!-- Workforce Composition -->
+        <!-- Workforce Overview — variant C: hero waterfall + attention rail -->
+        <div v-show="activeTab === 'overview'" class="space-y-6">
+
+          <!-- Hero + Rail (2-col grid) -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- Hero: headcount waterfall chart (2/3 width) -->
+            <div class="lg:col-span-2 bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader :title="`Headcount Flow: ${flowPeriodLabel}`" :level="3" />
+              <p v-if="hasData" class="mt-1 text-sm text-ink-gray-6">
+                Headcount went from {{ openingHeadcount }} to {{ data?.headcount_metrics?.total_employees ?? 0 }}: {{ data?.headcount_metrics?.exits ?? 0 }} exits and {{ data?.headcount_metrics?.new_hires ?? 0 }} new hires.
+                <template v-if="hiresInactive > 0">{{ hiresInactive }} of the hires {{ hiresInactive === 1 ? 'is' : 'are' }} Inactive and not counted.</template>
+              </p>
+              <template v-if="hasData">
+                <!-- Value labels above bars -->
+                <div class="mt-6 flex gap-3" aria-hidden="true">
+                  <div class="flex-1 text-center text-sm font-bold text-ink-gray-7">{{ openingHeadcount }}</div>
+                  <div class="flex-1 text-center text-sm font-bold text-ink-red-4">−{{ data?.headcount_metrics?.exits ?? 0 }}</div>
+                  <div class="flex-1 text-center text-sm font-bold" :style="{color: 'var(--app-pos)'}">+{{ hiresCounted }}</div>
+                  <div class="flex-1 text-center text-sm font-bold text-ink-gray-7">{{ data?.headcount_metrics?.total_employees ?? 0 }}</div>
+                </div>
+
+                <!-- Waterfall bars — vertically bottom-aligned, absolute positioned -->
+                <div
+                  class="relative mt-1 h-40"
+                  role="img"
+                  :aria-label="`Headcount waterfall: opening ${openingHeadcount}, exits -${data?.headcount_metrics?.exits ?? 0}, new hires +${hiresCounted}, closing ${data?.headcount_metrics?.total_employees ?? 0}`"
+                >
+                  <!-- Floor annotation: dashed line at the minimum headcount level -->
+                  <div
+                    v-if="floorHc > 0 && peakHc > 0"
+                    class="absolute inset-x-0 z-10 pointer-events-none"
+                    :style="{bottom: hcPct(floorHc) + '%'}"
+                  >
+                    <div class="border-t-2 border-dashed border-outline-gray-3"></div>
+                    <span class="text-xs font-semibold text-ink-red-4 pl-1">floor: {{ floorHc }}</span>
+                  </div>
+
+                  <!-- Bars container (fills chart area) -->
+                  <div class="absolute inset-0 flex gap-3">
+                    <!-- Opening: full height, gray -->
+                    <div class="flex-1 relative">
+                      <div
+                        class="absolute inset-x-0 bottom-0 rounded-t"
+                        :style="{height: hcPct(openingHeadcount) + '%', backgroundColor: 'var(--app-muted-fill)'}"
+                      ></div>
+                    </div>
+                    <!-- Exits: from floor upward, red -->
+                    <div class="flex-1 relative">
+                      <div
+                        class="absolute inset-x-0 rounded-t"
+                        :style="{
+                          bottom: hcPct(floorHc) + '%',
+                          height: hcPct(data?.headcount_metrics?.exits ?? 0) + '%',
+                          backgroundColor: 'var(--app-neg-fill)'
+                        }"
+                      ></div>
+                    </div>
+                    <!-- New Hires: from floor upward, green -->
+                    <div class="flex-1 relative">
+                      <div
+                        class="absolute inset-x-0 rounded-t"
+                        :style="{
+                          bottom: hcPct(floorHc) + '%',
+                          height: hcPct(hiresCounted) + '%',
+                          backgroundColor: 'var(--app-pos-fill)'
+                        }"
+                      ></div>
+                    </div>
+                    <!-- Closing: full height, gray -->
+                    <div class="flex-1 relative">
+                      <div
+                        class="absolute inset-x-0 bottom-0 rounded-t"
+                        :style="{height: hcPct(data?.headcount_metrics?.total_employees ?? 0) + '%', backgroundColor: 'var(--app-muted-fill)'}"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- X-axis labels -->
+                <div class="flex gap-3 mt-1">
+                  <div class="flex-1 text-center text-xs text-ink-gray-6">Opening</div>
+                  <div class="flex-1 text-center text-xs text-ink-gray-6">Exits</div>
+                  <div class="flex-1 text-center text-xs text-ink-gray-6">New Hires</div>
+                  <div class="flex-1 text-center text-xs text-ink-gray-6">Closing</div>
+                </div>
+              </template>
+              <div v-else class="mt-6">
+                <SkeletonBlock class="h-48 w-full" />
+              </div>
+
+              <!-- Sub-metrics row: attendance / engagement / payroll (no data) -->
+              <div v-if="hasData" class="mt-6 pt-4 border-t border-outline-gray-2 grid grid-cols-3 gap-4">
+                <div>
+                  <p
+                    class="text-xl font-bold"
+                    :class="attendanceMetrics.total_attendance_records !== 0 && (attendanceMetrics.attendance_rate_pct ?? 100) < 85 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+                  >{{ attendanceMetrics.total_attendance_records === 0 ? NO_VALUE : formatPercent(attendanceMetrics.attendance_rate_pct) }}</p>
+                  <p class="text-xs text-ink-gray-6 mt-0.5">Attendance rate</p>
+                  <p class="text-xs text-ink-gray-6">
+                    {{ attendanceMetrics.present_days ?? '–' }} present · {{ attendanceMetrics.absent_days ?? '–' }} absent
+                  </p>
+                </div>
+                <div>
+                  <p class="text-xl font-bold text-ink-gray-8">
+                    {{ data?.engagement_indicators?.engagement_score ?? '–' }}/100
+                  </p>
+                  <p class="text-xs text-ink-gray-6 mt-0.5">Engagement score</p>
+                  <p class="text-xs text-ink-gray-6">
+                    Retention contribution {{ data?.engagement_indicators?.key_indicators?.retention_contribution ?? '–' }}/40
+                  </p>
+                </div>
+                <div>
+                  <!-- Payroll absent: communicate the absence clearly rather than show a dash with no context. -->
+                  <p class="text-xl font-bold text-ink-gray-5">—</p>
+                  <p class="text-xs text-ink-gray-6 mt-0.5">
+                    Avg. salary{{ baseCurrency ? ` (${baseCurrency})` : '' }}
+                  </p>
+                  <p class="text-xs text-ink-gray-6">{{ data?.payroll_metrics?.payroll_data_note ?? 'No payroll data' }}</p>
+                </div>
+              </div>
+            </div>
+
+            <!-- Attention Rail: synthesised from payload, ranked by consequence -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-4">
+              <p class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wide mb-3">
+                Needs Attention
+                <span class="font-normal normal-case text-ink-gray-6">(ranked by consequence)</span>
+              </p>
+              <div v-if="hasData" class="space-y-4">
+                <div
+                  v-for="(item, i) in attentionItems"
+                  :key="i"
+                >
+                  <div class="flex items-center gap-1 mb-0.5">
+                    <span
+                      class="text-xs font-semibold text-ink-gray-6"
+                      :style="attentionBadgeStyle(item.severity)"
+                    >{{ item.badge }}</span>
+                    <span class="text-xs text-ink-gray-5" aria-hidden="true">·</span>
+                    <span class="text-xs text-ink-gray-6 uppercase tracking-wide">{{ item.category }}</span>
+                  </div>
+                  <p class="text-sm font-medium text-ink-gray-8">{{ item.title }}</p>
+                  <p class="text-xs text-ink-gray-6 mt-0.5">{{ item.description }}</p>
+                  <ul v-if="item.actions.length" class="mt-1 space-y-0.5">
+                    <li
+                      v-for="(action, j) in item.actions.slice(0, 3)"
+                      :key="j"
+                      class="text-xs text-ink-gray-6 flex items-start gap-1"
+                    >
+                      <span class="text-ink-gray-5 flex-shrink-0" aria-hidden="true">→</span>
+                      {{ action }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+              <div v-else class="space-y-3">
+                <SkeletonBlock v-for="n in 3" :key="n" class="h-16 w-full" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Workforce composition (below fold): ranked horizontal bars instead of
+               the previous plain text list. Rule 2: position/length over table-of-numbers. -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Workforce Composition" :level="3" />
-            <div v-if="hasData && composition" class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-              <!-- By Gender -->
-              <div v-if="composition.gender" class="bg-surface-gray-1 rounded-lg p-4">
-                <h4 class="text-sm font-medium text-ink-gray-7 mb-3">By Gender</h4>
+            <div class="flex items-center justify-between mb-4">
+              <SectionHeader title="Workforce composition" :level="3" />
+              <button
+                class="text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 rounded"
+                :style="{color: 'var(--app-accent)'}"
+                @click="drillDown.open(HR_ENDPOINT, 'All Employees', { metric: 'total_employees', period: period })"
+              >View rows ↗</button>
+            </div>
+            <div v-if="hasData && data?.workforce_composition" class="grid grid-cols-1 md:grid-cols-3 gap-8">
+              <!-- By Department (ranked descending by count) -->
+              <div>
+                <p class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wide mb-3">By Department</p>
                 <div class="space-y-2">
-                  <div v-for="(pct, gender) in composition.gender" :key="gender as string"
-                    class="flex justify-between items-center">
-                    <span class="text-sm text-ink-gray-6 capitalize">{{ gender }}</span>
-                    <span class="text-sm font-medium text-ink-gray-8">{{ pct }}%</span>
+                  <div
+                    v-for="row in (data?.workforce_composition?.department_distribution ?? [])"
+                    :key="row.department"
+                    class="flex items-center gap-2"
+                  >
+                    <span class="text-sm text-ink-gray-7 w-24 truncate flex-shrink-0">{{ row.department }}</span>
+                    <div class="flex-1 h-1.5 bg-surface-gray-2 rounded-full overflow-hidden" aria-hidden="true">
+                      <div
+                        class="h-full rounded-full"
+                        :style="{width: maxDeptCount > 0 ? (row.count / maxDeptCount * 100) + '%' : '0%', backgroundColor: 'var(--app-accent)'}"
+                      ></div>
+                    </div>
+                    <span class="text-sm font-medium text-ink-gray-8 w-5 text-right flex-shrink-0">{{ row.count }}</span>
                   </div>
                 </div>
               </div>
-              <!-- By Employment Type -->
-              <div v-if="composition.employment_type" class="bg-surface-gray-1 rounded-lg p-4">
-                <h4 class="text-sm font-medium text-ink-gray-7 mb-3">By Type</h4>
+              <!-- By Employment Type (clickable → drill-down) -->
+              <div>
+                <p class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wide mb-3">By Employment Type</p>
                 <div class="space-y-2">
                   <button
-                    v-for="(count, type) in composition.employment_type"
-                    :key="type as string"
-                    class="flex justify-between items-center w-full text-left hover:bg-surface-gray-2 rounded px-1 -mx-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none transition-colors"
-                    @click="drillDown.open(HR_ENDPOINT, type + ' Employees', { metric: 'employment_type', employment_type: type })"
+                    v-for="row in (data?.workforce_composition?.employment_type_distribution ?? [])"
+                    :key="row.employment_type || row.type"
+                    class="flex items-center gap-2 w-full text-left hover:bg-surface-gray-1 rounded -mx-1 px-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none transition-colors"
+                    @click="drillDown.open(HR_ENDPOINT, (row.employment_type || row.type || '') + ' Employees', { metric: 'employment_type', employment_type: row.employment_type || row.type, period: period })"
                   >
-                    <span class="text-sm text-ink-gray-6 capitalize">{{ type }}</span>
-                    <span class="text-sm font-medium text-ink-gray-8">{{ count }}</span>
+                    <span class="text-sm text-ink-gray-7 w-24 truncate flex-shrink-0">{{ row.employment_type || row.type }}</span>
+                    <div class="flex-1 h-1.5 bg-surface-gray-2 rounded-full overflow-hidden" aria-hidden="true">
+                      <div
+                        class="h-full rounded-full"
+                        :style="{width: maxEmpTypeCount > 0 ? (row.count / maxEmpTypeCount * 100) + '%' : '0%', backgroundColor: 'var(--app-accent)'}"
+                      ></div>
+                    </div>
+                    <span class="text-sm font-medium text-ink-gray-8 w-5 text-right flex-shrink-0">{{ row.count }}</span>
                   </button>
                 </div>
               </div>
-              <!-- By Department -->
-              <div v-if="composition.departments" class="bg-surface-gray-1 rounded-lg p-4">
-                <h4 class="text-sm font-medium text-ink-gray-7 mb-3">By Department</h4>
+              <!-- By Gender + diversity score panel -->
+              <div>
+                <p class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wide mb-3">By Gender</p>
                 <div class="space-y-2">
-                  <div v-for="(count, dept) in composition.departments" :key="dept as string"
-                    class="flex justify-between items-center">
-                    <span class="text-sm text-ink-gray-6">{{ dept }}</span>
-                    <span class="text-sm font-medium text-ink-gray-8">{{ count }}</span>
+                  <div
+                    v-for="(pct, gender) in (data?.workforce_composition?.gender_ratios ?? {})"
+                    :key="gender as string"
+                    class="flex items-center gap-2"
+                  >
+                    <span class="text-sm text-ink-gray-7 w-24 truncate flex-shrink-0 capitalize">{{ gender }}</span>
+                    <div class="flex-1 h-1.5 bg-surface-gray-2 rounded-full overflow-hidden" aria-hidden="true">
+                      <div
+                        class="h-full rounded-full"
+                        :style="{width: pct + '%', backgroundColor: 'var(--app-accent)'}"
+                      ></div>
+                    </div>
+                    <span class="text-sm font-medium text-ink-gray-8 w-10 text-right flex-shrink-0">{{ pct }}%</span>
                   </div>
+                </div>
+                <div
+                  v-if="(data?.workforce_composition?.diversity_score ?? 0) > 0"
+                  class="mt-3 bg-surface-green-2 rounded p-2"
+                >
+                  <p class="text-ink-gray-9">
+                    <span class="text-xl font-bold">{{ data?.workforce_composition?.diversity_score }}</span>
+                    <span class="text-xs text-ink-gray-7 ml-1">{{ data?.workforce_composition?.composition_balance }}</span>
+                  </p>
+                  <p class="text-xs text-ink-gray-7">Diversity score</p>
                 </div>
               </div>
             </div>
-            <div v-else-if="hasData" class="text-center py-8 text-ink-gray-6 mt-4">
-              <PieChart class="w-8 h-8 mx-auto mb-2 text-ink-gray-5" aria-hidden="true" />
+            <div v-else-if="hasData" class="text-center py-8 text-ink-gray-6">
               <p>No composition data available</p>
             </div>
-            <div v-else class="space-y-3 mt-4">
+            <div v-else class="space-y-3">
               <SkeletonBlock v-for="n in 3" :key="n" class="h-20 w-full" />
-            </div>
-          </div>
-
-          <!-- Headcount Metrics -->
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Headcount Metrics" :level="3" />
-            <div v-if="hasData && data?.headcount_metrics" class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-              <!--
-                `|| 0` previously stood in for every one of these fields, so a
-                payload that omitted `new_hires` reported zero hires rather than
-                an absent figure. The tile shows a dash instead.
-              -->
-              <KpiCard variant="tile" label="Total Employees" :value="data.headcount_metrics.total_employees" />
-              <KpiCard variant="tile" label="New Hires" :value="data.headcount_metrics.new_hires" />
-              <KpiCard variant="tile" label="Exits" :value="data.headcount_metrics.exits" />
-              <!-- Signed rather than glyph-plus-absolute: a leading minus is
-                   unambiguous without relying on colour, which was never an
-                   accessible signal on its own. -->
-              <KpiCard variant="tile" label="Net Growth" :value="data.headcount_metrics.net_growth" />
-            </div>
-          </div>
-
-          <!-- Engagement breakdown: shows the bucketed contributions that
-               reconcile to `engagement_score` so the user can see why the
-               score is what it is. -->
-          <div v-if="hasData && data?.engagement_indicators?.key_indicators" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Engagement Score Breakdown" :level="3" />
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-              <div class="bg-surface-gray-1 rounded-lg p-4">
-                <p class="text-sm font-medium text-ink-gray-7 mb-2">Attendance contribution</p>
-                <p class="text-2xl font-bold text-ink-gray-9">
-                  {{ data.engagement_indicators.key_indicators.attendance_contribution || 0 }}/40
-                </p>
-                <p v-if="data.engagement_indicators._raw" class="text-xs text-ink-gray-6 mt-1">
-                  rate: {{ data.engagement_indicators._raw.attendance_rate_pct?.toFixed(1) }}%
-                </p>
-              </div>
-              <div class="bg-surface-gray-1 rounded-lg p-4">
-                <p class="text-sm font-medium text-ink-gray-7 mb-2">Retention contribution</p>
-                <p class="text-2xl font-bold text-ink-gray-9">
-                  {{ data.engagement_indicators.key_indicators.retention_contribution || 0 }}/40
-                </p>
-                <p v-if="data.engagement_indicators._raw" class="text-xs text-ink-gray-6 mt-1">
-                  retention: {{ data.engagement_indicators._raw.retention_rate_pct?.toFixed(1) }}%
-                </p>
-              </div>
-              <div class="bg-surface-gray-1 rounded-lg p-4">
-                <p class="text-sm font-medium text-ink-gray-7 mb-2">Leave pattern contribution</p>
-                <p class="text-2xl font-bold text-ink-gray-9">
-                  {{ data.engagement_indicators.key_indicators.leave_pattern_contribution || 0 }}/20
-                </p>
-                <p v-if="data.engagement_indicators._raw" class="text-xs text-ink-gray-6 mt-1">
-                  {{ data.engagement_indicators._raw.leave_applications_count || 0 }} apps, avg {{ data.engagement_indicators._raw.leave_pattern_days?.toFixed(1) }} days
-                </p>
-              </div>
             </div>
           </div>
         </div>
 
         <!-- Attrition & Retention -->
-        <div v-show="tabIndex === 1" class="space-y-6">
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Attrition Analysis" :level="3" />
-            <div v-if="hasData && data?.attrition_metrics" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <KpiCard
-                variant="tile"
-                label="Attrition Rate"
-                :percent="data.attrition_metrics.attrition_rate_pct"
-              />
-              <KpiCard variant="tile" label="Total Exits" :value="data.attrition_metrics.total_exits" />
-              <KpiCard
-                variant="tile"
-                label="Voluntary Exits"
-                :value="data.attrition_metrics.voluntary_exits"
-              />
-              <div class="bg-surface-gray-1 rounded-lg p-4 text-center">
-                <p class="text-sm text-ink-gray-6 font-medium">Risk Level</p>
-                <Badge
-                  class="mt-2"
-                  v-bind="severityBadge(riskLevelSeverity(data.attrition_metrics.attrition_risk_level))"
-                  :label="severityBadge(riskLevelSeverity(data.attrition_metrics.attrition_risk_level)).label"
-                  size="sm"
-                />
+        <div v-show="activeTab === 'attrition'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.attrition" :as-of="data?.generated_at" />
+          <StatStrip :items="attritionStrip" />
+
+          <!-- What happened (TTM): headcount movement behind the attrition rate -->
+          <div v-if="hasData && data?.headcount_metrics" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="What Happened (TTM)" :level="3" />
+            <dl class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">Opening headcount</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ openingHeadcount }}</dd>
               </div>
-            </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">Total exits</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ data.attrition_metrics?.total_exits ?? NO_VALUE }}</dd>
+              </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">New hires</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ data.headcount_metrics.new_hires ?? NO_VALUE }}</dd>
+              </div>
+              <div class="bg-surface-gray-1 rounded-lg p-4">
+                <dt class="text-sm text-ink-gray-6">Net headcount change</dt>
+                <dd class="text-lg font-semibold tnum text-ink-gray-8">{{ data.headcount_metrics.net_growth ?? NO_VALUE }}</dd>
+              </div>
+            </dl>
           </div>
 
           <!-- Attrition Risk Assessment -->
@@ -602,7 +973,7 @@ function handleChatNavigation(path: string) {
           </div>
 
           <!-- Attendance Breakdown (supports the engagement score on the KPI strip). -->
-          <div v-if="hasData && data?.attendance_metrics" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <div v-if="hasData && data?.attendance_metrics?.total_attendance_records" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Attendance Breakdown" :level="3" />
             <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mt-4">
               <KpiCard
@@ -636,46 +1007,96 @@ function handleChatNavigation(path: string) {
               />
             </div>
           </div>
+
+          <!-- Engagement score decomposition: the three payload contributions, in points of 100. -->
+          <div v-if="hasData && data?.engagement_indicators?.key_indicators" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader
+              variant="caption"
+              :title="`Engagement score decomposition: ${data.engagement_indicators.engagement_score ?? 0} / 100`"
+              :level="3"
+            />
+            <div
+              class="mt-4 flex h-6 w-full overflow-hidden rounded bg-surface-gray-1"
+              role="img"
+              :aria-label="`Engagement score ${data.engagement_indicators.engagement_score ?? 0} of 100`"
+            >
+              <div class="h-full bg-surface-gray-7" :style="{ width: `${Number(data.engagement_indicators.key_indicators.attendance_contribution) || 0}%` }" />
+              <div class="h-full bg-surface-gray-5" :style="{ width: `${Number(data.engagement_indicators.key_indicators.retention_contribution) || 0}%` }" />
+              <div class="h-full bg-surface-gray-3" :style="{ width: `${Number(data.engagement_indicators.key_indicators.leave_pattern_contribution) || 0}%` }" />
+            </div>
+            <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-ink-gray-7">
+              <div class="flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-sm bg-surface-gray-7" aria-hidden="true" />
+                <dt>Attendance</dt>
+                <dd class="tnum font-semibold text-ink-gray-8">{{ data.engagement_indicators.key_indicators.attendance_contribution ?? 0 }} pts</dd>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-sm bg-surface-gray-5" aria-hidden="true" />
+                <dt>Retention</dt>
+                <dd class="tnum font-semibold text-ink-gray-8">{{ data.engagement_indicators.key_indicators.retention_contribution ?? 0 }} pts</dd>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="inline-block h-2.5 w-2.5 rounded-sm bg-surface-gray-3" aria-hidden="true" />
+                <dt>Leave pattern</dt>
+                <dd class="tnum font-semibold text-ink-gray-8">{{ data.engagement_indicators.key_indicators.leave_pattern_contribution ?? 0 }} pts</dd>
+              </div>
+            </dl>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.attrition?.actions" />
+        </div>
+
+        <!-- Department Health -->
+        <div v-show="activeTab === 'department'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.department" :as-of="data?.generated_at" />
+          <StatStrip :items="departmentStrip" />
+          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+            <SectionHeader variant="caption" title="Department Overview" :level="3" />
+            <div v-if="hasData && departments.length > 0" class="space-y-3 mt-4">
+              <button
+                v-for="dept in departments"
+                :key="dept.department"
+                class="flex items-center justify-between w-full p-4 bg-surface-gray-1 rounded-lg text-left hover:bg-surface-gray-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none transition-colors"
+                @click="drillDown.open(HR_ENDPOINT, dept.department + ' Employees', { metric: 'dept_employees', department: dept.department })"
+              >
+                <div class="flex-1">
+                  <div class="flex items-center gap-3">
+                    <Building2 class="w-5 h-5 text-ink-gray-5" aria-hidden="true" />
+                    <div>
+                      <p class="text-sm font-medium text-ink-gray-8">{{ dept.department }}</p>
+                      <p class="text-xs text-ink-gray-6">{{ dept.headcount }} {{ dept.headcount === 1 ? 'employee' : 'employees' }} · {{ formatPercent(dept.headcount / departments.reduce((n, d) => n + d.headcount, 0) * 100) }} of headcount</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center gap-4">
+                  <div class="text-right">
+                    <p class="text-xs text-ink-gray-6">Payroll Cost</p>
+                    <p class="text-sm font-medium text-ink-gray-8">{{ data?.payroll_metrics?.payroll_efficiency === 'no_data' ? NO_VALUE : formatCurrency(dept.payroll_cost || 0) }}</p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-xs text-ink-gray-6">Cost/Employee</p>
+                    <p class="text-sm font-medium text-ink-gray-8">{{ data?.payroll_metrics?.payroll_efficiency === 'no_data' ? NO_VALUE : formatCurrency(dept.cost_per_employee || 0) }}</p>
+                  </div>
+                </div>
+              </button>
+            </div>
+            <div v-else-if="hasData" class="text-center py-8 text-ink-gray-6 mt-4">
+              <Building2 class="w-8 h-8 mx-auto mb-2 text-ink-gray-5" aria-hidden="true" />
+              <p>No department data available</p>
+            </div>
+            <div v-else class="space-y-3 mt-4">
+              <SkeletonBlock v-for="n in 4" :key="n" class="h-16 w-full" />
+            </div>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.department?.actions" />
         </div>
 
         <!-- Payroll & Compensation -->
-        <div v-show="tabIndex === 2" class="space-y-6">
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Payroll Summary" :level="3" />
-            <div v-if="hasData && data?.payroll_metrics" class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <!-- `amount` + `currency` rather than a pre-formatted string, so
-                   the tile picks compact notation on a phone and an absent cost
-                   cannot render as zero money. -->
-              <KpiCard
-                variant="tile"
-                label="Total Payroll"
-                :amount="data.payroll_metrics.total_payroll_cost"
-                :currency="baseCurrency"
-                :sublabel="data.payroll_metrics.payroll_data_note"
-              />
-              <KpiCard
-                variant="tile"
-                label="Avg Salary"
-                :amount="data.payroll_metrics.average_salary"
-                :currency="baseCurrency"
-                :sublabel="data.payroll_metrics.payroll_data_note"
-              />
-              <KpiCard
-                variant="tile"
-                label="Cost Per Employee"
-                :amount="data.payroll_metrics.cost_per_employee"
-                :currency="baseCurrency"
-              />
-              <KpiCard
-                variant="tile"
-                label="Deduction Rate"
-                :percent="data.payroll_metrics.deduction_rate_pct"
-              />
-            </div>
-          </div>
+        <div v-show="activeTab === 'payroll'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.payroll" :as-of="data?.generated_at" />
+          <StatStrip :items="payrollStrip" :currency="baseCurrency" />
 
           <!-- Compensation Analysis -->
-          <div v-if="hasData && data?.compensation_analysis" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+          <div v-if="hasData && data?.compensation_analysis && !payrollMissing" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
             <SectionHeader variant="caption" title="Compensation Analysis" :level="3" />
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div class="bg-surface-gray-1 rounded-lg p-4">
@@ -714,82 +1135,13 @@ function handleChatNavigation(path: string) {
               </div>
             </div>
           </div>
-        </div>
-
-        <!-- Department Health -->
-        <div v-show="tabIndex === 3" class="space-y-6">
-          <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Department Overview" :level="3" />
-            <div v-if="hasData && departments.length > 0" class="space-y-3 mt-4">
-              <button
-                v-for="dept in departments"
-                :key="dept.department"
-                class="flex items-center justify-between w-full p-4 bg-surface-gray-1 rounded-lg text-left hover:bg-surface-gray-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 motion-reduce:transition-none transition-colors"
-                @click="drillDown.open(HR_ENDPOINT, dept.department + ' Employees', { metric: 'dept_employees', department: dept.department })"
-              >
-                <div class="flex-1">
-                  <div class="flex items-center gap-3">
-                    <Building2 class="w-5 h-5 text-ink-gray-5" aria-hidden="true" />
-                    <div>
-                      <p class="text-sm font-medium text-ink-gray-8">{{ dept.department }}</p>
-                      <p class="text-xs text-ink-gray-6">{{ dept.headcount }} employees</p>
-                    </div>
-                  </div>
-                </div>
-                <div class="flex items-center gap-4">
-                  <div class="text-right">
-                    <p class="text-xs text-ink-gray-6">Payroll Cost</p>
-                    <p class="text-sm font-medium text-ink-gray-8">{{ formatCurrency(dept.payroll_cost || 0) }}</p>
-                  </div>
-                  <div class="text-right">
-                    <p class="text-xs text-ink-gray-6">Cost/Employee</p>
-                    <p class="text-sm font-medium text-ink-gray-8">{{ formatCurrency(dept.cost_per_employee || 0) }}</p>
-                  </div>
-                </div>
-              </button>
-            </div>
-            <div v-else-if="hasData" class="text-center py-8 text-ink-gray-6 mt-4">
-              <Building2 class="w-8 h-8 mx-auto mb-2 text-ink-gray-5" aria-hidden="true" />
-              <p>No department data available</p>
-            </div>
-            <div v-else class="space-y-3 mt-4">
-              <SkeletonBlock v-for="n in 4" :key="n" class="h-16 w-full" />
-            </div>
-          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.payroll?.actions" />
         </div>
 
         <!-- Workforce Planning -->
-        <div v-show="tabIndex === 4" class="space-y-6">
-          <!-- Hiring Forecast -->
-          <div v-if="hasData && data?.hiring_forecast" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="Hiring Forecast" :level="3" />
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-4">
-              <KpiCard
-                variant="tile"
-                label="Total Hiring Need"
-                :value="data.hiring_forecast.total_hiring_need"
-              />
-              <KpiCard
-                variant="tile"
-                label="Projected Exits"
-                :value="data.hiring_forecast.projected_exits_next_quarter"
-              />
-              <KpiCard
-                variant="tile"
-                label="Growth-Based Hires"
-                :value="data.hiring_forecast.growth_based_hiring"
-              />
-              <div class="bg-surface-gray-1 rounded-lg p-4 text-center">
-                <p class="text-sm text-ink-gray-6 font-medium">Urgency</p>
-                <Badge
-                  class="mt-2"
-                  v-bind="severityBadge(urgencySeverity(data.hiring_forecast.hiring_urgency))"
-                  :label="severityBadge(urgencySeverity(data.hiring_forecast.hiring_urgency)).label"
-                  size="sm"
-                />
-              </div>
-            </div>
-          </div>
+        <div v-show="activeTab === 'planning'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.planning" :as-of="data?.generated_at" />
+          <StatStrip :items="planningStrip" />
 
           <!-- Recommendations -->
           <div v-if="hasData && recommendations.length > 0" class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
@@ -799,13 +1151,18 @@ function handleChatNavigation(path: string) {
                 class="flex items-start gap-3 p-3 bg-surface-gray-1 rounded-lg">
                 <Zap class="w-5 h-5 text-ink-gray-5 flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <div>
+                  <p v-if="typeof rec !== 'string' && (rec.priority || rec.category)" class="text-xs uppercase text-ink-gray-6">{{ [rec.priority, rec.category].filter(Boolean).join(' · ') }}</p>
                   <p class="text-sm font-medium text-ink-gray-8">{{ typeof rec === 'string' ? rec : rec.title }}</p>
                   <p v-if="rec.description" class="text-xs text-ink-gray-6 mt-1">{{ rec.description }}</p>
                   <p v-if="rec.impact" class="text-xs text-ink-gray-6 mt-1">Impact: {{ rec.impact }}</p>
+                  <ul v-if="typeof rec !== 'string' && rec.actions?.length" class="list-disc pl-5 mt-2 space-y-0.5 text-xs text-ink-gray-7">
+                    <li v-for="a in rec.actions" :key="a">{{ a }}</li>
+                  </ul>
                 </div>
               </div>
             </div>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.planning?.actions" />
         </div>
 
       </div>

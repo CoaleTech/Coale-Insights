@@ -14,13 +14,13 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, TYPE_CHECKING
 
 from frappe.query_builder import Case, DocType
-from frappe.query_builder.functions import Abs, Coalesce, DateFormat, Sum
+from frappe.query_builder.functions import Abs, Coalesce, DateFormat, Max, Sum
 
 if TYPE_CHECKING:
     import numpy as np
 
 
-from .data import format_currency, _gl_daily_cache, _gl_sum_period, _gl_cumulative
+from .data import format_currency, get_cash_total, _gl_daily_cache, _gl_sum_period, _gl_cumulative
 
 
 def _cash_like(acc):
@@ -278,6 +278,15 @@ def _fetch_gl_payroll_entries(intelligence, six_months_ago: str) -> List[Dict[st
     )
 
 
+def _payroll_runs(rows) -> List[Dict[str, Any]]:
+    """One payroll run is many same-day entries (a Journal Entry per employee
+    here); sum them so the typical amount is the run, not one employee."""
+    runs: Dict[Any, float] = {}
+    for r in rows or []:
+        runs[r["posting_date"]] = runs.get(r["posting_date"], 0.0) + float(r["paid_amount"] or 0)
+    return [frappe._dict(posting_date=d, paid_amount=a) for d, a in sorted(runs.items(), reverse=True)]
+
+
 def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
     """
     Auto-detect payroll schedule from historical Journal Entry and Payment Entry
@@ -287,11 +296,11 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
     six_months_ago = (datetime.now() - timedelta(days=180)).strftime('%Y-%m-%d')
 
     # Search for payroll-related payments
-    payroll_entries = _fetch_payroll_entries(intelligence, six_months_ago)
+    payroll_entries = _payroll_runs(_fetch_payroll_entries(intelligence, six_months_ago))
 
-    if not payroll_entries or len(payroll_entries) < 2:
+    if len(payroll_entries) < 2:
         # Not enough data, check salary account directly
-        payroll_entries = _fetch_gl_payroll_entries(intelligence, six_months_ago)
+        payroll_entries = _payroll_runs(_fetch_gl_payroll_entries(intelligence, six_months_ago))
 
     if not payroll_entries or len(payroll_entries) < 2:
         return {
@@ -361,7 +370,6 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
 
     # Calculate next expected payroll date
     last_payroll = dates[0] if dates else datetime.now()
-    next_date = last_payroll + timedelta(days=expected_interval)
 
     # Get the date part for comparison
     def get_date(d):
@@ -369,9 +377,20 @@ def detect_payroll_pattern(intelligence) -> Dict[str, Any]:
             return d.date()
         return d
 
-    # If next_date is in the past, keep adding intervals
-    while get_date(next_date) < datetime.now().date():
-        next_date += timedelta(days=expected_interval)
+    # Roll forward to the first date on or after today. Monthly steps by
+    # calendar month from the last payroll: a flat 30 days drifts a day early
+    # whenever the payroll is posted on the 31st.
+    today = datetime.now().date()
+    if frequency == 'monthly':
+        k = 1
+        next_date = add_months(get_date(last_payroll), k)
+        while get_date(next_date) < today:
+            k += 1
+            next_date = add_months(get_date(last_payroll), k)
+    else:
+        next_date = last_payroll + timedelta(days=expected_interval)
+        while get_date(next_date) < today:
+            next_date += timedelta(days=expected_interval)
 
     return {
         'detected': True,
@@ -471,15 +490,17 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     )
     ytd_capex = float(ytd_capex_rows[0].amount or 0) if ytd_capex_rows else 0.0
 
-    # Prior year CAPEX for comparison
+    # Prior year CAPEX for comparison: the same stretch of the prior year, since
+    # this year's figure is year-to-date (7 months against 12 read as a -88% drop).
     prior_fy_start = add_months(fy_start, -12)
+    prior_end = add_months(today_str, -12)
     prior_capex_rows = (
         frappe.qb.from_(Asset)
         .select(Coalesce(Sum(Asset.net_purchase_amount), 0).as_("amount"))
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.purchase_date >= prior_fy_start)
-        .where(Asset.purchase_date < fy_start)
+        .where(Asset.purchase_date <= prior_end)
         .run(as_dict=True)
     )
     prior_capex = float(prior_capex_rows[0].amount or 0) if prior_capex_rows else 0.0
@@ -502,7 +523,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
             Coalesce(Sum(Case().when(fa, net_dr).else_(0)), 0).as_("gross"),
             Coalesce(Sum(Case().when(ad, -net_dr).else_(0)), 0).as_("accdep"),
             Coalesce(Sum(Case().when(fa & (gle.posting_date >= fy_start), gle.debit).else_(0)), 0).as_("ytd"),
-            Coalesce(Sum(Case().when(fa & (gle.posting_date >= prior_fy_start) & (gle.posting_date < fy_start), gle.debit).else_(0)), 0).as_("prior"),
+            Coalesce(Sum(Case().when(fa & (gle.posting_date >= prior_fy_start) & (gle.posting_date <= prior_end), gle.debit).else_(0)), 0).as_("prior"),
         )
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
@@ -572,7 +593,10 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     # Replaces 1 current-assets query + 1 current-liabilities query +
     # 1 monthly-trends GL query (3 DB round-trips → 0).
     gl = _gl_daily_cache(intelligence)
-    cash        = _gl_cumulative(gl, today_str, "cash")
+    # Book balance, same as the Cash Position card: post-dated payments already
+    # reduce cash (see data._load_cash_breakdown).
+    cash        = get_cash_total(intelligence)
+    post_dated  = cash - _gl_cumulative(gl, today_str, "cash")
     receivables = _gl_cumulative(gl, today_str, "receivable")
     inventory   = _gl_cumulative(gl, today_str, "inventory")
     total_current_assets      = cash + receivables + inventory
@@ -584,32 +608,43 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     quick_ratio   = min(round((cash + receivables) / total_current_liabilities, 2), 10.0) if total_current_liabilities > 1000 else None
 
     # ── DSO / DPO / DIO (Sales Invoice + Purchase Invoice — unchanged) ────
-    ninety_days_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
     today_bound = datetime.now().strftime('%Y-%m-%d')
-    si = DocType("Sales Invoice")
-    avg_daily_revenue_rows = (
-        frappe.qb.from_(si)
-        .select((Coalesce(Sum(si.grand_total), 0) / 90).as_("daily_avg"))
-        .where(si.company == intelligence.company)
-        .where(si.docstatus == 1)
-        .where(si.posting_date.between(ninety_days_ago, today_bound))
-        .run(as_dict=True)
-    )
-    avg_daily_revenue = float(avg_daily_revenue_rows[0].daily_avg or 1) if avg_daily_revenue_rows else 1.0
 
-    pi = DocType("Purchase Invoice")
-    avg_daily_cogs_rows = (
-        frappe.qb.from_(pi)
-        .select((Coalesce(Sum(pi.grand_total), 0) / 90).as_("daily_avg"))
-        .where(pi.company == intelligence.company)
-        .where(pi.docstatus == 1)
-        .where(pi.posting_date.between(ninety_days_ago, today_bound))
-        .run(as_dict=True)
-    )
-    avg_daily_cogs = float(avg_daily_cogs_rows[0].daily_avg or 1) if avg_daily_cogs_rows else 1.0
+    def _window(doctype: str):
+        # 90 days ending at the LAST posted document, not at today: when the
+        # ledger runs behind the calendar, a window anchored on today counts
+        # empty days and inflates DSO/DPO (45 live days / 90 halved the average).
+        t = DocType(doctype)
+        base = (
+            frappe.qb.from_(t)
+            .where(t.company == intelligence.company)
+            .where(t.docstatus == 1)
+            .where(t.posting_date <= today_bound)
+        )
+        last = base.select(Max(t.posting_date)).run()[0][0]
+        if not last:
+            return None
+        return base, getdate(last) - timedelta(days=89), last  # BETWEEN is inclusive: 90 days, matching the /90 below
+
+    def _daily_avg(doctype: str) -> float:
+        w = _window(doctype)
+        if not w:
+            return 1.0
+        base, start, last = w
+        total = base.select(Coalesce(Sum(DocType(doctype).grand_total), 0)).where(DocType(doctype).posting_date.between(start, last)).run()[0][0]
+        return float(total or 0) / 90 or 1.0
+
+    avg_daily_revenue = _daily_avg("Sales Invoice")
+    avg_daily_purchases = _daily_avg("Purchase Invoice")
+    # DIO is stock held against cost of goods SOLD, taken from the ledger over the
+    # sales window. Purchase invoices are tax-inclusive and are not what left stock
+    # (₹41.4M vs ₹34.9M here). Without a COGS account (no perpetual inventory) fall
+    # back to purchases rather than reporting 0 days.
+    sw = _window("Sales Invoice")
+    avg_daily_cogs = (_gl_sum_period(gl, str(sw[1]), str(sw[2]), "cogs") / 90 if sw else 0) or avg_daily_purchases
 
     dso = min(receivables / float(avg_daily_revenue), 365) if avg_daily_revenue > 0 else 0
-    dpo = min(abs(float(current_liabilities)) / float(avg_daily_cogs), 365) if avg_daily_cogs > 0 else 0
+    dpo = min(abs(float(current_liabilities)) / float(avg_daily_purchases), 365) if avg_daily_purchases > 0 else 0
     dio = min(inventory / float(avg_daily_cogs), 365) if avg_daily_cogs > 0 else 0
     ccc = max(min(dso + dio - dpo, 365), -365)
 
@@ -648,6 +683,10 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
             "working_capital": ca - cl,
             "current_ratio": round(ca / cl, 2) if cl > 0 else None,
         })
+    if trends:  # latest point is today's book position, matching the headline
+        trends[-1]["current_assets"] += post_dated
+        trends[-1]["working_capital"] += post_dated
+        trends[-1]["current_ratio"] = round(trends[-1]["current_assets"] / trends[-1]["current_liabilities"], 2) if trends[-1]["current_liabilities"] > 0 else None
 
 
     return {
@@ -667,22 +706,36 @@ def analyze_working_capital(intelligence) -> Dict[str, Any]:
     }
 
 
+def _rolling_90_day_windows(now, count: int = 8) -> list:
+    """`count` contiguous 90-day windows, newest ending `now`, as dicts with
+    start/end (ISO) and a label.
+
+    Windows are inclusive at both ends, so each starts 89 days before its end
+    and a day is never counted in two windows. They are not calendar quarters,
+    so each is labelled by the date it ends on (a quarter label put "Q3 2026" on
+    May-Jul and could repeat for two windows)."""
+    windows = []
+    for q in range(count):
+        end_date = now - timedelta(days=q * 90)
+        start_date = end_date - timedelta(days=89)
+        windows.append({
+            "start": start_date.strftime('%Y-%m-%d'),
+            "end": end_date.strftime('%Y-%m-%d'),
+            "label": end_date.strftime('%d %b %Y'),
+        })
+    return windows
+
+
 def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
     """Calculate financial ratio trends over time"""
     from insights.ml.sales_intelligence import gross_margin_totals
 
-    # Get quarterly data for last 8 quarters
-    quarters = []
-    for q in range(8):
-        end_date = datetime.now() - timedelta(days=q * 90)
-        start_date = end_date - timedelta(days=90)
-        quarters.append({
-            "start": start_date.strftime('%Y-%m-%d'),
-            "end": end_date.strftime('%Y-%m-%d'),
-            "label": f"Q{((end_date.month - 1) // 3) + 1} {end_date.year}"
-        })
+    quarters = _rolling_90_day_windows(datetime.now())
 
     ratio_trends = []
+    # Each window is 90 days of flow over a point-in-time balance; the benchmarks
+    # for ROE/ROA/ROCE/turnover are yearly, so scale those by 365/90.
+    ann = 365 / 90
     # Loan-type liability balance as of the *previous* (older) iteration's
     # quarter-end, which is exactly this quarter's start balance: the 90-day
     # windows built above are contiguous (quarter q's start == quarter q+1's
@@ -705,7 +758,9 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         assets      = abs(_gl_cumulative(gl, q["end"], "asset"))
         liabilities = abs(_gl_cumulative(gl, q["end"], "liability"))
         equity      = abs(_gl_cumulative(gl, q["end"], "equity"))
-        cash        = _gl_cumulative(gl, q["end"], "cash")
+        # Latest window uses book cash (post-dated payments already out), like the
+        # Working Capital tab and Cash Position card; older windows have no such split.
+        cash        = get_cash_total(intelligence) if q is quarters[0] else _gl_cumulative(gl, q["end"], "cash")
         receivables = _gl_cumulative(gl, q["end"], "receivable")
         inventory   = _gl_cumulative(gl, q["end"], "inventory")
         payables    = abs(_gl_cumulative(gl, q["end"], "payable"))
@@ -724,6 +779,10 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         principal_repaid = max(0.0, prev_loan_balance - loan_balance) if prev_loan_balance is not None else 0.0
         prev_loan_balance = loan_balance
 
+        # Capital employed = total assets - current liabilities (trade payables,
+        # the same current-liability definition the Current Ratio uses). Taken
+        # before the asset floor below so a tiny balance cannot inflate ROCE.
+        capital_employed = assets - payables
         # Avoid division issues - use reasonable defaults
         assets = assets if assets > 1000 else 1
         equity = equity if equity > 1000 else 1
@@ -740,18 +799,20 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             "period": q["label"],
             "gross_margin": gm["overall_margin"] if gm["total_revenue"] > 0 else None,
             "net_margin": round(net_income / revenue * 100, 1) if revenue > 0 else None,
-            "roe": round(net_income / equity * 100, 1) if equity > 1000 else None,
-            "roa": round(net_income / assets * 100, 1) if assets > 1000 else None,
+            "roe": round(net_income * ann / equity * 100, 1) if equity > 1000 else None,
+            "roa": round(net_income * ann / assets * 100, 1) if assets > 1000 else None,
             "debt_to_equity": round(liabilities / equity, 2) if equity > 1000 else None,
-            "asset_turnover": round(revenue / assets, 2) if assets > 1000 else None,
+            "asset_turnover": round(revenue * ann / assets, 2) if assets > 1000 else None,
             "ebitda": round(ebitda, 2),
+            "ebit": round(ebit, 2),
+            "roce": round(ebit * ann / capital_employed * 100, 1) if capital_employed > 1000 else None,
             "ebitda_margin": round(ebitda / revenue * 100, 1) if revenue > 0 else None,
             # Capped like `current_ratio`/`dso`/`ccc` above: a turnover or
             # coverage ratio computed from a denominator just over the 1000
             # epsilon (e.g. working capital of 1,050 against six-figure
             # revenue) explodes into triple digits that are a threshold
             # artifact, not a business signal.
-            "working_capital_turnover": max(-20.0, min(20.0, round(revenue / working_capital, 2))) if working_capital > 1000 else None,
+            "working_capital_turnover": max(-20.0, min(20.0, round(revenue * ann / working_capital, 2))) if working_capital > 1000 else None,
             "interest_coverage": max(-20.0, min(20.0, round(ebit / interest_expense, 2))) if interest_expense > 1000 else None,
             "dscr": max(-10.0, min(10.0, round(ebitda / total_debt_service, 2))) if total_debt_service > 1000 else None,
         })
@@ -771,6 +832,8 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         "working_capital_turnover": 4.0,
         "interest_coverage": 3.0,
         "dscr": 1.25,
+        # Same target the Break-Even tab uses (Insights Settings, default 15).
+        "roce": float(frappe.db.get_single_value("Insights Settings", "roce_target") or 15),
     }
 
     def _status(value, benchmark, higher_is_better=True):
@@ -807,5 +870,6 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
             _card("Working Capital Turnover", "working_capital_turnover"),
             _card("Interest Coverage", "interest_coverage"),
             _card("DSCR", "dscr"),
+            _card("ROCE", "roce"),
         ]
     }

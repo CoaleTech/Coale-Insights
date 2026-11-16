@@ -16,7 +16,9 @@
         :label="card.name"
         :value="card.value"
         :severity="card.severity"
-        :sublabel="`Last 90 days · Benchmark: ${card.benchmark}`"
+        :sublabel="card.status === 'unavailable'
+          ? (card.name === 'ROE' || card.name === 'Debt/Equity' ? 'No equity recorded' : 'No data in the last 90 days')
+          : `Last 90 days${yearlyRatios.has(card.name) ? ', annualised' : ''} · Benchmark: ${card.benchmark}`"
         :loading="!data"
       />
     </div>
@@ -49,13 +51,16 @@
       </div>
     </div>
 
-    <!-- Quarterly Ratio Trends -->
+    <!-- 90-day ratio trends -->
     <div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
-      <SectionHeader variant="caption" title="Quarterly Ratio Trends" :level="3">
+      <SectionHeader variant="caption" title="90-Day Ratio Trends" :level="3">
         <template #actions>
           <LineChartIcon class="h-5 w-5 text-ink-gray-5" />
         </template>
       </SectionHeader>
+      <p class="text-sm text-ink-gray-6 mt-2">
+        Each column covers the 90 days ending on the date shown; the last column is the latest 90 days.
+      </p>
       <div v-if="quarterlyTrends.length" class="overflow-x-auto mt-4">
         <table class="min-w-full divide-y divide-outline-gray-1">
           <thead class="bg-surface-gray-1">
@@ -129,6 +134,81 @@
                 {{ formatMultiple(quarter.asset_turnover) }}
               </td>
             </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                EBITDA Margin
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'em-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
+              >
+                {{ formatPercent(quarter.ebitda_margin) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                Working Capital Turnover
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'wt-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
+              >
+                {{ formatMultiple(quarter.working_capital_turnover, 20) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                ROCE
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'roce-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="ratioTrendInk(quarter.roce, roceTarget)"
+              >
+                {{ formatPercent(quarter.roce) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                EBIT
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'ebit-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="quarter.ebit != null && quarter.ebit < 0 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+              >
+                {{ formatMoney(quarter.ebit, currency) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                EBITDA
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'ebitda-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap"
+                :class="quarter.ebitda != null && quarter.ebitda < 0 ? 'text-ink-red-4' : 'text-ink-gray-9'"
+              >
+                {{ formatMoney(quarter.ebitda, currency) }}
+              </td>
+            </tr>
+            <tr class="hover:bg-surface-gray-1">
+              <th class="px-4 py-3 text-sm font-medium text-ink-gray-9 sticky left-0 bg-surface-white" scope="row">
+                Interest Coverage
+              </th>
+              <td
+                v-for="quarter in quarterlyTrends"
+                :key="'ic-' + quarter.period"
+                class="px-4 py-3 text-sm text-right whitespace-nowrap text-ink-gray-9"
+              >
+                {{ formatMultiple(quarter.interest_coverage, 20) }}
+              </td>
+            </tr>
           </tbody>
         </table>
       </div>
@@ -149,7 +229,7 @@
           <div class="flex justify-between mb-1">
             <span class="text-sm font-medium text-ink-gray-7">{{ benchmark.name }}</span>
             <span class="text-sm text-ink-gray-6">
-              {{ benchmark.actual }} / {{ benchmark.benchmark }} (benchmark)
+              {{ benchmark.actual }} / {{ benchmark.benchmark }} (benchmark)<template v-if="benchmark.delta"> · {{ benchmark.delta }}</template>
             </span>
           </div>
           <!-- Non-text fill bar with aria label -->
@@ -177,7 +257,7 @@
 </template>
 
 <script setup lang="ts">
-import { NO_VALUE } from '../../utils/format'
+import { NO_VALUE, formatMoney } from '../../utils/format'
 import { computed } from 'vue'
 import {
   TrendingUp,
@@ -195,6 +275,7 @@ import type { RatioCard, RatioTrendRow, FinancialRatiosData, WorkingCapitalData 
 interface Props {
   data?: FinancialRatiosData
   workingCapital?: WorkingCapitalData | null
+  currency?: string | null
 }
 
 const props = defineProps<Props>()
@@ -205,9 +286,12 @@ const formatRatio = (value: number | null | undefined) => {
 }
 
 /** Ratio with an 'x' multiple suffix (e.g. "2.4x"), omitted -- not appended
- * to the "-" placeholder -- when the server sent no meaningful value. */
-const formatMultiple = (value: number | null | undefined) => {
+ * to the "-" placeholder -- when the server sent no meaningful value. `cap` is the
+ * server's clamp for the ratio (analysis.py): a value at the clamp is "more than"
+ * that, not the real figure, so it reads ">20.00x" rather than "20.00x". */
+const formatMultiple = (value: number | null | undefined, cap = Infinity) => {
   if (value === null || value === undefined) return NO_VALUE
+  if (Math.abs(value) >= cap) return `${value > 0 ? '>' : '<-'}${cap.toFixed(2)}x`
   return `${value.toFixed(2)}x`
 }
 
@@ -231,6 +315,8 @@ function ratioTrendInk(value: number | null | undefined, benchmark: number): str
   return value >= benchmark ? 'text-ink-gray-9 font-medium' : 'text-ink-red-4'
 }
 
+// Null when the ledger has no Equity-type balance to divide by (partner capital held under Liabilities).
+const noEquity = 'No Equity-type balance in the ledger; partner capital may sit under Liabilities'
 // The server sends no per-ratio trend, so none is shown; the quarterly table
 // below carries the history.
 const ratioGroups = computed(() => {
@@ -251,19 +337,21 @@ const ratioGroups = computed(() => {
       rows: [
         { name: 'Gross Margin', value: formatPercent(c.gross_margin), description: 'Gross Profit / Revenue' },
         { name: 'Net Profit Margin', value: formatPercent(c.net_margin), description: 'Net Income / Revenue' },
-        { name: 'ROE', value: formatPercent(c.roe), description: 'Net Income / Shareholders Equity' },
-        { name: 'ROA', value: formatPercent(c.roa), description: 'Net Income / Total Assets' },
+        { name: 'ROE', value: formatPercent(c.roe), description: c.roe == null ? noEquity : 'Net Income / Shareholders Equity (annualised)' },
+        { name: 'ROA', value: formatPercent(c.roa), description: 'Net Income / Total Assets (annualised)' },
+        { name: 'ROCE', value: formatPercent(c.roce), description: 'EBIT / (Total Assets - Current Liabilities) (annualised)' },
+        { name: 'EBIT', value: formatMoney(c.ebit, props.currency), description: 'Net Income + Interest Expense' },
       ],
     },
     {
       title: 'Efficiency Ratios',
       icon: Gauge,
       rows: [
-        { name: 'Asset Turnover', value: formatMultiple(c.asset_turnover), description: 'Revenue / Total Assets' },
+        { name: 'Asset Turnover', value: formatMultiple(c.asset_turnover), description: 'Revenue / Total Assets (annualised)' },
         {
           name: 'Working Capital Turnover',
-          value: formatMultiple(c.working_capital_turnover),
-          description: 'Revenue / Working Capital',
+          value: formatMultiple(c.working_capital_turnover, 20),
+          description: 'Revenue / Working Capital (annualised)',
         },
       ],
     },
@@ -271,19 +359,24 @@ const ratioGroups = computed(() => {
       title: 'Debt & Coverage Ratios',
       icon: ShieldCheck,
       rows: [
-        { name: 'Debt to Equity', value: formatRatio(c.debt_to_equity), description: 'Total Debt / Shareholders Equity' },
-        { name: 'Interest Coverage', value: formatMultiple(c.interest_coverage), description: 'EBIT / Interest Expense' },
-        { name: 'DSCR', value: formatMultiple(c.dscr), description: 'EBITDA / (Interest + Principal Repaid)' },
+        { name: 'Debt to Equity', value: formatRatio(c.debt_to_equity), description: c.debt_to_equity == null ? noEquity : 'Total Debt / Shareholders Equity' },
+        { name: 'Interest Coverage', value: formatMultiple(c.interest_coverage, 20), description: c.interest_coverage == null ? 'No interest expense in this period' : 'EBIT / Interest Expense' },
+        { name: 'DSCR', value: formatMultiple(c.dscr, 10), description: c.dscr == null ? 'No interest or loan repayment in this period' : 'EBITDA / (Interest + Principal Repaid)' },
       ],
     },
   ]
 })
 
 const isPercentCard = (name: string) => name.includes('Margin') || name.includes('RO')
+const yearlyRatios = new Set(['ROE', 'ROA', 'ROCE', 'Asset Turnover', 'Working Capital Turnover'])
 const isMultipleCard = (name: string) =>
   name.includes('Turnover') || name.includes('Coverage') || name === 'DSCR'
 const cardFormatter = (name: string) =>
-  isPercentCard(name) ? formatPercent : isMultipleCard(name) ? formatMultiple : formatRatio
+  isPercentCard(name)
+    ? formatPercent
+    : isMultipleCard(name)
+      ? (v: number | null | undefined) => formatMultiple(v, name === 'DSCR' ? 10 : name === 'Asset Turnover' ? Infinity : 20)
+      : formatRatio
 
 const ratioCards = computed(() => {
   if (!props.data?.ratio_cards) return []
@@ -302,7 +395,16 @@ const ratioCards = computed(() => {
 // Summary strip is capped at six; the benchmark list below shows every ratio.
 const headlineCards = computed(() => ratioCards.value.slice(0, 6))
 
-const quarterlyTrends = computed(() => props.data?.trends?.slice(-4) || [])
+const quarterlyTrends = computed(() => props.data?.trends || [])
+// Target comes from the payload (Insights Settings roce_target); 0 renders no verdict colour.
+const roceTarget = computed(() => props.data?.benchmarks?.roce ?? 0)
+
+
+const deltaText = (name: string, d: number): string => {
+  const sign = d > 0 ? '+' : d < 0 ? '-' : ''
+  const abs = Math.abs(d).toFixed(isPercentCard(name) ? 1 : 2)
+  return `${sign}${abs}${isPercentCard(name) ? 'pp' : 'x'} vs benchmark`
+}
 
 const benchmarkComparison = computed(() => {
   if (!props.data?.ratio_cards) return []
@@ -316,6 +418,7 @@ const benchmarkComparison = computed(() => {
       name: card.name,
       actual: fmt(card.value),
       benchmark: fmt(benchmark),
+      delta: available && card.benchmark != null ? deltaText(card.name, Number(card.value) - Number(card.benchmark)) : '',
       actualPosition: available ? Math.min((Math.abs(actual) / maxVal) * 100, 100) : 0,
       benchmarkPosition: Math.min((benchmark / maxVal) * 100, 100),
       severity: ratioStatusSeverity(card.status),

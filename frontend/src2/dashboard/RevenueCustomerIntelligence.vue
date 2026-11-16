@@ -13,6 +13,7 @@ defineOptions({ name: 'RevenueCustomerIntelligence' })
 import { Button, Tabs, TabButtons } from 'frappe-ui'
 import { computed, ref } from 'vue'
 import { groupButtons, useGroupedTabs } from '../composables/useGroupedTabs'
+import { useQueryParam } from '../composables/useQueryParam'
 import { useRouter } from 'vue-router'
 import { AlertTriangle, RefreshCcw, Loader2 } from 'lucide-vue-next'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
@@ -40,7 +41,7 @@ const drillDown = useDrillDown()
 // and an `allSettled` driver -- ~90 lines reproducing per-instance what
 // `useIntelligenceDashboard` already provides, and still missing the 503
 // backpressure retry it has.
-const dateFilter = ref('12m')
+const dateFilter = useQueryParam('range', '12m')
 const dateParams = computed(() => ({ date_filter: dateFilter.value }))
 
 const sales = useIntelligenceDashboard<Record<string, unknown>>({
@@ -198,7 +199,7 @@ function handleDashboardRedirect(_target: string) {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <div class="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between px-6 py-4 bg-surface-white border-b border-outline-gray-1">
       <div>
@@ -239,7 +240,10 @@ function handleDashboardRedirect(_target: string) {
       @retry="retryAll"
     >
       <!-- Unified KPI strip: 6 cards mixing revenue + customer metrics -->
-      <div class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div
+        v-if="activeTab.id === 'rev-overview' || activeTab.id === 'cust-overview'"
+        class="grid grid-cols-2 gap-4 p-6 pb-2 lg:grid-cols-3 wide:grid-cols-6"
+      >
         <KpiCard
           label="Total Revenue"
           :value="money(salesSummary.total_revenue)"
@@ -248,8 +252,8 @@ function handleDashboardRedirect(_target: string) {
         />
         <KpiCard
           label="Customers"
-          :value="formatCount(custSummary.total_customers as number)"
-          :loading="!custData || custWarming"
+          :value="custSummary.total_customers == null ? undefined : formatCount(custSummary.total_customers as number)"
+          :loading="(!custData && !custError) || custWarming"
         />
         <KpiCard
           label="Avg Order Value"
@@ -263,9 +267,9 @@ function handleDashboardRedirect(_target: string) {
         />
         <KpiCard
           label="At Risk"
-          :value="atRiskCount"
+          :value="atRiskCount ?? undefined"
           :severity="(atRiskCount ?? 0) > 0 ? 'high' : 'none'"
-          :loading="!custData || custWarming"
+          :loading="(!custData && !custError) || custWarming"
         />
         <KpiCard
           label="YoY Growth"
@@ -293,7 +297,9 @@ function handleDashboardRedirect(_target: string) {
           :date-filter="dateFilter"
           :currency="salesCurrency"
           :drill-down-endpoint="'insights.api.ml.sales.get_sales_detail'"
+          :at-risk-count="atRiskCount"
           @drill-down="drillDown.open"
+          @refresh="loadSales"
         />
         <!-- Warming: the cache is cold and a background job is computing.
              Distinct from error — the data is coming, not broken. -->

@@ -53,6 +53,7 @@
 	   makes a chart readable. Never use them for text. */
 	--app-pos-fill: #278f5e; /* green-600 */
 	--app-warn-fill: #db7706; /* amber-600 */
+	--app-on-warn-fill: #1c1917; /* text ON the amber fill: 5.7:1 on amber-600, 8.6:1 on amber-500; white is 3.2:1 on amber-600 */
 	--app-neg-fill: #cc2929; /* red-600 */
 	--app-info-fill: #0070cc; /* = accent, one blue everywhere */
 	--app-muted-fill: #7c7c7c; /* gray-600 — gray-400/500 both fail 3:1 here */
@@ -170,6 +171,34 @@
 }
 
 /**
+ * Same opt-in fix for a whole dashboard. Two small-text ink tokens fall under AA
+ * on a white or tinted card: `ink-gray-5` 4.17:1 and `ink-red-3` 4.42:1 (light),
+ * including frappe-ui's own FormControl label. Step each down a shade. Add
+ * `ink-fix` to a page root once its text has been measured; it is not applied
+ * app-wide. `ink-blue-3` (3.97-4.28:1) has no darker shade in Espresso, so it stays.
+ */
+.ink-fix .text-ink-gray-5 {
+	color: var(--ink-gray-6);
+}
+.ink-fix .text-ink-red-3 {
+	color: var(--text-ink-red-4);
+}
+
+/**
+ * frappe-ui's Tabs and TabButtons ship `focus:outline-none` with no replacement,
+ * so keyboard focus on every dashboard's tab strip and Actuals/Planning switch is
+ * invisible (WCAG 2.4.7). Inset so `overflow-x-auto` strips don't clip it; the
+ * extra `button` keeps specificity above the utility. `data-input` is set by
+ * main.ts: headless-ui focuses a clicked tab by script, which Chrome treats as
+ * :focus-visible, so the pseudo-class alone would ring mouse clicks.
+ */
+[data-input='keyboard'] button[role='tab']:focus-visible,
+[data-input='keyboard'] button[role='radio']:focus-visible {
+	outline: 2px solid var(--ink-gray-9);
+	outline-offset: -2px;
+}
+
+/**
  * Touch target floor on phones.
  *
  * Measured at 375px, the primary controls on every dashboard were 26-31px tall:
@@ -244,6 +273,16 @@
 		min-height: 55vh !important;
 		max-height: 55vh;
 	}
+}
+
+/*
+ * A `table.sr-only` keeps `display: table`, which ignores the 1px width, so a
+ * wide one (the 13-week chart's caption and 4 columns, 496px) sat absolutely
+ * positioned against the page and widened it to 544px on a 390px phone even
+ * though it is clipped. `fixed` takes it out of the scrollable overflow.
+ */
+table.sr-only {
+	position: fixed;
 }
 
 /*

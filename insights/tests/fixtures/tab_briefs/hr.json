@@ -1,0 +1,214 @@
+{
+ "data": {
+  "attendance_metrics": {
+   "absent_days": 151,
+   "attendance_health": "poor",
+   "attendance_rate_pct": 55.42,
+   "effective_present_days": 199.5,
+   "half_day_days": 19,
+   "late_arrival_rate_pct": 3.69,
+   "late_arrivals": 8,
+   "on_leave_days": 2,
+   "present_days": 188,
+   "productivity_indicator": "low",
+   "total_attendance_records": 360,
+   "total_in_checkins": 217,
+   "work_from_home_days": 0
+  },
+  "attrition_metrics": {
+   "attrition_rate_pct": 63.64,
+   "attrition_risk_level": "high",
+   "benchmark_comparison": "above_average",
+   "involuntary_exits": 7,
+   "involuntary_rate_pct": 100.0,
+   "total_exits": 7,
+   "voluntary_exits": 0,
+   "voluntary_rate_pct": 0.0
+  },
+  "attrition_risk": {
+   "predicted_attrition_rate": 76.37,
+   "recommended_actions": [
+    "Implement immediate retention bonuses",
+    "Conduct urgent employee satisfaction survey",
+    "Review and improve management practices",
+    "Accelerate career development programs"
+   ],
+   "risk_factors": [
+    "Critical attrition levels",
+    "Low attendance rate"
+   ],
+   "risk_level": "high",
+   "risk_score": 75
+  },
+  "base_currency": "INR",
+  "company": "company-3582cc",
+  "compensation_analysis": {
+   "highest_paying_dept": "N/A",
+   "lowest_paying_dept": "N/A",
+   "median_salary": 0,
+   "pay_equity_status": "no_data",
+   "pay_ratio": 0,
+   "salary_variance": 0
+  },
+  "currency": "INR",
+  "department_health": {
+   "department_metrics": {
+    "(Unassigned)": {
+     "cost_per_employee": 0.0,
+     "headcount": 3,
+     "payroll_cost": 0.0
+    },
+    "Accounts - JKM": {
+     "cost_per_employee": 0.0,
+     "headcount": 1,
+     "payroll_cost": 0.0
+    },
+    "Dispatch - JKM": {
+     "cost_per_employee": 0.0,
+     "headcount": 1,
+     "payroll_cost": 0.0
+    },
+    "Human Resources - JKM": {
+     "cost_per_employee": 0.0,
+     "headcount": 1,
+     "payroll_cost": 0.0
+    },
+    "Purchase - JKM": {
+     "cost_per_employee": 0.0,
+     "headcount": 1,
+     "payroll_cost": 0.0
+    },
+    "Sales - JKM": {
+     "cost_per_employee": 0.0,
+     "headcount": 4,
+     "payroll_cost": 0.0
+    }
+   },
+   "highest_cost_department": "Sales - JKM",
+   "largest_department": "Sales - JKM",
+   "total_departments": 6
+  },
+  "engagement_indicators": {
+   "_raw": {
+    "attendance_rate_pct": 55.42,
+    "leave_applications_count": 2,
+    "leave_pattern_days": 1.0,
+    "retention_rate_pct": 36.36
+   },
+   "engagement_level": "low",
+   "engagement_score": 40,
+   "key_indicators": {
+    "attendance_contribution": 10,
+    "leave_pattern_contribution": 20,
+    "retention_contribution": 10
+   }
+  },
+  "generated_at": "2026-10-22T14:43:38.425529",
+  "headcount_metrics": {
+   "department_count": 6,
+   "exits": 7,
+   "growth_rate_pct": 0.0,
+   "headcount_health": "needs_attention",
+   "hire_rate_pct": 63.64,
+   "largest_department": "Sales - JKM",
+   "net_growth": 0,
+   "new_hires": 7,
+   "smallest_department": "Human Resources - JKM",
+   "total_employees": 11,
+   "turnover_rate_pct": 63.64
+  },
+  "hiring_forecast": {
+   "growth_based_hiring": 0,
+   "hiring_urgency": "normal",
+   "projected_exits_next_quarter": 1,
+   "total_hiring_need": 1
+  },
+  "leave_metrics": {
+   "average_days_per_application": 1.0,
+   "leave_pattern": "healthy",
+   "leave_utilization": "normal",
+   "total_leave_applications": 2,
+   "total_leave_days": 2.0
+  },
+  "payroll_metrics": {
+   "average_salary": 0,
+   "cost_per_employee": 0,
+   "deduction_rate_pct": 0,
+   "employees_on_payroll": 0,
+   "payroll_data_note": "No Salary Slip records in this period",
+   "payroll_efficiency": "no_data",
+   "total_payroll_cost": 0
+  },
+  "period": "TTM",
+  "recommendations": [
+   {
+    "actions": [
+     "Conduct exit interviews",
+     "Review compensation",
+     "Improve management training"
+    ],
+    "category": "Retention",
+    "description": "Current attrition rate is 63.64%.",
+    "priority": "high",
+    "title": "Address High Attrition Rate"
+   },
+   {
+    "actions": [
+     "Review attendance policy",
+     "Address work-life balance",
+     "Implement flexible working"
+    ],
+    "category": "Engagement",
+    "description": "Attendance rate of 55.42% indicates engagement issues.",
+    "priority": "medium",
+    "title": "Improve Attendance Rates"
+   }
+  ],
+  "status": "success",
+  "workforce_composition": {
+   "composition_balance": "balanced",
+   "department_distribution": [
+    {
+     "count": 4,
+     "department": "Sales - JKM"
+    },
+    {
+     "count": 3,
+     "department": "(Unassigned)"
+    },
+    {
+     "count": 1,
+     "department": "Purchase - JKM"
+    },
+    {
+     "count": 1,
+     "department": "Accounts - JKM"
+    },
+    {
+     "count": 1,
+     "department": "Dispatch - JKM"
+    },
+    {
+     "count": 1,
+     "department": "Human Resources - JKM"
+    }
+   ],
+   "diversity_score": 99.4,
+   "employment_type_distribution": [
+    {
+     "count": 3,
+     "employment_type": "(Unassigned)"
+    },
+    {
+     "count": 8,
+     "employment_type": "Full-time"
+    }
+   ],
+   "gender_ratios": {
+    "Female": 54.5,
+    "Male": 45.5
+   }
+  }
+ },
+ "status": "success"
+}

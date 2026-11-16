@@ -132,6 +132,9 @@ watchEffect(() => {
 				<div class="mt-1 text-base text-ink-gray-6">
 					Create a dashboard in your workbook to view it here.
 				</div>
+				<div class="mt-3">
+					<Button variant="subtle" @click="router.push('/workbook')">Go to Workbooks</Button>
+				</div>
 			</div>
 		</div>
 	</div>

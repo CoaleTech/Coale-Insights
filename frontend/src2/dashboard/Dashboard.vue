@@ -252,7 +252,7 @@ function formatNumber(value: number, type: string = 'number'): string {
 		<!-- ML Predictions Panel -->
 		<div 
 			v-if="showMLPanel && mlPredictions?.available" 
-			class="absolute right-0 top-0 z-10 h-full w-96 overflow-y-auto border-l bg-gradient-to-b from-surface-violet-1 to-surface-white p-4 shadow-lg"
+		class="absolute right-0 top-0 z-10 h-full w-96 overflow-y-auto border-l bg-surface-gray-1 p-4 shadow-lg"
 		>
 			<div class="flex items-center justify-between mb-4">
 				<h3 class="text-lg font-semibold flex items-center gap-2">
@@ -364,9 +364,9 @@ function formatNumber(value: number, type: string = 'number'): string {
 					<div v-for="(count, cls) in mlPredictions.models.abc_xyz_classification.class_distribution" :key="cls"
 						class="text-center p-1 rounded text-xs"
 						:class="{
-							'bg-neg-fill text-neg': cls.startsWith('A'),
-							'bg-warn-fill text-warn': cls.startsWith('B'),
-							'bg-pos-fill text-pos': cls.startsWith('C')
+							'bg-surface-red-2 text-ink-gray-9': cls.startsWith('A'),
+							'bg-surface-amber-2 text-ink-gray-9': cls.startsWith('B'),
+							'bg-surface-green-2 text-ink-gray-9': cls.startsWith('C')
 						}">
 						<div class="font-bold">{{ cls }}</div>
 						<div>{{ count }}</div>

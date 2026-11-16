@@ -15,19 +15,20 @@
     <template v-else>
       <!-- Cash Position Overview -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <KpiCard label="Current Cash" :amount="data.current_cash" :currency="currency" />
+        <KpiCard label="Current Cash" :amount="data.current_cash" :currency="currency" sublabel="Bank and cash book balance, post-dated cheques included; fixed deposits excluded" />
         <KpiCard label="Expected AR Inflows" :amount="data.expected_ar_inflows" :currency="currency" />
         <KpiCard label="Expected AP Outflows" :amount="data.expected_ap_outflows" :currency="currency" />
         <KpiCard
           label="Net Expected"
           :amount="data.net_expected"
+          sublabel="AR in minus AP out"
           :currency="currency"
           :severity="data.net_expected != null && data.net_expected < 0 ? 'critical' : 'none'"
         />
       </div>
 
       <!-- 90-Day Cash Forecast Chart -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="90-Day Cash Flow Forecast" :level="3" />
         <div v-if="data.base_forecast?.length" class="h-56 sm:h-72 lg:h-80 mt-4">
           <CashForecastChart
@@ -45,7 +46,7 @@
       <!-- Forecast Scenarios (identity labels, not status colors) -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <!-- Optimistic -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center gap-2 mb-4">
             <TrendingUp class="h-5 w-5 text-ink-gray-5" />
             <h4 class="font-semibold text-ink-gray-9">Optimistic Scenario</h4>
@@ -70,7 +71,7 @@
         </div>
 
         <!-- Base Case -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center gap-2 mb-4">
             <Target class="h-5 w-5 text-ink-gray-5" />
             <h4 class="font-semibold text-ink-gray-9">Base Case</h4>
@@ -101,7 +102,7 @@
         </div>
 
         <!-- Pessimistic -->
-        <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
           <div class="flex items-center gap-2 mb-4">
             <TrendingDown class="h-5 w-5 text-ink-gray-5" />
             <h4 class="font-semibold text-ink-gray-9">Pessimistic Scenario</h4>
@@ -130,7 +131,7 @@
       </div>
 
       <!-- Weekly Cash Summary -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Weekly Cash Summary" :level="3" />
         <div v-if="data.weekly_summary?.length" class="overflow-x-auto mt-4">
           <table class="min-w-full divide-y divide-outline-gray-1">
@@ -237,8 +238,9 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
 
 const formatCompact = (value: number | null | undefined) => formatCount(value, { compact: true })
 
+// null = the balance stays positive for the whole 90-day forecast; 0 = already at or below zero.
 const runwayLabel = (days: number | null | undefined) => {
-  if (days === null || days === undefined) return NO_VALUE
-  return days >= 90 ? '90+ days' : `${days} days`
+  if (days === null || days === undefined) return '90+ days'
+  return days === 0 ? 'Already ≤ 0' : `${days} ${days === 1 ? 'day' : 'days'}`
 }
 </script>

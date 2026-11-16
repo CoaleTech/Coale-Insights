@@ -19,7 +19,7 @@
       <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <SectionHeader variant="caption" title="13-Week Rolling Cash Flow Forecast" :level="3"
-            hint="Current week plus the next 13 weeks: projected inflows and outflows by week" />
+            hint="Current week plus the next 12 weeks: projected inflows and outflows by week" />
         </div>
         <div class="flex items-center gap-4">
           <!-- Payroll Detection Badge -->
@@ -42,7 +42,7 @@
       </div>
 
       <!-- Summary KPI Cards -->
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
         <KpiCard label="Opening Balance" :amount="data?.opening_balance" :currency="currency" />
         <KpiCard label="Total Inflows" :amount="data?.summary?.total_inflows" :currency="currency" />
         <KpiCard label="Total Outflows" :amount="data?.summary?.total_outflows" :currency="currency" />
@@ -56,7 +56,7 @@
         />
         <KpiCard
           label="Weeks Below Threshold"
-          :value="data?.summary?.weeks_below_threshold"
+          :value="weeksBelowThreshold"
           :severity="hasThresholdWarning ? 'critical' : 'none'"
         />
       </div>
@@ -83,9 +83,9 @@
       </div>
 
       <!-- Chart -->
-      <div class="bg-surface-white rounded-lg p-6 shadow-sm border border-outline-gray-1">
+      <div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
         <SectionHeader variant="caption" title="Cash Flow Visualization" :level="4" />
-        <div v-if="chartData" class="h-56 sm:h-72 lg:h-80 mt-4">
+        <div v-if="chartData" class="mt-4">
           <ThirteenWeekChart :data="chartData" :threshold="threshold" />
         </div>
         <div v-else class="h-80 flex items-center justify-center text-ink-gray-6">
@@ -95,16 +95,16 @@
 
       <!-- Scenario Analysis and Variance Review Panels -->
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-surface-white rounded-lg p-5 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-5 border border-outline-gray-1">
           <CashFlowScenarioPanel :scenarios="scenariosProp" />
         </div>
-        <div class="bg-surface-white rounded-lg p-5 shadow-sm border border-outline-gray-1">
+        <div class="bg-surface-white rounded-lg p-5 border border-outline-gray-1">
           <CashFlowVariancePanel :variance="varianceProp" />
         </div>
       </div>
 
       <!-- Weekly Table -->
-      <div class="bg-surface-white rounded-lg shadow-sm border border-outline-gray-1 overflow-hidden">
+      <div class="bg-surface-white rounded-lg border border-outline-gray-1 overflow-hidden">
         <div class="p-4 border-b border-outline-gray-1">
           <SectionHeader variant="caption" title="Weekly Cash Flow Detail" :level="4" />
         </div>
@@ -460,13 +460,18 @@ watch(
   },
 )
 
+// The server flags weeks against the threshold it was computed with; the input
+// above changes it, so the flags are re-derived here to follow what is typed.
 const displayWeeks = computed(() => {
   if (!props.data?.weeks) return []
-  return props.data.weeks.filter((w) => w.week_number >= 0)
+  return props.data.weeks
+    .filter((w) => w.week_number >= 0)
+    .map((w) => ({ ...w, below_threshold: w.closing_balance < threshold.value }))
 })
 
 const hasVariance = computed(() => props.data?.weeks?.some((w) => w.variance))
-const hasThresholdWarning = computed(() => (props.data?.summary?.weeks_below_threshold || 0) > 0)
+const weeksBelowThreshold = computed(() => displayWeeks.value.filter((w) => w.below_threshold).length)
+const hasThresholdWarning = computed(() => weeksBelowThreshold.value > 0)
 const isMinBalanceCritical = computed(() => {
   const minBalance = props.data?.summary?.minimum_balance || 0
   return minBalance < threshold.value

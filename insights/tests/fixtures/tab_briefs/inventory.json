@@ -1,0 +1,1935 @@
+{
+ "data": {
+  "abc_xyz": {
+   "abc_summary": [
+    {
+     "class": "A",
+     "item_count": 48,
+     "total_value": 118141289.08
+    },
+    {
+     "class": "B",
+     "item_count": 79,
+     "total_value": 22430633.1
+    },
+    {
+     "class": "C",
+     "item_count": 182,
+     "total_value": 7487896.99
+    }
+   ],
+   "classification_date": "2026-10-22T14:43:31.648096",
+   "matrix": [
+    {
+     "class": "AX",
+     "item_count": 13,
+     "stock_value": 170260.68341357,
+     "total_value": 27257705.58
+    },
+    {
+     "class": "AY",
+     "item_count": 26,
+     "stock_value": 540230.998619825,
+     "total_value": 68082402.0
+    },
+    {
+     "class": "AZ",
+     "item_count": 9,
+     "stock_value": 18003.0,
+     "total_value": 22801181.5
+    },
+    {
+     "class": "BX",
+     "item_count": 22,
+     "stock_value": 21070.0,
+     "total_value": 6523955.0
+    },
+    {
+     "class": "BY",
+     "item_count": 37,
+     "stock_value": 213676.588999945,
+     "total_value": 11192389.1
+    },
+    {
+     "class": "BZ",
+     "item_count": 20,
+     "stock_value": 38434.0,
+     "total_value": 4714289.0
+    },
+    {
+     "class": "CX",
+     "item_count": 37,
+     "stock_value": 6673.3333333,
+     "total_value": 2356510.0
+    },
+    {
+     "class": "CY",
+     "item_count": 28,
+     "stock_value": 17597.333333399998,
+     "total_value": 1733801.5
+    },
+    {
+     "class": "CZ",
+     "item_count": 117,
+     "stock_value": 0.0,
+     "total_value": 3397585.49
+    }
+   ],
+   "summary": {
+    "a_count": 48,
+    "b_count": 79,
+    "c_count": 182,
+    "x_count": 72,
+    "y_count": 91,
+    "z_count": 146
+   },
+   "top_items": [
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 32236.363636363636,
+     "cv": 0.5876,
+     "item_code": "KCL97TIND",
+     "item_group": "All Item Groups",
+     "item_name": "Potassium Chloride (Tech. Grade)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 354600.0,
+     "total_value": 12805550.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 10477.272727272728,
+     "cv": 1.1177,
+     "item_code": "CAATCH",
+     "item_group": "All Item Groups",
+     "item_name": "Citric Acid Anhydrous",
+     "stock_qty": 150.0,
+     "stock_value": 16140.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 115250.0,
+     "total_value": 10462250.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 3412.5,
+     "cv": 0.3973,
+     "item_code": "SLES70GD",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Godrej SLES P24 270 (Paste 70%)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 40950.0,
+     "total_value": 7096864.5,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 33477.27272727273,
+     "cv": 0.8873,
+     "item_code": "FeSH",
+     "item_group": "All Item Groups",
+     "item_name": "Ferrous Sulphate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 368250.0,
+     "total_value": 6499350.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 8000.0,
+     "cv": 0.4576,
+     "item_code": "TRO50IC",
+     "item_group": "All Item Groups",
+     "item_name": "Sulphonated Castor Oil - 50%",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 80000.0,
+     "total_value": 5018000.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 4520.833333333333,
+     "cv": 0.7794,
+     "item_code": "CAMTCH",
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "item_name": "Citric Acid Monohydrate",
+     "stock_qty": 3275.0,
+     "stock_value": 304850.030000025,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 54250.0,
+     "total_value": 4592298.75,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 2716.818181818182,
+     "cv": 0.6206,
+     "item_code": "PGTCH",
+     "item_group": "All Item Groups",
+     "item_name": "Propylene Glycol (Tech. Grade)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 29885.0,
+     "total_value": 3950732.5,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 1464.2857142857142,
+     "cv": 1.0496,
+     "item_code": "CuS24TP",
+     "item_group": "All Item Groups",
+     "item_name": "Copper Sulphate Powder - 24%",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 10250.0,
+     "total_value": 3578350.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 2550.0,
+     "cv": 0.7215,
+     "item_code": "GLYTI",
+     "item_group": "All Item Groups",
+     "item_name": "Glycerine",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 25500.0,
+     "total_value": 3365375.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 22050.0,
+     "cv": 0.5571,
+     "item_code": "MSTU50",
+     "item_group": "Agriculture",
+     "item_name": "Maize Starch Powder (Technical)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 88200.0,
+     "total_value": 3046350.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 15250.0,
+     "cv": 0.252,
+     "item_code": "STSATCR",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Thiosulphate - Crystal",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 106750.0,
+     "total_value": 2926500.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 4354.166666666667,
+     "cv": 0.8668,
+     "item_code": "HSFTCH25N",
+     "item_group": "All Item Groups",
+     "item_name": "Super F Humate Shiny Flakes",
+     "stock_qty": 1675.0,
+     "stock_value": 85257.62262005,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 52250.0,
+     "total_value": 2908940.25,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 4000.0,
+     "cv": 0.6415,
+     "item_code": "SAJO9M",
+     "item_group": "All Item Groups",
+     "item_name": "Stearic Acid Jocil 9M",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 24000.0,
+     "total_value": 2819000.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 1590.909090909091,
+     "cv": 0.6609,
+     "item_code": "GLYCPGD",
+     "item_group": "All Item Groups",
+     "item_name": "Glycerine",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 17500.0,
+     "total_value": 2710375.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 6625.0,
+     "cv": 0.9651,
+     "item_code": "AMSPTIN",
+     "item_group": "All Item Groups",
+     "item_name": "Ammonium Sulphate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 66250.0,
+     "total_value": 2395100.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 6062.5,
+     "cv": 0.6035,
+     "item_code": "PCGTUNID",
+     "item_group": "All Item Groups",
+     "item_name": "Potassium Carbonate Granules",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 24250.0,
+     "total_value": 2307612.5,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 3500.0,
+     "cv": 0.4286,
+     "item_code": "CuSEP",
+     "item_group": "All Item Groups",
+     "item_name": "Copper Sulphate Powder",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 7000.0,
+     "total_value": 2222000.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 7116.666666666667,
+     "cv": 1.6475,
+     "item_code": "MSTE",
+     "item_group": "All Item Groups",
+     "item_name": "Maize Starch  (Technical Grade)",
+     "stock_qty": 50.0,
+     "stock_value": 1863.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 64050.0,
+     "total_value": 2083427.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 3610.0,
+     "cv": 0.9773,
+     "item_code": "KOHUNID25",
+     "item_group": "All Item Groups",
+     "item_name": "Potassium Hydroxide (KOH)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 18050.0,
+     "total_value": 2038750.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 6890.0,
+     "cv": 0.8149,
+     "item_code": "MnST50",
+     "item_group": "All Item Groups",
+     "item_name": "Manganese Sulphate Monohydrate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 34450.0,
+     "total_value": 2022800.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 15500.0,
+     "cv": 0.6129,
+     "item_code": "CAMU",
+     "item_group": "All Item Groups",
+     "item_name": "Citric Acid Monohydrate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 31000.0,
+     "total_value": 2004000.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 1189.5833333333333,
+     "cv": 0.6844,
+     "item_code": "SADG",
+     "item_group": "All Item Groups",
+     "item_name": "Stearic Acid - Distric",
+     "stock_qty": 25.0,
+     "stock_value": 3468.346,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 14275.0,
+     "total_value": 1980600.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 3420.0,
+     "cv": 0.4144,
+     "item_code": "THFW",
+     "item_group": "All Item Groups",
+     "item_name": "Tetrahydrofuran",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 10260.0,
+     "total_value": 1962360.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 2139.0,
+     "cv": 0.6344,
+     "item_code": "MEGTRIL",
+     "item_group": "All Item Groups",
+     "item_name": "Mono Ethylene Glycol (MEG)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 21390.0,
+     "total_value": 1732475.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 2900.0,
+     "cv": 0.7372,
+     "item_code": "DMFSAU",
+     "item_group": "All Item Groups",
+     "item_name": "Dimethyl Formamide 200KG (Saudi Arabia)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 17400.0,
+     "total_value": 1704800.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 875.9090909090909,
+     "cv": 0.5377,
+     "item_code": "SLES70BD",
+     "item_group": "All Item Groups",
+     "item_name": "TEXAPON N-70 T",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 9635.0,
+     "total_value": 1683422.5,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 88000.0,
+     "cv": 0.0,
+     "item_code": "MGCL225",
+     "item_group": "Raw Material",
+     "item_name": "Magnesium Chloride Hexahydrate Flakes",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 264000.0,
+     "total_value": 1572050.58,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 39000.0,
+     "cv": 999.0,
+     "item_code": "MSTL50",
+     "item_group": "Agriculture",
+     "item_name": "Maize Starch Powder (Technical)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 39000.0,
+     "total_value": 1433250.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 746.6666666666666,
+     "cv": 0.8268,
+     "item_code": "IPADEP",
+     "item_group": "All Item Groups",
+     "item_name": "Iso Propyl Alcohol",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 8960.0,
+     "total_value": 1392760.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 11927.777777777777,
+     "cv": 1.0042,
+     "item_code": "MgSHT50",
+     "item_group": "All Item Groups",
+     "item_name": "Magnesium Sulphate Heptahydrate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 107350.0,
+     "total_value": 1378800.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 1308.3333333333333,
+     "cv": 0.4578,
+     "item_code": "SLES28GC",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Godrej SLES L - 24",
+     "stock_qty": 1100.0,
+     "stock_value": 93910.6833335,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 15700.0,
+     "total_value": 1342695.5,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 1500.0,
+     "cv": 0.6325,
+     "item_code": "B20TGB25",
+     "item_group": "All Item Groups",
+     "item_name": "Boron 20%",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 7500.0,
+     "total_value": 1177600.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 1500.0,
+     "cv": 0.3333,
+     "item_code": "PHOSAP",
+     "item_group": "All Item Groups",
+     "item_name": "Phosphorous Acid 99%",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 6000.0,
+     "total_value": 1140000.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 537.5,
+     "cv": 0.836,
+     "item_code": "SBZFG25",
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "item_name": "Sodium Benzoate (Food Grade)",
+     "stock_qty": 275.0,
+     "stock_value": 48125.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 6450.0,
+     "total_value": 1124898.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 35000.0,
+     "cv": 999.0,
+     "item_code": "MSTH",
+     "item_group": "All Item Groups",
+     "item_name": "Maize Starch  (Technical Grade)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 35000.0,
+     "total_value": 1120000.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 3200.0,
+     "cv": 0.5,
+     "item_code": "CMFIS",
+     "item_group": "All Item Groups",
+     "item_name": "Calcium Formate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 16000.0,
+     "total_value": 1111500.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 5000.0,
+     "cv": 999.0,
+     "item_code": "PHOAP",
+     "item_group": "All Item Groups",
+     "item_name": "Phosphorous Acid 99%",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 5000.0,
+     "total_value": 1085500.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 1786.3636363636363,
+     "cv": 1.0086,
+     "item_code": "DMHFU50",
+     "item_group": "All Item Groups",
+     "item_name": "Dextrose Monohydrate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 19650.0,
+     "total_value": 1046254.5,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 1510.7142857142858,
+     "cv": 0.2177,
+     "item_code": "SLSGLIQG",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "GINOPOL L 24 (SLS Liquid 32%)",
+     "stock_qty": 705.0,
+     "stock_value": 76350.00008007,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 10575.0,
+     "total_value": 1023190.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 3666.6666666666665,
+     "cv": 0.3402,
+     "item_code": "MGOH2",
+     "item_group": "All Item Groups",
+     "item_name": "Magnesium Hydroxide",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 11000.0,
+     "total_value": 829000.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 2530.0,
+     "cv": 0.1818,
+     "item_code": "NP95R",
+     "item_group": "All Item Groups",
+     "item_name": "Neonol A.F. 9-9.5",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 5060.0,
+     "total_value": 807587.5,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 1309.090909090909,
+     "cv": 0.9113,
+     "item_code": "CSFTDCM",
+     "item_group": "All Item Groups",
+     "item_name": "Caustic Soda Flakes",
+     "stock_qty": 550.0,
+     "stock_value": 23757.49999975,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 14400.0,
+     "total_value": 732975.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 1175.0,
+     "cv": 0.7141,
+     "item_code": "SLES28GD",
+     "item_group": "All Item Groups",
+     "item_name": "Godrej SLES L - 24",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 9400.0,
+     "total_value": 731555.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 500.0,
+     "cv": 0.2828,
+     "item_code": "BLAPO",
+     "item_group": "All Item Groups",
+     "item_name": "Butyl Acetate",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 4500.0,
+     "total_value": 679320.0,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AX",
+     "avg_monthly_qty": 5005.0,
+     "cv": 0.0,
+     "item_code": "FOADC",
+     "item_group": "All Item Groups",
+     "item_name": "Formic Acid - 85%",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Tight control: high-value, stable. Tight safety stock, frequent review.",
+     "total_qty": 10010.0,
+     "total_value": 638137.5,
+     "xyz_class": "X"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 618.75,
+     "cv": 0.6074,
+     "item_code": "MEK",
+     "item_group": "All Item Groups",
+     "item_name": "Methyl Ethyl Ketone (MEK)",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 4950.0,
+     "total_value": 634507.5,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AZ",
+     "avg_monthly_qty": 1966.6666666666667,
+     "cv": 1.1032,
+     "item_code": "ZSM33TIN",
+     "item_group": "All Item Groups",
+     "item_name": "Zinc Sulphate Monohydrate 33%",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Critical review: high-value, erratic. Special attention, drop-ship option.",
+     "total_qty": 5900.0,
+     "total_value": 613350.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "A",
+     "abc_xyz_class": "AY",
+     "avg_monthly_qty": 189.58333333333334,
+     "cv": 0.8771,
+     "item_code": "POSFK",
+     "item_group": "Agriculture",
+     "item_name": "Potassium Sorbate Food Grade",
+     "stock_qty": 275.0,
+     "stock_value": 74772.5,
+     "strategy": "Moderate attention: high-value, variable. Frequent review, buffer stock.",
+     "total_qty": 2275.0,
+     "total_value": 609075.0,
+     "xyz_class": "Y"
+    },
+    {
+     "abc_class": "B",
+     "abc_xyz_class": "BZ",
+     "avg_monthly_qty": 1075.7142857142858,
+     "cv": 1.0616,
+     "item_code": "AATG",
+     "item_group": "All Item Groups",
+     "item_name": "Acetic Acid Glacial",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Loose control: medium-value, erratic. Periodic review, larger buffers.",
+     "total_qty": 7530.0,
+     "total_value": 591630.0,
+     "xyz_class": "Z"
+    },
+    {
+     "abc_class": "B",
+     "abc_xyz_class": "BY",
+     "avg_monthly_qty": 567.0,
+     "cv": 0.7417,
+     "item_code": "LLPTIN",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "Light Liquid Paraffin Oil",
+     "stock_qty": 0.0,
+     "stock_value": 0.0,
+     "strategy": "Moderate control: medium-value, variable. Periodic review.",
+     "total_qty": 5670.0,
+     "total_value": 590782.5,
+     "xyz_class": "Y"
+    }
+   ],
+   "total_items": 309,
+   "xyz_summary": [
+    {
+     "class": "X",
+     "item_count": 72
+    },
+    {
+     "class": "Y",
+     "item_count": 91
+    },
+    {
+     "class": "Z",
+     "item_count": 146
+    }
+   ]
+  },
+  "aging_analysis": {
+   "age_buckets": {
+    "0-30 days": {
+     "count": 0,
+     "value": 0.0
+    },
+    "181-365 days": {
+     "count": 4,
+     "value": 88090.50008007
+    },
+    "31-60 days": {
+     "count": 11,
+     "value": 489409.894953495
+    },
+    "365+ days": {
+     "count": 0,
+     "value": 0.0
+    },
+    "61-90 days": {
+     "count": 11,
+     "value": 439452.375999775
+    },
+    "91-180 days": {
+     "count": 2,
+     "value": 8993.166666699999
+    }
+   },
+   "by_product_group": [
+    {
+     "avg_age_days": 80.0,
+     "item_count": 3,
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "total_qty": 3875.0,
+     "total_value": 443087.52999994997
+    },
+    {
+     "avg_age_days": 70.0,
+     "item_count": 16,
+     "item_group": "All Item Groups",
+     "total_qty": 4635.0,
+     "total_value": 274401.4209531
+    },
+    {
+     "avg_age_days": 94.0,
+     "item_count": 4,
+     "item_group": "Detergent & Cosmetic",
+     "total_qty": 1955.0,
+     "total_value": 185150.67341357
+    },
+    {
+     "avg_age_days": 64.0,
+     "item_count": 4,
+     "item_group": "Agriculture",
+     "total_qty": 680.0,
+     "total_value": 114872.31333342
+    },
+    {
+     "avg_age_days": 62.0,
+     "item_count": 1,
+     "item_group": "Agriculture soil base",
+     "total_qty": 40.0,
+     "total_value": 8434.0
+    }
+   ],
+   "oldest_items": [
+    {
+     "avg_age_days": 353.0,
+     "item_code": "SBZIPN25",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Benzoate",
+     "total_qty": 25.0,
+     "total_value": 2725.0
+    },
+    {
+     "avg_age_days": 327.0,
+     "item_code": "PFE8",
+     "item_group": "All Item Groups",
+     "item_name": "Potassium Fulvate ",
+     "total_qty": 125.0,
+     "total_value": 7152.5
+    },
+    {
+     "avg_age_days": 260.0,
+     "item_code": "MSTE",
+     "item_group": "All Item Groups",
+     "item_name": "Maize Starch  (Technical Grade)",
+     "total_qty": 50.0,
+     "total_value": 1863.0
+    },
+    {
+     "avg_age_days": 181.0,
+     "item_code": "SLSGLIQG",
+     "item_group": "Detergent & Cosmetic",
+     "item_name": "GINOPOL L 24 (SLS Liquid 32%)",
+     "total_qty": 705.0,
+     "total_value": 76350.00008007
+    },
+    {
+     "avg_age_days": 111.0,
+     "item_code": "SCDF",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Citrate",
+     "total_qty": 50.0,
+     "total_value": 6673.3333333
+    },
+    {
+     "avg_age_days": 94.0,
+     "item_code": "AMP8CH",
+     "item_group": "Agriculture",
+     "item_name": "Amino Acid Powder 80%",
+     "total_qty": 25.0,
+     "total_value": 2319.8333334
+    },
+    {
+     "avg_age_days": 86.0,
+     "item_code": "SBZIPJ25",
+     "item_group": "All Item Groups",
+     "item_name": "Sodium Benzoate",
+     "total_qty": 75.0,
+     "total_value": 6615.0
+    },
+    {
+     "avg_age_days": 86.0,
+     "item_code": "SADG",
+     "item_group": "All Item Groups",
+     "item_name": "Stearic Acid - Distric",
+     "total_qty": 25.0,
+     "total_value": 3468.346
+    },
+    {
+     "avg_age_days": 86.0,
+     "item_code": "CAMTCH",
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "item_name": "Citric Acid Monohydrate",
+     "total_qty": 3275.0,
+     "total_value": 304850.030000025
+    },
+    {
+     "avg_age_days": 80.0,
+     "item_code": "HSFTCH25",
+     "item_group": "All Item Groups",
+     "item_name": "Super F Humate Shiny Flakes",
+     "total_qty": 625.0,
+     "total_value": 30000.0
+    }
+   ],
+   "total_items_analyzed": 28
+  },
+  "base_currency": "INR",
+  "company": "company-3582cc",
+  "date_filter": "12m",
+  "dead_stock": {
+   "by_product_group": [],
+   "items": [],
+   "total_items": 0,
+   "total_value": 0
+  },
+  "demand_planning": {
+   "forecast_date": "2026-10-22T14:43:31.887558",
+   "reorder_alerts": [
+    {
+     "current_stock": 0.0,
+     "item_code": "2-EH",
+     "monthly_forecast": 555.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AAFJ",
+     "monthly_forecast": 990.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AAT30",
+     "monthly_forecast": 510.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AATG",
+     "monthly_forecast": 1524.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "ACS50",
+     "monthly_forecast": 95.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "ACS55",
+     "monthly_forecast": 220.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "ACSI55",
+     "monthly_forecast": 110.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "ALTIGC",
+     "monthly_forecast": 50.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "ALTIGD",
+     "monthly_forecast": 420.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AM5FCH",
+     "monthly_forecast": 120.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AMMOLYTMC",
+     "monthly_forecast": 50.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AMSBTIN",
+     "monthly_forecast": 1625.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AMSPI",
+     "monthly_forecast": 500.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AMSPTIN",
+     "monthly_forecast": 3500.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AORC",
+     "monthly_forecast": 2.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AOSPG",
+     "monthly_forecast": 43.8,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AOSPGP",
+     "monthly_forecast": 34.4,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AOSTGLIQ",
+     "monthly_forecast": 658.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AOSTGPST",
+     "monthly_forecast": 220.0,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AOSXL",
+     "monthly_forecast": 411.2,
+     "months_cover": 0.0,
+     "status": "reorder_now"
+    }
+   ],
+   "summary": {
+    "adequate_count": 3,
+    "monitor_count": 2,
+    "reorder_now_count": 304,
+    "total_items": 309
+   }
+  },
+  "generated_at": "2026-10-22T14:43:27.520922",
+  "period": {
+   "end": "2026-10-22",
+   "start": "2025-10-22"
+  },
+  "procurement_insights": {
+   "pending_orders": [
+    {
+     "days_pending": 586,
+     "grand_total": 1418478.0,
+     "name": "JKM/PO/2425/01140-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "supplier_name": "supplier_name-1c5943",
+     "transaction_date": "2025-03-15"
+    },
+    {
+     "days_pending": 574,
+     "grand_total": 2631400.0,
+     "name": "JKM/PO/2425/01177",
+     "status": "To Receive",
+     "supplier": "supplier-b018b6",
+     "supplier_name": "supplier_name-8c7f98",
+     "transaction_date": "2025-03-27"
+    },
+    {
+     "days_pending": 567,
+     "grand_total": 1445500.0,
+     "name": "PO252612-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "supplier_name": "supplier_name-1c5943",
+     "transaction_date": "2025-04-03"
+    },
+    {
+     "days_pending": 566,
+     "grand_total": 212105.0,
+     "name": "PO252619",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-5ff4a9",
+     "supplier_name": "supplier_name-6c4e02",
+     "transaction_date": "2025-04-04"
+    },
+    {
+     "days_pending": 563,
+     "grand_total": 66552.0,
+     "name": "PO252624",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-dcf634",
+     "supplier_name": "supplier_name-d9c86d",
+     "transaction_date": "2025-04-07"
+    },
+    {
+     "days_pending": 537,
+     "grand_total": 1003000.0,
+     "name": "PO2526120",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-aa3351",
+     "supplier_name": "supplier_name-48bbfc",
+     "transaction_date": "2025-05-03"
+    },
+    {
+     "days_pending": 527,
+     "grand_total": 796500.0,
+     "name": "PO2526164",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-aa3351",
+     "supplier_name": "supplier_name-48bbfc",
+     "transaction_date": "2025-05-13"
+    },
+    {
+     "days_pending": 520,
+     "grand_total": 8024.0,
+     "name": "PO2526199",
+     "status": "To Bill",
+     "supplier": "supplier-ca22d5",
+     "supplier_name": "supplier_name-27f708",
+     "transaction_date": "2025-05-20"
+    },
+    {
+     "days_pending": 507,
+     "grand_total": 1451400.0,
+     "name": "PO2526253",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-13375a",
+     "supplier_name": "supplier_name-6346fd",
+     "transaction_date": "2025-06-02"
+    },
+    {
+     "days_pending": 474,
+     "grand_total": 445450.0,
+     "name": "PO2526404",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "supplier_name": "supplier_name-1c5943",
+     "transaction_date": "2025-07-05"
+    },
+    {
+     "days_pending": 451,
+     "grand_total": 161070.0,
+     "name": "PO2526507",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-827ef2",
+     "supplier_name": "supplier_name-530dc8",
+     "transaction_date": "2025-07-28"
+    },
+    {
+     "days_pending": 451,
+     "grand_total": 1327500.0,
+     "name": "PO2526512",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-1badda",
+     "supplier_name": "supplier_name-49cec2",
+     "transaction_date": "2025-07-28"
+    },
+    {
+     "days_pending": 444,
+     "grand_total": 402675.0,
+     "name": "PO2526557",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-c1a973",
+     "supplier_name": "supplier_name-1c5943",
+     "transaction_date": "2025-08-04"
+    },
+    {
+     "days_pending": 352,
+     "grand_total": 87910.0,
+     "name": "PO2526890",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-dcf634",
+     "supplier_name": "supplier_name-d9c86d",
+     "transaction_date": "2025-11-04"
+    },
+    {
+     "days_pending": 325,
+     "grand_total": 696200.0,
+     "name": "PO25261004-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-4448b5",
+     "supplier_name": "supplier_name-479371",
+     "transaction_date": "2025-12-01"
+    },
+    {
+     "days_pending": 318,
+     "grand_total": 68949.0,
+     "name": "PO25261035",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-a2acd3",
+     "supplier_name": "supplier_name-b1baaf",
+     "transaction_date": "2025-12-08"
+    },
+    {
+     "days_pending": 273,
+     "grand_total": 761100.0,
+     "name": "PO25261231",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-1badda",
+     "supplier_name": "supplier_name-49cec2",
+     "transaction_date": "2026-01-22"
+    },
+    {
+     "days_pending": 243,
+     "grand_total": 348100.0,
+     "name": "PO25261371",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-4d5316",
+     "supplier_name": "supplier_name-2fb2c8",
+     "transaction_date": "2026-02-21"
+    },
+    {
+     "days_pending": 226,
+     "grand_total": 708000.0,
+     "name": "PO25261455",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-4d5316",
+     "supplier_name": "supplier_name-2fb2c8",
+     "transaction_date": "2026-03-10"
+    },
+    {
+     "days_pending": 210,
+     "grand_total": 82305.0,
+     "name": "PO25261540-1",
+     "status": "To Receive and Bill",
+     "supplier": "supplier-9e2ef8",
+     "supplier_name": "supplier_name-e346dd",
+     "transaction_date": "2026-03-26"
+    }
+   ],
+   "pending_orders_count": 30,
+   "reorder_count": 287,
+   "reorder_needed": [
+    {
+     "avg_daily_demand": 1008.9041095890411,
+     "current_stock": 0.0,
+     "item_code": "FeSH",
+     "item_name": "Ferrous Sulphate",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 971.5068493150685,
+     "current_stock": 0.0,
+     "item_code": "KCL97TIND",
+     "item_name": "Potassium Chloride (Tech. Grade)",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 723.2876712328767,
+     "current_stock": 0.0,
+     "item_code": "MGCL225",
+     "item_name": "Magnesium Chloride Hexahydrate Flakes",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 315.7534246575342,
+     "current_stock": 150.0,
+     "item_code": "CAATCH",
+     "item_name": "Citric Acid Anhydrous",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 294.1095890410959,
+     "current_stock": 0.0,
+     "item_code": "MgSHT50",
+     "item_name": "Magnesium Sulphate Heptahydrate",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 292.4657534246575,
+     "current_stock": 0.0,
+     "item_code": "STSATCR",
+     "item_name": "Sodium Thiosulphate - Crystal",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 241.6438356164384,
+     "current_stock": 0.0,
+     "item_code": "MSTU50",
+     "item_name": "Maize Starch Powder (Technical)",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 219.1780821917808,
+     "current_stock": 0.0,
+     "item_code": "TRO50IC",
+     "item_name": "Sulphonated Castor Oil - 50%",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 181.5068493150685,
+     "current_stock": 0.0,
+     "item_code": "AMSPTIN",
+     "item_name": "Ammonium Sulphate",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 175.4794520547945,
+     "current_stock": 50.0,
+     "item_code": "MSTE",
+     "item_name": "Maize Starch  (Technical Grade)",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 143.1506849315068,
+     "current_stock": 1675.0,
+     "item_code": "HSFTCH25N",
+     "item_name": "Super F Humate Shiny Flakes",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 120.5479452054795,
+     "current_stock": 0.0,
+     "item_code": "SSTIN",
+     "item_name": "Sodium Sulphate",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 112.1917808219178,
+     "current_stock": 0.0,
+     "item_code": "SLES70GD",
+     "item_name": "Godrej SLES P24 270 (Paste 70%)",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 106.8493150684932,
+     "current_stock": 0.0,
+     "item_code": "MSTL50",
+     "item_name": "Maize Starch Powder (Technical)",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 95.8904109589041,
+     "current_stock": 0.0,
+     "item_code": "MSTH",
+     "item_name": "Maize Starch  (Technical Grade)",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 94.3835616438356,
+     "current_stock": 0.0,
+     "item_code": "MnST50",
+     "item_name": "Manganese Sulphate Monohydrate",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 84.9315068493151,
+     "current_stock": 0.0,
+     "item_code": "CAMU",
+     "item_name": "Citric Acid Monohydrate",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 81.8767123287671,
+     "current_stock": 0.0,
+     "item_code": "PGTCH",
+     "item_name": "Propylene Glycol (Tech. Grade)",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 69.8630136986301,
+     "current_stock": 0.0,
+     "item_code": "GLYTI",
+     "item_name": "Glycerine",
+     "reorder_level": 0.0
+    },
+    {
+     "avg_daily_demand": 66.4383561643836,
+     "current_stock": 0.0,
+     "item_code": "PCGTUNID",
+     "item_name": "Potassium Carbonate Granules",
+     "reorder_level": 0.0
+    }
+   ],
+   "supplier_performance": [
+    {
+     "avg_lead_time": 0.36,
+     "order_count": 104,
+     "supplier": "supplier-dcf634",
+     "supplier_name": "supplier_name-d9c86d",
+     "total_value": "12744828.000000000"
+    },
+    {
+     "avg_lead_time": 1.91,
+     "order_count": 16,
+     "supplier": "supplier-4448b5",
+     "supplier_name": "supplier_name-479371",
+     "total_value": "7333405.000000000"
+    },
+    {
+     "avg_lead_time": 9.9,
+     "order_count": 14,
+     "supplier": "supplier-1badda",
+     "supplier_name": "supplier_name-49cec2",
+     "total_value": "7046621.000000000"
+    },
+    {
+     "avg_lead_time": 3.18,
+     "order_count": 11,
+     "supplier": "supplier-9ca1aa",
+     "supplier_name": "supplier_name-5c4c47",
+     "total_value": "6910670.000000000"
+    },
+    {
+     "avg_lead_time": 4.25,
+     "order_count": 17,
+     "supplier": "supplier-4d5316",
+     "supplier_name": "supplier_name-2fb2c8",
+     "total_value": "6894446.000000000"
+    },
+    {
+     "avg_lead_time": 0.3,
+     "order_count": 54,
+     "supplier": "supplier-871157",
+     "supplier_name": "supplier_name-003027",
+     "total_value": "5676380.000000000"
+    },
+    {
+     "avg_lead_time": 2.85,
+     "order_count": 27,
+     "supplier": "supplier-9c24df",
+     "supplier_name": "supplier_name-7e66b1",
+     "total_value": "5570540.000000000"
+    },
+    {
+     "avg_lead_time": 0.12,
+     "order_count": 24,
+     "supplier": "supplier-e30b5f",
+     "supplier_name": "supplier_name-c5d5a9",
+     "total_value": "5292927.000000000"
+    },
+    {
+     "avg_lead_time": 0.62,
+     "order_count": 8,
+     "supplier": "supplier-03ee09",
+     "supplier_name": "supplier_name-571a09",
+     "total_value": "4873399.800000000"
+    },
+    {
+     "avg_lead_time": 0.24,
+     "order_count": 138,
+     "supplier": "supplier-2417f8",
+     "supplier_name": "supplier_name-f5e58e",
+     "total_value": "4701915.000000000"
+    },
+    {
+     "avg_lead_time": 0.12,
+     "order_count": 8,
+     "supplier": "supplier-757d43",
+     "supplier_name": "supplier_name-5b3ada",
+     "total_value": "3908308.000000000"
+    },
+    {
+     "avg_lead_time": 0.25,
+     "order_count": 74,
+     "supplier": "supplier-dd08a1",
+     "supplier_name": "supplier_name-e4dc08",
+     "total_value": "3198607.000000000"
+    },
+    {
+     "avg_lead_time": 1.75,
+     "order_count": 8,
+     "supplier": "supplier-c10a37",
+     "supplier_name": "supplier_name-4dad81",
+     "total_value": "3115341.400000000"
+    },
+    {
+     "avg_lead_time": 0.67,
+     "order_count": 12,
+     "supplier": "supplier-b938b1",
+     "supplier_name": "supplier_name-f3e130",
+     "total_value": "2938466.000000000"
+    },
+    {
+     "avg_lead_time": 1.29,
+     "order_count": 7,
+     "supplier": "supplier-d24fe4",
+     "supplier_name": "supplier_name-b04d80",
+     "total_value": "2852668.000000000"
+    }
+   ]
+  },
+  "status": "success",
+  "stock_overview": {
+   "by_item_group": [
+    {
+     "item_count": 3,
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "stock_value": "443087.529999950",
+     "total_qty": "3875.000000000"
+    },
+    {
+     "item_count": 16,
+     "item_group": "All Item Groups",
+     "stock_value": "274401.420953100",
+     "total_qty": "4635.000000000"
+    },
+    {
+     "item_count": 4,
+     "item_group": "Detergent & Cosmetic",
+     "stock_value": "185150.673413570",
+     "total_qty": "1955.000000000"
+    },
+    {
+     "item_count": 4,
+     "item_group": "Agriculture",
+     "stock_value": "114872.313333420",
+     "total_qty": "680.000000000"
+    },
+    {
+     "item_count": 1,
+     "item_group": "Agriculture soil base",
+     "stock_value": "8434.000000000",
+     "total_qty": "40.000000000"
+    }
+   ],
+   "health_score": 0,
+   "low_stock_count": 9,
+   "out_of_stock_count": 36,
+   "overstock_count": 3,
+   "total_qty": 11185.0,
+   "total_skus": 64,
+   "total_value": 1025945.93770004,
+   "warehouse_count": 2
+  },
+  "transfer_recommendations": [],
+  "turnover_analysis": {
+   "by_product_group": [
+    {
+     "cogs_12m": 111326835.96,
+     "current_stock_value": 274401.4209531,
+     "dsi": 1.0,
+     "item_group": "All Item Groups",
+     "sales_12m": 120468646.85,
+     "turnover_ratio": 405.71
+    },
+    {
+     "cogs_12m": 10354002.61,
+     "current_stock_value": 185150.67341357,
+     "dsi": 7.0,
+     "item_group": "Detergent & Cosmetic",
+     "sales_12m": 11534233.0,
+     "turnover_ratio": 55.92
+    },
+    {
+     "cogs_12m": 6209766.03,
+     "current_stock_value": 443087.52999995,
+     "dsi": 26.0,
+     "item_group": "Food & Beverages , Cleaning, Industrial",
+     "sales_12m": 6662826.75,
+     "turnover_ratio": 14.01
+    },
+    {
+     "cogs_12m": 5693494.77,
+     "current_stock_value": 114872.31333342,
+     "dsi": 7.0,
+     "item_group": "Agriculture",
+     "sales_12m": 6050306.99,
+     "turnover_ratio": 49.56
+    },
+    {
+     "cogs_12m": 1822339.97,
+     "current_stock_value": 0.0,
+     "dsi": null,
+     "item_group": "Raw Material",
+     "sales_12m": 1940190.58,
+     "turnover_ratio": null
+    },
+    {
+     "cogs_12m": 646989.0,
+     "current_stock_value": 0.0,
+     "dsi": null,
+     "item_group": "Products",
+     "sales_12m": 611834.0,
+     "turnover_ratio": null
+    },
+    {
+     "cogs_12m": 318213.16,
+     "current_stock_value": 8434.0,
+     "dsi": 10.0,
+     "item_group": "Agriculture soil base",
+     "sales_12m": 371700.0,
+     "turnover_ratio": 37.73
+    },
+    {
+     "cogs_12m": 272825.0,
+     "current_stock_value": 0.0,
+     "dsi": null,
+     "item_group": "Cosmetic",
+     "sales_12m": 294450.0,
+     "turnover_ratio": null
+    },
+    {
+     "cogs_12m": 79784.46,
+     "current_stock_value": 0.0,
+     "dsi": null,
+     "item_group": "Detergent",
+     "sales_12m": 93546.0,
+     "turnover_ratio": null
+    },
+    {
+     "cogs_12m": 20600.0,
+     "current_stock_value": 0.0,
+     "dsi": null,
+     "item_group": "Furniture",
+     "sales_12m": 28950.0,
+     "turnover_ratio": null
+    }
+   ],
+   "cogs_12m": 136747643.96,
+   "current_inventory_value": 1025945.93770004,
+   "days_sales_inventory": 3.0,
+   "fast_moving": [
+    {
+     "current_stock": 0.0,
+     "item_code": "FeSH",
+     "item_name": "Ferrous Sulphate",
+     "qty_sold": "368250.000000000",
+     "sales_value": "6499350.000000000"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "KCL97TIND",
+     "item_name": "Potassium Chloride (Tech. Grade)",
+     "qty_sold": "344600.000000000",
+     "sales_value": "12470550.000000000"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "MGCL225",
+     "item_name": "Magnesium Chloride Hexahydrate Flakes",
+     "qty_sold": "264000.000000000",
+     "sales_value": "1572050.580000000"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "MgSHT50",
+     "item_name": "Magnesium Sulphate Heptahydrate",
+     "qty_sold": "107350.000000000",
+     "sales_value": "1378800.000000000"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "STSATCR",
+     "item_name": "Sodium Thiosulphate - Crystal",
+     "qty_sold": "106750.000000000",
+     "sales_value": "2926500.000000000"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "MSTU50",
+     "item_name": "Maize Starch Powder (Technical)",
+     "qty_sold": "88200.000000000",
+     "sales_value": "3046350.000000000"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "TRO50IC",
+     "item_name": "Sulphonated Castor Oil - 50%",
+     "qty_sold": "80000.000000000",
+     "sales_value": "5018000.000000000"
+    },
+    {
+     "current_stock": 150.0,
+     "item_code": "CAATCH",
+     "item_name": "Citric Acid Anhdyrous",
+     "qty_sold": "70875.000000000",
+     "sales_value": "6018450.000000000"
+    },
+    {
+     "current_stock": 0.0,
+     "item_code": "AMSPTIN",
+     "item_name": "Ammonium Sulphate",
+     "qty_sold": "66250.000000000",
+     "sales_value": "2395100.000000000"
+    },
+    {
+     "current_stock": 50.0,
+     "item_code": "MSTE",
+     "item_name": "Maize Starch  (Technical Grade)",
+     "qty_sold": "64050.000000000",
+     "sales_value": "2083427.000000000"
+    }
+   ],
+   "gross_margin_pct": 7.64,
+   "overall_turnover_ratio": 133.29,
+   "revenue_12m": 148059819.17,
+   "slow_moving": [
+    {
+     "actual_qty": "50.000000000",
+     "current_stock": "50.000000000",
+     "item_code": "SCDF",
+     "item_name": "Sodium Citrate",
+     "qty_sold_90d": 175.0,
+     "stock_value": "6673.333333300",
+     "valuation_rate": "133.466666666"
+    },
+    {
+     "actual_qty": "25.000000000",
+     "current_stock": "25.000000000",
+     "item_code": "SBZIPN25",
+     "item_name": "Sodium Benzoate",
+     "qty_sold_90d": 275.0,
+     "stock_value": "2725.000000000",
+     "valuation_rate": "109.000000000"
+    },
+    {
+     "actual_qty": "25.000000000",
+     "current_stock": "25.000000000",
+     "item_code": "AMP8CH",
+     "item_name": "Amino Acid Powder 80%",
+     "qty_sold_90d": 275.0,
+     "stock_value": "2319.833333400",
+     "valuation_rate": "92.793333336"
+    },
+    {
+     "actual_qty": "125.000000000",
+     "current_stock": "125.000000000",
+     "item_code": "PFE8",
+     "item_name": "Potassium Fulvate ",
+     "qty_sold_90d": 375.0,
+     "stock_value": "7152.500000000",
+     "valuation_rate": "57.220000000"
+    },
+    {
+     "actual_qty": "55.000000000",
+     "current_stock": "55.000000000",
+     "item_code": "SEAFCHP",
+     "item_name": "Organic Plant Nutrition (Seaweed Extract Powder)",
+     "qty_sold_90d": 750.0,
+     "stock_value": "9283.980000020",
+     "valuation_rate": "168.799636364"
+    },
+    {
+     "actual_qty": "50.000000000",
+     "current_stock": "50.000000000",
+     "item_code": "CACG",
+     "item_name": "GINOL 16 (Cetyl Alcohol)",
+     "qty_sold_90d": 775.0,
+     "stock_value": "11514.285000000",
+     "valuation_rate": "230.285700000"
+    },
+    {
+     "actual_qty": "50.000000000",
+     "current_stock": "50.000000000",
+     "item_code": "SAHTG",
+     "item_name": "Stearic Acid - Hystric",
+     "qty_sold_90d": 950.0,
+     "stock_value": "7861.500000000",
+     "valuation_rate": "157.230000000"
+    },
+    {
+     "actual_qty": "40.000000000",
+     "current_stock": "40.000000000",
+     "item_code": "CSA161820",
+     "item_name": "Ginol 1618-TA (Cetyl Stearyl Alcohol)",
+     "qty_sold_90d": 1340.0,
+     "stock_value": "8434.000000000",
+     "valuation_rate": "210.850000000"
+    },
+    {
+     "actual_qty": "75.000000000",
+     "current_stock": "75.000000000",
+     "item_code": "EWX6820",
+     "item_name": "Ginol Ew 6820 (Emulsifying Wax)",
+     "qty_sold_90d": 1450.0,
+     "stock_value": "21383.334000000",
+     "valuation_rate": "285.111120000"
+    },
+    {
+     "actual_qty": "200.000000000",
+     "current_stock": "200.000000000",
+     "item_code": "SBCTGH",
+     "item_name": "Sodium Bicarbonate",
+     "qty_sold_90d": 1800.0,
+     "stock_value": "5400.000000000",
+     "valuation_rate": "27.000000000"
+    }
+   ]
+  },
+  "warehouse_analysis": {
+   "by_warehouse": [
+    {
+     "item_count": 60,
+     "ordered_qty": "399515.000000000",
+     "pct_of_total": 72.8,
+     "reserved_qty": "62795.000000000",
+     "stock_value": "746945.937700040",
+     "total_qty": "8185.000000000",
+     "warehouse": "Warehouse - JKM"
+    },
+    {
+     "item_count": 8,
+     "ordered_qty": "30820.000000000",
+     "pct_of_total": 27.2,
+     "reserved_qty": "69350.000000000",
+     "stock_value": "279000.000000000",
+     "total_qty": "3000.000000000",
+     "warehouse": "Direct Delivery  - JKM"
+    }
+   ],
+   "multi_warehouse_items": [
+    {
+     "distribution": "Direct Delivery  - JKM: 3000 / Warehouse - JKM: 275",
+     "item_code": "CAMTCH",
+     "item_name": "Citric Acid Monohydrate",
+     "total_qty": "3275.000000000",
+     "warehouse_count": 2
+    }
+   ],
+   "total_stock_value": 1025945.93770004,
+   "total_warehouses": 2
+  }
+ },
+ "status": "success"
+}

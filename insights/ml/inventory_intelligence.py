@@ -64,7 +64,7 @@ def _projection(values: list[float], periods: int) -> list[float]:
     return [max(0.0, intercept + slope * (n + i)) for i in range(periods)]
 
 
-def _health_score(total_value: float, overstock_count: int, low_stock_count: int, out_of_stock_count: int) -> float:
+def _health_score(total_value: float, overstock_count: int, low_stock_count: int, out_of_stock_count: int) -> float | None:
     """0-100 inventory health score. Higher is healthier.
 
     Penalizes inventory health problems weighted by severity. Inputs are
@@ -79,7 +79,7 @@ def _health_score(total_value: float, overstock_count: int, low_stock_count: int
     even when 36 items were out of stock.
     """
     if total_value <= 0:
-        return 50.0
+        return None  # no inventory data; caller renders '-' not a fake 50
     # Use total_value to scale: a business with $10K in stock shouldn't
     # be penalized the same as one with $10M. Reference scale: a
     # $1M baseline; below that, problems hurt more; above, the score
@@ -297,8 +297,8 @@ class InventoryIntelligence:
         # selling-price * qty, i.e. revenue, NOT cost).
         rev_expr = (
             sii.join(si, sii.parent == si.name, how="semi")
-            .select(sii.amount)
-            .aggregate(revenue_12m=sii.amount.sum())
+            .select(sii.base_amount)
+            .aggregate(revenue_12m=sii.base_amount.sum())
         )
         rev_df = rev_expr.execute()
         revenue_12m = float(rev_df.iloc[0]["revenue_12m"] or 0)
@@ -324,10 +324,10 @@ class InventoryIntelligence:
         # .amount is revenue, not cost -- see comment above).
         by_group_sales = (
             sii.join(si, sii.parent == si.name, how="semi")
-            .select(sii.item_code, sii.amount)
+            .select(sii.item_code, sii.base_amount)
             .left_join(Item, sii.item_code == Item.name)
             .group_by(Item.item_group)
-            .aggregate(sales_12m=sii.amount.sum())
+            .aggregate(sales_12m=sii.base_amount.sum())
             .mutate(item_group=ibis.coalesce(Item.item_group, ibis.literal("Uncategorized")))
             .order_by(ibis.desc("sales_12m"))
             .limit(10)
@@ -378,7 +378,7 @@ class InventoryIntelligence:
             .group_by(sii.item_code, sii.item_name)
             .aggregate(
                 qty_sold=sii.stock_qty.sum(),
-                sales_value=sii.amount.sum(),
+                sales_value=sii.base_amount.sum(),
             )
             .order_by(ibis.desc("qty_sold"))
             .limit(10)
@@ -889,8 +889,13 @@ class InventoryIntelligence:
         )
         rl_map = dict(zip(reorder_levels["parent"], reorder_levels["reorder_level"]))
 
+        # Restrict to the same "active SKU" population as total_skus (any of
+        # actual_qty/reserved_qty/ordered_qty != 0). Items with all-zero Bins
+        # have no inventory movement; treating their stock=0 as a reorder
+        # signal inflated the count from ~38 to 287 on jkm.
         stock_per_item = (
-            Bin.group_by(Bin.item_code)
+            Bin.filter((Bin.actual_qty != 0) | (Bin.reserved_qty != 0) | (Bin.ordered_qty != 0))
+            .group_by(Bin.item_code)
             .aggregate(current_stock=Bin.actual_qty.sum())
             .execute()
         )
@@ -902,15 +907,19 @@ class InventoryIntelligence:
             avg_daily = float(r["avg_daily_sales"] or 0)
             if avg_daily <= 0:
                 continue
-            current = float(si_map.get(item, 0) or 0)
-            rl = float(rl_map.get(item, 0) or 0)
-            if current <= max(rl, avg_daily * 14):
+            current_raw = si_map.get(item)
+            if current_raw is None:
+                continue  # not in active SKU population
+            current = float(current_raw or 0)
+            threshold = max(float(rl_map.get(item, 0) or 0), avg_daily * 14)
+            if current <= threshold:
                 candidates.append(
                     {
                         "item_code": item,
                         "current_stock": current,
-                        "reorder_level": rl,
-                        "avg_daily_demand": avg_daily,
+                        # effective trigger: configured level or 14 days of demand, whichever is higher
+                        "reorder_level": round(threshold, 1),
+                        "avg_daily_demand": round(avg_daily, 2),
                     }
                 )
         candidates.sort(key=lambda x: x["avg_daily_demand"], reverse=True)
@@ -1056,11 +1065,11 @@ class ABCXYZClassification:
         # Per-item: total sales value (12 months)
         per_item_sales = (
             sii.join(si, sii.parent == si.name, how="semi")
-            .select(sii.item_code, sii.stock_qty, sii.amount)
+            .select(sii.item_code, sii.stock_qty, sii.base_amount)
             .group_by(sii.item_code)
             .aggregate(
                 total_qty=sii.stock_qty.sum(),
-                total_value=sii.amount.sum(),
+                total_value=sii.base_amount.sum(),
             )
             .execute()
         )
@@ -1109,15 +1118,20 @@ class ABCXYZClassification:
         else:
             item_meta = {}
 
+        # One groupby up front: filtering the whole monthly frame once per
+        # item is items x rows (4x slower at 392 items, quadratic beyond).
+        monthly_by_item = {k: g["monthly_qty"] for k, g in per_item_monthly.groupby("item_code")}
+
         # Build rows
         rows: list[dict[str, Any]] = []
         for _, r in per_item_sales.iterrows():
             item_code = r["item_code"]
-            monthly = per_item_monthly[per_item_monthly["item_code"] == item_code]
-            if len(monthly) >= 2:
-                mean_q = monthly["monthly_qty"].mean()
-                std_q = monthly["monthly_qty"].std(ddof=0)
-                cv = float(std_q / mean_q) if mean_q > 0 else math.inf
+            monthly = monthly_by_item.get(item_code)
+            n_months = 0 if monthly is None else len(monthly)
+            avg_monthly = float(monthly.mean()) if n_months else 0
+            if n_months >= 2:
+                std_q = monthly.std(ddof=0)
+                cv = float(std_q / avg_monthly) if avg_monthly > 0 else math.inf
             else:
                 cv = 999.0  # insufficient data → treat as Z
 
@@ -1130,7 +1144,7 @@ class ABCXYZClassification:
                     "item_group": meta.get("item_group"),
                     "total_value": float(r["total_value"] or 0),
                     "total_qty": float(r["total_qty"] or 0),
-                    "avg_monthly_qty": float(monthly["monthly_qty"].mean()) if len(monthly) else 0,
+                    "avg_monthly_qty": avg_monthly,
                     "stock_qty": sm["stock_qty"],
                     "stock_value": sm["stock_value"],
                     "cv": cv if math.isfinite(cv) else 999.0,
@@ -1289,9 +1303,19 @@ class DemandForecasting:
         )
         stock_map = dict(zip(stock_now["item_code"], stock_now["stock_qty"]))
 
+        # Demand is the weighted mean of the last 3 completed calendar months,
+        # zero-filled: an item that stopped selling has zero recent demand. Taking
+        # the last 3 months an item *had* sales flagged discontinued lines as
+        # "reorder now" (304 of 309 here, 134 of the 141 with sales in those months).
+        first = datetime.now().replace(day=1)
+        recent = [(first - timedelta(days=1)).replace(day=1)]
+        for _ in range(2):
+            recent.append((recent[-1] - timedelta(days=1)).replace(day=1))
+        recent = [d.strftime("%Y-%m") for d in reversed(recent)]
         reorder_alerts: list[dict[str, Any]] = []
         for item_code, group in monthly.groupby("item_code"):
-            forecast = _weighted_forecast(list(group["qty"]))
+            by_period = dict(zip(group["period"], group["qty"]))
+            forecast = _weighted_forecast([by_period.get(p, 0.0) for p in recent])
             stock = float(stock_map.get(item_code, 0) or 0)
             # No forecast demand -> cover is undefined (null), not a sentinel.
             months_cover = stock / forecast if forecast > 0 else None

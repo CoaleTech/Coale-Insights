@@ -30,7 +30,7 @@
 				:hint="asOfLabel"
 				:level="3"
 			/>
-			<div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-6">
+			<div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3 wide:grid-cols-6">
 				<KpiCard label="Total Cash" :amount="data.total_cash" :currency="currency"
 					:sublabel="accountCountLabel" :clickable="true"
 					@click="drillDown.open(finEndpoint, 'Cash & Bank Accounts', { metric: 'cash_accounts' })" />
@@ -71,7 +71,7 @@
 		</div>
 
 		<!-- Fixed deposits -->
-		<div v-if="fd" class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+		<div v-if="fd" class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 			<div class="flex flex-wrap items-start justify-between gap-3">
 				<SectionHeader
 					variant="caption"
@@ -80,14 +80,14 @@
 					:level="3"
 				/>
 				<Badge v-if="fd.pct_of_cash != null" v-bind="severityBadge('none')"
-					   :label="`${formatPercent(fd.pct_of_cash)} of cash`" size="sm" />
+					   :label="`${formatPercent(fd.pct_of_cash)} of cash${fd.pct_of_cash > 100 ? ', bank overdrawn' : ''}`" size="sm" />
 			</div>
 
-			<div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+			<div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 wide:grid-cols-6">
 				<KpiCard variant="tile" label="Principal on Deposit" :amount="fd.balance" :currency="currency" />
-				<KpiCard variant="tile" label="Placed" :amount="fd.placed" :currency="currency"
+				<KpiCard variant="tile" :label="`Placed · ${fd.window_months ?? 12} mo`" :amount="fd.placed" :currency="currency"
 					:sublabel="placementLabel" />
-				<KpiCard variant="tile" label="Released" :amount="fd.released" :currency="currency"
+				<KpiCard variant="tile" :label="`Released · ${fd.window_months ?? 12} mo`" :amount="fd.released" :currency="currency"
 					:sublabel="releaseLabel" />
 				<KpiCard variant="tile" label="Interest Booked" :amount="fd.interest_booked_fy" :currency="currency"
 					:sublabel="fd.fiscal_year ? `FY ${fd.fiscal_year} to date` : undefined" />
@@ -108,7 +108,7 @@
 					<p class="text-xs font-medium uppercase tracking-wide text-ink-gray-6">
 						Principal and movement, last {{ fd.window_months ?? 12 }} months
 					</p>
-					<IntelligenceChart v-if="depositConfig" class="mt-3 h-48 sm:h-56 lg:h-64" :config="depositConfig" />
+					<IntelligenceChart v-if="depositConfig" class="mt-3 h-48 sm:h-56 lg:h-64" :config="depositConfig" :value-format="(v) => formatCurrency(v, currency)" />
 					<div v-else class="flex h-48 items-center justify-center text-sm text-ink-gray-6">
 						No deposit movement in this window
 					</div>
@@ -160,10 +160,10 @@
 
 		<!-- Movement and accounts -->
 		<div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Cash in vs out"
 					hint="All ledger movement on cash, bank and deposit accounts" :level="3" />
-				<IntelligenceChart v-if="movementConfig" class="mt-4 h-48 sm:h-56 lg:h-64" :config="movementConfig" />
+				<IntelligenceChart v-if="movementConfig" class="mt-4 h-48 sm:h-56 lg:h-64" :config="movementConfig" :value-format="(v) => formatCurrency(v, currency)" />
 				<div v-else class="flex h-48 items-center justify-center text-sm text-ink-gray-6">
 					No cash movement data available
 				</div>
@@ -188,16 +188,16 @@
 				</table>
 			</div>
 
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Where it is held" :level="3" />
 				<div class="mt-4 max-h-72 space-y-2 overflow-auto">
 					<div v-for="acc in data.cash_accounts" :key="acc.account"
 						 class="flex cursor-pointer items-center justify-between rounded bg-surface-gray-1 p-2 transition-colors hover:bg-surface-gray-2 motion-reduce:transition-none"
 						 role="button"
 						 tabindex="0"
-						 @click="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })"
-						 @keydown.enter="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })"
-						 @keydown.space.prevent="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts' })">
+						 @click="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts', account: acc.account })"
+						 @keydown.enter="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts', account: acc.account })"
+						 @keydown.space.prevent="drillDown.open(finEndpoint, acc.account_name, { metric: 'cash_accounts', account: acc.account })">
 						<div class="min-w-0">
 							<div class="truncate text-sm font-medium text-ink-gray-9">{{ acc.account_name }}</div>
 							<div class="text-xs text-ink-gray-6">
@@ -225,14 +225,14 @@
 			that held the answer.
 		-->
 		<div v-if="sources.length || uses.length" class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Where cash came from"
 					hint="Receipts by party type, last 3 months" :level="3" />
 				<WaterfallRows v-if="sources.length" class="mt-4" :rows="sources" :currency="currency"
 					:scale-max="flowScaleMax" />
 				<div v-else class="py-4 text-center text-sm text-ink-gray-6">No receipts in this window</div>
 			</div>
-			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+			<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 				<SectionHeader variant="caption" title="Where cash went"
 					hint="Payments by party type, last 3 months" :level="3" />
 				<WaterfallRows v-if="uses.length" class="mt-4" :rows="uses" :currency="currency"
@@ -242,7 +242,7 @@
 		</div>
 
 		<!-- Large Transactions -->
-		<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6 shadow-sm">
+		<div class="rounded-lg border border-outline-gray-1 bg-surface-white p-6">
 			<SectionHeader variant="caption" title="Large Cash Transactions (Last 30 Days)" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table v-if="data.large_transactions?.length" class="min-w-full">
@@ -321,7 +321,9 @@ const accountCountLabel = computed(() => {
 
 const fdShareLabel = computed(() => {
 	const pct = fd.value?.pct_of_cash
-	return pct == null ? undefined : `${formatPercent(pct)} of total cash`
+	if (pct == null) return undefined
+	// Over 100% means the other accounts are net negative (overdrawn), not a data error.
+	return pct > 100 ? `${formatPercent(pct)} of total cash: bank is overdrawn` : `${formatPercent(pct)} of total cash`
 })
 
 /**
@@ -343,7 +345,7 @@ const freeCashSeverity = computed<Severity>(() => {
 /** Runway is months of cash left at the current burn; the server sends `null`
  * when the company is not burning cash. */
 const runwayLabel = computed(() =>
-	props.data.runway_months === null ? 'Cash positive' : cashRunwayLabel(props.data.runway_months),
+	props.data.runway_months === null ? 'Not burning cash' : cashRunwayLabel(props.data.runway_months),
 )
 
 function runwaySeverity(months: number | null | undefined): Severity {
@@ -353,13 +355,12 @@ function runwaySeverity(months: number | null | undefined): Severity {
 	return months < 6 ? 'medium' : 'low'
 }
 
-/** Average net movement from the GL series, which reconciles to the balances
- * above -- unlike the Payment Entry averages, which miss journal postings. */
+/** Average monthly net cash movement over the last 6 complete months, from the
+ * same figure the runway is computed from (the server's `net_burn_rate`). */
 const burnLabel = computed(() => {
-	if (!movement.value.length) return undefined
-	const avg = movement.value.reduce((sum, m) => sum + m.net, 0) / movement.value.length
-	const direction = avg >= 0 ? 'building' : 'drawing down'
-	return `${formatCurrency(Math.abs(avg), props.currency)}/mo ${direction}`
+	const burn = props.data.net_burn_rate
+	if (burn == null) return undefined
+	return `${formatCurrency(Math.abs(burn), props.currency)}/mo ${burn <= 0 ? 'building' : 'drawing down'}`
 })
 
 const fdSubtitle = computed(() => {
@@ -406,7 +407,7 @@ const yieldSeverity = computed<Severity>(() => {
 const yieldNote = computed(() => {
 	const y = fd.value?.yield_pct
 	if (y == null) return 'no interest booked'
-	return y < 3 ? 'check interest posting' : 'annualised'
+	return y < 3 ? 'check interest posting' : `interest booked · ${fd.value?.window_months ?? 12} mo`
 })
 
 const depositConfig = computed(() => {
@@ -423,7 +424,7 @@ const depositConfig = computed(() => {
 		xAxis: { key: 'period', type: 'category' as const },
 		yAxis: { title: props.currency, yMin: 0 },
 		// A line axis that does not start at zero overstates every swing on it.
-		y2Axis: { title: '', yMin: 0 },
+		y2Axis: { title: 'Balance', yMin: 0 },
 		series: [
 			{ name: 'Placed', type: 'bar' as const, color: themeColor('--app-pos-fill'), axis: 'y' as const },
 			{ name: 'Released', type: 'bar' as const, color: themeColor('--app-neg-fill'), axis: 'y' as const },
@@ -451,7 +452,7 @@ const movementConfig = computed(() => {
 		})),
 		xAxis: { key: 'period', type: 'category' as const },
 		yAxis: { title: props.currency, yMin: 0 },
-		y2Axis: { title: '', yMin: 0 },
+		y2Axis: { title: 'Balance', yMin: 0 },
 		series: [
 			{ name: 'In', type: 'bar' as const, color: themeColor('--app-pos-fill'), axis: 'y' as const },
 			{ name: 'Out', type: 'bar' as const, color: themeColor('--app-neg-fill'), axis: 'y' as const },

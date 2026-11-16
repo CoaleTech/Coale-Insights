@@ -1,5 +1,5 @@
 <template>
-	<div class="flex h-screen w-screen overflow-hidden bg-canvas text-base antialiased">
+	<div class="flex h-screen w-screen overflow-hidden bg-canvas text-base antialiased print:block print:h-auto print:w-auto print:overflow-visible">
 		<!--
 			Desktop: the sidebar is a static column. Below 1024px it would leave
 			under 560px of content, which is where the KPI grid and tab strips were
@@ -7,7 +7,7 @@
 		-->
 		<div
 			v-if="!hideSidebar"
-			class="hidden h-full border-r border-outline-gray-1 bg-surface-white lg:block"
+			class="hidden h-full border-r border-outline-gray-1 bg-surface-white lg:block print:hidden"
 		>
 			<AppSidebar />
 		</div>
@@ -58,7 +58,7 @@
 			</HDialog>
 		</TransitionRoot>
 
-		<div class="flex h-full flex-1 flex-col overflow-auto">
+		<div class="flex h-full flex-1 flex-col overflow-auto print:block print:h-auto print:overflow-visible">
 			<!--
 				Sticky, because the dashboard's own header scrolls away and navigation
 				has to stay reachable. Deliberately carries no page title: every
@@ -67,7 +67,7 @@
 			-->
 			<div
 				v-if="!hideSidebar"
-				class="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1 border-b border-outline-gray-1 bg-surface-white px-2 lg:hidden"
+				class="sticky top-0 z-30 flex h-12 shrink-0 items-center gap-1 border-b border-outline-gray-1 bg-surface-white px-2 lg:hidden print:hidden"
 			>
 				<button
 					ref="drawerTrigger"
@@ -91,13 +91,16 @@
 				<span class="text-sm font-medium text-ink-gray-8">Insights</span>
 			</div>
 
-			<RouterView v-slot="{ Component }">
-				<Suspense>
-					<KeepAlive :include="cachedViews">
-						<component :is="Component" />
-					</KeepAlive>
-				</Suspense>
-			</RouterView>
+			<!-- `contents` keeps the page's own flex sizing; this only adds the landmark. -->
+			<main class="contents">
+				<RouterView v-slot="{ Component }">
+					<Suspense>
+						<KeepAlive :include="cachedViews">
+							<component :is="Component" />
+						</KeepAlive>
+					</Suspense>
+				</RouterView>
+			</main>
 		</div>
 
 		<template>
@@ -121,7 +124,7 @@ import {
 	TransitionChild,
 	TransitionRoot,
 } from '@headlessui/vue'
-import { computed, ref, watch, watchEffect } from 'vue'
+import { computed, onMounted, ref, watch, watchEffect } from 'vue'
 import { useRoute } from 'vue-router'
 import { Toaster } from 'vue-sonner'
 import AppSidebar from './components/AppSidebar.vue'
@@ -192,6 +195,26 @@ watch(isBelowDesktop, (below) => {
 const isGuestView = computed(() => route.meta.isGuestView || !session.isLoggedIn)
 waitUntil(() => session.isLoggedIn).then(() => {
 	telemetry.init()
+})
+
+// frappe-ui's Dialog renders its close "×" as an icon-only Button but passes it no
+// `label`, so every dialog's close button was announced as just "button". Name it
+// as the dialog mounts: header > flex row > [title wrapper, button].
+// ponytail: DOM patch until frappe-ui labels it; breaks silently if Dialog.vue's markup changes.
+onMounted(() => {
+	let queued = false
+	new MutationObserver(() => {
+		if (queued) return
+		queued = true
+		requestAnimationFrame(() => {
+			queued = false
+			document.querySelectorAll('[id^="headlessui-dialog-title"]').forEach((title) => {
+				const close = title.parentElement?.parentElement?.lastElementChild
+				if (close?.tagName === 'BUTTON' && !close.hasAttribute('aria-label') && !close.textContent?.trim())
+					close.setAttribute('aria-label', 'Close')
+			})
+		})
+	}).observe(document.body, { childList: true, subtree: true })
 })
 
 attachRealtimeListener('insights_notification', (data: any) => {

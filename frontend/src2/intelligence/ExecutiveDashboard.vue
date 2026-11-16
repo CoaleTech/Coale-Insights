@@ -1,36 +1,29 @@
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
-    <header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <header class="bg-surface-white border-b border-outline-gray-1 px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between flex-shrink-0">
       <div>
         <h1 class="text-2xl font-bold text-ink-gray-9">CEO Executive Dashboard</h1>
         <p class="text-sm text-ink-gray-6 mt-1">{{ selectedPeriod }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2 sm:gap-3">
-        <!-- Period Selector -->
         <IntelligenceDateFilter v-model="selectedPeriod" :options="FISCAL_PERIOD_RANGES" />
-
-        <Button
-          :loading="refreshing"
-          variant="solid"
-          theme="gray"
-          @click="reload"
-        >
-          <template #prefix><RefreshCw class="w-4 h-4" /></template>
-          Refresh
+        <Button variant="subtle" @click="router.push('/executive-reports')">
+          <template #prefix><FileText class="w-4 h-4" /></template>
+          Strategic Report
         </Button>
-        <Button
-          variant="subtle"
-          :disabled="!data"
-          @click="exportData"
-        >
+        <Button variant="subtle" :disabled="!data" @click="exportData">
           <template #prefix><Download class="w-4 h-4" /></template>
           Export
+        </Button>
+        <Button :loading="refreshing" variant="solid" theme="gray" @click="reload">
+          <template #prefix><RefreshCw class="w-4 h-4" /></template>
+          Refresh
         </Button>
       </div>
     </header>
 
-    <!-- Main Content -->
+    <!-- Shell handles loading / error / warming / permission states -->
     <IntelligenceDashboardShell
       :loading="loading"
       :refreshing="refreshing"
@@ -40,255 +33,346 @@
       :not-implemented="notImplemented"
       :not-implemented-message="notImplementedMessage"
       :has-data="hasData"
+      :kpi-count="4"
       subject="executive data"
       permission-hint="Ask an administrator for executive dashboard access."
       @retry="retry"
     >
-      <!-- Business Health Score -->
-      <div class="px-6 pt-6">
-        <div class="bg-accent-soft rounded-xl p-6 lg:p-8">
-          <!--
-            businessHealth.overall_score is null whenever the backend's
-            `_scoped_rollup` redacts it (see insights/api/ml/executive.py):
-            it's a composite across every department and is withheld from a
-            user who can't read all of them, precisely so a partial-access
-            reader can't infer the hidden departments' numbers from how the
-            blended score moves. Rendering `|| 0` here would undo that
-            redaction at the UI layer -- a restricted user would see a
-            confident "Business Health Score: 0%, Not rated" and reasonably
-            read that as "the company is in crisis" rather than "you don't
-            have access to this composite". Show the backend's own
-            `restricted_note` instead.
-          -->
-          <template v-if="businessHealth.overall_score != null">
-            <!-- Main Score -->
-            <div class="max-w-4xl">
-              <div class="text-sm font-semibold text-ink-gray-6 uppercase tracking-wider">
-                Business Health Score
+      <!-- ── Business Health Banner ── -->
+      <div class="px-5 py-3 bg-surface-white border-b border-outline-gray-1 flex items-start gap-5 flex-wrap">
+        <!-- Score + bar -->
+        <template v-if="businessHealth.overall_score != null">
+          <div class="flex-shrink-0">
+            <div class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wider mb-1">
+              Business Health · {{ selectedPeriod }}
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-2xl font-bold text-ink-gray-9">{{ businessHealth.overall_score }}%</span>
+              <Badge
+                v-bind="severityBadge(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }))"
+                :aria-label="severityAria('Health', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
+                size="sm"
+              />
+            </div>
+            <div
+              class="mt-1.5 w-40 h-1.5 bg-surface-gray-2 rounded-full overflow-hidden"
+              role="img"
+              :aria-label="`Business health ${businessHealth.overall_score}%`"
+            >
+              <div
+                :class="[severityFill(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
+                :style="`width: ${businessHealth.overall_score}%`"
+              ></div>
+            </div>
+            <div v-if="businessHealth.score_breakdown" class="text-xs text-ink-gray-5 mt-1">
+              {{ businessHealth.score_breakdown.excellent }} excellent ·
+              {{ businessHealth.score_breakdown.good }} good ·
+              {{ businessHealth.score_breakdown.needs_attention }} need attention
+            </div>
+          </div>
+
+          <!-- Department score dots -->
+          <div class="flex flex-wrap gap-4 flex-1">
+            <button
+              v-for="(score, dept) in businessHealth.department_scores"
+              :key="dept"
+              class="flex flex-col items-center gap-0.5 cursor-pointer hover:opacity-80 motion-reduce:transition-none transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 rounded"
+              :aria-label="`${dept}: ${Math.round(score)}% — navigate to ${dept} dashboard`"
+              @click="router.push(departmentRoutes[String(dept)] || '#')"
+            >
+              <span class="text-sm font-bold font-mono" :class="deptScoreClass(Number(score))">{{ Math.round(Number(score)) }}%</span>
+              <span class="text-xs text-ink-gray-5 uppercase tracking-wide">{{ DEPT_SHORT[String(dept)] ?? dept }}</span>
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="text-sm text-ink-gray-6">
+            {{ data?.restricted_note || 'Business Health Score is a cross-department composite and requires access to all departments.' }}
+          </div>
+        </template>
+
+        <!-- AI narrative excerpt -->
+        <div v-if="data?.narrative" class="hidden xl:block max-w-xs pl-4 border-l border-outline-gray-1 flex-shrink-0">
+          <div class="text-xs text-ink-gray-5 mb-1">✦ AI Summary</div>
+          <p class="text-xs text-ink-gray-7 leading-relaxed line-clamp-3">{{ data.narrative }}</p>
+        </div>
+      </div>
+
+      <!-- ── Main 8/4 Layout ── -->
+      <div class="grid grid-cols-1 lg:grid-cols-12">
+
+        <!-- LEFT: Revenue Hero Panel -->
+        <div class="lg:col-span-8 p-6 bg-accent-soft border-r border-outline-gray-1">
+
+          <!-- Hero chart title -->
+          <div class="mb-1">
+            <h2 class="text-sm font-semibold text-ink-gray-7">Revenue · Monthly</h2>
+            <p class="text-xs text-ink-gray-5">Last 12 months · {{ companyCurrency }}</p>
+          </div>
+
+          <!-- Revenue area chart -->
+          <IntelligenceChart
+            v-if="revenueTrendData.length > 1"
+            :config="revenueTrendConfig"
+            :value-format="(v) => formatMoney(v, companyCurrency)"
+            class="h-80"
+          />
+          <div v-else class="h-44 sm:h-52 flex items-center justify-center text-sm text-ink-gray-5">
+            No revenue data available for this period
+          </div>
+
+          <!-- Stat strip: 4 headline KPIs below chart -->
+          <div class="mt-4 grid grid-cols-2 sm:grid-cols-4 border border-outline-gray-1 rounded-lg bg-surface-white overflow-hidden">
+
+            <!-- Revenue (12m) -->
+            <button
+              type="button"
+              class="px-4 py-3 border-r border-outline-gray-1 text-left hover:bg-surface-gray-1 focus-visible:outline-none focus-visible:bg-surface-gray-1"
+              @click="openExecDrill('Revenue')"
+            >
+              <div class="text-xs text-ink-gray-5 uppercase tracking-wide">Revenue 12m</div>
+              <div
+                class="mt-1 text-xl font-bold font-mono"
+                :class="ragTextClass(kpis.sales?.pipeline_value?.rag_status)"
+              >
+                {{ formatKpiValue(trends.revenue_12m, 'currency') }}
               </div>
-              <div class="mt-2 flex items-baseline gap-3">
-                <span class="text-5xl font-bold text-ink-gray-9 tracking-tight">
-                  {{ businessHealth.overall_score }}
+              <div class="text-xs text-ink-gray-5 mt-0.5">Trailing 12 months</div>
+            </button>
+
+            <!-- Net Margin -->
+            <div class="px-4 py-3 border-r border-outline-gray-1">
+              <div class="text-xs text-ink-gray-5 uppercase tracking-wide">Net Margin</div>
+              <div
+                class="mt-1 text-xl font-bold font-mono"
+                :class="ragTextClass(kpis.financial?.net_margin?.rag_status)"
+              >
+                {{ formatKpiValue(kpis.financial?.net_margin?.value, 'percentage') }}
+              </div>
+              <div class="text-xs text-ink-gray-5 mt-0.5">
+                <span v-if="kpis.financial?.net_margin?.variance_pct != null">
+                  <span :class="kpis.financial.net_margin.variance_pct >= 0 ? 'text-pos' : 'text-neg'">
+                    {{ kpis.financial.net_margin.variance_pct >= 0 ? '+' : '' }}{{ kpis.financial.net_margin.variance_pct.toFixed(1) }}pp
+                  </span>
+                  vs target
                 </span>
-                <span class="text-3xl font-semibold text-ink-gray-6">%</span>
-                <Badge
-                  v-bind="severityBadge(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }))"
-                  :aria-label="severityAria('Health', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
-                  size="sm"
-                  class="self-center"
-                />
-              </div>
-              <div
-                class="mt-4 h-3 w-full bg-surface-white rounded-full overflow-hidden"
-                role="img"
-                :aria-label="severityAria('Overall health score', scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 }), businessHealth.overall_score)"
-              >
-                <div
-                  :class="[severityFill(scoreSeverity(businessHealth.overall_score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
-                  :style="`width: ${businessHealth.overall_score}%`"
-                ></div>
               </div>
             </div>
 
-            <!-- AI Narrative -->
-            <div v-if="data?.narrative" class="mt-6 flex items-start gap-3 max-w-4xl">
-              <Brain class="w-5 h-5 text-accent mt-0.5" />
-              <div>
-                <h3 class="text-sm font-semibold text-ink-gray-9">AI Executive Summary</h3>
-                <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">{{ data?.narrative }}</p>
+            <!-- Gross Margin -->
+            <div class="px-4 py-3 border-r border-outline-gray-1">
+              <div class="text-xs text-ink-gray-5 uppercase tracking-wide">Gross Margin</div>
+              <div
+                class="mt-1 text-xl font-bold font-mono"
+                :class="ragTextClass(kpis.sales?.profit_margin?.rag_status)"
+              >
+                {{ formatKpiValue(kpis.sales?.profit_margin?.value, 'percentage') }}
+              </div>
+              <div class="text-xs text-ink-gray-5 mt-0.5">
+                <span v-if="kpis.sales?.profit_margin?.variance_pct != null">
+                  <span :class="kpis.sales.profit_margin.variance_pct >= 0 ? 'text-pos' : 'text-neg'">
+                    {{ kpis.sales.profit_margin.variance_pct >= 0 ? '+' : '' }}{{ kpis.sales.profit_margin.variance_pct.toFixed(1) }}pp
+                  </span>
+                  vs target
+                </span>
               </div>
             </div>
 
-            <!-- Department Health Breakdown -->
-            <div class="mt-6 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-2">
+            <!-- Order Fulfillment -->
+            <div class="px-4 py-3">
+              <div class="text-xs text-ink-gray-5 uppercase tracking-wide">Order Fulfillment</div>
               <div
-                v-for="(score, department) in businessHealth.department_scores"
-                :key="department"
-                class="flex flex-col p-3 rounded-lg motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3"
-                :class="departmentRoutes[department] ? 'cursor-pointer hover:bg-surface-white' : ''"
-                :tabindex="departmentRoutes[department] ? 0 : undefined"
-                :role="departmentRoutes[department] ? 'button' : undefined"
-                :aria-label="departmentRoutes[department] ? `Go to ${department} dashboard` : undefined"
-                @click="departmentRoutes[department] && router.push(departmentRoutes[department])"
-                @keydown.enter="departmentRoutes[department] && router.push(departmentRoutes[department])"
+                class="mt-1 text-xl font-bold font-mono"
+                :class="ragTextClass(kpis.sales?.fulfillment_rate?.rag_status)"
               >
-                <div class="text-xs font-medium text-ink-gray-6 uppercase tracking-wide truncate">{{ department }}</div>
-                <div class="mt-1 text-2xl font-bold text-ink-gray-9">{{ Math.round(score) }}%</div>
+                {{ formatKpiValue(kpis.sales?.fulfillment_rate?.value, 'percentage') }}
+              </div>
+              <div class="text-xs text-ink-gray-5 mt-0.5">
+                <span v-if="kpis.sales?.fulfillment_rate?.variance_pct != null">
+                  <span :class="kpis.sales.fulfillment_rate.variance_pct >= 0 ? 'text-pos' : 'text-neg'">
+                    {{ kpis.sales.fulfillment_rate.variance_pct >= 0 ? '+' : '' }}{{ kpis.sales.fulfillment_rate.variance_pct.toFixed(1) }}pp
+                  </span>
+                  vs target
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Context grid: Customer + Ops & HR -->
+          <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            <!-- Customer card -->
+            <div class="bg-surface-white border border-outline-gray-1 rounded-lg p-4">
+              <div class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-3">Customer</div>
+              <template v-if="blockOk('customer')">
                 <div
-                  class="mt-2 h-1.5 w-full bg-surface-white rounded-full overflow-hidden"
-                  :aria-label="severityAria(String(department), scoreSeverity(score, { good: 80, warn: 60 }), score)"
-                  role="img"
+                  v-for="(kpi, key) in kpis.customer"
+                  :key="String(key)"
+                  class="flex justify-between items-baseline py-1.5 border-b border-outline-gray-1 last:border-0 text-sm"
                 >
-                  <div
-                    :class="[severityFill(scoreSeverity(score, { good: 80, warn: 60 })), 'h-full rounded-full motion-reduce:transition-none transition-all']"
-                    :style="`width: ${score}%`"
-                  ></div>
+                  <template v-if="kpi && !kpi.error">
+                    <span class="text-ink-gray-7">{{ kpi.label }}</span>
+                    <span class="font-semibold font-mono" :class="ragTextClass(kpi.rag_status)">
+                      {{ formatKpiValue(kpi.value, kpi.format) }}
+                    </span>
+                  </template>
+                </div>
+              </template>
+              <div v-else class="text-xs text-ink-gray-5">Customer data unavailable</div>
+              <button
+                class="mt-2 text-xs text-accent font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+                @click="router.push('/customer-intelligence')"
+              >
+                View dashboard →
+              </button>
+            </div>
+
+            <!-- Ops & HR card -->
+            <div class="bg-surface-white border border-outline-gray-1 rounded-lg p-4">
+              <div class="text-xs font-semibold text-ink-gray-5 uppercase tracking-wide mb-3">Operations &amp; HR</div>
+              <template v-if="blockOk('operations')">
+                <div
+                  v-for="(kpi, key) in kpis.operations"
+                  :key="String(key)"
+                  class="flex justify-between items-baseline py-1.5 border-b border-outline-gray-1 last:border-0 text-sm"
+                  :class="kpi && getExecMetric(kpi.label) ? 'cursor-pointer hover:bg-surface-gray-1' : ''"
+                  @click="kpi && openExecDrill(kpi.label)"
+                >
+                  <template v-if="kpi && !kpi.error">
+                    <span class="text-ink-gray-7">{{ kpi.label }}</span>
+                    <span class="font-semibold font-mono" :class="ragTextClass(kpi.rag_status)">
+                      {{ formatKpiValue(kpi.value, kpi.format) }}
+                    </span>
+                  </template>
+                </div>
+              </template>
+              <!-- HR attrition below ops -->
+              <template v-if="blockOk('hr')">
+                <div
+                  v-for="(kpi, key) in kpis.hr"
+                  :key="`hr-${String(key)}`"
+                  class="flex justify-between items-baseline py-1.5 border-b border-outline-gray-1 last:border-0 text-sm"
+                >
+                  <template v-if="kpi && !kpi.error && kpi.rag_status !== 'green'">
+                    <span class="text-ink-gray-7">{{ kpi.label }}</span>
+                    <span class="font-semibold font-mono" :class="ragTextClass(kpi.rag_status)">
+                      {{ formatKpiValue(kpi.value, kpi.format) }}
+                    </span>
+                  </template>
+                </div>
+              </template>
+              <button
+                class="mt-2 text-xs text-accent font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+                @click="router.push('/inventory-intelligence')"
+              >
+                View dashboard →
+              </button>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- RIGHT: Attention Rail -->
+        <div class="lg:col-span-4 p-5 bg-surface-white overflow-auto">
+
+          <!-- Critical Issues -->
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-neg mb-3">
+            ⚠ Critical Issues · {{ criticalAlerts.length }} Active
+          </h2>
+          <div v-if="criticalAlerts.length" class="mb-5 space-y-0">
+            <div
+              v-for="(alert, i) in criticalAlerts"
+              :key="`crit-${i}`"
+              class="py-3 border-b border-outline-gray-1 last:border-0"
+            >
+              <div class="flex items-start gap-2 mb-1">
+                <span
+                  class="flex-shrink-0 w-5 h-5 rounded-full bg-surface-red-2 text-ink-gray-9 text-xs font-bold flex items-center justify-center"
+                  aria-hidden="true"
+                >{{ i + 1 }}</span>
+                <div>
+                  <div class="text-sm font-semibold text-ink-gray-9">{{ alert.department }}</div>
+                  <Badge
+                    v-bind="severityBadge(ragSeverity(alert.rag_status))"
+                    size="sm"
+                    class="mt-0.5"
+                  />
+                </div>
+              </div>
+              <p class="text-xs text-ink-gray-7 ml-7 mb-1 leading-snug">{{ alert.message }}</p>
+              <button
+                v-if="alertDeptRoute(alert.department)"
+                class="ml-7 text-xs text-accent font-medium hover:underline focus-visible:underline focus-visible:outline-none"
+                @click="router.push(alertDeptRoute(alert.department))"
+              >
+                → {{ alert.department }} dashboard
+              </button>
+            </div>
+          </div>
+          <div v-else class="mb-5 text-xs text-ink-gray-5">No critical issues</div>
+
+          <!-- Watch Items (amber) -->
+          <div class="border-t border-outline-gray-1 pt-4 mb-5">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-warn mb-3">
+              Watch · {{ watchAlerts.length }} Items
+            </h2>
+            <div v-if="watchAlerts.length" class="space-y-0">
+              <div
+                v-for="(alert, i) in watchAlerts"
+                :key="`watch-${i}`"
+                class="flex items-start gap-2 py-2.5 border-b border-outline-gray-1 last:border-0"
+              >
+                <span
+                  class="flex-shrink-0 w-5 h-5 rounded-full bg-surface-amber-2 text-ink-gray-9 text-xs font-bold flex items-center justify-center"
+                  aria-hidden="true"
+                >{{ criticalAlerts.length + i + 1 }}</span>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-baseline justify-between gap-2">
+                    <span class="text-sm font-medium text-ink-gray-9 truncate">
+                      {{ alert.department }}
+                    </span>
+                  </div>
+                  <p class="text-xs text-ink-gray-6 leading-snug mt-0.5">{{ alert.message }}</p>
+                  <button
+                    v-if="alertDeptRoute(alert.department)"
+                    class="text-xs text-accent font-medium hover:underline focus-visible:underline focus-visible:outline-none mt-0.5"
+                    @click="router.push(alertDeptRoute(alert.department))"
+                  >
+                    → {{ alert.department }} dashboard
+                  </button>
                 </div>
               </div>
             </div>
-          </template>
-          <div v-else class="flex items-start gap-3 max-w-4xl">
-            <Lock class="w-5 h-5 text-ink-gray-5 mt-0.5" aria-hidden="true" />
-            <div>
-              <div class="text-sm font-semibold text-ink-gray-6 uppercase tracking-wider">
-                Business Health Score
-              </div>
-              <p class="text-sm text-ink-gray-7 mt-1 leading-relaxed">
-                {{ data?.restricted_note || 'This is a cross-department composite score, shown only to users with read access to every department.' }}
-              </p>
-            </div>
+            <div v-else class="text-xs text-ink-gray-5">No watch items</div>
           </div>
-        </div>
-      </div>
 
-      <!-- Critical Alerts -->
-      <div v-if="alerts && alerts.length > 0" class="px-6 mb-6">
-        <h2 class="text-sm font-semibold text-ink-gray-9 uppercase tracking-wider mb-3 flex items-center gap-2">
-          <AlertTriangle class="w-5 h-5 text-neg" />
-          Critical Alerts
-        </h2>
-        <div class="space-y-3">
-          <div
-            v-for="alert in alerts.slice(0, 5)"
-            :key="alert.message"
-            class="flex items-start justify-between gap-4 p-4 rounded-lg border border-outline-gray-1 bg-surface-white"
-          >
-            <div>
-              <div class="flex items-center gap-3">
-                <span class="font-semibold text-ink-gray-9">{{ alert.department }}</span>
-              </div>
-              <p class="text-sm text-ink-gray-7 mt-2">{{ alert.message }}</p>
-            </div>
-            <Badge
-              v-bind="severityBadge(ragSeverity(alert.rag_status))"
-              size="sm"
-              class="shrink-0"
-            />
-          </div>
-        </div>
-      </div>
-
-      <!-- Executive KPIs Grid -->
-      <div class="px-6 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-6">
-          <div
-            v-for="dept in departmentColumns"
-            :key="dept.key"
-            v-show="kpis[dept.key] && !kpis[dept.key].error"
-            class="space-y-3"
-          >
-            <h3
-              class="text-xs font-semibold text-ink-gray-6 uppercase tracking-wider flex items-center gap-2 cursor-pointer hover:text-accent motion-reduce:transition-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-outline-gray-3 rounded"
-              tabindex="0"
-              role="button"
-              :aria-label="`Navigate to ${dept.label} dashboard`"
-              @click="router.push(departmentRoutes[dept.key])"
-              @keydown.enter="router.push(departmentRoutes[dept.key])"
-            >
-              <component :is="dept.icon" class="w-4 h-4" />
-              {{ dept.label }}
-            </h3>
-            <template
-              v-for="(kpi, key, kpiIndex) in kpis[dept.key]"
-              :key="dept.key + key"
-            >
+          <!-- Strengths -->
+          <div class="border-t border-outline-gray-1 pt-4 mb-4">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-pos mb-3">Strengths</h2>
+            <div v-if="strengths.length" class="space-y-1.5">
               <div
-                v-if="kpi && typeof kpi === 'object' && !kpi.error"
-                class="relative"
+                v-for="item in strengths"
+                :key="item.key"
+                class="flex items-center gap-2 text-sm"
               >
-                <KpiCard
-                  :label="kpi.label"
-                  v-bind="kpi.format === 'currency'
-                    ? { amount: kpi.value, currency: companyCurrency }
-                    : kpi.format === 'percentage'
-                      ? { percent: kpi.value }
-                      : { value: formatKpiValue(kpi.value, kpi.format) }"
-                  :severity="ragSeverity(kpi.rag_status)"
-                  :delta="getKpiVariance(kpi)"
-                  :delta-higher-is-better="!dept.reverseVariance"
-                  :clickable="!!getExecMetric(kpi.label)"
-                  @click="getExecMetric(kpi.label) && drillDown.open(EXEC_ENDPOINT, kpi.label, { metric: getExecMetric(kpi.label) as string })"
-                >
-                  <template v-if="sparklineData(dept, kpiIndex).length > 1" #footer>
-                    <svg
-                      class="w-full h-8"
-                      :class="sparklineInk(getKpiVariance(kpi), { higherIsBetter: !dept.reverseVariance })"
-                      viewBox="0 0 100 20"
-                      aria-hidden="true"
-                    >
-                      <path
-                        :d="generateSparkline(sparklineData(dept, kpiIndex))"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      />
-                    </svg>
-                  </template>
-                </KpiCard>
-                <ChevronRight
-                  v-if="getExecMetric(kpi.label)"
-                  class="absolute top-3 right-3 w-3.5 h-3.5 text-ink-gray-4 pointer-events-none"
-                  aria-hidden="true"
-                />
+                <span class="w-1.5 h-1.5 rounded-full bg-pos-fill flex-shrink-0" aria-hidden="true"></span>
+                <span class="text-ink-gray-7 flex-1 min-w-0 truncate">{{ item.label }}</span>
+                <span class="font-semibold text-pos font-mono flex-shrink-0">{{ item.value }}</span>
               </div>
-            </template>
+            </div>
+            <div v-else class="text-xs text-ink-gray-5">No green metrics at this time</div>
           </div>
-        </div>
-      </div>
 
-      <!-- Quick Actions -->
-      <div class="px-6 pb-6">
-        <h2 class="text-sm font-semibold text-ink-gray-9 uppercase tracking-wider mb-3">Quick Actions</h2>
-        <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-          <Button
-            variant="subtle"
-            class="flex items-center gap-3 p-4 text-left h-auto"
-            @click="generateStrategicReport"
+          <!-- Manufacturing unavailable note -->
+          <div
+            v-if="mfgUnavailable"
+            class="mt-2 p-3 bg-surface-gray-1 border border-outline-gray-1 rounded-lg"
           >
-            <template #prefix><FileText class="w-5 h-5 text-ink-gray-6" /></template>
-            <div>
-              <div class="text-sm font-medium text-ink-gray-9">Strategic Report</div>
-              <div class="text-xs text-ink-gray-6">Generate board-ready summary</div>
-            </div>
-          </Button>
+            <p class="text-xs text-ink-gray-6">
+              ⚠ Manufacturing: no workstation or work-order records found; KPIs not applicable.
+            </p>
+          </div>
 
-          <Button
-            variant="subtle"
-            class="flex items-center gap-3 p-4 text-left h-auto"
-            @click="exportExecutiveData"
-          >
-            <template #prefix><Download class="w-5 h-5 text-ink-gray-6" /></template>
-            <div>
-              <div class="text-sm font-medium text-ink-gray-9">Export Data</div>
-              <div class="text-xs text-ink-gray-6">Download PDF/Excel report</div>
-            </div>
-          </Button>
-
-          <Button
-            variant="subtle"
-            class="flex items-center gap-3 p-4 text-left h-auto"
-            @click="openAIChat"
-          >
-            <template #prefix><Brain class="w-5 h-5 text-accent" /></template>
-            <div>
-              <div class="text-sm font-medium text-ink-gray-9">Ask AI</div>
-              <div class="text-xs text-ink-gray-6">Get insights &amp; recommendations</div>
-            </div>
-          </Button>
-
-          <Button
-            variant="subtle"
-            class="flex items-center gap-3 p-4 text-left h-auto"
-            @click="scheduleReport"
-          >
-            <template #prefix><Calendar class="w-5 h-5 text-ink-gray-6" /></template>
-            <div>
-              <div class="text-sm font-medium text-ink-gray-9">Schedule Reports</div>
-              <div class="text-xs text-ink-gray-6">Setup automated delivery</div>
-            </div>
-          </Button>
         </div>
       </div>
     </IntelligenceDashboardShell>
@@ -314,24 +398,8 @@
 <script setup lang="ts">
 defineOptions({ name: 'ExecutiveDashboard' })
 import { ref, computed, watch } from 'vue'
-import {
-  RefreshCw,
-  Download,
-  ChevronRight,
-  AlertTriangle,
-  Brain,
-  DollarSign,
-  TrendingUp,
-  Users,
-  Settings,
-  Shield,
-  FileText,
-  Calendar,
-  UserCog,
-  Factory,
-  Lock
-} from 'lucide-vue-next'
-import { Button, Badge, LoadingIndicator } from 'frappe-ui'
+import { RefreshCw, Download, FileText } from 'lucide-vue-next'
+import { Button, Badge } from 'frappe-ui'
 import IntelligenceDateFilter from '../components/IntelligenceDateFilter.vue'
 import { FISCAL_PERIOD_RANGES } from '../utils/dateRangePresets'
 import { useRouter } from 'vue-router'
@@ -339,14 +407,15 @@ import { useDrillDown } from './composables/useDrillDown'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
-import KpiCard from './components/KpiCard.vue'
+import IntelligenceChart from './components/IntelligenceChart.vue'
 import {
-  severityBadge, severityFill, severityAria, sparklineInk,
+  severityBadge, severityFill, severityAria,
   scoreSeverity, ragSeverity,
 } from '../utils/status'
-import { formatMoney } from '../utils/format'
+import { formatMoney, formatPercent, NO_VALUE } from '../utils/format'
+import { themeColor } from '../utils/chartTheme'
 
-/** One KPI leaf, built by `_kpi()` (`executive_intelligence.py:124`). */
+/** One KPI leaf produced by `_kpi()` (executive_intelligence.py). */
 interface ExecutiveKpi {
   label: string
   value: number | null
@@ -358,26 +427,42 @@ interface ExecutiveKpi {
   variance_ratio?: number
   variance_weeks?: number
   variance_turns?: number
-  /** Set only on the block-level `_unavailable(domain)` sentinel, never on a real KPI leaf. */
   error?: string
+  status?: string
+  note?: string
+  skus_out?: number
+  skus_total?: number
+  net_change?: number
 }
-/** One domain's KPI dict, or the `_unavailable(domain)` sentinel in its place. */
-type KpiBlock = Record<string, ExecutiveKpi | string | undefined>
-/** One row of `_executive_alerts` (`executive_intelligence.py:696`). */
+type KpiBlock = Record<string, ExecutiveKpi | undefined>
+
 interface ExecutiveAlert {
   priority: string
   department: string
   message: string
   rag_status: string
 }
-/** Response of `_business_health_score` (`executive_intelligence.py:649`). */
+
 interface BusinessHealthScore {
   overall_score: number
   overall_rag: string
   department_scores: Record<string, number>
   score_breakdown: { excellent: number; good: number; needs_attention: number }
 }
-/** Response of `get_executive_summary` (`api/ml/executive.py:111`), redacted by `_scoped_rollup` for partial-access callers. */
+
+interface ExecutiveTrends {
+  revenue?: number[]
+  /** Sum of `revenue[]` (trailing-12-month window), computed server-side. */
+  revenue_12m?: number
+  /** Month labels corresponding to `revenue[]`; added in 2026-10-22 fix. */
+  revenue_months?: string[]
+  sales_growth?: number[]
+  new_hires_per_month?: number[]
+  oee?: number[]
+  customer_activity_change?: number[]
+  stock_outflow_index?: number[]
+}
+
 interface ExecutiveSummaryData {
   period?: string
   generated_at?: string
@@ -386,7 +471,7 @@ interface ExecutiveSummaryData {
   alerts?: ExecutiveAlert[]
   narrative?: string | null
   business_health_score?: BusinessHealthScore | null
-  trends?: Record<string, number[]> | null
+  trends?: ExecutiveTrends | null
   restricted_note?: string
 }
 
@@ -409,9 +494,13 @@ function getExecMetric(label: string): string | null {
   return null
 }
 
+function openExecDrill(label: string) {
+  const metric = getExecMetric(label)
+  if (metric) drillDown.open(EXEC_ENDPOINT, label, { metric })
+}
+
 const selectedPeriod = ref('YTD')
 const companyCurrency = ref<string | null>(null)
-
 const periodParams = computed(() => ({ period: selectedPeriod.value }))
 
 const {
@@ -426,79 +515,75 @@ const {
   hasData,
   reload,
   retry,
-} =
-  useIntelligenceDashboard<ExecutiveSummaryData>({
-    url: 'insights.api.ml.get_executive_summary',
-    params: periodParams,
-    cache: 'executive-dashboard',
-  })
-
-const businessHealth = computed<Partial<BusinessHealthScore>>(() => data.value?.business_health_score || {})
-const alerts = computed<ExecutiveAlert[]>(() => data.value?.alerts || [])
-const kpis = computed<Record<string, KpiBlock>>(() => data.value?.kpis || {})
-const trends = computed<Record<string, number[]>>(() => data.value?.trends || {})
-
-/**
- * Department columns with neutral annotation icon color.
- *
- * Thresholds stay explicit at 80/60 rather than adopting
- * `HEALTH_SCORE_THRESHOLDS`: `business_health_score` comes from
- * `ml/executive_intelligence`, and unlike the strategic-finance and customer
- * health scores its server-side band vocabulary has not been verified. Moving
- * it to 60/40 unverified would shift the green/amber line for the C-suite view
- * on no evidence. Needs a product decision, then this becomes the constant.
- */
-const departmentColumns = computed(() => [
-  { key: 'financial', label: 'Financial', icon: DollarSign, reverseVariance: false },
-  { key: 'sales', label: 'Sales', icon: TrendingUp, reverseVariance: false },
-  { key: 'customer', label: 'Customer', icon: Users, reverseVariance: false },
-  { key: 'operations', label: 'Operations', icon: Settings, reverseVariance: false },
-  { key: 'risk', label: 'Risk', icon: Shield, reverseVariance: true },
-  { key: 'hr', label: 'HR', icon: UserCog, reverseVariance: false },
-  { key: 'manufacturing', label: 'Manufacturing', icon: Factory, reverseVariance: false },
-])
-
-watch(() => data.value?.currency, (currency) => {
-  if (currency) companyCurrency.value = currency
+} = useIntelligenceDashboard<ExecutiveSummaryData>({
+  url: 'insights.api.ml.get_executive_summary',
+  params: periodParams,
+  cache: 'executive-dashboard',
 })
 
-function exportData() {
-  const dataStr = JSON.stringify(data.value, null, 2)
-  const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
-  const exportFileDefaultName = `executive_dashboard_${selectedPeriod.value}_${new Date().toISOString().split('T')[0]}.json`
-  const linkElement = document.createElement('a')
-  linkElement.setAttribute('href', dataUri)
-  linkElement.setAttribute('download', exportFileDefaultName)
-  linkElement.click()
-}
+const businessHealth = computed<Partial<BusinessHealthScore>>(
+  () => data.value?.business_health_score || {},
+)
+const alerts = computed<ExecutiveAlert[]>(() => data.value?.alerts || [])
+const kpis = computed<Record<string, KpiBlock>>(() => data.value?.kpis || {})
+const trends = computed<ExecutiveTrends>(() => (data.value?.trends || {}) as ExecutiveTrends)
 
-function formatKpiValue(value: number | null | undefined, format: string): string {
-  if (value === null || value === undefined) return 'N/A'
-  switch (format) {
-    case 'currency':
-      return formatMoney(value, companyCurrency.value)
-    case 'percentage':
-      return `${value.toFixed(1)}%`
-    case 'decimal':
-      return value.toFixed(1)
-    case 'ratio':
-      return `${value.toFixed(1)}:1`
-    case 'risk_score':
-      return `${Math.round(value)}/100`
-    default:
-      return value.toLocaleString()
+watch(
+  () => data.value?.currency,
+  (currency) => { if (currency) companyCurrency.value = currency },
+)
+
+// ── Derived alert splits ──────────────────────────────────────────────────
+
+const criticalAlerts = computed(() => alerts.value.filter((a) => a.rag_status === 'red'))
+const watchAlerts = computed(() => alerts.value.filter((a) => a.rag_status === 'amber'))
+
+// Collect all green KPIs across blocks for the strengths rail
+const strengths = computed(() => {
+  const result: Array<{ label: string; value: string; key: string }> = []
+  for (const [domain, block] of Object.entries(kpis.value)) {
+    if (!block || (block as any).error || (block as any).status === 'unavailable') continue
+    for (const [k, kpi] of Object.entries(block)) {
+      if (!kpi || typeof kpi !== 'object' || kpi.error) continue
+      if (kpi.rag_status === 'green' && kpi.value != null) {
+        result.push({ label: kpi.label, value: formatKpiValue(kpi.value, kpi.format), key: `${domain}-${k}` })
+      }
+    }
   }
+  return result
+})
+
+/** True when a KPI block is a real data block (not the _unavailable() sentinel). */
+function blockOk(domain: string): boolean {
+  const b = kpis.value[domain] as Record<string, unknown> | undefined
+  return !!b && !b.error && b.status !== 'unavailable'
 }
 
-function getKpiVariance(kpi: ExecutiveKpi): number | null {
-  return kpi.variance_pct ?? kpi.variance_points ?? kpi.variance_ratio ?? kpi.variance_weeks ?? kpi.variance_turns ?? null
-}
+/** True when manufacturing returned the no-data sentinel. */
+const mfgUnavailable = computed(() => {
+  const b = kpis.value.manufacturing as Record<string, unknown> | undefined
+  return !!b && b.status === 'unavailable'
+})
 
-function sparklineData(dept: { key: string }, kpiIndex: number): number[] {
-  const entry = departmentTrendKeys[dept.key]
-  if (!entry || entry.kpiIndex !== kpiIndex) return []
-  return getTrendData(entry.key)
-}
+// ── Revenue hero chart ────────────────────────────────────────────────────
+
+const revenueTrendData = computed(() => {
+  const values = trends.value.revenue ?? []
+  // revenue_months added in the Oct 2026 fix; fall back to M1…MN for old cache
+  const months = trends.value.revenue_months ?? values.map((_, i) => `M${i + 1}`)
+  return values.map((v, i) => ({ month: months[i] ?? `M${i + 1}`, Revenue: v }))
+})
+
+const revenueTrendConfig = computed(() => ({
+  title: '',
+  data: revenueTrendData.value,
+  xAxis: { key: 'month', type: 'category' as const },
+  yAxis: { title: '', yMin: 0 },
+  colors: [themeColor('--app-accent')],
+  series: [{ name: 'Revenue', type: 'area' as const, fillOpacity: 0.12 }],
+}))
+
+// ── Navigation helpers ────────────────────────────────────────────────────
 
 const departmentRoutes: Record<string, string> = {
   financial: '/financial-intelligence',
@@ -510,67 +595,74 @@ const departmentRoutes: Record<string, string> = {
   manufacturing: '/manufacturing-intelligence',
 }
 
-// Trend keys are the names produced by `ml/executive_intelligence
-// ._trend_sparklines`. Each department's KPI grid shows 3-4 cards, but
-// `_trend_sparklines` only computes ONE monthly series per department --
-// there is no per-KPI trend data. The previous version repeated that one
-// series across every card's index (`['revenue','revenue','revenue']`),
-// which put the exact same sparkline shape under "Revenue", "Net Margin %"
-// AND "Cash Runway" -- a reader sees a sparkline inside a KPI card and
-// reasonably assumes it traces THAT card's own history, not an unrelated
-// department series. Only attach the sparkline to the one card whose own
-// metric genuinely equals the computed series (`kpiIndex` = that KPI's
-// position in its `_xxx_kpis()` dict): Financial's `revenue` trend matches
-// the Revenue KPI (index 0); Sales' `sales_growth` matches the Sales
-// Growth KPI (index 0); Manufacturing's `oee` matches the OEE KPI (index
-// 0). Customer/Operations/HR/Risk have no computed series matching any of
-// their own KPIs' real metric, so they render without a sparkline --
-// an honest absence, the same pattern `_trend_sparklines` already applies
-// to Risk on the backend (see its docstring).
-const departmentTrendKeys: Record<string, { kpiIndex: number; key: string }> = {
-  financial: { kpiIndex: 0, key: 'revenue' },
-  sales: { kpiIndex: 0, key: 'sales_growth' },
-  manufacturing: { kpiIndex: 0, key: 'oee' },
+// Alert.department values are _DOMAIN_LABELS-capitalised (People, Operations, …)
+const DEPT_LABEL_TO_KEY: Record<string, string> = {
+  Financial: 'financial',
+  Sales: 'sales',
+  Customer: 'customer',
+  Operations: 'operations',
+  Risk: 'risk',
+  People: 'hr',
+  HR: 'hr',
+  Manufacturing: 'manufacturing',
 }
 
-function getTrendData(metric: string): number[] {
-  return trends.value[metric] || []
+function alertDeptRoute(dept: string): string {
+  return departmentRoutes[DEPT_LABEL_TO_KEY[dept] ?? dept.toLowerCase()] ?? ''
 }
 
-function generateSparkline(points: number[]): string {
-  if (!points || points.length === 0) return ''
-  // The domain includes zero on purpose. A min-to-max domain rescales every
-  // series to fill the full 20-unit band, so a 98->100 wobble rendered exactly
-  // as steep as a 90->45 collapse and a CEO reading these calibrated severity
-  // from noise. Including zero means height encodes magnitude, not rank.
-  //
-  // `Math.min(0, ...)` rather than 0 outright so negative series (sales_growth,
-  // churn deltas) still plot, with the zero line inside the band.
-  const lo = Math.min(0, ...points)
-  const hi = Math.max(0, ...points)
-  const range = hi - lo
-  return points.map((value: number, index: number) => {
-    // Guard length 1: `0 / 0` produced `NaN` and emitted an unrenderable path.
-    const x = points.length === 1 ? 0 : (index / (points.length - 1)) * 100
-    const y = range > 0 ? ((hi - value) / range) * 20 : 20
-    return `${index === 0 ? 'M' : 'L'} ${x} ${y}`
-  }).join(' ')
+const DEPT_SHORT: Record<string, string> = {
+  financial: 'Fin',
+  sales: 'Sales',
+  customer: 'Cust',
+  operations: 'Ops',
+  risk: 'Risk',
+  hr: 'HR',
+  manufacturing: 'Mfg',
 }
 
-function generateStrategicReport() {
-  router.push('/executive-reports')
+// ── Colour helpers ────────────────────────────────────────────────────────
+
+function deptScoreClass(score: number): string {
+  // scoreSeverity: good threshold 80, warn 60; higherIsBetter=true
+  const sev = scoreSeverity(score, { good: 80, warn: 60 })
+  if (sev === 'low') return 'text-pos'
+  if (sev === 'medium') return 'text-warn'
+  return 'text-neg'
 }
 
-function exportExecutiveData() {
-  exportData()
+function ragTextClass(rag?: string | null): string {
+  if (rag === 'green') return 'text-pos'
+  if (rag === 'red') return 'text-neg'
+  return 'text-warn'
 }
 
-function openAIChat() {
-  router.push('/ai-insights?context=executive')
+// ── Formatting ────────────────────────────────────────────────────────────
+
+function formatKpiValue(value: number | null | undefined, format: string): string {
+  if (value === null || value === undefined) return NO_VALUE
+  switch (format) {
+    case 'currency':
+      return formatMoney(value, companyCurrency.value, { compact: true })
+    case 'percentage':
+      return formatPercent(value)
+    case 'decimal':
+      return Number.isInteger(value) ? String(value) : value.toFixed(1)
+    case 'ratio':
+      return `${value.toFixed(1)}:1`
+    case 'risk_score':
+      return `${Math.round(value)}/100`
+    default:
+      return value.toLocaleString()
+  }
 }
 
-function scheduleReport() {
-  router.push('/executive-reports')
+function exportData() {
+  const dataStr = JSON.stringify(data.value, null, 2)
+  const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(dataStr)
+  const link = document.createElement('a')
+  link.setAttribute('href', dataUri)
+  link.setAttribute('download', `executive_dashboard_${selectedPeriod.value}_${new Date().toISOString().split('T')[0]}.json`)
+  link.click()
 }
-
 </script>

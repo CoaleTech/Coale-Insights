@@ -8,6 +8,8 @@ Break-Even Analysis API Endpoints
 import frappe
 from typing import Dict, Any
 from insights.api.response import success, error
+from insights.ml.tab_briefs import attach_lazy
+from insights.ml.tab_briefs.finance_planning import lazy_beoverview
 
 
 @frappe.whitelist()
@@ -125,7 +127,10 @@ def breakeven_summary(period: str = "Quarterly", fiscal_year: str = None) -> Dic
         from insights.ml.breakeven_engine import BreakevenEngine
         engine = BreakevenEngine(period=period, fiscal_year=fiscal_year)
         result = engine.get_breakeven_summary()
-        return success(result)
+        from insights.api.ml.ibis_source import default_company
+        company = default_company()
+        result["base_currency"] = company and frappe.db.get_value("Company", company, "default_currency")
+        return attach_lazy(success(result), lazy_beoverview, "beoverview")
     except frappe.PermissionError:
         raise
     except Exception as e:

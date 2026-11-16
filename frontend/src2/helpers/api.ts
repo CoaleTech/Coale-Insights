@@ -18,6 +18,8 @@ export function readInsightsEnvelope(payload: unknown): {
 	data: unknown
 	error: string | null
 	warming: boolean
+	/** A newer payload is being computed; this one is the cached copy served meanwhile. */
+	refreshing?: boolean
 } {
 	if (typeof payload !== 'object' || payload === null || !('status' in payload)) {
 		return { data: payload, error: null, warming: false }
@@ -39,7 +41,8 @@ export function readInsightsEnvelope(payload: unknown): {
 		return { data: null, error: null, warming: true }
 	}
 	if (payload.status === 'success') {
-		if ('data' in payload) return { data: payload.data, error: null, warming: false }
+		const refreshing = 'refreshing' in payload && payload.refreshing === true
+		if ('data' in payload) return { data: payload.data, error: null, warming: false, refreshing }
 		/*
 		 * Some endpoints put `status` at the top level with the payload as its
 		 * siblings rather than nested under `data` -- `risk_intelligence` returns
@@ -51,8 +54,8 @@ export function readInsightsEnvelope(payload: unknown): {
 		 * It went unnoticed for as long as `hasData` ignored a null payload,
 		 * because the cards fell back to a plausible-looking zero instead.
 		 */
-		const { status: _status, ...rest } = payload as Record<string, unknown>
-		return { data: rest, error: null, warming: false }
+		const { status: _status, refreshing: _refreshing, ...rest } = payload as Record<string, unknown>
+		return { data: rest, error: null, warming: false, refreshing }
 	}
 	return { data: payload, error: null, warming: false }
 }

@@ -76,6 +76,22 @@ _DOMAIN_ROUTE_PATH = {
     "risk": "/risk-intelligence",
 }
 
+_SI = ("Sales Invoice", ["name", "customer", "customer_name", "posting_date"], ["name", "customer", "customer_name"], {"docstatus": 1}, "posting_date desc")
+_GL = ("GL Entry", ["name", "account", "voucher_type", "voucher_no", "posting_date"], ["account", "voucher_no", "party"], {"is_cancelled": 0}, "posting_date desc")
+
+# domain -> (doctype, displayed fields, fields LIKE-matched in SQL, filters, order)
+_SEARCH_SPEC = {
+    "revenue-customers": _SI,
+    "financial": _GL,
+    "tax": _GL,
+    "risk": _GL,
+    "procurement": ("Purchase Order", ["name", "supplier", "supplier_name", "transaction_date"], ["name", "supplier", "supplier_name"], {"docstatus": 1}, "transaction_date desc"),
+    "inventory": ("Item", ["name", "item_name", "item_group", "stock_uom"], ["name", "item_name", "item_group"], {"disabled": 0}, "modified desc"),
+    "hr": ("Employee", ["name", "employee_name", "department", "designation"], ["name", "employee_name", "department", "designation"], {"status": "Active"}, "modified desc"),
+    "manufacturing": ("Work Order", ["name", "item_name", "qty", "status"], ["name", "item_name", "production_item"], {"docstatus": 1}, "modified desc"),
+    "marketing": ("Lead", ["name", "lead_name", "company_name", "status"], ["name", "lead_name", "company_name"], {}, "modified desc"),
+}
+
 
 class CrossDashboardSearchService:
     """Unified search service for the intelligence dashboards.
@@ -561,20 +577,23 @@ class CrossDashboardSearchService:
             if not keywords:
                 return {"domain_id": domain_id, "results": [], "total_matches": 0}
 
-            rows = self._fetch_domain_rows(domain_id, filters)
-            if not rows:
-                return {"domain_id": domain_id, "results": [], "total_matches": 0}
-
+            cfg = self.dashboard_domains[domain_id]
+            topic = {w for kw in cfg["keywords"] for w in kw.split()}
+            # Topic words ("revenue", "customer") name the dashboard, they are
+            # not values stored on its records -- match records on the rest.
+            terms = [k for k in keywords if k not in topic]
             matches: List[Dict[str, Any]] = []
-            for row in rows:
-                m = self._match_row(row, keywords, domain_id)
+            if len(terms) < len(keywords):
+                matches.append(self._dashboard_hit(domain_id))
+            for row in self._fetch_domain_rows(domain_id, filters, terms) if terms else []:
+                m = self._match_row(row, terms, domain_id)
                 if m:
                     matches.append(m)
-                if len(matches) >= 10:
-                    break
+            matches.sort(key=lambda m: m["score"], reverse=True)
+            matches = matches[:10]
             return {
                 "domain_id": domain_id,
-                "domain_name": self.dashboard_domains[domain_id]["name"],
+                "domain_name": cfg["name"],
                 "results": matches,
                 "total_matches": len(matches),
             }
@@ -582,77 +601,39 @@ class CrossDashboardSearchService:
             logger.error("Error searching domain %s: %s", domain_id, e)
             return {"domain_id": domain_id, "results": [], "total_matches": 0}
 
-    def _fetch_domain_rows(self, domain_id: str, filters: Optional[Dict]) -> List[Dict[str, Any]]:
-        """Per-domain targeted ``frappe.get_all``. Capped at 25 rows.
+    def _dashboard_hit(self, domain_id: str) -> Dict[str, Any]:
+        name = self.dashboard_domains[domain_id]["name"]
+        return {
+            "id": domain_id,
+            "title": name,
+            "content": f"Open the {name} dashboard",
+            "score": 10.0,
+            "relevance_score": 1.0,
+            "source": domain_id,
+            "data_type": "dashboard",
+            "category": "summary",
+            "navigation_url": _DOMAIN_ROUTE_PATH.get(domain_id, f"/{domain_id.replace('_', '-')}-intelligence"),
+            "preview": f"Open the {name} dashboard",
+            "metadata": {"domain": domain_id, "last_updated": None, "data_quality": "good"},
+        }
 
-        Each row is short text fields only; the keyword match runs over
-        those ~25 rows × ~5 short strings.
-        """
-        limit = 25
-        if domain_id == "executive":
+    def _fetch_domain_rows(self, domain_id: str, filters: Optional[Dict], terms: List[str]) -> List[Dict[str, Any]]:
+        """Rows whose short text fields contain any search term (LIKE, in the
+        database). Filtering after fetching a fixed page of rows could only ever
+        find records among the first few, so a customer, item or invoice outside
+        that page was unreachable. Capped at 100 rows, ranked by the caller."""
+        spec = _SEARCH_SPEC.get(domain_id)
+        if not spec or (domain_id == "manufacturing" and not frappe.db.table_exists("Work Order")):
             return []
-        if domain_id == "revenue-customers":
-            return frappe.get_all(
-                "Sales Invoice",
-                fields=["name", "customer", "customer_name", "posting_date"],
-                filters={"docstatus": 1},
-                limit_page_length=limit,
-                order_by="posting_date desc",
-            )
-        if domain_id in ("financial", "tax", "risk"):
-            return frappe.get_all(
-                "GL Entry",
-                fields=["name", "account", "voucher_type", "posting_date"],
-                limit_page_length=limit,
-                order_by="posting_date desc",
-            )
-        if domain_id == "procurement":
-            return frappe.get_all(
-                "Purchase Order",
-                fields=["name", "supplier", "supplier_name", "transaction_date"],
-                filters={"docstatus": 1},
-                limit_page_length=limit,
-                order_by="transaction_date desc",
-            )
-        if domain_id == "inventory":
-            return frappe.get_all(
-                "Item",
-                fields=["name", "item_name", "item_group", "stock_uom"],
-                filters={"disabled": 0},
-                limit_page_length=limit,
-            )
-        if domain_id == "hr":
-            return frappe.get_all(
-                "Employee",
-                fields=["name", "employee_name", "department", "designation"],
-                filters={"status": "Active"},
-                limit_page_length=limit,
-            )
-        if domain_id == "manufacturing":
-            if not frappe.db.table_exists("Work Order"):
-                return []
-            return frappe.get_all(
-                "Work Order",
-                fields=["name", "item_name", "qty", "status"],
-                filters={"docstatus": 1},
-                limit_page_length=limit,
-            )
-        if domain_id == "marketing":
-            return frappe.get_all(
-                "Lead",
-                fields=["name", "lead_name", "company_name", "status"],
-                limit_page_length=limit,
-                order_by="modified desc",
-            )
-        if domain_id == "esg":
-            return frappe.get_all(
-                "Sales Invoice",
-                fields=["name", "customer", "customer_name", "posting_date"],
-                filters={"docstatus": 1},
-                limit_page_length=limit,
-                order_by="posting_date desc",
-            )
-        return []
+        doctype, fields, like_fields, base_filters, order_by = spec
+        return frappe.get_all(
+            doctype,
+            fields=fields,
+            filters=base_filters,
+            or_filters=[[f, "like", f"%{t}%"] for t in terms for f in like_fields],
+            limit_page_length=100,
+            order_by=order_by,
+        )
 
     def _match_row(
         self,
@@ -673,7 +654,8 @@ class CrossDashboardSearchService:
                     "id": str(row.get("name", "")),
                     "title": title,
                     "content": content[:200],
-                    "score": self._calculate_relevance_score(haystack_lower, keywords),
+                    "score": (score := self._calculate_relevance_score(haystack_lower, keywords)),
+                    "relevance_score": round(min(score / 2.0, 1.0), 2),  # 2.0 = every keyword matched whole
                     "source": domain_id,
                     "data_type": "record",
                     "category": self._categorize_text(haystack_lower),

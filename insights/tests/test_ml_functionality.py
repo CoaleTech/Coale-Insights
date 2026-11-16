@@ -108,73 +108,60 @@ class TestMLDomainIntelligence(FrappeTestCase):
 class TestInventoryAPIDrillDown(FrappeTestCase):
     """Test suite for inventory drill-down API endpoints"""
 
-    @patch('insights.api.ml.inventory.frappe.has_permission')
-    @patch('insights.api.ml.inventory.frappe.get_list')
-    @patch('insights.api.ml.inventory.frappe.db.count')
-    def test_get_inventory_detail_total_skus(self, mock_db_count, mock_get_list, mock_has_permission):
-        """Test total_skus drill-down returns active stock items"""
+    # The drill-down must list exactly the population its KPI counts, so each
+    # test derives the expected total independently with a plain SQL count.
+
+    def test_get_inventory_detail_total_skus(self):
+        """total_skus lists active stock items that have a non-zero Bin."""
         from insights.api.ml.inventory import get_inventory_detail
 
-        mock_get_list.return_value = [
-            {
-                'name': 'ITEM-001',
-                'item_name': 'Test Item 1',
-                'item_group': 'Raw Material',
-                'stock_uom': 'Nos',
-                'valuation_method': 'FIFO'
-            }
-        ]
-        mock_db_count.return_value = 1
+        expected = frappe.db.sql(
+            """select count(*) from `tabItem` where disabled = 0 and is_stock_item = 1
+            and name in (select item_code from `tabBin`
+                where actual_qty != 0 or reserved_qty != 0 or ordered_qty != 0)"""
+        )[0][0]
 
         result = get_inventory_detail('total_skus', '{}')
 
-
-        self.assertEqual(len(result['rows']), 1)
-        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['total'], expected)
+        self.assertEqual(len(result['rows']), min(expected, 50))
         self.assertEqual(result['columns'][0]['fieldname'], 'name')
-        mock_has_permission.assert_called_with('Item', throw=True)
-        mock_get_list.assert_called_once()
-        _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters'], {'disabled': 0, 'is_stock_item': 1})
 
-    @patch('insights.api.ml.inventory.frappe.has_permission')
-    @patch('insights.api.ml.inventory.frappe.get_list')
-    @patch('insights.api.ml.inventory.frappe.db.count')
-    def test_get_inventory_detail_warehouse_stock(self, mock_db_count, mock_get_list, mock_has_permission):
-        """Test warehouse_stock drill-down with warehouse filter"""
+    def test_get_inventory_detail_warehouse_stock(self):
+        """warehouse_stock filters to one warehouse and counts Bins with any qty."""
         from insights.api.ml.inventory import get_inventory_detail
 
-        mock_get_list.return_value = [
-            {
-                'item_code': 'ITEM-001',
-                'warehouse': 'Stores - TC',
-                'actual_qty': 100.0,
-                'reserved_qty': 10.0,
-                'ordered_qty': 5.0
-            }
-        ]
-        mock_db_count.return_value = 1
+        warehouse = frappe.db.sql(
+            "select warehouse from `tabBin` where actual_qty > 0 limit 1"
+        )
+        if not warehouse:
+            self.skipTest("no Bin with stock on this site")
+        warehouse = warehouse[0][0]
+        expected = frappe.db.sql(
+            """select count(*) from `tabBin` where warehouse = %s
+            and (actual_qty > 0 or reserved_qty > 0 or ordered_qty > 0)""",
+            warehouse,
+        )[0][0]
 
-        result = get_inventory_detail('warehouse_stock', '{"warehouse": "Stores - TC", "page": 1}')
+        result = get_inventory_detail('warehouse_stock', frappe.as_json({"warehouse": warehouse, "page": 1}))
 
-
-        self.assertEqual(len(result['rows']), 1)
-        self.assertEqual(result['rows'][0]['warehouse'], 'Stores - TC')
-        mock_has_permission.assert_called_with('Bin', throw=True)
-        _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters'], {'actual_qty': ('>', 0), 'warehouse': 'Stores - TC'})
+        self.assertEqual(result['total'], expected)
+        self.assertTrue(result['rows'])
+        self.assertEqual({r['warehouse'] for r in result['rows']}, {warehouse})
 
     @patch('insights.api.ml.inventory.frappe.has_permission')
     def test_get_inventory_detail_low_stock_items(self, mock_has_permission):
-        """Test low_stock_items drill-down joins Bin with Item Reorder"""
+        """low_stock_items checks Bin and Sales Invoice access and returns the paged shape."""
         from insights.api.ml.inventory import get_inventory_detail
 
         result = get_inventory_detail('low_stock_items', '{}')
 
         self.assertEqual(sorted(result.keys()), ['columns', 'rows', 'total'])
         self.assertIsInstance(result['rows'], list)
-        self.assertIsInstance(result['total'], int)
-        mock_has_permission.assert_called_with('Bin', throw=True)
+        self.assertLessEqual(len(result['rows']), 50)
+        self.assertGreaterEqual(result['total'], len(result['rows']))
+        mock_has_permission.assert_any_call('Bin', throw=True)
+        mock_has_permission.assert_any_call('Sales Invoice', throw=True)
 
     def test_get_inventory_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -404,15 +391,19 @@ class TestFinancialAPIDrillDown(FrappeTestCase):
                 'account_currency': 'KES'
             }
         ]
-        mock_db_count.return_value = 1
+        # get_finance_detail makes a second get_list call for the COUNT(*) total.
+        mock_get_list.side_effect = [mock_get_list.return_value, [frappe._dict(c=1)]]
 
         result = get_finance_detail('cash_accounts', '{}')
 
 
         self.assertEqual(result['rows'][0]['account_type'], 'Cash')
-        _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters']['account_type'], ('in', ['Cash', 'Bank']))
-        self.assertEqual(kwargs['filters']['is_group'], 0)
+        self.assertEqual(result['columns'][-1]['fieldname'], 'balance')
+        self.assertEqual(result['rows'][0]['balance'], 0)
+        _, kwargs = mock_get_list.call_args_list[0]
+        self.assertIn(['is_group', '=', 0], kwargs['filters'])
+        self.assertIn(['account_type', 'in', ['Cash', 'Bank']], kwargs['or_filters'])
+        self.assertEqual(result['total'], 1)
 
     def test_get_finance_detail_unknown_metric(self):
         """Test unknown metric raises ValidationError"""
@@ -723,8 +714,8 @@ class TestRiskAPIDrillDown(FrappeTestCase):
 
         self.assertEqual(result['rows'][0]['name'], 'SINV-005')
         _, kwargs = mock_get_list.call_args
-        self.assertEqual(kwargs['filters']['outstanding_amount'], ('>', 0))
-        self.assertEqual(kwargs['filters']['company'], 'Test Company')
+        self.assertIn(['outstanding_amount', '>', 0], kwargs['filters'])
+        self.assertIn(['company', '=', 'Test Company'], kwargs['filters'])
 
     @patch('insights.api.ml.risk.frappe.has_permission')
     @patch('insights.api.ml.risk.frappe.get_list')

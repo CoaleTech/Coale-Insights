@@ -81,32 +81,79 @@ def get_current_fiscal_year(intelligence) -> Dict[str, Any]:
     }
 
 
-def get_cash_balance(intelligence) -> float:
-    """Get current cash and bank balance (cached on intelligence to avoid repeat scans)."""
-    if hasattr(intelligence, '_cash_balance'):
-        return intelligence._cash_balance
+# Fixed-deposit name prefix — same convention as financial_intelligence.py._cash_accounts.
+_FD_PREFIX = "fixed deposit"
+
+
+def _load_cash_breakdown(intelligence) -> None:
+    """Compute liquid_cash / fd_balance / total_cash once and cache on the intelligence object.
+
+    Book balance: post-dated entries count, so cheques already written reduce
+    cash before they clear. Open payables do not include them (they are
+    unallocated payments), so dating the balance at today would overstate the
+    forecast's opening cash.
+
+    Mirrors financial_intelligence._cash_accounts(): Bank + Cash by account_type
+    plus any account whose name starts with "fixed deposit" (case-insensitive in
+    MySQL's default utf8mb4_unicode_ci collation).  Using the name-match for FDs
+    is the same heuristic used by the cash-flow tab — one definition everywhere.
+    """
+    if hasattr(intelligence, '_cash_liquid'):
+        return
     gle = DocType("GL Entry")
     acc = DocType("Account")
     rows = (
         frappe.qb.from_(gle)
-        .join(acc)
-        .on(gle.account == acc.name)
-        .select(Coalesce(Sum(gle.debit - gle.credit), 0).as_("balance"))
-        .where(acc.account_type.isin(["Cash", "Bank"]))
+        .join(acc).on(gle.account == acc.name)
+        .select(
+            acc.account_type,
+            acc.account_name,
+            Coalesce(Sum(gle.debit - gle.credit), 0).as_("balance"),
+        )
+        .where(
+            acc.account_type.isin(["Cash", "Bank"])
+            | acc.account_name.like("Fixed Deposit%")
+        )
         .where(gle.company == intelligence.company)
-        .where(gle.posting_date <= datetime.now().strftime('%Y-%m-%d'))
         .where(gle.is_cancelled == 0)
+        .groupby(acc.account_type, acc.account_name)
         .run(as_dict=True)
     )
-    cash = float(rows[0].balance or 0) if rows else 0.0
-    intelligence._cash_balance = cash
-    return cash
+    total, fd = 0.0, 0.0
+    for r in rows:
+        bal = float(r.balance or 0)
+        total += bal
+        if (r.account_name or "").lower().startswith(_FD_PREFIX):
+            fd += bal
+    intelligence._cash_total = round(total, 2)
+    intelligence._cash_fd = round(fd, 2)
+    intelligence._cash_liquid = round(total - fd, 2)
+    intelligence._cash_balance = intelligence._cash_liquid  # backward-compat alias
+
+
+def get_cash_balance(intelligence) -> float:
+    """Liquid cash (Bank + Cash accounts, excluding Fixed Deposits).
+    Cached on the intelligence object to avoid repeat DB scans."""
+    _load_cash_breakdown(intelligence)
+    return intelligence._cash_liquid
+
+
+def get_cash_fd_balance(intelligence) -> float:
+    """Fixed deposit balance. Cached."""
+    _load_cash_breakdown(intelligence)
+    return intelligence._cash_fd
+
+
+def get_cash_total(intelligence) -> float:
+    """Total cash including fixed deposits. Cached."""
+    _load_cash_breakdown(intelligence)
+    return intelligence._cash_total
 
 
 def _gl_daily_cache(intelligence) -> list:
     """One GL Entry × Account scan grouped by posting_date — all history up to today.
 
-    Returns a list of dicts (oldest-first) with 15 CASE-SUM columns covering
+    Returns a list of dicts (oldest-first) with 16 CASE-SUM columns covering
     every aggregate shape needed by calculate_ratio_trends (8 × 2 queries),
     calculate_executive_summary (9 GL queries), compare_periods (6 queries),
     analyze_working_capital (3 GL queries), and generate_scenario_analysis.
@@ -123,6 +170,9 @@ def _gl_daily_cache(intelligence) -> list:
     gle = DocType("GL Entry")
     acc = DocType("Account")
     today = datetime.now().strftime('%Y-%m-%d')
+    # Period Closing Vouchers shift P&L into equity on a year's last day: not trading,
+    # so kept out of the P&L columns (they still count in the cumulative balance columns).
+    trading = gle.voucher_type != "Period Closing Voucher"
 
     rows = (
         frappe.qb.from_(gle)
@@ -131,14 +181,14 @@ def _gl_daily_cache(intelligence) -> list:
         .select(
             gle.posting_date,
             # ── P&L (period sums) ──────────────────────────────────────────
-            Sum(Case().when(acc.root_type == "Income",
+            Sum(Case().when((acc.root_type == "Income") & trading,
                             gle.credit - gle.debit).else_(0)).as_("income"),
-            Sum(Case().when(acc.root_type == "Expense",
+            Sum(Case().when((acc.root_type == "Expense") & trading,
                             gle.debit - gle.credit).else_(0)).as_("expense"),
-            Sum(Case().when(acc.account_type == "Depreciation",
+            Sum(Case().when((acc.account_type == "Depreciation") & trading,
                             gle.debit - gle.credit).else_(0)).as_("dep"),
             Sum(Case().when(
-                (acc.root_type == "Expense") & acc.name.like("%Interest%"),
+                (acc.root_type == "Expense") & acc.name.like("%Interest%") & trading,
                 gle.debit - gle.credit,
             ).else_(0)).as_("interest"),
             # ── Balance sheet (cumulative) ─────────────────────────────────
@@ -164,6 +214,8 @@ def _gl_daily_cache(intelligence) -> list:
                             gle.debit - gle.credit).else_(0)).as_("receivable"),
             Sum(Case().when(acc.account_type == "Stock",
                             gle.debit - gle.credit).else_(0)).as_("inventory"),
+            Sum(Case().when((acc.account_type == "Cost of Goods Sold") & trading,
+                            gle.debit - gle.credit).else_(0)).as_("cogs"),
             Sum(Case().when(acc.account_type == "Payable",
                             gle.credit - gle.debit).else_(0)).as_("payable"),
             Sum(Case().when(
@@ -248,7 +300,7 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
         frappe.qb.from_(gle)
         .select(
             gle.account.as_("account"),
-            Abs(Coalesce(Sum(gle.debit - gle.credit), 0)).as_("amount"),
+            Coalesce(Sum(gle.debit - gle.credit), 0).as_("amount"),
         )
         .where(gle.company == intelligence.company)
         .where(gle.is_cancelled == 0)
@@ -269,16 +321,20 @@ def get_expense_breakdown(intelligence) -> List[Dict[str, Any]]:
         .where(acc.is_group == 0)
         .where(acc.company == intelligence.company)
         .orderby(Coalesce(gle_period.amount, 0), order=frappe.qb.desc)
-        .limit(50)
         .run(as_dict=True)
     )
 
-    # brittle in MariaDB (`Unknown column ... in 'HAVING'`). Filter in
-    # Python, then take the top 10 -- the legacy semantics.
+    # Zero-balance accounts are dropped in Python (HAVING is brittle in MariaDB).
+    # Everything past the top 10 folds into "Other", so the total and every
+    # share are against all expenses, not just the ten largest.
     expenses = [e for e in raw_expenses if (e.get("amount") or 0) > 0][:10]
 
-    # Calculate total and percentages
-    total = sum(float(e.get('amount') or 0) for e in expenses)
+    # Calculate total and percentages. The total is the signed sum over every
+    # expense account (equals the P&L); a net-credit account reduces "Other".
+    total = sum(float(e.get('amount') or 0) for e in raw_expenses)
+    rest = total - sum(float(e.get('amount') or 0) for e in expenses)
+    if rest > 0:
+        expenses.append({"category": "Other", "amount": rest})
 
     result = []
     for exp in expenses:
@@ -466,6 +522,28 @@ def get_ap_payments_by_week(intelligence, start_date: datetime, end_date: dateti
         weeks[week_key]['amount'] += float(inv.outstanding_amount or 0)
         weeks[week_key]['count'] += 1
         weeks[week_key]['invoices'].append(inv.name)
+    # Overdue payables (due before the window) are still owed: spread them over
+    # the first 4 weeks, the same assumption get_ar_collections_by_week makes for
+    # overdue receivables. Dropping them left the forecast paying only the bills
+    # due inside the window.
+    overdue_rows = (
+        frappe.qb.from_(pi)
+        .select(Coalesce(Sum(pi.outstanding_amount), 0).as_("total"))
+        .where(pi.company == intelligence.company)
+        .where(pi.docstatus == 1)
+        .where(pi.outstanding_amount > 0)
+        .where(pi.due_date < start_date)
+        .run(as_dict=True)
+    )
+    overdue = float(overdue_rows[0].total or 0) if overdue_rows else 0.0
+    if overdue > 0:
+        for week_offset in range(4):
+            week_date = start_date + timedelta(weeks=week_offset)
+            if hasattr(week_date, 'date') and callable(week_date.date):
+                week_date = week_date.date()
+            week_key = str(week_date - timedelta(days=week_date.weekday()))
+            weeks.setdefault(week_key, {'amount': 0, 'count': 0, 'invoices': []})
+            weeks[week_key]['amount'] += overdue / 4
 
     return weeks
 
@@ -505,18 +583,23 @@ def get_payroll_for_week(intelligence, week_start, payroll_pattern: Dict) -> flo
     elif frequency == 'semi-monthly':
         interval = 15
     else:  # monthly
-        interval = 30
+        interval = None
 
-    # Check if any subsequent payroll dates fall in this week
+    # Check if any subsequent payroll dates fall in this week. Monthly steps by
+    # calendar month from next_date (a flat 30 days drifts off a month-end payroll).
+    iteration = 0
     check_date = next_payroll_date
     max_iterations = 20  # Safety limit
-    iteration = 0
 
     while check_date <= week_end and iteration < max_iterations:
         if week_start <= check_date <= week_end:
             return typical_amount
-        check_date += timedelta(days=interval)
         iteration += 1
+        check_date = (
+            add_months(next_payroll_date, iteration)
+            if interval is None
+            else check_date + timedelta(days=interval)
+        )
 
     return 0
 

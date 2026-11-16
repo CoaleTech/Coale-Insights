@@ -1,72 +1,78 @@
 <template>
 	<div class="space-y-6">
 		<!-- AR Summary -->
-		<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Total Outstanding</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatCurrency(data.total_outstanding, currency) }}</div>
-				<div v-if="glBalanceDiffers(data.gl_balance, data.total_outstanding)" class="text-xs text-ink-gray-6">
-					GL balance {{ formatCurrency(data.gl_balance, currency) }}
-				</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Days Sales Outstanding</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatDays(data.current_dso) }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Invoice Count</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ data.invoice_count }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Avg Overdue Days</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatDays(data.avg_overdue_days) }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1">
-				<div class="text-sm text-ink-gray-6">Avg Invoice Age</div>
-				<div class="text-xl font-bold text-ink-gray-9">{{ formatDays(data.avg_open_receivable_age_days) }}</div>
-			</div>
-			<div class="bg-surface-white rounded-lg shadow-sm p-4 border border-outline-gray-1 cursor-pointer hover:bg-surface-gray-1 transition-colors motion-reduce:transition-none"
-				 role="button"
-				 tabindex="0"
-				 @click="open90Plus"
-				 @keydown.enter="open90Plus"
-				 @keydown.space.prevent="open90Plus">
-				<div class="text-sm text-ink-gray-6">90+ Days Overdue</div>
-				<div class="text-xl font-bold" :class="deltaInk(-1, { higherIsBetter: true })">
-					{{ formatCurrency(get90PlusOverdue(data.aging_buckets), currency) }}
-				</div>
-			</div>
+		<div class="grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
+			<KpiCard
+				label="Total Outstanding"
+				:amount="data.total_outstanding"
+				:currency="currency"
+				:sublabel="glBalanceDiffers(data.gl_balance, data.total_outstanding) ? `GL balance ${formatCurrency(data.gl_balance, currency)}` : undefined"
+			/>
+			<KpiCard
+				label="Days Sales Outstanding"
+				:value="formatDays(data.current_dso)"
+			/>
+			<KpiCard
+				label="Invoice Count"
+				:value="data.invoice_count ?? null"
+			/>
+			<KpiCard
+				label="Avg Overdue Days"
+				:value="formatDays(data.avg_overdue_days)"
+			/>
+			<KpiCard
+				label="Avg Invoice Age"
+				:value="formatDays(data.avg_open_receivable_age_days)"
+			/>
+			<KpiCard
+				label="90+ Days Overdue"
+				:amount="get90PlusOverdue(data.aging_buckets)"
+				:currency="currency"
+				:severity="get90PlusOverdue(data.aging_buckets) > 0 ? 'high' : undefined"
+				:clickable="true"
+				@click="open90Plus"
+			/>
 		</div>
 
 		<!-- Aging Analysis -->
-		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
+		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
 			<SectionHeader variant="caption" title="Accounts Receivable Aging" :level="3" />
-			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-44 sm:h-52 lg:h-56" :config="arAgingConfig" />
-			<table v-if="data.aging_buckets?.length" class="sr-only">
-				<caption>Accounts receivable by aging bucket</caption>
+			<IntelligenceChart v-if="data.aging_buckets?.length" class="mt-4 h-80" :config="arAgingConfig" :value-format="(v) => formatCurrency(v, currency)" />
+			<table v-if="data.aging_buckets?.length" class="mt-4 w-full text-sm">
+				<caption class="sr-only">Accounts receivable by aging bucket</caption>
 				<thead>
-					<tr>
-						<th scope="col">Bucket</th>
-						<th scope="col">Amount</th>
-						<th scope="col">Invoices</th>
+					<tr class="text-xs uppercase text-ink-gray-6">
+						<th scope="col" class="px-3 py-2 text-left font-medium">Bucket</th>
+						<th scope="col" class="px-3 py-2 text-right font-medium">Amount</th>
+						<th scope="col" class="px-3 py-2 text-right font-medium">Invoices</th>
+						<th scope="col" class="px-3 py-2 text-right font-medium">% of AR</th>
 					</tr>
 				</thead>
-				<tbody>
-					<tr v-for="bucket in data.aging_buckets" :key="bucket.bucket">
-						<th scope="row">{{ bucket.bucket }}</th>
-						<td>{{ formatCurrency(bucket.amount, currency) }}</td>
-						<td>{{ bucket.count }}</td>
+				<tbody class="divide-y divide-outline-gray-1">
+					<tr v-for="bucket in agingRows.rows" :key="bucket.bucket">
+						<th scope="row" class="px-3 py-2 text-left font-normal text-ink-gray-9">{{ bucket.bucket }}</th>
+						<td class="px-3 py-2 text-right text-ink-gray-9">{{ formatCurrency(bucket.amount, currency) }}</td>
+						<td class="px-3 py-2 text-right text-ink-gray-7">{{ bucket.count }}</td>
+						<td class="px-3 py-2 text-right text-ink-gray-7">{{ bucket.share === null ? NO_VALUE : formatPercent(bucket.share) }}</td>
 					</tr>
 				</tbody>
+				<tfoot>
+					<tr class="border-t border-outline-gray-2 font-semibold text-ink-gray-9">
+						<th scope="row" class="px-3 py-2 text-left">Total</th>
+						<td class="px-3 py-2 text-right">{{ formatCurrency(agingRows.amount, currency) }}</td>
+						<td class="px-3 py-2 text-right">{{ agingRows.count }}</td>
+						<td class="px-3 py-2 text-right">{{ agingRows.amount > 0 ? formatPercent(100) : NO_VALUE }}</td>
+					</tr>
+				</tfoot>
 			</table>
 		</div>
 
 		<!-- Collections -->
-		<div v-if="data.collection_trend?.length" class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader variant="caption" title="Monthly Collections" :level="3" />
-			<IntelligenceChart class="mt-4 h-44 sm:h-52 lg:h-56" :config="collectionTrendConfig" />
+		<div v-if="data.collection_trend?.length" class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+			<SectionHeader variant="caption" title="Monthly Collections" hint="Receipts applied to invoices; advances not included" :level="3" />
+			<IntelligenceChart class="mt-4 h-80" :config="collectionTrendConfig" :value-format="(v) => formatCurrency(v, currency)" />
 			<table class="sr-only">
-				<caption>Receipts collected per month</caption>
+				<caption>Receipts applied to invoices per month</caption>
 				<thead>
 					<tr>
 						<th scope="col">Month</th>
@@ -83,16 +89,16 @@
 		</div>
 
 		<!-- Top Debtors -->
-		<div class="bg-surface-white rounded-lg shadow-sm p-6 border border-outline-gray-1">
-			<SectionHeader variant="caption" title="Top Outstanding Customers" :level="3" />
+		<div class="bg-surface-white rounded-lg p-6 border border-outline-gray-1">
+			<SectionHeader variant="caption" title="Top Overdue Customers" :level="3" />
 			<div class="mt-4 overflow-x-auto">
 				<table class="min-w-full">
 					<thead>
 						<tr class="bg-surface-gray-1">
 							<th scope="col" class="px-4 py-3 text-left text-xs font-medium text-ink-gray-6 uppercase">Customer</th>
-							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Outstanding</th>
+							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Overdue</th>
 							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Invoices</th>
-							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Days Overdue</th>
+							<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-ink-gray-6 uppercase">Oldest Overdue</th>
 						</tr>
 					</thead>
 					<tbody class="divide-y divide-outline-gray-1">
@@ -125,12 +131,13 @@
 import { computed } from 'vue'
 import { Badge } from 'frappe-ui'
 import IntelligenceChart from '../../intelligence/components/IntelligenceChart.vue'
+import KpiCard from '../../intelligence/components/KpiCard.vue'
 import SectionHeader from '../../intelligence/components/SectionHeader.vue'
-import { deltaInk, severityBadge, scoreSeverity } from '../../utils/status'
+import { severityBadge, scoreSeverity } from '../../utils/status'
 import { themeColor } from '../../utils/chartTheme'
 import type { useDrillDown } from '../../intelligence/composables/useDrillDown'
 import { formatDays, formatPeriod, get90PlusOverdue, glBalanceDiffers } from './format'
-import { formatMoney as formatCurrency } from '../../utils/format'
+import { formatMoney as formatCurrency, formatPercent, NO_VALUE } from '../../utils/format'
 import type { OverdueCustomerRow, ReceivablesData } from './types'
 
 const props = defineProps<{
@@ -139,6 +146,18 @@ const props = defineProps<{
 	finEndpoint: string
 	drillDown: ReturnType<typeof useDrillDown>
 }>()
+
+/** Aging buckets with each one's share of the bucket total, plus the totals. */
+const agingRows = computed(() => {
+	const buckets = props.data.aging_buckets ?? []
+	const amount = buckets.reduce((s, b) => s + Number(b.amount), 0)
+	const count = buckets.reduce((s, b) => s + Number(b.count), 0)
+	return {
+		amount,
+		count,
+		rows: buckets.map(b => ({ ...b, share: amount > 0 ? (Number(b.amount) / amount) * 100 : null })),
+	}
+})
 
 const arAgingConfig = computed(() => ({
 	title: '',

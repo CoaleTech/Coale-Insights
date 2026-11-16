@@ -49,6 +49,18 @@ class TestBudgetMath(unittest.TestCase):
             BudgetVarianceIntelligence._period_budget(row, date(2026, 4, 1), date(2026, 4, 30)), 30
         )
 
+    def test_variance_compares_with_budget_to_date_not_full_year(self):
+        # 365-day budget, 91 days (Apr 1 - Jun 30) gone, spend exactly on pace
+        engine = BudgetVarianceIntelligence.__new__(BudgetVarianceIntelligence)
+        engine.fy_start_date, engine.budget_end = date(2026, 4, 1), date(2026, 6, 30)
+        row = {
+            "account": "Rent", "cost_center": "Main", "budget_amount": 365.0, "start": date(2026, 4, 1),
+            "end": date(2027, 3, 31), "distribution": [], "root_type": "Expense", "account_type": "Expense Account",
+        }
+        (m,) = engine._merge_budget_actual([row], [{"account": "Rent", "cost_center": "Main", "actual_amount": 91.0}])
+        self.assertAlmostEqual(m["budget_amount"], 91.0)
+        self.assertAlmostEqual(m["variance"], 0.0)
+
 
 class TestBreakevenMath(unittest.TestCase):
     def test_be_revenue_uses_contribution_margin_ratio(self):

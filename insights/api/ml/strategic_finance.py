@@ -10,7 +10,9 @@ from frappe import _
 from typing import Dict, Any
 from insights.api.response import success, error
 from insights.api.ml.permissions import authorize_dashboard
-from insights.api.ml.utils import cached_run
+from insights.api.ml.utils import cached_run, parse_detail_filters
+from insights.ml.tab_briefs import attach_lazy
+from insights.ml.tab_briefs.finance_planning import lazy_beoverview, lazy_budget
 
 
 @frappe.whitelist()
@@ -44,7 +46,7 @@ def get_budget_variance_overview(company: str = None, fiscal_year: str = None) -
     
         model = BudgetVarianceIntelligence()
         result = model.get_budget_variance_overview()
-        return success(result)
+        return attach_lazy(success(result), lazy_budget, "budget")
     except frappe.PermissionError:
         raise
     except Exception as e:
@@ -55,8 +57,7 @@ def get_budget_variance_overview(company: str = None, fiscal_year: str = None) -
 
 @frappe.whitelist()
 def get_strategic_detail(metric: str, filters: str) -> dict:
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
     company = f.get("company") or frappe.defaults.get_user_default("company")
@@ -70,7 +71,7 @@ def get_strategic_detail(metric: str, filters: str) -> dict:
             "Sales Invoice",
             filters=db_filters,
             fields=["name", "customer", "posting_date", "grand_total", "outstanding_amount"],
-            start=start, page_length=page_size, order_by="posting_date desc",
+            start=start, page_length=page_size, order_by="posting_date desc, name desc",
             ignore_permissions=False,
         )
         return {
@@ -94,7 +95,7 @@ def get_strategic_detail(metric: str, filters: str) -> dict:
             "Purchase Invoice",
             filters=db_filters,
             fields=["name", "supplier", "posting_date", "grand_total", "outstanding_amount"],
-            start=start, page_length=page_size, order_by="posting_date desc",
+            start=start, page_length=page_size, order_by="posting_date desc, name desc",
             ignore_permissions=False,
         )
         return {

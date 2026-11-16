@@ -6,8 +6,8 @@ import { useRouter } from 'vue-router'
 import { apiCall } from '../helpers/api'
 import { useIntelligenceDashboard } from './composables/useIntelligenceDashboard'
 import {
-  severityBadge, severityFill, severityAria, scoreSeverity, ragSeverity,
-  prioritySeverity, type Severity,
+  severityBadge, severityFill, severityAria, severityTint, scoreSeverity, ragSeverity,
+  prioritySeverity, normaliseSeverity, type Severity,
 } from '../utils/status'
 import { formatCount, formatPercent, formatDateTime, NO_VALUE } from '../utils/format'
 import DashboardChatButton from '../components/DashboardChatButton.vue'
@@ -16,6 +16,12 @@ import IntelligenceDrillDown from './components/IntelligenceDrillDown.vue'
 import KpiCard from './components/KpiCard.vue'
 import IntelligenceDashboardShell from './components/IntelligenceDashboardShell.vue'
 import SectionHeader from './components/SectionHeader.vue'
+import TabBrief, { type Brief } from './components/TabBrief.vue'
+import TabActions from './components/TabActions.vue'
+import StatStrip, { type StatItem } from './components/StatStrip.vue'
+import IntelligenceChart from './components/IntelligenceChart.vue'
+import { themeColor } from '../utils/chartTheme'
+import type { AxisChartConfig } from 'frappe-ui/src/components/Charts/types'
 
 // ─── Payload interfaces (confirmed against insights/ml/manufacturing_intelligence.py) ───
 
@@ -26,6 +32,10 @@ interface OeeAnalysis {
   quality_pct?: number
   oee_rating?: string
   benchmark_comparison?: string
+  /** Note shown when OEE is partial (availability/quality missing). */
+  oee_data_note?: string
+  /** Set instead of all other fields when there is no data at all. */
+  message?: string
 }
 
 interface ProductionMetrics {
@@ -39,6 +49,7 @@ interface ProductionMetrics {
   quantity_achievement_pct?: number
   monthly_growth_rate?: number
   production_health?: string
+  production_health_severity?: string
 }
 
 interface EfficiencyMetrics {
@@ -127,6 +138,7 @@ interface ManufacturingPayload {
   maintenance_insights?: Record<string, unknown>
   recommendations?: ManufacturingRecommendation[]
   raw_data?: Record<string, unknown>
+  tab_briefs?: Record<string, Brief>
 }
 
 /** Payload for insights.api.ml.get_production_forecast (returns _forecast_production() dict). */
@@ -168,13 +180,50 @@ const {
   })
 
 const tabIndex = ref(0)
+// The four mock tabs always exist. With no Work Orders each one renders the
+// payload's own note about what is missing instead of zero-filled gauges.
 const tabs = [
-  { label: 'Overview' },
-  { label: 'OEE Analysis' },
-  { label: 'Capacity' },
-  { label: 'Production Forecast' },
-  { label: 'Recommendations' },
+  { id: 'overview', label: 'Overview' },
+  { id: 'oee', label: 'OEE Analysis' },
+  { id: 'capacity', label: 'Capacity' },
+  { id: 'forecast', label: 'Production Forecast' },
+  { id: 'recommendations', label: 'Recommendations' },
 ]
+const noWorkOrders = computed(() => data.value?.production_metrics?.total_work_orders === 0)
+const activeTab = computed(() => tabs[tabIndex.value]?.id ?? 'overview')
+const tabBriefs = computed(() => data.value?.tab_briefs ?? {})
+const noteOf = (section: unknown) => (section as { message?: string } | undefined)?.message
+const oeeStrip = computed<StatItem[]>(() => [
+  { label: 'OEE Score', percent: data.value?.oee_analysis?.oee_score_pct ?? null, sublabel: 'Not measured' },
+  { label: 'Availability', percent: data.value?.oee_analysis?.availability_pct ?? null },
+  { label: 'Performance', percent: data.value?.oee_analysis?.performance_pct ?? null },
+  { label: 'Quality', percent: data.value?.oee_analysis?.quality_pct ?? null },
+])
+const capacityStrip = computed<StatItem[]>(() => [
+  { label: 'Utilization', percent: data.value?.capacity_utilization?.overall_utilization_pct ?? null, sublabel: 'Not measured' },
+  { label: 'Bottlenecks', value: data.value?.bottleneck_analysis?.bottleneck_count ?? null },
+  { label: 'Work Orders', value: data.value?.production_metrics?.total_work_orders ?? null },
+])
+const forecastStrip = computed<StatItem[]>(() => [
+  { label: 'Work Orders', value: data.value?.production_metrics?.total_work_orders ?? null },
+  { label: 'Produced Qty', value: data.value?.production_metrics?.total_production_qty ?? null },
+  { label: 'Monthly Growth Rate', percent: noWorkOrders.value ? null : (data.value?.production_metrics?.monthly_growth_rate ?? null) },
+])
+const recommendationsStrip = computed<StatItem[]>(() => [
+  { label: 'Active Alerts', value: data.value?.recommendations?.length ?? null },
+  { label: 'Pending Material Requests', value: data.value?.production_metrics?.pending_material_requests ?? null },
+])
+const productionGaps = computed(() =>
+  [
+    { title: 'OEE', note: noteOf(data.value?.oee_analysis) },
+    { title: 'Capacity', note: noteOf(data.value?.capacity_utilization) },
+    { title: 'Bottlenecks', note: noteOf(data.value?.bottleneck_analysis) },
+    { title: 'Production Forecast', note: noteOf(data.value?.production_forecast) },
+    { title: 'Quality', note: (data.value?.quality_metrics as { quality_data_note?: string } | undefined)?.quality_data_note },
+    { title: 'Recommendations', note: data.value?.recommendations?.length ? undefined : 'No recommendations generated yet.' },
+  ].filter((s): s is { title: string; note: string } => !!s.note),
+)
+const gapsFor = (...titles: string[]) => productionGaps.value.filter((g) => titles.includes(g.title))
 
 const oeeAnalysis = computed(() => data.value?.oee_analysis ?? ({} as OeeAnalysis))
 const productionMetrics = computed(() => data.value?.production_metrics ?? ({} as ProductionMetrics))
@@ -232,6 +281,89 @@ const mfgRecsColumns = [
 
 /** Recommendations ListView height: header row plus data rows, 40px each, plus 12px padding. */
 const mfgRecsListHeight = computed(() => `${(mfgRecRows.value.length + 1) * 40 + 12}px`)
+
+// ─── Overview tab computeds (Variant C: hero + attention rail) ───────────────
+
+interface MonthlyTrendRow { month: string; planned_qty: number; produced_qty: number }
+
+interface AttentionItem {
+  severity: Severity
+  title: string
+  body: string
+  consequence: string
+  action?: { label: string; metric: string }
+}
+
+/** Severity for the verdict banner, derived from the server-supplied code. */
+const productionHealthSeverity = computed(() =>
+  normaliseSeverity(productionMetrics.value.production_health_severity)
+)
+
+
+/** Monthly trend rows from raw_data (planned/produced per month). */
+const monthlyTrend = computed<MonthlyTrendRow[]>(() =>
+  (data.value?.raw_data?.monthly_trend as MonthlyTrendRow[] | undefined) ?? []
+)
+
+/** Production volume bar chart (planned vs produced per month). */
+const productionChartConfig = computed<AxisChartConfig>(() => ({
+  data: monthlyTrend.value,
+  title: '',
+  xAxis: { key: 'month', type: 'category' },
+  yAxis: { title: '', yMin: 0 },
+  colors: [themeColor('--app-muted-fill'), themeColor('--app-accent')],
+  series: [
+    { name: 'Planned Qty', type: 'bar' },
+    { name: 'Produced Qty', type: 'bar' },
+  ],
+}))
+
+/** Metric rows for the attention-rail Key Metrics list. */
+const keyMetrics = computed(() => [
+  { label: 'OEE Score',           value: formatPercent(oeeAnalysis.value.oee_score_pct) },
+  { label: 'Completion Rate',     value: formatPercent(productionMetrics.value.completion_rate_pct) },
+  { label: 'Capacity Utilization',value: formatPercent(capacityUtilization.value.overall_utilization_pct) },
+  { label: 'Avg Efficiency',      value: formatPercent(efficiencyMetrics.value.average_efficiency_pct) },
+  {
+    label: 'Monthly Growth',
+    value: productionMetrics.value.monthly_growth_rate != null
+      ? formatPercent(productionMetrics.value.monthly_growth_rate)
+      : NO_VALUE,
+  },
+  { label: 'Bottlenecks',         value: formatCount(bottleneckAnalysis.value.bottleneck_count) },
+])
+
+/** Attention items derived from live payload signals for the right rail. */
+const attentionItems = computed<AttentionItem[]>(() => {
+  const items: AttentionItem[] = []
+  const pend = productionMetrics.value.pending_material_requests ?? 0
+  if (pend > 0) {
+    items.push({
+      severity: 'medium',
+      title: `${pend} Pending Material Request${pend !== 1 ? 's' : ''}`,
+      body: 'Pending MRs block work order starts. Review and fulfil before scheduling production.',
+      consequence: 'Delayed production initiation',
+      action: { label: 'View Material Requests', metric: 'material_requests' },
+    })
+  }
+  if ((productionMetrics.value.total_work_orders ?? 0) === 0) {
+    items.push({
+      severity: 'none',
+      title: 'Work Order logging inactive',
+      body: '0 Work Orders recorded in the selected period. Enabling Work Order logging activates OEE, capacity, and efficiency metrics.',
+      consequence: 'Dashboard metrics remain inactive until resolved',
+    })
+  }
+  if (oeeAnalysis.value.oee_score_pct == null) {
+    items.push({
+      severity: 'none',
+      title: 'Workstation capacity not configured',
+      body: 'OEE, utilization, and efficiency require available-hours configuration per workstation.',
+      consequence: 'OEE and capacity tabs show no data',
+    })
+  }
+  return items
+})
 
 /** OEE / availability / performance / quality: higher is better. */
 function oeeSeverity(score: number | undefined): Severity {
@@ -320,7 +452,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-surface-gray-1">
+  <div class="ink-fix flex flex-col h-full bg-surface-gray-1">
     <!-- Header -->
     <header class="bg-surface-white border-b px-6 py-4 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
       <div>
@@ -353,21 +485,23 @@ onMounted(() => {
       :kpi-count="6"
       @retry="retry"
     >
+      <!-- Verdict banner (variant A slim strip above the KPI row) -->
+      <div
+        v-if="hasData && productionMetrics.production_health"
+        class="mx-6 mt-6 px-4 py-2.5 rounded-lg flex items-center gap-3 text-ink-gray-9"
+        :class="severityTint(productionHealthSeverity)"
+      >
+        <span class="text-sm font-medium flex-1">{{ productionMetrics.production_health }}</span>
+        <Badge v-bind="severityBadge(productionHealthSeverity)" size="sm" />
+      </div>
       <!-- Summary KPI cards -->
-      <div class="p-6 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      <div class="p-6 grid grid-cols-2 md:grid-cols-3 wide:grid-cols-6 gap-4">
         <KpiCard
           label="OEE Score"
           :percent="oeeAnalysis.oee_score_pct"
           :severity="oeeSeverity(oeeAnalysis.oee_score_pct)"
           :loading="!hasData"
           :sublabel="oeeAnalysis.oee_rating || undefined"
-        />
-        <KpiCard
-          label="Availability"
-          :percent="oeeAnalysis.availability_pct"
-          :severity="oeeSeverity(oeeAnalysis.availability_pct)"
-          :loading="!hasData"
-          sublabel="Uptime ratio"
         />
         <KpiCard
           label="Completion Rate"
@@ -398,6 +532,15 @@ onMounted(() => {
           :clickable="true"
           @click="drillDown.open(MFG_ENDPOINT, 'Work Orders', { metric: 'completed_work_orders' })"
         />
+        <KpiCard
+          label="Pending MRs"
+          :value="productionMetrics.pending_material_requests"
+          :severity="(productionMetrics.pending_material_requests ?? 0) > 0 ? 'medium' : undefined"
+          :loading="!hasData"
+          :sublabel="hasData ? 'needs action' : undefined"
+          :clickable="true"
+          @click="drillDown.open(MFG_ENDPOINT, 'Pending Material Requests', { metric: 'material_requests' })"
+        />
       </div>
 
       <!-- Tab strip -->
@@ -408,173 +551,201 @@ onMounted(() => {
       <!-- Tab content -->
       <div class="flex-1 p-6 overflow-auto">
 
-        <!-- Overview -->
-        <div v-if="tabIndex === 0">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <!-- Production Summary -->
-            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader variant="caption" title="Production Summary" :level="3" />
-              <div class="space-y-3 mt-4">
-                <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
-                  <span class="text-sm text-ink-gray-6">Total Work Orders</span>
-                  <span class="font-semibold text-ink-gray-8">{{ formatCount(productionMetrics.total_work_orders) }}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
-                  <span class="text-sm text-ink-gray-6">Completed Orders</span>
-                  <span class="font-semibold text-ink-gray-8">{{ formatCount(productionMetrics.completed_orders) }}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
-                  <span class="text-sm text-ink-gray-6">Total Production Qty</span>
-                  <span class="font-semibold text-ink-gray-8">{{ formatCount(productionMetrics.total_production_qty) }}</span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
-                  <span class="text-sm text-ink-gray-6">Monthly Growth Rate</span>
-                  <span class="font-semibold text-ink-gray-8">
-                    {{ productionMetrics.monthly_growth_rate !== undefined && productionMetrics.monthly_growth_rate !== null && productionMetrics.monthly_growth_rate >= 0 ? '+' : '' }}{{ formatPercent(productionMetrics.monthly_growth_rate) }}
-                  </span>
-                </div>
-                <div class="flex justify-between items-center py-2">
-                  <span class="text-sm text-ink-gray-6">Completion Rate</span>
-                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(productionMetrics.completion_rate_pct) }}</span>
-                </div>
-              </div>
-            </div>
+        <!-- Overview — Variant C: hero (2/3) + attention rail (1/3) -->
+        <div v-if="activeTab === 'overview'" class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-            <!-- OEE Quick View -->
-            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader variant="caption" title="OEE Quick View" :level="3" />
-              <div class="space-y-4 mt-4">
-                <div>
-                  <div class="flex justify-between text-sm mb-1">
-                    <span class="text-ink-gray-6">Availability</span>
-                    <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.availability_pct) }}</span>
-                  </div>
-                  <div class="w-full bg-surface-gray-2 rounded-full h-2">
-                    <div
-                      class="h-2 rounded-full"
-                      :class="severityFill(oeeSeverity(oeeAnalysis.availability_pct))"
-                      :style="{ width: (oeeAnalysis.availability_pct || 0) + '%' }"
-                      role="img"
-                      :aria-label="severityAria('Availability', oeeSeverity(oeeAnalysis.availability_pct), oeeAnalysis.availability_pct + '%')"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-sm mb-1">
-                    <span class="text-ink-gray-6">Performance</span>
-                    <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.performance_pct) }}</span>
-                  </div>
-                  <div class="w-full bg-surface-gray-2 rounded-full h-2">
-                    <div
-                      class="h-2 rounded-full"
-                      :class="severityFill(oeeSeverity(oeeAnalysis.performance_pct))"
-                      :style="{ width: (oeeAnalysis.performance_pct || 0) + '%' }"
-                      role="img"
-                      :aria-label="severityAria('Performance', oeeSeverity(oeeAnalysis.performance_pct), oeeAnalysis.performance_pct + '%')"
-                    />
-                  </div>
-                </div>
-                <div>
-                  <div class="flex justify-between text-sm mb-1">
-                    <span class="text-ink-gray-6">Quality</span>
-                    <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.quality_pct) }}</span>
-                  </div>
-                  <div class="w-full bg-surface-gray-2 rounded-full h-2">
-                    <div
-                      class="h-2 rounded-full"
-                      :class="severityFill(oeeSeverity(oeeAnalysis.quality_pct))"
-                      :style="{ width: (oeeAnalysis.quality_pct || 0) + '%' }"
-                      role="img"
-                      :aria-label="severityAria('Quality', oeeSeverity(oeeAnalysis.quality_pct), oeeAnalysis.quality_pct + '%')"
-                    />
-                  </div>
-                </div>
-                <div class="pt-2 border-t border-outline-gray-1">
-                  <div class="flex justify-between text-sm mb-1">
-                    <span class="font-medium text-ink-gray-7">Overall OEE</span>
-                    <span class="font-bold text-ink-gray-9">{{ formatPercent(oeeAnalysis.oee_score_pct) }}</span>
-                  </div>
-                  <div class="w-full bg-surface-gray-2 rounded-full h-3">
-                    <div
-                      class="h-3 rounded-full motion-reduce:transition-none transition-all"
-                      :class="severityFill(oeeSeverity(oeeAnalysis.oee_score_pct))"
-                      :style="{ width: (oeeAnalysis.oee_score_pct || 0) + '%' }"
-                      role="img"
-                      :aria-label="severityAria('Overall OEE', oeeSeverity(oeeAnalysis.oee_score_pct), oeeAnalysis.oee_score_pct + '%')"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
+          <!-- ─── Hero (2/3) ─── -->
+          <div class="lg:col-span-2 space-y-6">
 
-            <!-- Efficiency Metrics -->
+            <!-- Production Volume -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader variant="caption" title="Efficiency Metrics" :level="3" />
-              <div class="space-y-3 mt-4">
-                <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
-                  <span class="text-sm text-ink-gray-6">Average Efficiency</span>
-                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(efficiencyMetrics.average_efficiency_pct) }}</span>
-                </div>
-                <div class="flex justify-between items-center py-2">
-                  <span class="text-sm text-ink-gray-6">Consistency Rating</span>
-                  <span class="font-semibold text-ink-gray-8">{{ efficiencyMetrics.consistency_rating || '-' }}</span>
-                </div>
+              <SectionHeader
+                title="Production Volume"
+                :hint="`${data?.period ?? 'YTD'} · planned → produced → completed`"
+                :level="3"
+              />
+              <div v-if="monthlyTrend.length > 0" class="mt-4">
+                <IntelligenceChart class="h-80" :config="productionChartConfig" />
               </div>
-            </div>
+              <div
+                v-else
+                class="mt-4 flex flex-col items-center justify-center py-14 rounded-lg bg-surface-gray-1 text-center gap-2"
+              >
+                <p class="text-sm font-medium text-ink-gray-7">No production data recorded this period</p>
+                <p class="text-sm text-ink-gray-6">Work Orders not yet logged; chart populates when production begins</p>
+                <p class="text-xs text-ink-gray-5 mt-2">
+                  Tracks: Work Order completions · produced vs planned quantities · monthly trend
+                </p>
+              </div>
 
-            <!-- Capacity at a Glance -->
-            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader variant="caption" title="Capacity at a Glance" :level="3" />
-              <div class="space-y-3 mt-4">
-                <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
-                  <span class="text-sm text-ink-gray-6">Overall Utilization</span>
-                  <span class="font-semibold text-ink-gray-8">
-                    {{ formatPercent(capacityUtilization.overall_utilization_pct) }}
-                  </span>
-                </div>
-                <div class="flex justify-between items-center py-2 border-b border-outline-gray-1">
-                  <span class="text-sm text-ink-gray-6">Available Capacity</span>
-                  <span class="font-semibold text-ink-gray-8">{{ formatPercent(capacityUtilization.available_capacity_pct) }}</span>
-                </div>
-                <div class="flex justify-between items-center py-2">
-                  <span class="text-sm text-ink-gray-6">Bottlenecks Identified</span>
-                  <Badge
-                    v-bind="severityBadge((bottleneckAnalysis.bottleneck_count ?? 0) > 0 ? 'critical' : bottleneckAnalysis.bottleneck_count == null ? 'none' : 'low')"
-                    :label="formatCount(bottleneckAnalysis.bottleneck_count)"
-                    size="sm"
-                  />
-                </div>
-              </div>
-            <!-- Production Status -->
-            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-              <SectionHeader variant="caption" title="Production Status" :level="3" />
-              <div class="flex gap-4 mt-4">
+              <!-- 3-tile stat row -->
+              <div class="grid grid-cols-3 gap-4 mt-5">
                 <KpiCard
                   variant="tile"
-                  label="Open Work Orders"
-                  :value="productionMetrics.open_work_orders"
-                  :severity="(productionMetrics.open_work_orders as number) > 0 ? 'medium' : undefined"
+                  label="Total Work Orders"
+                  :value="productionMetrics.total_work_orders"
                   :loading="!hasData"
                   :clickable="true"
                   @click="drillDown.open(MFG_ENDPOINT, 'Open Work Orders', { metric: 'open_work_orders' })"
                 />
                 <KpiCard
                   variant="tile"
+                  label="Total Produced Qty"
+                  :value="productionMetrics.total_production_qty"
+                  :loading="!hasData"
+                />
+                <KpiCard
+                  variant="tile"
                   label="Pending Material Requests"
                   :value="productionMetrics.pending_material_requests"
+                  :severity="(productionMetrics.pending_material_requests ?? 0) > 0 ? 'medium' : undefined"
                   :loading="!hasData"
                   :clickable="true"
                   @click="drillDown.open(MFG_ENDPOINT, 'Pending Material Requests', { metric: 'material_requests' })"
                 />
               </div>
             </div>
+
+            <!-- OEE Decomposition -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="OEE Decomposition" :level="3" />
+              <template v-if="oeeAnalysis.message">
+                <p class="mt-4 py-6 text-sm text-ink-gray-6 text-center">{{ oeeAnalysis.message }}</p>
+                <p class="text-xs text-ink-gray-5 text-center pb-2">
+                  OEE = Availability × Performance × Quality. World class ≥ 85%.
+                </p>
+              </template>
+              <template v-else>
+                <div class="space-y-4 mt-4">
+                  <div>
+                    <div class="flex justify-between text-sm mb-1">
+                      <span class="text-ink-gray-6">Availability</span>
+                      <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.availability_pct) }}</span>
+                    </div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-2">
+                      <div
+                        class="h-2 rounded-full"
+                        :class="severityFill(oeeSeverity(oeeAnalysis.availability_pct))"
+                        :style="{ width: (oeeAnalysis.availability_pct ?? 0) + '%' }"
+                        role="img"
+                        :aria-label="severityAria('Availability', oeeSeverity(oeeAnalysis.availability_pct), formatPercent(oeeAnalysis.availability_pct))"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div class="flex justify-between text-sm mb-1">
+                      <span class="text-ink-gray-6">Performance</span>
+                      <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.performance_pct) }}</span>
+                    </div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-2">
+                      <div
+                        class="h-2 rounded-full"
+                        :class="severityFill(oeeSeverity(oeeAnalysis.performance_pct))"
+                        :style="{ width: (oeeAnalysis.performance_pct ?? 0) + '%' }"
+                        role="img"
+                        :aria-label="severityAria('Performance', oeeSeverity(oeeAnalysis.performance_pct), formatPercent(oeeAnalysis.performance_pct))"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div class="flex justify-between text-sm mb-1">
+                      <span class="text-ink-gray-6">Quality</span>
+                      <span class="font-medium text-ink-gray-8">{{ formatPercent(oeeAnalysis.quality_pct) }}</span>
+                    </div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-2">
+                      <div
+                        class="h-2 rounded-full"
+                        :class="severityFill(oeeSeverity(oeeAnalysis.quality_pct))"
+                        :style="{ width: (oeeAnalysis.quality_pct ?? 0) + '%' }"
+                        role="img"
+                        :aria-label="severityAria('Quality', oeeSeverity(oeeAnalysis.quality_pct), formatPercent(oeeAnalysis.quality_pct))"
+                      />
+                    </div>
+                  </div>
+                  <div class="pt-3 border-t border-outline-gray-1">
+                    <div class="flex justify-between text-sm mb-1">
+                      <span class="font-medium text-ink-gray-7">Overall OEE</span>
+                      <span class="font-bold text-ink-gray-9">{{ formatPercent(oeeAnalysis.oee_score_pct) }}</span>
+                    </div>
+                    <div class="w-full bg-surface-gray-2 rounded-full h-3">
+                      <div
+                        class="h-3 rounded-full motion-reduce:transition-none transition-all"
+                        :class="severityFill(oeeSeverity(oeeAnalysis.oee_score_pct))"
+                        :style="{ width: (oeeAnalysis.oee_score_pct ?? 0) + '%' }"
+                        role="img"
+                        :aria-label="severityAria('Overall OEE', oeeSeverity(oeeAnalysis.oee_score_pct), formatPercent(oeeAnalysis.oee_score_pct))"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p v-if="oeeAnalysis.oee_data_note" class="mt-3 text-xs text-ink-gray-5">
+                  {{ oeeAnalysis.oee_data_note }}
+                </p>
+              </template>
+            </div>
+          </div>
+
+          <!-- ─── Attention Rail (1/3) ─── -->
+          <div class="lg:col-span-1 space-y-6">
+
+            <!-- Key Metrics -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="Key Metrics" :level="3" />
+              <div class="mt-3">
+                <div
+                  v-for="m in keyMetrics"
+                  :key="m.label"
+                  class="flex justify-between items-center py-2 border-b border-outline-gray-1 last:border-0"
+                >
+                  <span class="text-sm text-ink-gray-6">{{ m.label }}</span>
+                  <span class="text-sm font-semibold text-ink-gray-8">{{ m.value }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Needs Attention -->
+            <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
+              <SectionHeader variant="caption" title="Needs Attention" :level="3" />
+              <div v-if="attentionItems.length > 0" class="mt-4 space-y-5">
+                <div v-for="(item, idx) in attentionItems" :key="idx" class="space-y-1">
+                  <div class="flex items-start gap-2">
+                    <span
+                      class="mt-1.5 h-2 w-2 rounded-full flex-shrink-0"
+                      :class="item.severity === 'none' ? 'bg-surface-gray-4' : severityFill(item.severity)"
+                      aria-hidden="true"
+                    />
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <p class="text-sm font-medium text-ink-gray-8">{{ item.title }}</p>
+                      <Badge
+                        v-if="item.severity !== 'none'"
+                        v-bind="severityBadge(item.severity)"
+                        size="sm"
+                      />
+                    </div>
+                  </div>
+                  <p class="text-xs text-ink-gray-6 pl-4">{{ item.body }}</p>
+                  <p class="text-xs text-ink-gray-5 pl-4">Consequence: {{ item.consequence }}</p>
+                  <button
+                    v-if="item.action"
+                    class="pl-4 text-xs text-ink-gray-7 underline hover:text-ink-gray-9 cursor-pointer"
+                    @click="drillDown.open(MFG_ENDPOINT, item.action!.label, { metric: item.action!.metric })"
+                  >
+                    ⤷ {{ item.action!.label }}
+                  </button>
+                </div>
+              </div>
+              <div v-else class="mt-4 py-8 text-center text-sm text-ink-gray-6">
+                No issues to report
+              </div>
             </div>
           </div>
         </div>
 
         <!-- OEE Analysis -->
-        <div v-if="tabIndex === 1">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div v-if="activeTab === 'oee'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.oee" />
+          <StatStrip :items="oeeStrip" />
+          <div v-if="!noWorkOrders" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- OEE Score Breakdown -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <SectionHeader variant="caption" title="OEE Score Breakdown" :level="3" />
@@ -681,11 +852,24 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div
+              v-for="gap in gapsFor('OEE', 'Quality')"
+              :key="gap.title"
+              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
+            >
+              <SectionHeader variant="caption" :title="gap.title" :level="3" />
+              <p class="mt-3 text-sm text-ink-gray-7">{{ gap.note }}</p>
+            </div>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.oee?.actions" />
         </div>
 
         <!-- Capacity -->
-        <div v-if="tabIndex === 2">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div v-if="activeTab === 'capacity'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.capacity" />
+          <StatStrip :items="capacityStrip" />
+          <div v-if="!noWorkOrders" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <!-- Capacity Utilization -->
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <SectionHeader variant="caption" title="Capacity Utilization" :level="3" />
@@ -765,11 +949,24 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div
+              v-for="gap in gapsFor('Capacity', 'Bottlenecks')"
+              :key="gap.title"
+              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
+            >
+              <SectionHeader variant="caption" :title="gap.title" :level="3" />
+              <p class="mt-3 text-sm text-ink-gray-7">{{ gap.note }}</p>
+            </div>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.capacity?.actions" />
         </div>
 
         <!-- Production Forecast -->
-        <div v-if="tabIndex === 3">
-          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div v-if="activeTab === 'forecast'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.forecast" />
+          <StatStrip :items="forecastStrip" />
+          <div v-if="!noWorkOrders" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
               <SectionHeader variant="caption" title="Production Forecast" :level="3" />
               <div v-if="productionForecast && Object.keys(productionForecast).length > 0" class="space-y-3 mt-4">
@@ -806,10 +1003,23 @@ onMounted(() => {
               </div>
             </div>
           </div>
+          <div v-else class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div
+              v-for="gap in gapsFor('Production Forecast')"
+              :key="gap.title"
+              class="bg-surface-white rounded-lg border border-outline-gray-1 p-6"
+            >
+              <SectionHeader variant="caption" :title="gap.title" :level="3" />
+              <p class="mt-3 text-sm text-ink-gray-7">{{ gap.note }}</p>
+            </div>
+          </div>
+          <TabActions class="mt-6" :actions="tabBriefs.forecast?.actions" />
         </div>
 
         <!-- Recommendations -->
-        <div v-if="tabIndex === 4">
+        <div v-if="activeTab === 'recommendations'" class="space-y-6">
+          <TabBrief :brief="tabBriefs.recommendations" />
+          <StatStrip :items="recommendationsStrip" />
           <div v-if="recommendations.length > 0">
             <ListView
               class="mt-4 list-ink-fix"
@@ -832,7 +1042,9 @@ onMounted(() => {
           <div v-else class="bg-surface-white rounded-lg border border-outline-gray-1 p-12 text-center text-ink-gray-6">
             <p class="text-sm">No recommendations available. Refresh to generate insights.</p>
           </div>
+          <TabActions class="mt-6" :actions="tabBriefs.recommendations?.actions" />
         </div>
+
 
       </div>
     </IntelligenceDashboardShell>

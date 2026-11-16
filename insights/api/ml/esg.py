@@ -8,6 +8,7 @@ ESG Intelligence API Endpoints
 import frappe
 from frappe import _
 from typing import Dict, Any
+from insights.api.ml.utils import parse_detail_filters
 from insights.api.response import success, error
 
 
@@ -35,8 +36,7 @@ def export_esg_report(format: str = "pdf") -> Dict[str, Any]:
 
 @frappe.whitelist()
 def get_esg_detail(metric: str, filters: str) -> dict:
-    f = frappe.parse_json(filters) or {}
-    page = int(f.pop("page", 1))
+    f, page = parse_detail_filters(filters)
     page_size = 50
     start = (page - 1) * page_size
 
