@@ -8,7 +8,7 @@ Apr–Mar), not estimated.
 
 ### Fixed — Gross-profit fetch spilled its temp table to disk
 
-The cost-of-goods join materialises the whole Stock Ledger aggregate (169k rows, about 27 MB), above MariaDB's 16 MB `tmp_table_size`, so it went to an on-disk temp table. The ibis connection now sets the session `tmp_table_size` and `max_heap_table_size` to 256 MB. The Sales gross-profit fetch on `gardatest.local` (115,912 rows, identical total) went 41.8 s → 16.2 s and 86.4 s → 22.0 s, old and new interleaved on the same connection.
+The cost-of-goods join materialises the whole Stock Ledger aggregate (169k rows), which needs 64–128 MB in memory, above MariaDB's 16 MB `tmp_table_size`, so it went to an on-disk temp table. The ibis connection now sets the session `tmp_table_size` and `max_heap_table_size` to 256 MB (session peak about 100 MB). Sales gross-profit fetch on `gardatest.local` (115,912 rows, identical total) by setting: 16 MB 75.2 s, 32 MB 48.7 s, 64 MB 39.3 s and 42.7 s (still one on-disk temp table), 128 MB 19.9 s, 256 MB 22.8 s (no spill). An earlier interleaved run: 41.8 s → 16.2 s and 86.4 s → 22.0 s.
 
 ### Changed — Risk dashboard and AI prompts say VAT and eTIMS, not GST
 

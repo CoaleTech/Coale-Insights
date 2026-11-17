@@ -204,10 +204,10 @@ def connection() -> ibis.BaseBackend:
         # connection only.
         conn.raw_sql("SET SESSION optimizer_switch='split_materialized=off'").close()
         # The cost-of-goods join materialises the whole Stock Ledger aggregate
-        # (169k rows, ~27 MB). Past the 16 MB default MariaDB spills it to an
-        # on-disk temp table and probes that row by row: the gross-profit fetch
-        # took 42-86 s, against 16-22 s with the aggregate held in memory
-        # (gardatest, 2026-11-17). Sized per temp table, session-scoped.
+        # (169k rows). Held in memory it needs 64-128 MB: at 64 MB and below
+        # MariaDB spills it to an on-disk temp table and probes that row by
+        # row, and the gross-profit fetch took 39-75 s against 20-23 s in
+        # memory (gardatest, 2026-11-17). Session peak ~100 MB; per-session.
         size = _TMP_TABLE_BYTES
         conn.raw_sql(f"SET SESSION tmp_table_size={size}, max_heap_table_size={size}").close()
         conn.get_schema = _cached_get_schema(conn.get_schema, conf.get("db_name"))
