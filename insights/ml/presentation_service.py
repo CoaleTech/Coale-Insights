@@ -18,6 +18,7 @@ import frappe
 from frappe import _
 from datetime import datetime, timedelta
 from typing import Dict, List, Any
+import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,63 @@ DASHBOARD_LABELS = {
 
 def _dashboard_label(dashboard_type: str) -> str:
     return DASHBOARD_LABELS.get(dashboard_type) or dashboard_type.replace("_", " ").replace("-", " ").title()
+
+
+# The app's own placeholder for a figure the source does not carry.
+NO_VALUE = "-"
+
+# Brief tab ids whose plain reading is not the tab's name in the app.
+TAB_TITLES = {"abc-xyz": "ABC / XYZ", "oee": "OEE", "rev-payment": "Cash vs Credit", "rev-reps": "Sales Reps", "cust-list": "Customers"}
+
+_LEVEL_RANK = {"high": 0, "medium": 1, "low": 2, "none": 3}
+
+# The unit a Kenya tax tile carries -> the format the KPI slide formats it with.
+TAX_UNIT_FORMAT = {"money": "currency", "pct": "percentage"}
+
+
+def _level(value) -> str:
+    """The severity word the deck's badges draw: high, medium, low or none. Overview alerts also say "critical"."""
+    value = str(value or "").lower()
+    return "high" if value == "critical" else value if value in _LEVEL_RANK else "none"
+
+
+def _tab_title(tab_id: str) -> str:
+    return TAB_TITLES.get(tab_id) or re.sub(r"^(rev|cust)-", "", tab_id).replace("-", " ").replace("_", " ").title()
+
+
+def _briefs(data: dict) -> list:
+    """(tab id, brief) pairs that have a headline, worst severity first. A dashboard's own server-built verdicts."""
+    briefs = data.get("tab_briefs")
+    pairs = [(k, b) for k, b in (briefs.items() if isinstance(briefs, dict) else []) if isinstance(b, dict) and b.get("headline")]
+    return sorted(pairs, key=lambda kb: _LEVEL_RANK[_level(kb[1].get("severity"))])
+
+
+def _tax_tiles(data: dict) -> list:
+    """The numeric KPI tiles of the Kenya tax Overview tab."""
+    overview = (data.get("tabs") or {}).get("overview") or {}
+    return [t for t in overview.get("kpis") or [] if isinstance(t, dict) and isinstance(t.get("value"), (int, float))]
+
+
+def _ml_findings(data: dict) -> list:
+    """What the Machine Learning health payload says is wrong, as (title, value, text, action, category, level):
+    each model that is not trained (with the reason the source gives), libraries this host cannot import,
+    and source tables that are empty."""
+    out = []
+    for m in data.get("models") or []:
+        if m.get("state") != "trained":
+            state = str(m.get("state") or "").replace("_", " ").capitalize()
+            out.append((m["label"], state, m.get("detail") or m.get("gate") or NO_VALUE, f"Unblock {m['label']}",
+                        "Models", "high" if m.get("state") == "error" else "medium"))
+    missing = data.get("libraries_missing") or []
+    if missing:
+        names = ", ".join(missing)
+        out.append(("Missing libraries", names, "Not importable by this host's Python.", f"Install {names}", "Libraries", "medium"))
+    empty = [x for x in data.get("data") or [] if x.get("state") == "empty"]
+    if empty:
+        names = ", ".join(x["doctype"] for x in empty)
+        out.append(("Empty source tables", names, "; ".join(f"{x['doctype']} feeds {x['used_by']}" for x in empty),
+                    f"Record data in {names}", "Data", "medium"))
+    return out
 
 
 class PresentationModeService:
@@ -349,13 +407,9 @@ class PresentationModeService:
         # Tax nests everything under `tabs`; the Overview tab's numeric KPI tiles are
         # its headline numbers, with the label and unit each tile already carries.
         if dashboard_type == "tax" and "summary" not in data:
-            tiles = [
-                t for t in ((data.get("tabs") or {}).get("overview") or {}).get("kpis") or []
-                if isinstance(t, dict) and isinstance(t.get("value"), (int, float))
-            ]
-            unit_format = {"money": "currency", "pct": "percentage"}
+            tiles = _tax_tiles(data)
             data["summary"] = {t["key"]: t["value"] for t in tiles}
-            data["_kpi_meta"] = {t["key"]: {"label": t["label"], "format": unit_format.get(t.get("unit", ""))} for t in tiles}
+            data["_kpi_meta"] = {t["key"]: {"label": t["label"], "format": TAX_UNIT_FORMAT.get(t.get("unit", ""))} for t in tiles}
 
         # alerts: only executive and marketing already carry a top-level
         # 'alerts' list; risk nests its under 'overview'.
@@ -455,16 +509,7 @@ class PresentationModeService:
                         "insight": f"Forecasting {'excellent' if accuracy >= 90 else 'good' if accuracy >= 80 else 'needs improvement'}",
                         "impact": "medium"
                     })
-            
-            elif dashboard_type.lower() == 'hr':
-                # HR-specific insights
-                if 'summary' in data:
-                    insights.append({
-                        "title": "Workforce Performance",
-                        "value": "Stable",
-                        "insight": "Employee performance tracking active",
-                        "impact": "medium"
-                    })
+
             
             # Add generic insights if available
             if 'performance_metrics' in data:
@@ -478,11 +523,73 @@ class PresentationModeService:
                         "impact": "high"
                     })
             
+            # Nothing above fits: take what the dashboard already worked out
+            if not insights:
+                insights = self._derived_insights(data, dashboard_type)
+
             return insights[:6]  # Limit to top 6 insights
             
         except Exception as e:
             logger.error(f"Error extracting insights: {e}")
             return []
+
+    def _derived_insights(self, data: Dict, dashboard_type: str) -> List[Dict[str, Any]]:
+        """Insights from what a dashboard already computed: the Overview health score, the
+        Kenya tax tiles flagged warn or bad, and each tab's server-built brief. Every figure
+        and sentence is the source's own; nothing is derived here beyond formatting."""
+        out: List[Dict[str, Any]] = []
+
+        health = data.get("business_health_score")
+        if dashboard_type == "executive" and isinstance(health, dict) and health.get("overall_score") is not None:
+            impact = {"red": "high", "amber": "medium", "green": "low"}.get(str(health.get("overall_rag")), "none")
+            narrative = data.get("narrative") or ""
+            out.append({
+                "title": _("Business Health"),
+                "value": f"{health['overall_score']:.1f}/100",
+                "insight": narrative.split(". ")[0].rstrip(".") + "." if narrative else NO_VALUE,
+                "impact": impact,
+            })
+            scores = {k: v for k, v in (health.get("department_scores") or {}).items() if isinstance(v, (int, float))}
+            if scores:
+                weakest = min(scores, key=lambda k: scores[k])
+                out.append({
+                    "title": _("Lowest Department"),
+                    "value": f"{scores[weakest]:.1f}/100",
+                    "insight": _("{0} scores lowest of {1} departments.").format(_dashboard_label(weakest), len(scores)),
+                    "impact": "high" if scores[weakest] < 60 else "medium",
+                })
+
+        if dashboard_type == "tax":
+            for tab in (data.get("tabs") or {}).values():
+                for t in tab.get("kpis") or []:
+                    if isinstance(t, dict) and t.get("tone") in ("warn", "bad") and isinstance(t.get("value"), (int, float)):
+                        out.append({
+                            "title": t["label"],
+                            "value": f"{t['value']:,.0f}" if t.get("unit") == "count"
+                            else self._format_metric_value(t["value"], t["key"], TAX_UNIT_FORMAT.get(t.get("unit", ""))),
+                            "insight": t.get("sub") or NO_VALUE,
+                            "impact": "high" if t["tone"] == "bad" else "medium",
+                        })
+
+        if dashboard_type == "machine_learning" and data.get("total"):
+            out.append({
+                "title": _("Models Trained"),
+                "value": f"{data.get('trained')}/{data['total']}",
+                "insight": _("{0} of {1} models are trained on this site's data.").format(data.get("trained"), data["total"]),
+                "impact": "low" if data.get("trained") == data["total"] else "medium",
+            })
+            out += [{"title": t, "value": v, "insight": x, "impact": lvl} for t, v, x, _a, _c, lvl in _ml_findings(data)]
+
+        for tab_id, b in _briefs(data):
+            level = _level(b.get("severity"))
+            out.append({
+                "title": _tab_title(tab_id),
+                "value": level.title() if level != "none" else NO_VALUE,
+                "insight": b["headline"],
+                "impact": level,
+            })
+
+        return out
     
     def _extract_recommendations(self, data: Dict, dashboard_type: str) -> List[Dict[str, Any]]:
         """Extract recommendations for presentation"""
@@ -501,32 +608,69 @@ class PresentationModeService:
                         "category": rec.get('category', 'general')
                     })
             
-            # Generate generic recommendations if none exist
+            # No list of its own: take what the dashboard already worked out
             if not recommendations:
-                if dashboard_type.lower() == 'budget':
-                    recommendations.append({
-                        "title": "Enhance Budget Monitoring",
-                        "description": "Implement real-time budget tracking and alerts",
-                        "priority": "medium",
-                        "impact": "High",
-                        "effort": "Medium",
-                        "category": "process"
-                    })
-                elif dashboard_type.lower() == 'hr':
-                    recommendations.append({
-                        "title": "Optimize Workforce Analytics",
-                        "description": "Enhance employee performance tracking systems",
-                        "priority": "medium", 
-                        "impact": "High",
-                        "effort": "Medium",
-                        "category": "analytics"
-                    })
+                recommendations = self._derived_recommendations(data, dashboard_type)
+
+            # Generate generic recommendations if none exist
+            if not recommendations and dashboard_type.lower() == 'budget':
+                recommendations.append({
+                    "title": "Enhance Budget Monitoring",
+                    "description": "Implement real-time budget tracking and alerts",
+                    "priority": "medium",
+                    "impact": "High",
+                    "effort": "Medium",
+                    "category": "process"
+                })
             
             return recommendations
             
         except Exception as e:
             logger.error(f"Error extracting recommendations: {e}")
             return []
+
+    def _derived_recommendations(self, data: Dict, dashboard_type: str) -> List[Dict[str, Any]]:
+        """Recommendations from what a dashboard already computed: each tab's ranked actions,
+        the Kenya tax action queue, and the Overview's RAG-flagged alerts (the same reading
+        `get_strategic_recommendations` gives them). Nothing is invented: where the source has
+        no effort or impact rating, the card shows the app's placeholder."""
+        recs: Dict[str, Dict[str, Any]] = {}
+
+        def add(title, description, priority, impact, category):
+            recs.setdefault(title, {
+                "title": title, "description": description, "priority": priority,
+                "impact": impact or NO_VALUE, "effort": NO_VALUE, "category": category,
+            })
+
+        for tab_id, b in _briefs(data):
+            for a in b.get("actions") or []:
+                add(a["title"], a.get("text") or "", _level(b.get("severity")), a.get("impact"), _tab_title(tab_id))
+
+        if dashboard_type == "tax":
+            for row in (((data.get("tabs") or {}).get("actions") or {}).get("rows")) or []:
+                parts = [row.get("tax"), row.get("due_label")]
+                if row.get("exposure"):
+                    parts.append(f"Exposure {self._currency(row['exposure'])}")
+                if row.get("penalty"):
+                    parts.append(f"Penalty if missed {self._currency(row['penalty'])}")
+                add(row["action"], " · ".join(p for p in parts if p), _level(row.get("priority")),
+                    self._currency(row["exposure"]) if row.get("exposure") else None, row.get("tax"))
+
+        if dashboard_type == "executive":
+            for a in data.get("alerts") or []:
+                add(f"{a['department']}: {a['message']}", f"The {a['department'].lower()} KPI is flagged {a['rag_status']} on the Overview.",
+                    _level(a.get("priority")), None, a["department"])
+
+        # Marketing's alerts carry their own title and explanation
+        if dashboard_type == "marketing":
+            for a in data.get("alerts") or []:
+                add(a["title"], a.get("description") or "", _level(a.get("severity")), None, _dashboard_label(dashboard_type))
+
+        if dashboard_type == "machine_learning":
+            for _t, _v, text, action, category, level in _ml_findings(data):
+                add(action, text, level, None, category)
+
+        return list(recs.values())[:4]
     
     def _extract_key_metrics_for_presentation(self, data: Dict) -> List[Dict[str, Any]]:
         """Extract key metrics formatted for presentation"""

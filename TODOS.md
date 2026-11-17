@@ -6,6 +6,7 @@ The India tax package (`insights.ml.india_tax_intelligence`) and the `gst_summar
 
 - Resolved 2026-11-17: the Risk dashboard now says VAT and eTIMS everywhere (labels, the `gst_status` payload key renamed `vat_status`, the register row "VAT Compliance Issue", AI agent prompts, routing keywords, fixtures).
 - Resolved 2026-11-17: the tax board-pack summary is built from the Overview tab's KPI tiles (`tabs.overview.kpis`), keeping each tile's label and unit; it was always empty because the code read flat scalars the Kenya payload never produces.
+- Open: a board deck prints money two ways: KPI tiles go through `fmt_money` ("Sh 1,905,660") while the server-built tab briefs print "KSh". Pick one currency symbol source.
 - Open: payment evidence for VAT/excise is inferred from settlement debits on name-matched tax accounts (`overview.py`); a Journal Entry that clears a VAT account without paying KRA can overstate payments.
 - Open: Insights Tax Case is entered by hand; no KRA iTax import.
 
