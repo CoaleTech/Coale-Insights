@@ -9,6 +9,8 @@ The India tax package (`insights.ml.india_tax_intelligence`) and the `gst_summar
 - Open: a board deck prints money two ways: KPI tiles go through `fmt_money` ("Sh 1,905,660") while the server-built tab briefs print "KSh". Pick one currency symbol source.
 - Open: payment evidence for VAT/excise is inferred from settlement debits on name-matched tax accounts (`overview.py`); a Journal Entry that clears a VAT account without paying KRA can overstate payments.
 - Open: Insights Tax Case is entered by hand; no KRA iTax import.
+- Open: a cold Executive compute takes about 355 s on `gardatest.local` (8 forked loaders; run one after another they take 311 s: Inventory 114 s, Sales 99 s, Risk 43 s, Customer 32 s, Financial 18 s, Procurement 5 s). The forks give no speedup there: the site's MariaDB runs a 128 MB `innodb_buffer_pool_size` (9.95% of page reads miss to disk) against a 667 MB site database. Raise it in `my.cnf` (needs the DB root account; the site user cannot `SET GLOBAL`) and re-time.
+- Open: Inventory `train()` spends its time in 43 queries (about 46 s), ibis compile (30 compiles), Decimal-to-float conversion in ibis (about 10 s) and `iterrows` loops (143k rows, about 24 s), measured under cProfile.
 
 ## Supervisor Summary — Intelligence Dashboard Audit (2026-08-17)
 

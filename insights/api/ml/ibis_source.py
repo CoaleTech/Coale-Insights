@@ -173,6 +173,10 @@ def _plain_equality_compiler():
     return _PlainEquality()
 
 
+# Per internal temp table, not per connection; MariaDB allocates it as it fills.
+_TMP_TABLE_BYTES = 256 * 1024 * 1024
+
+
 def connection() -> ibis.BaseBackend:
     """Ibis backend bound to the current site's own MariaDB database.
 
@@ -199,6 +203,13 @@ def connection() -> ibis.BaseBackend:
         # plain materialisation of the same join. Session-scoped, this
         # connection only.
         conn.raw_sql("SET SESSION optimizer_switch='split_materialized=off'").close()
+        # The cost-of-goods join materialises the whole Stock Ledger aggregate
+        # (169k rows, ~27 MB). Past the 16 MB default MariaDB spills it to an
+        # on-disk temp table and probes that row by row: the gross-profit fetch
+        # took 42-86 s, against 16-22 s with the aggregate held in memory
+        # (gardatest, 2026-11-17). Sized per temp table, session-scoped.
+        size = _TMP_TABLE_BYTES
+        conn.raw_sql(f"SET SESSION tmp_table_size={size}, max_heap_table_size={size}").close()
         conn.get_schema = _cached_get_schema(conn.get_schema, conf.get("db_name"))
         frappe.local.insights_ml_ibis_conn = conn
     return frappe.local.insights_ml_ibis_conn

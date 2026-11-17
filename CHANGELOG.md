@@ -6,6 +6,10 @@ Apr–Mar), not estimated.
 
 ## [Unreleased] — 2026-11-17
 
+### Fixed — Gross-profit fetch spilled its temp table to disk
+
+The cost-of-goods join materialises the whole Stock Ledger aggregate (169k rows, about 27 MB), above MariaDB's 16 MB `tmp_table_size`, so it went to an on-disk temp table. The ibis connection now sets the session `tmp_table_size` and `max_heap_table_size` to 256 MB. The Sales gross-profit fetch on `gardatest.local` (115,912 rows, identical total) went 41.8 s → 16.2 s and 86.4 s → 22.0 s, old and new interleaved on the same connection.
+
 ### Changed — Risk dashboard and AI prompts say VAT and eTIMS, not GST
 
 The Kenya cutover left India wording on the Risk page and in the AI agents. The compliance tab now reads "VAT Compliance Status" (VAT3 filing, eTIMS coverage) and "VAT / PIN Registration", the register row reads "VAT Compliance Issue", and the payload key `gst_status` is `vat_status` with `vat3_status` and `vat3_latest_period` in place of the GSTR-1/GSTR-3B fields. Financial, Risk and Dashboard AI agent prompts and routing keywords, cross-dashboard search keywords and the Knowledge Base placeholder follow. Anything outside this repo that reads `compliance_risk.gst_status` must read `vat_status`.
