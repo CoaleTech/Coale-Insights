@@ -374,7 +374,7 @@ function deleteKnowledgeBase() {
 				<FormControl
 					label="Title"
 					v-model="uploadForm.title"
-					placeholder="e.g. GST Filing Guide 2025"
+					placeholder="e.g. VAT Filing Guide 2025"
 					required
 				/>
 				<div>

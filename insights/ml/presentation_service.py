@@ -299,7 +299,7 @@ class PresentationModeService:
             "risk": "overview",
             "manufacturing": "production_metrics",
             "marketing": "kpis",
-            "tax": None,  # already flat scalars at top level (net_gst, etc.)
+            "tax": None,  # already flat scalars at top level (net_vat, etc.)
             "procurement": "spend_overview",
             "price": None,  # no scalar overview block; leave to defaults
             "inventory": "stock_overview",
@@ -327,7 +327,7 @@ class PresentationModeService:
         # numbers are flat scalars at the top level already.
         if dashboard_type == "tax" and "summary" not in data:
             data["summary"] = {
-                k: v for k in ("net_gst", "effective_tax_rate", "compliance_score")
+                k: v for k in ("net_vat", "effective_tax_rate", "compliance_score")
                 if isinstance((v := data.get(k)), (int, float))
             }
 
@@ -541,7 +541,7 @@ class PresentationModeService:
                 return f"{value:.1f}%"
             if fmt == "risk_score" or (fmt is None and 'score' in k):
                 return f"{value:.0f}/100"
-            if fmt == "currency" or (fmt is None and any(w in k for w in ("amount", "total", "cost", "value", "revenue", "clv", "gst", "spend", "expense", "profit"))):
+            if fmt == "currency" or (fmt is None and any(w in k for w in ("amount", "total", "cost", "value", "revenue", "clv", "vat", "spend", "expense", "profit"))):
                 return self._currency(value)
             return f"{value:,.2f}".rstrip("0").rstrip(".")
         except Exception:

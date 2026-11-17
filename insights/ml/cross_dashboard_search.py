@@ -128,7 +128,7 @@ class CrossDashboardSearchService:
             },
             "tax": {
                 "name": "Tax Intelligence",
-                "keywords": ["tax", "vat", "gst", "rcm", "liability", "compliance", "filing"],
+                "keywords": ["tax", "vat", "rcm", "liability", "compliance", "filing"],
                 "search_fields": ["tax_summary", "liability_analysis"],
                 "weight": 1.0,
             },

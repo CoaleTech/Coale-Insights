@@ -385,7 +385,7 @@ def _risk_matrix(
         {"name": "Major Customer Default", "probability": credit_score, "impact": 90, "category": "Credit"},
         {"name": "Cash Flow Shortage", "probability": cashflow_score, "impact": 70, "category": "Financial"},
         {"name": "Key Supplier Failure", "probability": round(supplier_share, 1), "impact": 80, "category": "Operational"},
-        {"name": "GST Compliance Issue", "probability": compliance_score, "impact": 60, "category": "Compliance"},
+        {"name": "VAT Compliance Issue", "probability": compliance_score, "impact": 60, "category": "Compliance"},
         {"name": "Inventory Stockout", "probability": round(stockout_ratio, 1), "impact": 40, "category": "Operational"},
         {"name": "Payment Delays", "probability": credit_score, "impact": 60, "category": "Credit"},
     ]
@@ -1182,15 +1182,12 @@ def _supplier_performance(company: str | None) -> list[dict]:
 
 
 def _analyze_compliance_risk(company: str | None) -> dict:
-    # The `gst_status` key is kept for the dashboard's response contract. ERPNext
-    # has no "return filed" record, so GSTR-style filing status is not available
-    # in Kenya; the eTIMS coverage fields carry the Kenya e-invoicing signal.
+    # ERPNext has no "return filed" record, so the VAT3 return status is not
+    # available; the eTIMS coverage fields carry the Kenya e-invoicing signal.
     coverage = _etims_purchase_coverage()
-    gst_status = {
-        "gstr1_status": "Not Available",
-        "gstr1_latest_period": "",
-        "gstr3b_status": "Not Available",
-        "gstr3b_latest_period": "",
+    vat_status = {
+        "vat3_status": "Not Available",
+        "vat3_latest_period": "",
         "einvoice_coverage_pct": coverage,
         "einvoice_pending_value": 0,
     }
@@ -1232,9 +1229,9 @@ def _analyze_compliance_risk(company: str | None) -> dict:
                         "rate": round(rate, 2),
                     }
                 )
-    if gst_status["einvoice_coverage_pct"] is not None and gst_status["einvoice_coverage_pct"] < 95:
+    if vat_status["einvoice_coverage_pct"] is not None and vat_status["einvoice_coverage_pct"] < 95:
         compliance_issues.append(
-            {"issue": "eTIMS purchase invoice coverage below 95%", "severity": "High", "rate": round(100 - gst_status["einvoice_coverage_pct"], 2)}
+            {"issue": "eTIMS purchase invoice coverage below 95%", "severity": "High", "rate": round(100 - vat_status["einvoice_coverage_pct"], 2)}
         )
     if not kra_pin:
         compliance_issues.append(
@@ -1243,7 +1240,7 @@ def _analyze_compliance_risk(company: str | None) -> dict:
 
     overall_score = min(100, len(compliance_issues) * 15)
     return {
-        "gst_status": gst_status,
+        "vat_status": vat_status,
         "document_audit": document_audit,
         "licenses": licenses,
         "compliance_issues": compliance_issues,

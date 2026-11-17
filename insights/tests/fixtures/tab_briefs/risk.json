@@ -411,24 +411,16 @@
     "total_docs": 5600
    }
   ],
-  "gst_status": {
+  "vat_status": {
    "einvoice_coverage_pct": 100.0,
    "einvoice_pending_value": 0.0,
-   "gstr1_latest_period": "102026",
-   "gstr1_status": "Overdue",
-   "gstr3b_latest_period": "102026",
-   "gstr3b_status": "Overdue"
+   "vat3_latest_period": "",
+   "vat3_status": "Not Available"
   },
   "licenses": [
    {
-    "license_type": "GST Registration",
-    "reference": "24AAKFJ7154J1Z3",
-    "risk_level": "Low",
-    "status": "Registered"
-   },
-   {
-    "license_type": "PAN",
-    "reference": "AAKFJ7154J",
+    "license_type": "KRA PIN",
+    "reference": "P000000000A",
     "risk_level": "Low",
     "status": "Registered"
    }
@@ -1614,7 +1606,7 @@
    {
     "category": "Compliance",
     "impact": 60,
-    "name": "GST Compliance Issue",
+    "name": "VAT Compliance Issue",
     "probability": 0.0,
     "risk_category": "Low",
     "risk_score": 0.0

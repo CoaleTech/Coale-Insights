@@ -161,7 +161,7 @@ insights/
 | **Executive Dashboard** | `/executive-dashboard` | C-suite view aggregating KPIs from all departments with RAG status indicators |
 | **Revenue & Customers** | `/revenue-customers-intelligence` | Revenue trends, AOV, rep performance, margins, attribution, plus CLV, RFM segmentation, churn risk and geography. Two groups: Revenue (6 tabs), Customers (7 tabs) |
 | **Finance** | `/financial-intelligence` | Two groups: Actuals (P&L, cash, receivables, payables, working capital, ratios, forex) and Planning (cash forecast, 13-week flow, capital, scenarios, period comparison, budget variance, break-even) |
-| **Tax Intelligence** | `/tax-intelligence` | India GST, TDS and ITC analytics, compliance monitoring, tax planning |
+| **Tax Intelligence** | `/tax-intelligence` | Kenya (KRA) VAT, eTIMS, payroll taxes, withholding, income tax, notices and customs, with an action queue |
 | **Procurement Intelligence** | `/procurement-intelligence` | Spend analysis, supplier scorecards, purchase cycle, price intelligence |
 | **Inventory Intelligence** | `/inventory-intelligence` | Multi-warehouse stock, FIFO aging, ABC/XYZ, turnover, transfer recommendations |
 | **Manufacturing Intelligence** | `/manufacturing-intelligence` | OEE tracking, production efficiency, capacity planning, production forecast |

@@ -21,7 +21,7 @@ import {
 } from '../utils/status'
 import { formatCount, formatDate, formatDateTime, formatMoney, formatPercent, NO_VALUE } from '../utils/format'
 
-// GST return periods are stored as MMYYYY (e.g. 102026); render as "Oct 2026".
+// Return periods are MMYYYY (e.g. 102026); render as "Oct 2026". Anything else is shown as is.
 function formatReturnPeriod(p: string): string {
   if (!/^(0[1-9]|1[0-2])\d{4}$/.test(p)) return p
   return new Date(Number(p.slice(2)), Number(p.slice(0, 2)) - 1, 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
@@ -68,15 +68,14 @@ interface DSOPeriod { period: string; avg_days_overdue?: number }
 interface InventoryRiskRow { item_group: string; total_items?: number; stockout_items: number; stock_value?: number; risk_category?: string }
 /** Supplier reliability row from operational risk. */
 interface SupplierReliabilityRow { supplier: string; supplier_name?: string; total_orders?: number; total_value?: number; avg_delay_days?: number; cancelled_orders?: number; risk_category?: string }
-/** GST compliance status block (GSTR-1/GSTR-3B filing, e-Invoice coverage). */
-interface GstStatus {
-  gstr1_status?: string; gstr1_latest_period?: string
-  gstr3b_status?: string; gstr3b_latest_period?: string
+/** VAT compliance status block (VAT3 return filing, eTIMS coverage). */
+interface VatStatus {
+  vat3_status?: string; vat3_latest_period?: string
   einvoice_coverage_pct?: number | null; einvoice_pending_value?: number
 }
 /** Document completeness audit row. */
 interface DocumentAuditRow { document_type: string; total_docs: number; incomplete_docs: number }
-/** GST/PAN registration row. */
+/** VAT / PIN registration row. */
 interface LicenseRow { license_type: string; reference?: string; status?: string; risk_level?: string }
 /** Financial anomaly row. */
 interface AnomalyRow { type: string; description?: string; date?: string; severity?: string; amount?: number | null }
@@ -153,7 +152,7 @@ interface OperationalSection {
 }
 /** Typed compliance risk sub-section. */
 interface ComplianceSection {
-  gst_status?: GstStatus
+  vat_status?: VatStatus
   document_audit?: DocumentAuditRow[]
   licenses?: LicenseRow[]
 }
@@ -718,10 +717,10 @@ function openQueueDrill(item: { title: string; customer?: string; overdueDays?: 
 }
 
 
-// GST filing status vocabulary from `get_filing_compliance` (server):
-// No Data | Not Due | Compliant | Overdue. `Pending` / `Not Tracked` are the
-// pre-due-date-aware spellings, still served from cached payloads.
-function gstStatusSeverity(status: string | undefined): Severity {
+// VAT3 return status vocabulary: Compliant | Not Due | Overdue | No Data. `Pending` and
+// `Not Tracked` are older spellings still served from cached payloads. Kenya serves
+// `Not Available`, because ERPNext keeps no return-filed record.
+function vatStatusSeverity(status: string | undefined): Severity {
   if (status === 'Compliant' || status === 'Not Due') return 'none'
   if (status === 'Overdue' || status === 'Pending') return 'high'
   if (status === 'Not Tracked' || status === 'No Data' || status === 'Not Available') return 'medium'
@@ -1401,39 +1400,31 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
         <!-- Tab 5: Compliance Risk -->
         <div v-if="activeTab === 'compliance'" class="space-y-6">
           <TabBrief :brief="tabBriefs.compliance" :as-of="riskData?.generated_at" />
-          <!-- GST Status -->
+          <!-- VAT Status -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="GST Compliance Status" hint="GSTR-1 / GSTR-3B filing and e-Invoice coverage" :level="3" />
+            <SectionHeader variant="caption" title="VAT Compliance Status" hint="VAT3 return filing and e-Invoice coverage" :level="3" />
             <div class="mt-4">
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <KpiCard
-                  label="GSTR-1 Status"
-                  :value="complianceData.gst_status?.gstr1_status"
-                  :sublabel="complianceData.gst_status?.gstr1_latest_period ? `Latest: ${formatReturnPeriod(complianceData.gst_status.gstr1_latest_period)}` : undefined"
-                  :severity="gstStatusSeverity(complianceData.gst_status?.gstr1_status)"
-                  variant="tile"
-                  :loading="loading && !hasData"
-                />
-                <KpiCard
-                  label="GSTR-3B Status"
-                  :value="complianceData.gst_status?.gstr3b_status"
-                  :sublabel="complianceData.gst_status?.gstr3b_latest_period ? `Latest: ${formatReturnPeriod(complianceData.gst_status.gstr3b_latest_period)}` : undefined"
-                  :severity="gstStatusSeverity(complianceData.gst_status?.gstr3b_status)"
+                  label="VAT3 Return Status"
+                  :value="complianceData.vat_status?.vat3_status"
+                  :sublabel="complianceData.vat_status?.vat3_latest_period ? `Latest: ${formatReturnPeriod(complianceData.vat_status.vat3_latest_period)}` : undefined"
+                  :severity="vatStatusSeverity(complianceData.vat_status?.vat3_status)"
                   variant="tile"
                   :loading="loading && !hasData"
                 />
                 <KpiCard
                   label="e-Invoice Coverage"
-                  :percent="complianceData.gst_status?.einvoice_coverage_pct ?? null"
-                  :severity="scoreSeverity(complianceData.gst_status?.einvoice_coverage_pct as number, { good: 95, warn: 80 })"
+                  :percent="complianceData.vat_status?.einvoice_coverage_pct ?? null"
+                  :severity="scoreSeverity(complianceData.vat_status?.einvoice_coverage_pct as number, { good: 95, warn: 80 })"
                   variant="tile"
                   :loading="loading && !hasData"
                 />
                 <KpiCard
                   label="e-Invoice Pending Value"
-                  :amount="complianceData.gst_status?.einvoice_pending_value"
+                  :amount="complianceData.vat_status?.einvoice_pending_value"
                   :currency="baseCurrency"
-                  :severity="(complianceData.gst_status?.einvoice_pending_value || 0) > 0 ? 'high' : 'none'"
+                  :severity="(complianceData.vat_status?.einvoice_pending_value || 0) > 0 ? 'high' : 'none'"
                   variant="tile"
                   :loading="loading && !hasData"
                 />
@@ -1483,9 +1474,9 @@ const formatCurrency = (value: number | null | undefined) => formatMoney(value, 
           <TabActions class="mt-6" :actions="tabBriefs.compliance?.actions" />
         </div>
 
-          <!-- GST / PAN Registration -->
+          <!-- VAT / PIN Registration -->
           <div class="bg-surface-white rounded-lg border border-outline-gray-1 p-6">
-            <SectionHeader variant="caption" title="GST / PAN Registration" :level="3" />
+            <SectionHeader variant="caption" title="VAT / PIN Registration" :level="3" />
             <div class="mt-4">
               <div class="space-y-3">
                 <div

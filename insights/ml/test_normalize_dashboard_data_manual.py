@@ -59,10 +59,10 @@ def test_risk_overview_summary_and_nested_alerts():
 
 
 def test_tax_flat_scalars_become_summary():
-    data = {"net_gst": 885884.17, "effective_tax_rate": 16.04, "compliance_score": 87.17, "status": "success"}
+    data = {"net_vat": 885884.17, "effective_tax_rate": 16.04, "compliance_score": 87.17, "status": "success"}
     out = svc._normalize_dashboard_data("tax", data)
     assert out["summary"] == {
-        "net_gst": 885884.17,
+        "net_vat": 885884.17,
         "effective_tax_rate": 16.04,
         "compliance_score": 87.17,
     }

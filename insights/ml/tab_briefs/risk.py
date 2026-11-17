@@ -195,8 +195,8 @@ def _operational(p: dict):
 
 def _compliance(p: dict):
     c = p.get("compliance_risk") or {}
-    # The key stays `gst_status` for the payload contract; Kenya fills only the eTIMS fields (no return-filed record exists).
-    g = c.get("gst_status") or {}
+    # Kenya fills only the eTIMS fields of `vat_status` (no return-filed record exists).
+    g = c.get("vat_status") or {}
     if not g:
         return None
     cov = g.get("einvoice_coverage_pct")

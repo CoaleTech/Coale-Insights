@@ -414,6 +414,11 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
         Asset, "net_purchase_amount" if frappe.db.has_column("Asset", "net_purchase_amount") else "gross_purchase_amount"
     )
     DepSchedule = DocType("Depreciation Schedule")
+    # Since ERPNext v15 the schedule rows belong to an Asset Depreciation Schedule
+    # document that names its asset in `asset`; a row's `parent` is that document,
+    # never the asset. shortcut: first finance book only, because an asset kept in
+    # two books would count twice; upgrade if a report needs a specific book.
+    AssetSchedule = DocType("Asset Depreciation Schedule")
 
     # Subquery: accumulated depreciation per asset as of today. The legacy
     # SQL used `WHERE schedule_date <= CURDATE()`; resolve that to a Python
@@ -421,18 +426,22 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     today_str = datetime.now().strftime('%Y-%m-%d')
     ads_subq = (
         frappe.qb.from_(DepSchedule)
+        .join(AssetSchedule)
+        .on(DepSchedule.parent == AssetSchedule.name)
         .select(
-            DepSchedule.parent,
+            AssetSchedule.asset,
             Sum(DepSchedule.depreciation_amount).as_("accumulated_depreciation"),
         )
+        .where(AssetSchedule.status == "Active")
+        .where(AssetSchedule.finance_book_id == 1)
         .where(DepSchedule.schedule_date <= today_str)
-        .groupby(DepSchedule.parent)
+        .groupby(AssetSchedule.asset)
     )
 
     assets = (
         frappe.qb.from_(Asset)
         .left_join(ads_subq)
-        .on(ads_subq.parent == Asset.name)
+        .on(ads_subq.asset == Asset.name)
         .select(
             Asset.name,
             Asset.asset_name,
@@ -550,12 +559,16 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     period_expr = DateFormat(DepSchedule.schedule_date, "%Y-%m").as_("period")
     upcoming_depreciation = (
         frappe.qb.from_(DepSchedule)
+        .join(AssetSchedule)
+        .on(DepSchedule.parent == AssetSchedule.name)
         .join(Asset)
-        .on(DepSchedule.parent == Asset.name)
+        .on(AssetSchedule.asset == Asset.name)
         .select(
             period_expr,
             Sum(DepSchedule.depreciation_amount).as_("amount"),
         )
+        .where(AssetSchedule.status == "Active")
+        .where(AssetSchedule.finance_book_id == 1)
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.status.notin(["Sold", "Scrapped"]))
@@ -795,7 +808,7 @@ def calculate_ratio_trends(intelligence) -> Dict[str, Any]:
         # EBIT/EBITDA add back interest and D&A, both already netted into
         # `expenses` above. No tax add-back: this CoA carries no income-tax /
         # provision-for-tax account distinct from indirect taxes (customs
-        # duty, GST) that are real operating costs and must stay expensed.
+        # duty, VAT) that are real operating costs and must stay expensed.
         ebit = net_income + interest_expense
         ebitda = ebit + depreciation
         total_debt_service = interest_expense + principal_repaid

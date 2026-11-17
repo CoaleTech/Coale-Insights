@@ -35,7 +35,7 @@ class TestBriefs(unittest.TestCase):
 
     def test_compliance_low_etims_coverage_is_high(self):
         p = load("risk")
-        p["compliance_risk"]["gst_status"].update(einvoice_coverage_pct=80.5)
+        p["compliance_risk"]["vat_status"].update(einvoice_coverage_pct=80.5)
         b = briefs(p)["compliance"]
         self.assertEqual(b["severity"], "high")  # component is Low, coverage is under 95%
         self.assertIn("80.5% of purchase invoices carry a KRA eTIMS control-unit number", b["headline"])
@@ -50,7 +50,7 @@ class TestBriefs(unittest.TestCase):
 
     def test_compliance_unknown_coverage_never_reads_as_compliant(self):
         p = load("risk")
-        p["compliance_risk"]["gst_status"]["einvoice_coverage_pct"] = None
+        p["compliance_risk"]["vat_status"]["einvoice_coverage_pct"] = None
         self.assertTrue(briefs(p)["compliance"]["headline"].startswith("eTIMS coverage is unknown."))
 
     def test_credit_is_receivables_only(self):

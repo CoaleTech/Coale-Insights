@@ -55,7 +55,7 @@ class RiskIntelligenceAgent(BaseIntelligenceAgent):
         """Extract compliance status"""
         compliance = {}
         compliance_keys = [
-            "gst_status", "regulatory_status",
+            "vat_status", "regulatory_status",
             "pending_filings", "compliance_score", "violations"
         ]
         
@@ -123,7 +123,7 @@ class RiskIntelligenceAgent(BaseIntelligenceAgent):
 ## Your Expertise:
 - Credit risk assessment and management
 - Overdue payment analysis and collection priorities
-- Compliance monitoring (GST filing status, e-Invoice coverage, GST/PAN registration)
+- Compliance monitoring (VAT3 filing status, e-Invoice coverage, VAT / KRA PIN registration)
 - Operational risk identification
 - Anomaly detection in transactions
 - Cash flow risk analysis
@@ -163,7 +163,7 @@ class RiskIntelligenceAgent(BaseIntelligenceAgent):
             },
             {
                 "label": "📋 Compliance Status",
-                "prompt_template": "What is our current GST compliance status? Are there any pending GSTR-1/GSTR-3B filings or e-Invoice issues?",
+                "prompt_template": "What is our current VAT compliance status? Are there any pending VAT3 filings or e-Invoice issues?",
                 "icon": "clipboard-check"
             },
             {

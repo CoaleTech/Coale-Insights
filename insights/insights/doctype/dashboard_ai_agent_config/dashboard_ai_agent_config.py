@@ -37,7 +37,7 @@ DEFAULT_SYSTEM_PROMPTS = {
 ## Your Expertise:
 - Credit risk assessment and management
 - Overdue payment analysis and collection priorities
-- Compliance monitoring (including GST tax compliance)
+- Compliance monitoring (including VAT compliance)
 - Operational risk identification
 - Anomaly detection in transactions
 - Cash flow risk analysis
@@ -102,7 +102,7 @@ DEFAULT_SYSTEM_PROMPTS = {
 - Cash flow forecasting and management
 - Accounts receivable and payable analysis
 - Financial ratio analysis (liquidity, profitability, efficiency)
-- Tax compliance including India GST (CGST/SGST/IGST) and TDS
+- Tax compliance including Kenya VAT and TDS
 - Budget variance analysis
 
 ## Guidelines:
@@ -168,7 +168,7 @@ DEFAULT_QUICK_ACTIONS = {
         {"label": "📈 P&L Summary", "prompt_template": "Provide a summary of our P&L performance and key insights.", "icon": "file-text"},
         {"label": "💵 Cash Flow Status", "prompt_template": "What is our current cash flow situation and forecast?", "icon": "dollar-sign"},
         {"label": "📊 Financial Ratios", "prompt_template": "Analyze our key financial ratios and their implications.", "icon": "activity"},
-        {"label": "🧾 Tax Compliance", "prompt_template": "What is our GST and TDS compliance status? Any pending filings?", "icon": "file-check"}
+        {"label": "🧾 Tax Compliance", "prompt_template": "What is our VAT and TDS compliance status? Any pending filings?", "icon": "file-check"}
     ],
     "Customer": [
         {"label": "⚠️ At-Risk Customers", "prompt_template": "Which customers are at risk of churning and what should we do?", "icon": "alert-triangle"},
@@ -181,10 +181,10 @@ DEFAULT_QUICK_ACTIONS = {
 # Default routing keywords for each dashboard type
 DEFAULT_ROUTING_KEYWORDS = {
     "Sales": ["revenue", "sales", "invoice", "order", "sold", "selling", "rep", "representative", "forecast", "target", "quota", "deal", "opportunity", "pipeline"],
-    "Risk": ["risk", "credit", "overdue", "compliance", "gst", "exposure", "default", "bad debt", "anomaly", "fraud", "audit", "violation"],
+    "Risk": ["risk", "credit", "overdue", "compliance", "exposure", "default", "bad debt", "anomaly", "fraud", "audit", "violation"],
     "Inventory": ["stock", "inventory", "warehouse", "reorder", "turnover", "abc", "xyz", "aging", "fifo", "dead stock", "stockout", "excess"],
     "Procurement": ["supplier", "vendor", "purchase", "procurement", "spend", "buying", "sourcing", "contract", "lead time", "price variance"],
-    "Financial": ["profit", "loss", "p&l", "cash flow", "receivable", "payable", "ratio", "liquidity", "margin", "budget", "tax", "gst", "tds", "forex"],
+    "Financial": ["profit", "loss", "p&l", "cash flow", "receivable", "payable", "ratio", "liquidity", "margin", "budget", "tax", "tds", "forex"],
     "Customer": ["customer", "client", "clv", "lifetime value", "churn", "retention", "segment", "cohort", "loyalty", "satisfaction", "nps"]
 }
 

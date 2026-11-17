@@ -105,15 +105,15 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
         return ratios
     
     def _extract_tax_status(self, context: Dict) -> Dict:
-        """Extract tax compliance status (GST/TDS focus)"""
+        """Extract tax compliance status (VAT/TDS focus)"""
         tax = {}
         
-        if "gst_status" in context:
-            tax["gst"] = context["gst_status"]
+        if "vat_status" in context:
+            tax["vat"] = context["vat_status"]
         if "tax_payable" in context:
             tax["payable"] = context["tax_payable"]
-        if "gst_compliance" in context:
-            tax["gst_compliance"] = context["gst_compliance"]
+        if "vat_compliance" in context:
+            tax["vat_compliance"] = context["vat_compliance"]
         if "withholding_tax" in context:
             tax["tds"] = context["withholding_tax"]
         
@@ -133,7 +133,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
 - Cash flow forecasting and management
 - Accounts receivable and payable analysis
 - Financial ratio analysis (liquidity, profitability, efficiency)
-- Tax compliance including India GST (CGST/SGST/IGST) and TDS
+- Tax compliance including Kenya VAT and TDS
 - Budget variance analysis
 - Working capital management
 
@@ -146,7 +146,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
 - Identify areas of financial concern or opportunity
 - Suggest strategies for improving financial performance
 - Explain financial metrics in business terms
-- Consider tax implications (GST rates, TDS sections, filing deadlines)
+- Consider tax implications (VAT rates, TDS sections, filing deadlines)
 - Highlight cash flow risks and opportunities
 - Use markdown formatting with bullet points for clarity
 
@@ -176,7 +176,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
             },
             {
                 "label": "🧾 Tax Compliance",
-                "prompt_template": "What is our GST and TDS compliance status? Any pending GSTR-1/GSTR-3B filings or obligations?",
+                "prompt_template": "What is our VAT and TDS compliance status? Any pending VAT3 filings or obligations?",
                 "icon": "file-check"
             },
             {
@@ -190,7 +190,7 @@ class FinancialIntelligenceAgent(BaseIntelligenceAgent):
         """Get default routing keywords for financial queries"""
         return [
             "profit", "loss", "p&l", "cash flow", "receivable", "payable",
-            "liquidity", "margin", "budget", "tax", "gst", "tds", "gstr",
+            "liquidity", "margin", "budget", "tax", "tds",
             "ratio", "revenue", "expense", "income", "balance sheet",
             "working capital", "forex", "currency"
         ]
