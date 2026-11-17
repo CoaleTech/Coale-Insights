@@ -58,14 +58,25 @@ def test_risk_overview_summary_and_nested_alerts():
     assert out["alerts"] == [{"severity": "high", "title": "Overdue"}]
 
 
-def test_tax_flat_scalars_become_summary():
-    data = {"net_vat": 885884.17, "effective_tax_rate": 16.04, "compliance_score": 87.17, "status": "success"}
-    out = svc._normalize_dashboard_data("tax", data)
-    assert out["summary"] == {
-        "net_vat": 885884.17,
-        "effective_tax_rate": 16.04,
-        "compliance_score": 87.17,
+def test_tax_overview_kpis_become_summary():
+    kpis = [
+        {"key": "due_30d", "label": "Due in next 30 days", "value": 1905660.0, "unit": "money"},
+        {"key": "etims_purchase_coverage", "label": "eTIMS purchase coverage", "value": 92.5, "unit": "pct"},
+        {"key": "paid_on_time_12m", "label": "Paid on time, 12 months", "value": None, "unit": "pct"},
+        {"key": "filing_note", "label": "Note", "value": "n/a", "unit": "text"},
+    ]
+    out = svc._normalize_dashboard_data("tax", {"status": "success", "tabs": {"overview": {"kpis": kpis}}})
+    # tiles with no number (None, text) are dropped; the rest keep their label and unit's format
+    assert out["summary"] == {"due_30d": 1905660.0, "etims_purchase_coverage": 92.5}
+    assert out["_kpi_meta"] == {
+        "due_30d": {"label": "Due in next 30 days", "format": "currency"},
+        "etims_purchase_coverage": {"label": "eTIMS purchase coverage", "format": "percentage"},
     }
+    assert svc._format_metric_value(92.5, "etims_purchase_coverage", "percentage") == "92.5%"
+
+
+def test_tax_without_overview_has_empty_summary():
+    assert svc._normalize_dashboard_data("tax", {"status": "success", "tabs": {}})["summary"] == {}
 
 
 def test_manufacturing_and_procurement_and_inventory():

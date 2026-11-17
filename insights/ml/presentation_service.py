@@ -299,7 +299,7 @@ class PresentationModeService:
             "risk": "overview",
             "manufacturing": "production_metrics",
             "marketing": "kpis",
-            "tax": None,  # already flat scalars at top level (net_vat, etc.)
+            "tax": None,  # headline numbers are the Overview tab's KPI tiles, read below
             "procurement": "spend_overview",
             "price": None,  # no scalar overview block; leave to defaults
             "inventory": "stock_overview",
@@ -323,13 +323,16 @@ class PresentationModeService:
             if isinstance(block, dict) and "summary" not in data:
                 data["summary"] = {k: v for k, v in block.items() if isinstance(v, (int, float))}
 
-        # Tax has no 'summary'/'overview' block at all -- its headline
-        # numbers are flat scalars at the top level already.
+        # Tax nests everything under `tabs`; the Overview tab's numeric KPI tiles are
+        # its headline numbers, with the label and unit each tile already carries.
         if dashboard_type == "tax" and "summary" not in data:
-            data["summary"] = {
-                k: v for k in ("net_vat", "effective_tax_rate", "compliance_score")
-                if isinstance((v := data.get(k)), (int, float))
-            }
+            tiles = [
+                t for t in ((data.get("tabs") or {}).get("overview") or {}).get("kpis") or []
+                if isinstance(t, dict) and isinstance(t.get("value"), (int, float))
+            ]
+            unit_format = {"money": "currency", "pct": "percentage"}
+            data["summary"] = {t["key"]: t["value"] for t in tiles}
+            data["_kpi_meta"] = {t["key"]: {"label": t["label"], "format": unit_format.get(t.get("unit", ""))} for t in tiles}
 
         # alerts: only executive and marketing already carry a top-level
         # 'alerts' list; risk nests its under 'overview'.

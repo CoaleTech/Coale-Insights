@@ -10,6 +10,18 @@ Apr–Mar), not estimated.
 
 The Kenya cutover left India wording on the Risk page and in the AI agents. The compliance tab now reads "VAT Compliance Status" (VAT3 filing, eTIMS coverage) and "VAT / PIN Registration", the register row reads "VAT Compliance Issue", and the payload key `gst_status` is `vat_status` with `vat3_status` and `vat3_latest_period` in place of the GSTR-1/GSTR-3B fields. Financial, Risk and Dashboard AI agent prompts and routing keywords, cross-dashboard search keywords and the Knowledge Base placeholder follow. Anything outside this repo that reads `compliance_risk.gst_status` must read `vat_status`.
 
+### Fixed — Tax board pack had no headline numbers
+
+`PresentationModeService._normalize_dashboard_data("tax")` looked for flat scalars (`net_vat` and others) that the Kenya payload never produces, because it nests everything under `tabs`, so the tax slide summary was always empty. It now takes the numeric KPI tiles of the Overview tab, with the label and unit each tile already carries (money shows as currency, pct as a percentage). Live on `gardatest.local` the Key Performance Indicators slide now lists "Due in next 30 days Sh 1,905,660" and the other Overview tiles.
+
+### Added — Patch clears cached Risk and Strategic Finance payloads
+
+`insights.patches.clear_stale_dashboard_payload_cache` deletes the cached `insights_ml_risk_intelligence` and `insights_ml_strategic_finance_intelligence` entries. Without it a migrated site keeps serving the old shapes for up to 24 hours: Risk with `gst_status` (the page now reads `vat_status`, so its VAT / PIN tiles would be empty) and Strategic Finance with depreciation of 0. The next request recomputes.
+
+### Added — Test for the depreciation join
+
+`tests/test_strategic_finance_capital_planning.py` runs `analyze_capital_planning` against the real schema, with rows inserted inside a transaction under a company that does not exist, so no real data is read, and a rollback after every test. It fails with `0.0 != 175` on the old join.
+
 ### Fixed — Capital planning joined depreciation schedules to assets on the wrong column
 
 `analyze_capital_planning` matched `Depreciation Schedule.parent` to `Asset.name`. Since ERPNext v15 the parent is an Asset Depreciation Schedule document, which names its asset in `asset`, so per-asset accumulated depreciation and the 12-month upcoming depreciation were always empty. It now goes through the schedule document, counting Active schedules of the first finance book only so an asset kept in two books is not counted twice. Checked on v15 with throwaway rows (one asset, an Active book-1 schedule, an Active book-2 schedule and a Draft one): accumulated 175 and upcoming 170, as expected, and the other two schedules ignored.

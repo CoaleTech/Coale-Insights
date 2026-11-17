@@ -17,3 +17,4 @@ insights.patches.apply_user_permissions_by_default
 insights.patches.strip_default_schema_from_table_names
 insights.patches.hash_invitation_keys
 insights.patches.backfill_permission_user
+insights.patches.clear_stale_dashboard_payload_cache
