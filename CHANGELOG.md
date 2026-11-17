@@ -14,6 +14,10 @@ The Kenya cutover left India wording on the Risk page and in the AI agents. The 
 
 `PresentationModeService._normalize_dashboard_data("tax")` looked for flat scalars (`net_vat` and others) that the Kenya payload never produces, because it nests everything under `tabs`, so the tax slide summary was always empty. It now takes the numeric KPI tiles of the Overview tab, with the label and unit each tile already carries (money shows as currency, pct as a percentage). Live on `gardatest.local` the Key Performance Indicators slide now lists "Due in next 30 days Sh 1,905,660" and the other Overview tiles.
 
+### Fixed — Board deck titles and slides ignored the dashboard
+
+Every deck was titled " Intelligence" (the title slide read `data.get('dashboard_type')`, a key no payload carries), and the Key Insights and Strategic Recommendations slides took the same empty lookup, so those two slides were skipped for every dashboard in the Board Presentations selector. The slide builders now receive the dashboard type the caller passed. Titles use the dashboard's name in the app ("Tax Intelligence", "People Intelligence"; the Overview dashboard is "Executive"), kept in `DASHBOARD_LABELS` beside the generator. Checked in the browser on `gardatest.local`: the Tax deck is titled "Tax Intelligence" with its real figures. The Tax and Overview payloads carry no insight or recommendation data, so those decks still have no such slides; HR now gets its recommendation slide.
+
 ### Added — Patch clears cached Risk and Strategic Finance payloads
 
 `insights.patches.clear_stale_dashboard_payload_cache` deletes the cached `insights_ml_risk_intelligence` and `insights_ml_strategic_finance_intelligence` entries. Without it a migrated site keeps serving the old shapes for up to 24 hours: Risk with `gst_status` (the page now reads `vat_status`, so its VAT / PIN tiles would be empty) and Strategic Finance with depreciation of 0. The next request recomputes.

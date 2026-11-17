@@ -79,6 +79,22 @@ def test_tax_without_overview_has_empty_summary():
     assert svc._normalize_dashboard_data("tax", {"status": "success", "tabs": {}})["summary"] == {}
 
 
+def test_deck_title_names_the_dashboard():
+    def title(dashboard_type):
+        return svc._generate_executive_slides({}, {}, dashboard_type)[0]["content"]["title"]
+
+    assert title("hr") == "People Intelligence"
+    assert title("revenue-customers") == "Revenue & Customers Intelligence"
+    assert title("some_new_dashboard") == "Some New Dashboard Intelligence"
+
+
+def test_slides_get_the_dashboard_specific_recommendations():
+    slide_titles = lambda t: [s["content"]["title"] for s in svc._generate_executive_slides({}, {}, t)]
+    # hr has a canned recommendation; tax has none, so no recommendations slide
+    assert "Strategic Recommendations" in slide_titles("hr")
+    assert "Strategic Recommendations" not in slide_titles("tax")
+
+
 def test_manufacturing_and_procurement_and_inventory():
     out = svc._normalize_dashboard_data(
         "manufacturing", {"production_metrics": {"total_work_orders": 12, "completion_rate_pct": 91.5}}

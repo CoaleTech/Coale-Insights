@@ -22,6 +22,29 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# The labels of INTELLIGENCE_DASHBOARDS (frontend/src2/helpers/dashboards.ts), so a deck is
+# titled the way its dashboard is named in the app. The executive one is "Overview" there.
+DASHBOARD_LABELS = {
+    "executive": "Executive",
+    "revenue-customers": "Revenue & Customers",
+    "financial": "Finance",
+    "tax": "Tax",
+    "procurement": "Procurement",
+    "price": "Pricing",
+    "inventory": "Inventory",
+    "manufacturing": "Manufacturing",
+    "marketing": "Marketing & CRM",
+    "hr": "People",
+    "esg": "Sustainability",
+    "risk": "Risk",
+    "machine_learning": "Machine Learning",
+}
+
+
+def _dashboard_label(dashboard_type: str) -> str:
+    return DASHBOARD_LABELS.get(dashboard_type) or dashboard_type.replace("_", " ").replace("-", " ").title()
+
+
 class PresentationModeService:
     """
     Service for generating board-ready presentations from intelligence dashboards
@@ -94,13 +117,13 @@ class PresentationModeService:
             
             # Generate slides based on presentation type
             if presentation_type == "executive":
-                slides = self._generate_executive_slides(dashboard_data, colors)
+                slides = self._generate_executive_slides(dashboard_data, colors, dashboard_type)
             elif presentation_type == "detailed":
-                slides = self._generate_detailed_slides(dashboard_data, colors)
+                slides = self._generate_detailed_slides(dashboard_data, colors, dashboard_type)
             elif presentation_type == "comparison":
                 slides = self._generate_comparison_slides(dashboard_data, colors)
             else:
-                slides = self._generate_executive_slides(dashboard_data, colors)
+                slides = self._generate_executive_slides(dashboard_data, colors, dashboard_type)
             
             # Generate executive summary
             executive_summary = self._generate_executive_summary(dashboard_data, dashboard_type)
@@ -135,7 +158,7 @@ class PresentationModeService:
             frappe.log_error(f"Presentation Generation Error: {str(e)}", "Board Presentation Service")
             raise
     
-    def _generate_executive_slides(self, data: Dict, colors: Dict) -> List[Dict[str, Any]]:
+    def _generate_executive_slides(self, data: Dict, colors: Dict, dashboard_type: str) -> List[Dict[str, Any]]:
         """Generate executive summary slides"""
         slides = []
         
@@ -146,7 +169,7 @@ class PresentationModeService:
             "layout": self.slide_layouts["title"],
             "colors": colors,
             "content": {
-                "title": f"{data.get('dashboard_type', '').replace('_', ' ').title()} Intelligence",
+                "title": f"{_dashboard_label(dashboard_type)} Intelligence",
                 "subtitle": f"Executive Summary - {datetime.now().strftime('%B %Y')}",
                 "company": frappe.db.get_default("Company") or "Your Company",
                 "logo_placeholder": True
@@ -183,7 +206,7 @@ class PresentationModeService:
             })
         
         # Key Insights slide  
-        insights = self._extract_key_insights(data, data.get('dashboard_type', 'general'))
+        insights = self._extract_key_insights(data, dashboard_type)
         if insights:
             slides.append({
                 "id": 4,
@@ -198,7 +221,7 @@ class PresentationModeService:
             })
         
         # Recommendations slide
-        recommendations = self._extract_recommendations(data, data.get('dashboard_type', 'general'))
+        recommendations = self._extract_recommendations(data, dashboard_type)
         if recommendations:
             slides.append({
                 "id": 5,
@@ -214,9 +237,9 @@ class PresentationModeService:
         
         return slides
     
-    def _generate_detailed_slides(self, data: Dict, colors: Dict) -> List[Dict[str, Any]]:
+    def _generate_detailed_slides(self, data: Dict, colors: Dict, dashboard_type: str) -> List[Dict[str, Any]]:
         """Generate detailed analysis slides"""
-        slides = self._generate_executive_slides(data, colors)  # Start with executive slides
+        slides = self._generate_executive_slides(data, colors, dashboard_type)  # Start with executive slides
         
         # Add detailed breakdown slides
         if 'departmental_analysis' in data:
@@ -392,7 +415,7 @@ class PresentationModeService:
                     summary_parts.append("Key figures: " + "; ".join(f"{m['label']} {m['formatted_value']}" for m in top) + ".")
             # Default summary if no specific data
             if not summary_parts:
-                summary_parts.append(f"Overall {dashboard_type.replace('_', ' ')} performance metrics reviewed.")
+                summary_parts.append(f"Overall {_dashboard_label(dashboard_type).lower()} performance metrics reviewed.")
             
             return {
                 "text": " ".join(summary_parts),
@@ -403,7 +426,7 @@ class PresentationModeService:
         except Exception as e:
             logger.error(f"Error generating executive summary: {e}")
             return {
-                "text": f"{dashboard_type.replace('_', ' ').title()} dashboard summary generated.",
+                "text": f"{_dashboard_label(dashboard_type)} dashboard summary generated.",
                 "key_points": ["Performance metrics reviewed", "Analysis completed"],
                 "generated_at": datetime.now().isoformat()
             }
