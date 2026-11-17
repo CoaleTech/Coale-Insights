@@ -11,6 +11,7 @@ from typing import Dict, Any
 from insights.api.response import success, error
 from insights.api.ml.permissions import authorize_dashboard
 from insights.api.ml.utils import cached_run, parse_detail_filters
+from insights.concurrency_lease import ServiceUnavailableError
 from insights.ml.tab_briefs import attach_lazy
 from insights.ml.tab_briefs.finance_planning import lazy_beoverview, lazy_budget
 
@@ -30,7 +31,7 @@ def strategic_finance_intelligence(refresh: bool = False) -> Dict[str, Any]:
             lambda: run_strategic_finance_intelligence(refresh=refresh),
             cache_key="insights_ml_strategic_finance_intelligence",
         )
-    except (frappe.PermissionError, frappe.ServiceUnavailableError):
+    except (frappe.PermissionError, ServiceUnavailableError):
         raise
     except Exception as e:
         return error(str(e))

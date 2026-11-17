@@ -562,3 +562,18 @@ class TestStrategicFinanceAndBudgetVarianceCompanyScoping(FrappeTestCase):
         self.assertIn("budget_variance", DASHBOARD_DOCTYPES)
         self.assertIn("GL Entry", DASHBOARD_DOCTYPES["strategic_finance"])
         self.assertIn("GL Entry", DASHBOARD_DOCTYPES["budget_variance"])
+
+
+class TestPermissionDenialSurvivesTheExceptClause(FrappeTestCase):
+    """Risk, Sales and Tax end with `except (PermissionError, ServiceUnavailableError): raise`.
+    On Frappe v15 `frappe.ServiceUnavailableError` does not exist, so evaluating that
+    tuple raised AttributeError and replaced the PermissionError (and every other
+    real error) with a confusing one."""
+
+    def test_denial_reaches_the_caller_from_risk_sales_and_tax(self):
+        from insights.api.ml import risk, sales, tax
+
+        with patch.object(frappe, "has_permission", side_effect=frappe.PermissionError("denied")):
+            for fn in (risk.risk_intelligence, sales.sales_intelligence, tax.tax_intelligence):
+                with self.subTest(endpoint=fn.__name__), self.assertRaises(frappe.PermissionError):
+                    fn()

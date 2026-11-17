@@ -408,6 +408,11 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     """Analyze capital assets and CAPEX planning"""
     # Get all assets
     Asset = DocType("Asset")
+    # ERPNext v15 stores the cost in `gross_purchase_amount` (labelled "Net Purchase
+    # Amount"); v16 renamed the same column to `net_purchase_amount`.
+    cost = getattr(
+        Asset, "net_purchase_amount" if frappe.db.has_column("Asset", "net_purchase_amount") else "gross_purchase_amount"
+    )
     DepSchedule = DocType("Depreciation Schedule")
 
     # Subquery: accumulated depreciation per asset as of today. The legacy
@@ -432,7 +437,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
             Asset.name,
             Asset.asset_name,
             Asset.asset_category,
-            Asset.net_purchase_amount,
+            cost.as_("net_purchase_amount"),
             Asset.purchase_date,
             Asset.available_for_use_date,
             Asset.status,
@@ -444,7 +449,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.status.notin(["Sold", "Scrapped"]))
-        .orderby(Asset.net_purchase_amount, order=frappe.qb.desc)
+        .orderby(cost, order=frappe.qb.desc)
         .run(as_dict=True)
     )
 
@@ -482,7 +487,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     fy_start = intelligence.fiscal_year["start_date"]
     ytd_capex_rows = (
         frappe.qb.from_(Asset)
-        .select(Coalesce(Sum(Asset.net_purchase_amount), 0).as_("amount"))
+        .select(Coalesce(Sum(cost), 0).as_("amount"))
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.purchase_date.between(fy_start, today_str))
@@ -496,7 +501,7 @@ def analyze_capital_planning(intelligence) -> Dict[str, Any]:
     prior_end = add_months(today_str, -12)
     prior_capex_rows = (
         frappe.qb.from_(Asset)
-        .select(Coalesce(Sum(Asset.net_purchase_amount), 0).as_("amount"))
+        .select(Coalesce(Sum(cost), 0).as_("amount"))
         .where(Asset.company == intelligence.company)
         .where(Asset.docstatus == 1)
         .where(Asset.purchase_date >= prior_fy_start)

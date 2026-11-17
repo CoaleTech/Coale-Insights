@@ -35,6 +35,13 @@ from typing import Any
 
 import frappe
 
+# Frappe v16 defines `ServiceUnavailableError` (HTTP 503); v15 does not. A missing
+# name inside an `except (...)` tuple raises AttributeError and hides the real
+# error, so everything here and in `api/ml` imports this one instead of `frappe.`.
+ServiceUnavailableError = getattr(frappe.exceptions, "ServiceUnavailableError", None) or type(
+    "ServiceUnavailableError", (Exception,), {"http_status_code": 503}
+)
+
 # gunicorn's request timeout plus margin for the kill to land and the
 # counter to be observed -- how long a leaked slot can stay stuck for.
 _LEASE_SECONDS_DEFAULT = 150
@@ -85,7 +92,7 @@ def concurrent_limit_lease(
             if count > _limit:
                 conn.decr(key)
                 retry = max(1, int(retry_after))
-                exc = frappe.exceptions.ServiceUnavailableError(
+                exc = ServiceUnavailableError(
                     frappe._("Server is busy. Please try again in a few seconds.")
                 )
                 if (headers := getattr(frappe.local, "response_headers", None)) is not None:

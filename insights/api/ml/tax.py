@@ -14,6 +14,7 @@ from typing import Any, Dict
 
 from insights.api.response import error
 from insights.api.ml.utils import cached_run, run, parse_custom_range
+from insights.concurrency_lease import ServiceUnavailableError
 
 # `period` is one of `3m` / `6m` / `12m` / `fy`, or a `custom:<start>:<end>`
 # range (see `insights.api.ml.utils.parse_custom_range`). Anything else,
@@ -54,7 +55,7 @@ def tax_intelligence(refresh: bool = False, period: str = "fy") -> Dict[str, Any
             lambda: run(lambda: _compute(coerced), "Tax intelligence"),
             cache_key=f"insights_ml_tax_intelligence:{coerced}",
         )
-    except (frappe.PermissionError, frappe.ServiceUnavailableError):
+    except (frappe.PermissionError, ServiceUnavailableError):
         raise
     except Exception as e:
         return error("Failed to load tax intelligence", exc=e)

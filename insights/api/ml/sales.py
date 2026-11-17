@@ -12,6 +12,7 @@ from frappe import _
 from typing import Dict, Any, List
 from insights.api.response import success, error
 from insights.api.ml.utils import cached_run, canonical_date_filter, run, parse_date_filter, parse_detail_filters
+from insights.concurrency_lease import ServiceUnavailableError
 
 
 @frappe.whitelist()
@@ -76,7 +77,7 @@ def sales_intelligence(refresh: bool = False, date_filter: str = '12m') -> Dict[
             lambda: run(lambda: get_sales_intelligence(date_filter=date_filter), "sales_intelligence"),
             cache_key=f"insights_ml_sales_intelligence:{date_filter}",
         )
-    except (frappe.PermissionError, frappe.ServiceUnavailableError):
+    except (frappe.PermissionError, ServiceUnavailableError):
         raise
     except Exception as e:
         return error(str(e))

@@ -9,6 +9,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any
 from insights.api.ml.utils import cached_run, parse_detail_filters
+from insights.concurrency_lease import ServiceUnavailableError
 from insights.api.serialization import sanitize_for_json
 
 
@@ -22,7 +23,7 @@ def risk_intelligence(refresh: bool = False, date_filter: str = "12m") -> Dict[s
             lambda: sanitize_for_json(run_risk_intelligence(refresh=refresh)),
             cache_key="insights_ml_risk_intelligence",
         )
-    except (frappe.PermissionError, frappe.ServiceUnavailableError):
+    except (frappe.PermissionError, ServiceUnavailableError):
         raise
     except Exception as e:
         return {"status": "error", "message": str(e)}
