@@ -112,7 +112,13 @@ def permitted(t: ir.Table, doctype: str, extra_columns: tuple[str, ...] = ()) ->
     keep = [c for c in t.columns if c in columns or c in extra_columns]
     if not keep:
         return _empty(t)
-    return t.select(keep) if len(keep) != len(t.columns) else t
+    t = t.select(keep) if len(keep) != len(t.columns) else t
+    # v16 drops `source` from the table itself, not just the meta, on sites that never had it:
+    # fall back to `utm_<col>` (else NULL) so analyzers read an empty channel, not a crash.
+    missing = [c for c in extra_columns if c not in t.columns]
+    if missing:
+        t = t.mutate(**{c: t[f"utm_{c}"] if f"utm_{c}" in t.columns else ibis.literal(None, "string") for c in missing})
+    return t
 
 
 def _empty(t: ir.Table) -> ir.Table:

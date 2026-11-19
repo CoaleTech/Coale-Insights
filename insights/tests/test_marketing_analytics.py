@@ -7,6 +7,7 @@ get_marketing_overview (plan-eng-review code-quality finding 1). These are
 pure functions of already-fetched query results -- no DB access needed.
 """
 
+import frappe
 from frappe.tests.utils import FrappeTestCase
 
 from insights.api.ml.marketing import _build_marketing_funnel, _generate_marketing_alerts
@@ -156,3 +157,10 @@ class TestMarketingAnalyzersOnEmptyWindow(FrappeTestCase):
         ):
             with self.subTest(analyzer=name):
                 self.assertNotIn("error", getattr(m, name)("2099-01-01"))
+
+    def test_channels_survive_a_lead_table_without_source_column(self):
+        """v16 sites may have no physical `Lead.source`; the channel analyzer must still run."""
+        from insights.ml.marketing_intelligence import MarketingIntelligence
+
+        frappe.set_user("Administrator")
+        self.assertNotIn("error", MarketingIntelligence()._analyze_channels("2099-01-01"))
