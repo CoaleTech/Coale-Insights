@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 from typing import Dict, Any, List, Optional
+import hashlib
 import json
 import time
 from datetime import datetime
@@ -59,7 +60,7 @@ class TaskProcessor:
         
         try:
             # Build cache key from query
-            cache_key = f"simple_query:{frappe.utils.md5(json.dumps(query_config, sort_keys=True))}"
+            cache_key = f"simple_query:{hashlib.md5(json.dumps(query_config, sort_keys=True).encode()).hexdigest()}"
             
             # Check cache
             cached_result = self.cache_manager.get_cached_data(cache_key)
@@ -202,7 +203,7 @@ class TaskProcessor:
         
         try:
             # Build cache key
-            cache_key = f"medium_query:{frappe.utils.md5(json.dumps(query_config, sort_keys=True))}"
+            cache_key = f"medium_query:{hashlib.md5(json.dumps(query_config, sort_keys=True).encode()).hexdigest()}"
             
             # Check cache
             cached_result = self.cache_manager.get_cached_data(cache_key)

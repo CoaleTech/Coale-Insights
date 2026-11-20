@@ -5,6 +5,7 @@ import frappe
 from frappe import _
 from typing import Dict, Any, List, Optional, Callable
 import asyncio
+import os
 import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -74,11 +75,11 @@ class PerformancePipeline:
         """Get optimal number of worker threads based on optimization level"""
         
         if self.optimization_level == OptimizationLevel.AGGRESSIVE:
-            return min(32, (frappe.utils.get_cpu_count() or 4) * 4)
+            return min(32, (os.cpu_count() or 4) * 4)
         elif self.optimization_level == OptimizationLevel.BALANCED:
-            return min(16, (frappe.utils.get_cpu_count() or 4) * 2)
+            return min(16, (os.cpu_count() or 4) * 2)
         else:  # CONSERVATIVE
-            return min(8, frappe.utils.get_cpu_count() or 4)
+            return min(8, os.cpu_count() or 4)
     
     def _initialize_pipeline_config(self) -> Dict[str, Any]:
         """Initialize pipeline configuration based on optimization level"""
