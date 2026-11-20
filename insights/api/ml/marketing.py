@@ -59,6 +59,127 @@ def _rows(expr) -> List[Dict[str, Any]]:
     ]
 
 
+# ── Frappe CRM (`CRM Lead` / `CRM Deal`) vs ERPNext CRM (`Lead` / `Opportunity`) ──
+# A site runs one of the two. Pick Frappe CRM only when it holds more leads
+# than ERPNext's Lead, so a site with both keeps its existing numbers.
+def _fcrm() -> bool:
+    if getattr(frappe.local, "insights_marketing_fcrm", None) is None:
+        frappe.local.insights_marketing_fcrm = bool(
+            frappe.db.exists("DocType", "CRM Lead")
+            and (
+                not frappe.db.exists("DocType", "Lead")
+                or frappe.db.count("CRM Lead") > frappe.db.count("Lead")
+            )
+        )
+    return frappe.local.insights_marketing_fcrm
+
+
+def _lead_dt() -> str:
+    return "CRM Lead" if _fcrm() else "Lead"
+
+
+def _deal_buckets() -> dict:
+    """CRM Deal Status names per funnel stage. Frappe CRM statuses are
+    user-defined, so go by type: Ongoing at >= 50% probability counts as
+    "quoted" (Proposal/Negotiation/Ready to Close), the other open ones as
+    "reached opportunity"."""
+    b: dict = {"won": [], "lost": [], "quote": [], "opp": []}
+    for r in frappe.get_all("CRM Deal Status", fields=["name", "type", "probability"]):
+        if r.type == "Won":
+            b["won"].append(r.name)
+        elif r.type == "Lost":
+            b["lost"].append(r.name)
+        elif r.type == "Ongoing" and (r.probability or 0) >= 50:
+            b["quote"].append(r.name)
+        else:
+            b["opp"].append(r.name)
+    return b
+
+
+def _converted(tbl):
+    """Boolean expr: this lead became a customer (ERPNext status Converted;
+    Frappe CRM: the lead has a Deal in a Won status)."""
+    if not _fcrm():
+        return tbl["status"] == "Converted"
+    won = _deal_buckets()["won"]
+    if not won:
+        return ibis.literal(False)
+    deal = t("CRM Deal")
+    return tbl["name"].isin(deal.filter(deal["status"].isin(won))["lead"])
+
+
+def _erpnext_lead_totals(lead_total, start_str: str) -> dict:
+    totals = {
+        "total": 0,
+        "in_period": 0,
+        "open_leads": 0,
+        "at_opportunity": 0,
+        "at_quotation": 0,
+        "converted": 0,
+        "lost": 0,
+    }
+    # Single-row aggregate; the defaults above stand if it comes back empty.
+    df = lead_total.aggregate(
+        total=lead_total.count(),
+        in_period=((lead_total["creation"] >= start_str).cast("int").sum()),
+        open_leads=(lead_total["status"].isin(_LEAD_OPEN_STATUSES).cast("int").sum()),
+        at_opportunity=((lead_total["status"] == "Opportunity").cast("int").sum()),
+        at_quotation=((lead_total["status"] == "Quotation").cast("int").sum()),
+        converted=((lead_total["status"] == "Converted").cast("int").sum()),
+        lost=((lead_total["status"] == "Lost Quotation").cast("int").sum()),
+    ).execute()
+    if df is not None and len(df):
+        r = df.iloc[0]
+        totals = {k: int(r.get(k) or 0) for k in totals}
+    return totals
+
+
+def _fcrm_lead_totals(lead_total, start_str: str) -> dict:
+    """Frappe CRM: lead counts from CRM Lead, funnel stages from CRM Deal."""
+    open_names = frappe.get_all("CRM Lead Status", {"type": ("in", ["Open", "Ongoing"])}, pluck="name")
+    df = lead_total.aggregate(
+        total=lead_total.count(),
+        in_period=((lead_total["creation"] >= start_str).cast("int").sum()),
+        open_leads=(lead_total["status"].isin(open_names or [""]).cast("int").sum()),
+        converted=(_converted(lead_total).cast("int").sum()),
+    ).execute()
+    r = df.iloc[0] if df is not None and len(df) else {}
+    deal = t("CRM Deal")
+    deal = deal.filter(deal["docstatus"] < 2)
+    by_status = {x["status"]: int(x["n"] or 0) for x in _rows(deal.group_by("status").aggregate(n=deal.count()))}
+    b = _deal_buckets()
+
+    def n(stage: str) -> int:
+        return sum(by_status.get(s, 0) for s in b[stage])
+
+    return {
+        "total": int(r.get("total") or 0),
+        "in_period": int(r.get("in_period") or 0),
+        "open_leads": int(r.get("open_leads") or 0),
+        "at_opportunity": n("opp"),
+        "at_quotation": n("quote"),
+        "converted": int(r.get("converted") or 0),
+        "lost": n("lost"),
+    }
+
+
+def _fcrm_lead_filter(status) -> dict:
+    """Translate the dashboard's ERPNext status tokens (funnel/KPI drill-downs)
+    into a CRM Lead filter."""
+    s = set(status if isinstance(status, list) else [status])
+    b = _deal_buckets()
+    if "Lead" in s:  # unqualified
+        return {"status": ("in", frappe.get_all("CRM Lead Status", {"type": ("in", ["Open", "Ongoing"])}, pluck="name") or [""])}
+    if s == {"Converted"}:
+        stages = b["won"]
+    elif "Opportunity" in s:
+        stages = b["won"] + b["lost"] + b["quote"] + b["opp"]
+    else:  # Quotation and beyond
+        stages = b["won"] + b["lost"] + b["quote"]
+    leads = frappe.get_all("CRM Deal", {"status": ("in", stages or [""]), "docstatus": ("<", 2)}, pluck="lead")
+    return {"name": ("in", [x for x in leads if x] or [""])}
+
+
 def _period_start(period: str):
     """Resolve a period keyword to an inclusive start ``date`` (datetime.date).
 
@@ -351,7 +472,7 @@ def get_marketing_overview(period: str = "YTD") -> Dict[str, Any]:
     """
     # Whitelisted endpoints get no automatic doctype gate, so check
     # explicitly before reading any CRM data.
-    frappe.has_permission("Lead", "read", throw=True)
+    frappe.has_permission(_lead_dt(), "read", throw=True)
 
     period = canonical_period(period)
     start = _period_start(period)
@@ -376,7 +497,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     # does not drop columns when a field is removed) is 97.8% / 94.9%
     # populated with real channel data (IndiaMart, Trade India, Google, ...).
     # `extra_columns` reads it back without weakening row-level permissions.
-    lead = t("Lead", extra_columns=("source",))
+    lead = t(_lead_dt(), extra_columns=() if _fcrm() else ("source",))
     quote = t("Quotation", extra_columns=("source",))
 
     # ── Funnel. Counts come from Lead.status, value from Quotation. ────────
@@ -387,41 +508,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
     start_str = str(start)
 
     lead_total = lead.filter(lead["docstatus"] < 2)
-    lead_totals = {
-        "total": 0,
-        "in_period": 0,
-        "open_leads": 0,
-        "at_opportunity": 0,
-        "at_quotation": 0,
-        "converted": 0,
-        "lost": 0,
-    }
-    # Pull the individual aggregate components back out of the combined
-    # aggregate ("total submitted leads", "how many entered this period",
-    # etc.). Single-row df, so .iloc[0] is the only row; the defaults
-    # above stand if the query somehow comes back empty.
-    lead_total_df = (
-        lead_total.aggregate(
-            total=lead_total.count(),
-            in_period=((lead_total["creation"] >= start_str).cast("int").sum()),
-            open_leads=(lead_total["status"].isin(_LEAD_OPEN_STATUSES).cast("int").sum()),
-            at_opportunity=((lead_total["status"] == "Opportunity").cast("int").sum()),
-            at_quotation=((lead_total["status"] == "Quotation").cast("int").sum()),
-            converted=((lead_total["status"] == "Converted").cast("int").sum()),
-            lost=((lead_total["status"] == "Lost Quotation").cast("int").sum()),
-        ).execute()
-    )
-    if lead_total_df is not None and len(lead_total_df):
-        r = lead_total_df.iloc[0]
-        lead_totals = {
-            "total": int(r.get("total") or 0),
-            "in_period": int(r.get("in_period") or 0),
-            "open_leads": int(r.get("open_leads") or 0),
-            "at_opportunity": int(r.get("at_opportunity") or 0),
-            "at_quotation": int(r.get("at_quotation") or 0),
-            "converted": int(r.get("converted") or 0),
-            "lost": int(r.get("lost") or 0),
-        }
+    lead_totals = (_fcrm_lead_totals if _fcrm() else _erpnext_lead_totals)(lead_total, start_str)
 
     # Open pipeline value is a CURRENT-STATE question: a Draft quotation is
     # live money regardless of when it was raised, so this is not period
@@ -514,7 +601,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
         .group_by(source_label)
         .aggregate(
             leads=lead_total.count(),
-            converted=((lead_total["status"] == "Converted").cast("int").sum()),
+            converted=(_converted(lead_total).cast("int").sum()),
         )
         .order_by(ibis.desc("leads"))
         .limit(12)
@@ -582,7 +669,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
         .group_by(period_expr.name("month"))
         .aggregate(
             leads=lead_trend.count(),
-            converted=((lead_trend["status"] == "Converted").cast("int").sum()),
+            converted=(_converted(lead_trend).cast("int").sum()),
         )
         .order_by("month")
         .execute()
@@ -626,7 +713,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
         )
         .aggregate(
             leads=lead_total.count(),
-            converted=((lead_total["status"] == "Converted").cast("int").sum()),
+            converted=(_converted(lead_total).cast("int").sum()),
         )
         .order_by(ibis.desc("leads"))
         .limit(10)
@@ -651,7 +738,7 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
         )
         .aggregate(
             leads=lead_total.count(),
-            converted=((lead_total["status"] == "Converted").cast("int").sum()),
+            converted=(_converted(lead_total).cast("int").sum()),
         )
         .order_by(ibis.desc("leads"))
         .limit(10)
@@ -727,27 +814,32 @@ def get_crm_detail(metric: str, filters: str) -> dict:
     start = (page - 1) * page_size
 
     if metric == "leads":
-        frappe.has_permission("Lead", throw=True)
+        dt = _lead_dt()
+        frappe.has_permission(dt, throw=True)
         db_filters = {"docstatus": 0}
         # Optional context filter from the funnel ("Reached Opportunity" ->
         # a list of statuses) or the "Where leads are sitting" status table
         # (a single status). Matches Frappe's own filter-tuple convention.
         status = f.get("status")
         if status:
-            db_filters["status"] = ("in", status) if isinstance(status, list) else status
+            if _fcrm():
+                db_filters.update(_fcrm_lead_filter(status))
+            else:
+                db_filters["status"] = ("in", status) if isinstance(status, list) else status
+        company_field = "organization" if _fcrm() else "company_name"
         rows = frappe.get_list(
-            "Lead",
+            dt,
             filters=db_filters,
             # `source` is not in Lead's current meta (see
             # `_compute_marketing_overview`), so `get_list` silently drops it
             # instead of erroring -- fetch it separately below, scoped to
             # just the already-permitted rows on this page.
-            fields=["name", "lead_name", "company_name", "status", "lead_owner", "creation"],
+            fields=["name", "lead_name", company_field, "status", "lead_owner", "creation"],
             start=start, page_length=page_size, order_by="creation desc",
             ignore_permissions=False,
         )
         if rows:
-            Lead = frappe.qb.DocType("Lead")
+            Lead = frappe.qb.DocType(dt)
             names = [r["name"] for r in rows]
             source_rows = (
                 frappe.qb.from_(Lead)
@@ -760,15 +852,42 @@ def get_crm_detail(metric: str, filters: str) -> dict:
                 r["source"] = source_by_name.get(r["name"]) or ""
         return {
             "columns": [
-                {"label": "Lead", "fieldname": "name", "fieldtype": "Link", "options": "Lead"},
+                {"label": "Lead", "fieldname": "name", "fieldtype": "Link", "options": dt},
                 {"label": "Name", "fieldname": "lead_name", "fieldtype": "Data"},
-                {"label": "Company", "fieldname": "company_name", "fieldtype": "Data"},
+                {"label": "Company", "fieldname": company_field, "fieldtype": "Data"},
                 {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
                 {"label": "Source", "fieldname": "source", "fieldtype": "Data"},
                 {"label": "Owner", "fieldname": "lead_owner", "fieldtype": "Data"},
             ],
             "rows": rows,
-            "total": frappe.db.count("Lead", filters=db_filters),
+            "total": frappe.db.count(dt, filters=db_filters),
+        }
+
+    if metric in ("opportunities", "lost_opportunities") and _fcrm():
+        frappe.has_permission("CRM Deal", throw=True)
+        b = _deal_buckets()
+        lost = metric == "lost_opportunities"
+        db_filters = {
+            "docstatus": 0,
+            "status": ("in", b["lost"] or [""]) if lost else ("not in", b["won"] + b["lost"] or [""]),
+        }
+        rows = frappe.get_list(
+            "CRM Deal",
+            filters=db_filters,
+            fields=["name", "organization", "expected_deal_value", "expected_closure_date", "status", "lost_reason", "modified"],
+            start=start, page_length=page_size, order_by="modified desc" if lost else "expected_closure_date asc",
+            ignore_permissions=False,
+        )
+        return {
+            "columns": [
+                {"label": "Deal", "fieldname": "name", "fieldtype": "Link", "options": "CRM Deal"},
+                {"label": "Organization", "fieldname": "organization", "fieldtype": "Data"},
+                {"label": "Value", "fieldname": "expected_deal_value", "fieldtype": "Currency"},
+                {"label": "Lost reason" if lost else "Closing", "fieldname": "lost_reason" if lost else "expected_closure_date", "fieldtype": "Data" if lost else "Date"},
+                {"label": "Status", "fieldname": "status", "fieldtype": "Data"},
+            ],
+            "rows": rows,
+            "total": frappe.db.count("CRM Deal", filters=db_filters),
         }
 
     if metric == "opportunities":
