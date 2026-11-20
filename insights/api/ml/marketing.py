@@ -474,7 +474,8 @@ def _compute_marketing_overview(start, period: str) -> Dict[str, Any]:
 
     from frappe.utils import date_diff, nowdate
 
-    latest = max([d for d in (latest_lead, latest_quotation) if d], default=None)
+    # An empty table aggregates to pandas NaT, which is truthy and wins max(); skip it.
+    latest = max([d for d in (latest_lead, latest_quotation) if d is not None and d == d], default=None)
     days_stale = date_diff(nowdate(), latest.date()) if latest else None
     by_status = {r["status"]: r for r in quote_totals}
     won = by_status.get("Ordered", {})   # all-time count kept for funnel doc_count
