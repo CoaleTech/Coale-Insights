@@ -288,7 +288,9 @@ class TaxIntelligence(BaseMLModel):
         depreciation = frappe.db.sql("""
             SELECT COALESCE(SUM(ds.depreciation_amount), 0) as total
             FROM `tabAsset` a
-            JOIN `tabDepreciation Schedule` ds ON ds.parent = a.name
+            JOIN `tabAsset Depreciation Schedule` ads
+                ON ads.asset = a.name AND ads.docstatus = 1 AND ads.status = 'Active'
+            JOIN `tabDepreciation Schedule` ds ON ds.parent = ads.name
             WHERE a.company = %s
                 AND a.docstatus = 1
                 AND a.status NOT IN ('Scrapped', 'Sold')
@@ -485,7 +487,7 @@ class TaxIntelligence(BaseMLModel):
                 a.name,
                 a.asset_name,
                 a.asset_category,
-                a.gross_purchase_amount,
+                a.net_purchase_amount,
                 a.purchase_date,
                 a.opening_accumulated_depreciation,
                 a.status,
@@ -502,7 +504,9 @@ class TaxIntelligence(BaseMLModel):
                 a.name as asset,
                 COALESCE(SUM(ds.depreciation_amount), 0) as depreciation
             FROM `tabAsset` a
-            LEFT JOIN `tabDepreciation Schedule` ds ON ds.parent = a.name
+            LEFT JOIN `tabAsset Depreciation Schedule` ads
+                ON ads.asset = a.name AND ads.docstatus = 1 AND ads.status = 'Active'
+            LEFT JOIN `tabDepreciation Schedule` ds ON ds.parent = ads.name
             WHERE a.company = %s
                 AND a.docstatus = 1
                 AND ds.schedule_date BETWEEN %s AND %s
@@ -519,7 +523,7 @@ class TaxIntelligence(BaseMLModel):
         
         for asset in assets:
             category = asset.get('asset_category') or 'Uncategorized'
-            gross_amount = float(asset.get('gross_purchase_amount') or 0)
+            gross_amount = float(asset.get('net_purchase_amount') or 0)
             purchase_date = asset.get('purchase_date')
             current_depreciation = depreciation_map.get(asset['name'], 0)
             
