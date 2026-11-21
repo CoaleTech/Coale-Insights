@@ -5,11 +5,14 @@ from contextlib import suppress
 
 import frappe
 from frappe.utils.data import date_diff
-from frappe.utils.telemetry import POSTHOG_HOST_FIELD, POSTHOG_PROJECT_FIELD
-from posthog import Posthog
+from frappe.utils.telemetry import site_age
 
 from insights.decorators import insights_whitelist
 from insights.api.response import success, error
+
+# Frappe v16 no longer exports these site config keys from frappe.utils.telemetry
+POSTHOG_HOST_FIELD = "posthog_host"
+POSTHOG_PROJECT_FIELD = "posthog_project_id"
 
 
 @frappe.whitelist()
@@ -35,7 +38,7 @@ def get_posthog_settings():
         "posthog_project_id": frappe.conf.get(POSTHOG_PROJECT_FIELD),
         "posthog_host": frappe.conf.get(POSTHOG_HOST_FIELD),
         "enable_telemetry": frappe.get_system_settings("enable_telemetry"),
-        "telemetry_site_age": frappe.utils.telemetry.site_age(),
+        "telemetry_site_age": site_age(),
         "record_session": can_record_session,
         "posthog_identifier": frappe.local.site,
     })
@@ -69,6 +72,10 @@ def capture_event(event_name, properties=None):
         return
 
     with suppress(Exception):
+        # imported here because posthog is only needed when telemetry is configured, and Frappe v16
+        # no longer installs it
+        from posthog import Posthog
+
         ph = Posthog(project_id, host=host)
         ph.capture(
             distinct_id=frappe.local.site,

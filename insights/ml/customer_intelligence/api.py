@@ -239,7 +239,8 @@ def _analyze_customer_purchase_patterns(purchase_history: List[Dict[str, Any]]) 
         return None
 
     try:
-        df = pd.DataFrame(purchase_history)
+        # frappe._dict answers None for any missing attribute, which pandas/numpy mistake for array protocols
+        df = pd.DataFrame([dict(row) for row in purchase_history])
         df['posting_date'] = pd.to_datetime(df['posting_date'])
 
         # Calculate average frequency
@@ -619,7 +620,7 @@ def get_purchase_patterns(top_percentile: int = 20, tier_filter: str = None) -> 
         if not transactions:
             return {"status": "success", "message": "No transaction data", "patterns": None}
 
-        df = pd.DataFrame(transactions)
+        df = pd.DataFrame([dict(row) for row in transactions])
 
         # Day of week analysis
         day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
