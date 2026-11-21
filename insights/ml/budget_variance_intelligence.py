@@ -44,8 +44,13 @@ class BudgetVarianceIntelligence:
             fiscal_year: Fiscal year for budget tracking
             budget_period: Budget period granularity (monthly/quarterly)
         """
-        self.company = company or frappe.defaults.get_user_default("Company")
-        self.fiscal_year = fiscal_year or frappe.defaults.get_user_default("fiscal_year")
+        self.company = (
+            company
+            or frappe.defaults.get_user_default("Company")
+            or frappe.db.get_single_value("Global Defaults", "default_company")
+        )
+        # ERPNext v15+ no longer keeps a "default fiscal year", so work out the one that covers today
+        self.fiscal_year = fiscal_year or frappe.defaults.get_user_default("fiscal_year") or self._current_fiscal_year()
         self.budget_period = budget_period
         
         # Get fiscal year dates
@@ -56,6 +61,11 @@ class BudgetVarianceIntelligence:
         # Initialize cache
         self.cache_timeout = 3600  # 1 hour
         
+    def _current_fiscal_year(self) -> str:
+        from erpnext.accounts.utils import get_fiscal_year
+
+        return get_fiscal_year(frappe.utils.nowdate(), company=self.company, as_dict=True)["name"]
+
     def get_budget_variance_overview(self) -> Dict[str, Any]:
         """
         Get comprehensive budget variance overview
