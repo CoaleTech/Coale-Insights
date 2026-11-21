@@ -116,7 +116,7 @@ class CustomerSegmentation(BaseMLModel):
         
         # Calculate quintile scores (1-5)
         # For Recency: Lower is better, so we reverse
-        df['R'] = pd.qcut(df['recency'], q=5, labels=[5, 4, 3, 2, 1], duplicates='drop').astype(int)
+        df['R'] = pd.qcut(df['recency'].rank(method='first'), q=5, labels=[5, 4, 3, 2, 1], duplicates='drop').astype(int)
         
         # For Frequency: Higher is better
         df['F'] = pd.qcut(df['frequency'].rank(method='first'), q=5, labels=[1, 2, 3, 4, 5], duplicates='drop').astype(int)

@@ -1316,15 +1316,16 @@ class AdvancedPredictiveAnalyticsEngine:
                     # Identify seasonal patterns
                     seasonal_strength = monthly_std.mean() / monthly_avg.mean() if monthly_avg.mean() > 0 else 0
                     
-                    peak_month = monthly_avg.idxmax()
-                    trough_month = monthly_avg.idxmin()
+                    # int(): the month index is numpy.int32, which Frappe cannot serialize to JSON
+                    peak_month = int(monthly_avg.idxmax())
+                    trough_month = int(monthly_avg.idxmin())
                     
                     seasonal_analysis[metric] = {
                         "seasonal_strength": seasonal_strength,
                         "peak_month": peak_month,
                         "trough_month": trough_month,
                         "monthly_pattern": monthly_avg.to_dict(),
-                        "has_seasonality": seasonal_strength > 0.1
+                        "has_seasonality": bool(seasonal_strength > 0.1)
                     }
             
             return seasonal_analysis
