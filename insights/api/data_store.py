@@ -81,6 +81,11 @@ def update_failed_sync_status():
     from frappe.query_builder import Interval
     from frappe.query_builder.functions import Now
 
+    # remove_v2_doctypes drops this table and no V3 doctype replaces it, so on a
+    # migrated site there is nothing to update (it raised 1146 every hour).
+    if not frappe.db.table_exists("Insights Table Import Log"):
+        return
+
     Log = frappe.qb.DocType("Insights Table Import Log")
     logs = frappe.db.get_values(
         Log,
